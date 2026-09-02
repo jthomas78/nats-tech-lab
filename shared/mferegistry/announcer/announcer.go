@@ -57,7 +57,22 @@ type Config struct {
 	RequestTimeout   time.Duration
 	Logger           *slog.Logger
 
+	// SelfCheckURL is this process's OWN /healthz, on loopback. It is
+	// deployment configuration and never manifest data, and it is required:
+	// after Phase 15 there is no unmapped state and no plugin that is
+	// structurally unhealth-checkable (BR-AS61).
+	SelfCheckURL string
+
+	// HealthOnly is the curated publisher's shape. demo-catalog reaches the
+	// catalogue through the preload file, not through an announcement, but
+	// it is still a plugin an operator looks at, so it still reports its own
+	// health — and only that. It signs nothing, so it needs no seed, no
+	// manifest and no release sequence, and it holds a credential granted
+	// its own health token alone.
+	HealthOnly bool
+
 	publisher publisherClient
+	healthBus healthBus
 	signals   <-chan os.Signal
 }
 
@@ -87,6 +102,10 @@ func ConfigFromEnv() (Config, error) {
 	if cfg.PublicOrigin, err = requiredEnv("PLUGIN_PUBLIC_ORIGIN"); err != nil {
 		return Config{}, err
 	}
+	if cfg.SelfCheckURL, err = requiredEnv("HEALTH_SELF_URL"); err != nil {
+		return Config{}, err
+	}
+	cfg.HealthOnly = os.Getenv("HEALTH_ONLY") == "true"
 	cfg.ConnectionName = envOr("NATS_CONNECTION_NAME", cfg.PublisherID)
 	if raw := os.Getenv("RELEASE_RECOVERY"); raw != "" {
 		cfg.RecoveryRelease, err = strconv.ParseInt(raw, 10, 64)
@@ -112,12 +131,17 @@ func ConfigFromEnv() (Config, error) {
 func (c Config) Validate() error {
 	required := []struct{ name, value string }{
 		{"NATS_CREDS_PATH", c.NATSCredsPath},
-		{"PLUGIN_MANIFEST_PATH", c.ManifestPath},
-		{"PUBLISHER_SIGNING_SEED_PATH", c.SigningSeedPath},
-		{"RELEASE_STATE_PATH", c.ReleaseStatePath},
 		{"PUBLISHER_ID", c.PublisherID},
 		{"NATS_CONNECTION_NAME", c.ConnectionName},
-		{"PLUGIN_PUBLIC_ORIGIN", c.PublicOrigin},
+		{"HEALTH_SELF_URL", c.SelfCheckURL},
+	}
+	if !c.HealthOnly {
+		required = append(required,
+			struct{ name, value string }{"PLUGIN_MANIFEST_PATH", c.ManifestPath},
+			struct{ name, value string }{"PUBLISHER_SIGNING_SEED_PATH", c.SigningSeedPath},
+			struct{ name, value string }{"RELEASE_STATE_PATH", c.ReleaseStatePath},
+			struct{ name, value string }{"PLUGIN_PUBLIC_ORIGIN", c.PublicOrigin},
+		)
 	}
 	for _, field := range required {
 		if strings.TrimSpace(field.value) == "" {
@@ -129,6 +153,9 @@ func (c Config) Validate() error {
 	}
 	if c.RequestTimeout < 0 {
 		return errors.New("REQUEST_TIMEOUT must be a positive duration")
+	}
+	if c.HealthOnly {
+		return nil
 	}
 	if _, err := stampRemoteURL("/remoteEntry.js", c.PublicOrigin); err != nil {
 		return fmt.Errorf("PLUGIN_PUBLIC_ORIGIN: %w", err)
@@ -199,47 +226,97 @@ func Start(ctx context.Context, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	manifest, err := os.ReadFile(cfg.ManifestPath)
+	pluginID := cfg.PublisherID
+	var manifest json.RawMessage
+	if !cfg.HealthOnly {
+		var err error
+		manifest, err = os.ReadFile(cfg.ManifestPath)
+		if err != nil {
+			return fmt.Errorf("read plugin manifest: %w", err)
+		}
+		var identity struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(manifest, &identity); err != nil || identity.ID == "" {
+			return errors.New("plugin manifest must contain a non-empty id")
+		}
+		if identity.ID != cfg.PublisherID {
+			return errors.New("plugin manifest id must equal PUBLISHER_ID")
+		}
+		pluginID = identity.ID
+	}
+
+	// The self-check target is validated BEFORE anything connects or
+	// announces. A publisher that cannot check itself must not reach the
+	// catalogue at all — an entry visible with no health behind it is the
+	// state this phase exists to remove.
+	check, err := newLoopbackCheck(cfg.SelfCheckURL)
 	if err != nil {
-		return fmt.Errorf("read plugin manifest: %w", err)
-	}
-	var identity struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(manifest, &identity); err != nil || identity.ID == "" {
-		return errors.New("plugin manifest must contain a non-empty id")
-	}
-	if identity.ID != cfg.PublisherID {
-		return errors.New("plugin manifest id must equal PUBLISHER_ID")
+		return fmt.Errorf("HEALTH_SELF_URL: %w", err)
 	}
 
 	publisher := cfg.publisher
+	bus := cfg.healthBus
 	var closeTransport func()
-	if publisher == nil {
-		seed, err := os.ReadFile(cfg.SigningSeedPath)
-		if err != nil {
-			return fmt.Errorf("read publisher signing seed: %w", err)
+	if publisher == nil && !cfg.HealthOnly || cfg.HealthOnly && bus == nil {
+		var keyPair *registryclient.NKeySigner
+		if !cfg.HealthOnly {
+			seed, readErr := os.ReadFile(cfg.SigningSeedPath)
+			if readErr != nil {
+				return fmt.Errorf("read publisher signing seed: %w", readErr)
+			}
+			keyPair, err = registryclient.NewNKeySigner(bytes.TrimSpace(seed))
+			if err != nil {
+				return fmt.Errorf("load publisher signing seed: %w", err)
+			}
 		}
-		keyPair, err := registryclient.NewNKeySigner(bytes.TrimSpace(seed))
-		if err != nil {
-			return fmt.Errorf("load publisher signing seed: %w", err)
+		nc, connErr := nats.Connect(cfg.NATSURL, natsconn.Options(cfg.ConnectionName, cfg.NATSCredsPath, cfg.Logger)...)
+		if connErr != nil {
+			if keyPair != nil {
+				keyPair.Wipe()
+			}
+			return fmt.Errorf("connect to NATS: %w", connErr)
 		}
-		nc, err := nats.Connect(cfg.NATSURL, natsconn.Options(cfg.ConnectionName, cfg.NATSCredsPath, cfg.Logger)...)
-		if err != nil {
-			keyPair.Wipe()
-			return fmt.Errorf("connect to NATS: %w", err)
+		// One connection carries both planes. A plugin holds exactly one
+		// credential and one link to the bus; health does not earn a second.
+		if bus == nil {
+			bus = nc
 		}
-		publisher = registryclient.New(nc, keyPair, cfg.PublisherID)
-		closeTransport = func() { nc.Close(); keyPair.Wipe() }
+		if publisher == nil && !cfg.HealthOnly {
+			publisher = registryclient.New(nc, keyPair, cfg.PublisherID)
+		}
+		closeTransport = func() {
+			nc.Close()
+			if keyPair != nil {
+				keyPair.Wipe()
+			}
+		}
 		defer closeTransport()
 	}
 
-	r := &resident{pluginID: identity.ID, manifest: manifest, publicOrigin: cfg.PublicOrigin, publisher: publisher, releases: newReleaseStore(cfg.ReleaseStatePath, identity.ID, cfg.RecoveryRelease), log: cfg.Logger}
-	announceCtx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout)
-	err = r.announce(announceCtx)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("announce plugin: %w", err)
+	// First health push, THEN announce (BR-AS61). The invariant is what an
+	// observer sees, not this ordering: when an announcement reaches the
+	// registry, that plugin's health is already known.
+	// bus is nil only where a spec injected a publisher and no broker; a
+	// deployment always has one, because the connection it rides is the same
+	// one the announcement uses.
+	if bus != nil {
+		reporter := newHealthReporter(pluginID, check, bus, cfg.Logger)
+		reporter.Step(ctx, time.Now().UTC())
+		healthCtx, stopHealth := context.WithCancel(ctx)
+		defer stopHealth()
+		go reporter.Run(healthCtx)
+	}
+
+	var r *resident
+	if !cfg.HealthOnly {
+		r = &resident{pluginID: pluginID, manifest: manifest, publicOrigin: cfg.PublicOrigin, publisher: publisher, releases: newReleaseStore(cfg.ReleaseStatePath, pluginID, cfg.RecoveryRelease), log: cfg.Logger}
+		announceCtx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout)
+		err = r.announce(announceCtx)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("announce plugin: %w", err)
+		}
 	}
 
 	term := cfg.signals
@@ -250,7 +327,7 @@ func Start(ctx context.Context, cfg Config) error {
 		term = owned
 	}
 	reason := waitForExit(ctx, term)
-	if reason != exitSIGTERM {
+	if reason != exitSIGTERM || r == nil {
 		return nil
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout)

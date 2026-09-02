@@ -1,206 +1,148 @@
 package registry_test
 
-// Phase 5d — the frontend probe, against a real HTTP server (BR-AS61).
+// Phase 15 — frontend health ARRIVES; the registry does not go and get it
+// (BR-AS61, decision 14).
 //
-// This is the one place the registry reaches out of the process on health's
-// behalf, so the interesting specs are all about what it REFUSES: an origin
-// nobody mapped, a redirect to somewhere else, a body big enough to be a
-// payload rather than a status, a 200 carrying something that is not the
-// agreed shape. Every one of those is a failed probe and none of them is
-// health — "we could not tell" and "it is fine" must never be spelled the
-// same way.
+// This file replaces the Phase 5d outbound-probe suite. That suite's
+// interesting specs were all about what the registry refused to DIAL — an
+// unmapped origin, a redirect, an oversized body. None of those risks exist
+// any more, because the registry no longer dials anything for health: the
+// map of origins is gone and so is the outbound HTTP client.
 //
-// A passing probe is also deliberately narrow: it says an HTTP endpoint
-// answered, and nothing at all about whether a browser can fetch
-// remoteEntry.js from that origin. The loader still owns that.
+// What replaces them is a different set of refusals, on the receiving side.
+// A report is a message from a party the registry does not control, so the
+// interesting specs are: a body that speaks for a different plugin, a state
+// or cause outside the closed vocabulary, a timestamp that would buy
+// permanent freshness, and a redelivery that would refresh a dead plugin's
+// lease.
+//
+// A believed report is also deliberately narrow: it says a plugin looked at
+// its own /healthz and got an answer, and nothing at all about whether a
+// browser can fetch remoteEntry.js from that origin. The loader still owns
+// that.
 
 import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/healthhttp"
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 )
 
-var _ = Describe("BR-AS61 — a frontend is probed through a bounded, mapped endpoint", func() {
-	var (
-		client *healthhttp.Client
-		ctx    context.Context
-	)
+var _ = Describe("BR-AS61 — a plugin reports its own frontend health", func() {
+	const pluginID = "plugin-a"
+	at := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 
-	BeforeEach(func() {
-		client = healthhttp.New()
-		DeferCleanup(client.Close)
-		ctx = context.Background()
-	})
-
-	// serving stands up a /healthz that answers however the spec says.
-	serving := func(handler http.HandlerFunc) *httptest.Server {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/healthz", handler)
-		s := httptest.NewServer(mux)
-		DeferCleanup(s.Close)
-		return s
+	healthy := func(t time.Time) mferegistry.HealthReport {
+		return mferegistry.HealthReport{PluginID: pluginID, State: mferegistry.HealthReportHealthy, At: t.UnixMilli()}
 	}
 
-	ok := func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	}
-
-	Context("the mapping", func() {
-		allowed := registry.ParseAllowedOrigins("http://localhost:7111")
-
-		targets := func(mapping map[string]string) domain.HealthOrigins {
-			raw, err := json.Marshal(mapping)
-			Expect(err).NotTo(HaveOccurred())
-			origins, warnings := registry.ParseHealthOrigins(string(raw), allowed)
-			Expect(warnings).To(BeEmpty())
-			return origins
-		}
-
-		entry := func() domain.Entry { return federated("fleet-ops", "http://localhost:7111/remoteEntry.js") }
-
-		It("probes the address the deployment mapped, at /healthz", func() {
-			target, signal := targets(map[string]string{"http://localhost:7111": "http://service:7111"}).Target(entry())
-
-			Expect(target).To(Equal("http://service:7111/healthz"))
-			Expect(signal.State).To(BeEmpty(), "a mapped target has nothing to report yet")
+	Context("what the inbox believes", func() {
+		It("records a healthy report as healthy, timestamped by the plugin", func() {
+			inbox := domain.NewHealthInbox()
+			Expect(inbox.Accept(pluginID, healthy(at), at)).To(BeTrue())
+			signal := inbox.Signal(pluginID, at)
+			Expect(signal.State).To(Equal(domain.HealthHealthy))
+			Expect(signal.Cause).To(BeEmpty())
+			Expect(signal.LastCheckAt).To(BeTemporally("==", at))
 		})
 
-		It("says not configured for an origin nobody mapped, and never falls back to the browser URL", func() {
-			// In Docker, localhost names THIS service, not the plugin. Guessing
-			// would turn missing config into outbound reach the operator never
-			// granted (BR-AS20/AS45).
-			target, signal := targets(map[string]string{}).Target(entry())
-
-			Expect(target).To(BeEmpty())
-			Expect(signal.State).To(Equal(domain.HealthNotConfigured))
+		It("records a plugin's own unhealthy verdict as unavailable, keeping the cause it gave", func() {
+			inbox := domain.NewHealthInbox()
+			report := mferegistry.HealthReport{PluginID: pluginID, State: mferegistry.HealthReportUnhealthy, Cause: mferegistry.HealthCauseHTTPStatus, At: at.UnixMilli()}
+			Expect(inbox.Accept(pluginID, report, at)).To(BeTrue())
+			signal := inbox.Signal(pluginID, at)
+			Expect(signal.State).To(Equal(domain.HealthUnavailable))
+			Expect(signal.Cause).To(Equal(mferegistry.HealthCauseHTTPStatus))
 		})
 
-		It("refuses a mapping for an origin that is not allowlisted", func() {
-			raw, err := json.Marshal(map[string]string{"http://evil.test": "http://evil.test"})
-			Expect(err).NotTo(HaveOccurred())
-			origins, warnings := registry.ParseHealthOrigins(string(raw), allowed)
-
-			Expect(warnings).ToNot(BeEmpty())
-			target, signal := origins.Target(entry())
-			Expect(target).To(BeEmpty())
-			Expect(signal.State).To(Equal(domain.HealthNotConfigured))
-		})
-
-		It("refuses an address carrying a path, query or credentials", func() {
-			raw, err := json.Marshal(map[string]string{"http://localhost:7111": "http://user:pw@service:7111/deep?x=1"})
-			Expect(err).NotTo(HaveOccurred())
-			_, warnings := registry.ParseHealthOrigins(string(raw), allowed)
-
-			Expect(warnings).ToNot(BeEmpty())
-		})
-
-		It("does not check an entry whose own remote is not allowlisted", func() {
-			outside := federated("fleet-ops", "http://elsewhere.test/remoteEntry.js")
-			target, signal := targets(map[string]string{"http://localhost:7111": "http://service:7111"}).Target(outside)
-
-			Expect(target).To(BeEmpty())
-			Expect(signal.State).To(Equal(domain.HealthNotConfigured))
+		It("reports unknown for a plugin nothing has ever been heard from, never healthy and never absent", func() {
+			signal := domain.NewHealthInbox().Signal(pluginID, at)
+			Expect(signal.State).To(Equal(domain.HealthUnknown))
+			Expect(signal.Cause).To(BeEmpty())
 		})
 	})
 
-	Context("the probe itself", func() {
-		It("reports a well-formed 200 as healthy", func() {
-			origin := serving(ok)
-
-			probe := client.Probe(ctx, origin.URL+"/healthz", time.Now())
-
-			Expect(probe.OK).To(BeTrue())
+	Context("what the inbox refuses", func() {
+		It("refuses a body that speaks for a plugin other than the one the subject named", func() {
+			inbox := domain.NewHealthInbox()
+			report := healthy(at)
+			report.PluginID = "plugin-b"
+			Expect(inbox.Accept(pluginID, report, at)).To(BeFalse())
+			Expect(inbox.Signal(pluginID, at).State).To(Equal(domain.HealthUnknown))
+			Expect(inbox.Signal("plugin-b", at).State).To(Equal(domain.HealthUnknown))
 		})
 
-		It("refuses a 200 whose body is not the agreed shape", func() {
-			origin := serving(func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = w.Write([]byte(`{"status":"probably"}`))
-			})
-
-			probe := client.Probe(ctx, origin.URL+"/healthz", time.Now())
-
-			Expect(probe.OK).To(BeFalse())
-			Expect(probe.Cause).To(Equal("invalid-response"))
+		It("refuses a state outside the two a plugin may claim about itself", func() {
+			inbox := domain.NewHealthInbox()
+			for _, state := range []string{"", "stale", "unknown", "not configured", "ok"} {
+				report := healthy(at)
+				report.State = state
+				Expect(inbox.Accept(pluginID, report, at)).To(BeFalse(), state)
+			}
 		})
 
-		It("refuses a body that is not JSON at all", func() {
-			origin := serving(func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = w.Write([]byte(`<html>service is up</html>`))
-			})
-
-			Expect(client.Probe(ctx, origin.URL+"/healthz", time.Now()).Cause).To(Equal("invalid-response"))
+		It("refuses a cause outside the closed vocabulary, including the one only a receiver may conclude", func() {
+			inbox := domain.NewHealthInbox()
+			for _, cause := range []string{"connection refused to 10.0.0.4:8080", mferegistry.HealthCauseAbsent} {
+				report := mferegistry.HealthReport{PluginID: pluginID, State: mferegistry.HealthReportUnhealthy, Cause: cause, At: at.UnixMilli()}
+				Expect(inbox.Accept(pluginID, report, at)).To(BeFalse(), cause)
+			}
 		})
 
-		It("refuses a non-success status", func() {
-			origin := serving(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
+		It("refuses a redelivered or out-of-order report, so nothing can refresh a dead plugin's lease", func() {
+			inbox := domain.NewHealthInbox()
+			Expect(inbox.Accept(pluginID, healthy(at), at)).To(BeTrue())
+			Expect(inbox.Accept(pluginID, healthy(at), at)).To(BeFalse())
+			Expect(inbox.Accept(pluginID, healthy(at.Add(-time.Second)), at)).To(BeFalse())
+			Expect(inbox.Signal(pluginID, at).LastCheckAt).To(BeTemporally("==", at))
+		})
+	})
 
-			probe := client.Probe(ctx, origin.URL+"/healthz", time.Now())
-
-			Expect(probe.OK).To(BeFalse())
-			Expect(probe.Cause).To(Equal("http-status"))
+	Context("BR-AS64 — freshness is the detection mechanism, not a backstop", func() {
+		It("holds a plugin healthy right up to the window", func() {
+			inbox := domain.NewHealthInbox()
+			inbox.Accept(pluginID, healthy(at), at)
+			Expect(inbox.Signal(pluginID, at.Add(mferegistry.HealthFrontendFreshness)).State).To(Equal(domain.HealthHealthy))
 		})
 
-		It("refuses an oversized body instead of reading it", func() {
-			// A status endpoint answers in bytes, not megabytes. Without the
-			// cap, a hostile or broken origin could spend this service's
-			// memory once every five seconds.
-			origin := serving(func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = w.Write([]byte(`{"status":"ok","pad":"` + strings.Repeat("x", 70000) + `"}`))
-			})
-
-			Expect(client.Probe(ctx, origin.URL+"/healthz", time.Now()).Cause).To(Equal("body-too-large"))
+		It("calls a plugin stale past the window, with absent as the cause", func() {
+			inbox := domain.NewHealthInbox()
+			inbox.Accept(pluginID, healthy(at), at)
+			signal := inbox.Signal(pluginID, at.Add(mferegistry.HealthFrontendFreshness+time.Millisecond))
+			Expect(signal.State).To(Equal(domain.HealthStale))
+			Expect(signal.Cause).To(Equal(mferegistry.HealthCauseAbsent))
 		})
 
-		It("does not follow a redirect to another destination", func() {
-			elsewhere := serving(ok)
-			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				http.Redirect(w, r, elsewhere.URL+"/healthz", http.StatusFound)
-			}))
-			DeferCleanup(origin.Close)
-
-			probe := client.Probe(ctx, origin.URL+"/healthz", time.Now())
-
-			Expect(probe.OK).To(BeFalse(), "the configured address answers or nothing does")
-			Expect(probe.Cause).To(Equal("http-status"))
+		It("keeps absent and unhealthy separate, so the common case is not shown as the rare one", func() {
+			inbox := domain.NewHealthInbox()
+			inbox.Accept(pluginID, mferegistry.HealthReport{PluginID: pluginID, State: mferegistry.HealthReportUnhealthy, Cause: mferegistry.HealthCauseUnreachable, At: at.UnixMilli()}, at)
+			live := inbox.Signal(pluginID, at)
+			gone := inbox.Signal(pluginID, at.Add(time.Minute))
+			Expect(live.State).NotTo(Equal(gone.State))
+			Expect(live.Cause).To(Equal(mferegistry.HealthCauseUnreachable))
+			Expect(gone.Cause).To(Equal(mferegistry.HealthCauseAbsent))
 		})
 
-		It("gives up at the timeout rather than hanging the schedule", func() {
-			origin := serving(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
-
-			started := time.Now()
-			probe := client.Probe(ctx, origin.URL+"/healthz", started)
-
-			Expect(probe.OK).To(BeFalse())
-			Expect(probe.Cause).To(Equal("timeout"))
-			Expect(time.Since(started)).To(BeNumerically("<", 2*domain.HealthProbeTimeout))
+		It("clamps a report stamped in the future to the receiver's clock, so no plugin can buy permanent freshness", func() {
+			inbox := domain.NewHealthInbox()
+			Expect(inbox.Accept(pluginID, healthy(at.Add(time.Hour)), at)).To(BeTrue())
+			Expect(inbox.Signal(pluginID, at.Add(time.Minute)).State).To(Equal(domain.HealthStale))
 		})
 
-		It("reports a dead address as unreachable, without saying which address", func() {
-			// The cause vocabulary is closed for the same reason drift's is: a
-			// transport error carries the host and port that were dialled, and
-			// that is deployment topology, not news for a browser (BR-AS60).
-			probe := client.Probe(ctx, "http://127.0.0.1:1/healthz", time.Now())
-
-			Expect(probe.OK).To(BeFalse())
-			Expect(probe.Cause).To(Equal("unreachable"))
-			Expect(probe.Cause).ToNot(ContainSubstring("127.0.0.1"))
+		It("relates the heartbeat to the window rather than pinning either, so one cannot be moved past the other", func() {
+			Expect(mferegistry.HealthHeartbeat).To(BeNumerically("<", mferegistry.HealthFrontendFreshness))
 		})
+	})
 
-		It("stamps the probe with the time it was started", func() {
-			origin := serving(ok)
-			at := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-
-			Expect(client.Probe(ctx, origin.URL+"/healthz", at).At).To(Equal(at))
+	Context("BR-AS65 — a reading never outlives the plugin it is about", func() {
+		It("forgets a plugin that has left the catalogue", func() {
+			inbox := domain.NewHealthInbox()
+			inbox.Accept(pluginID, healthy(at), at)
+			inbox.Forget(map[string]bool{"plugin-b": true})
+			Expect(inbox.Signal(pluginID, at).State).To(Equal(domain.HealthUnknown))
 		})
 	})
 })

@@ -6,15 +6,25 @@ import (
 	"time"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 )
 
 /*
-	The health checker is the runner the domain's stepped worker was written
-	for. Everything with a decision in it — when a target is due, whether a
-	failure is the second one, whether a reading has gone stale — is in
-	domain.HealthWorker and is driven by a `now` that a spec supplies. What is
-	left here is the parts that cannot be faked: a ticker, two adapters, and a
-	mutex.
+	The health checker joins the two planes health arrives on, which since
+	Phase 15 decision 14 are not the same shape at all.
+
+	BACKEND readiness is still PULLED: domain.HealthWorker decides when a
+	service is due and whether a failure is the second one, and this runner
+	turns those decisions into request/reply probes (BR-AS62).
+
+	FRONTEND health is PUSHED and is never asked for. A plugin checks itself
+	and publishes; a subscriber hands the report to domain.HealthInbox; and
+	the only thing left for a pass to do is read it. There is no frontend
+	prober, no map of origins, and no outbound HTTP anywhere in this service.
+
+	Everything with a decision in it still lives in the domain and is driven
+	by a `now` a spec supplies. What is left here is what cannot be faked: a
+	ticker, one adapter, and a mutex.
 
 	It reads the catalogue and never writes it (BR-AS65). The only thing that
 	crosses back is a Snapshot the transport decorates a reply with, so a probe
@@ -27,14 +37,9 @@ type HealthCatalog interface {
 	Curated(context.Context) (domain.Document, error)
 }
 
-// FrontendProber and BackendProber are the two adapters. Both return a probe
-// rather than an error: "we could not tell" is an outcome with a cause, not
-// an exception, and every path through them ends in the same closed cause
-// vocabulary.
-type FrontendProber interface {
-	Probe(ctx context.Context, target string, at time.Time) domain.HealthProbe
-}
-
+// BackendProber is the one remaining adapter. It returns a probe rather than
+// an error: "we could not tell" is an outcome with a cause, not an exception,
+// and every path through it ends in the same closed cause vocabulary.
 type BackendProber interface {
 	Probe(ctx context.Context, serviceID string, at time.Time) domain.HealthProbe
 }
@@ -68,32 +73,28 @@ type HealthPublisher interface {
 }
 
 type HealthChecker struct {
-	catalog  HealthCatalog
-	origins  domain.HealthOrigins
-	targets  domain.HealthTargets
-	frontend FrontendProber
-	backend  BackendProber
+	catalog HealthCatalog
+	targets domain.HealthTargets
+	backend BackendProber
 
 	mu      sync.RWMutex
 	worker  *domain.HealthWorker
+	inbox   *domain.HealthInbox
 	plugins map[string][]string // plugin id -> backend service ids, nil when unmapped
-	mapped  map[string]string   // plugin id -> frontend target, "" when unmapped
 
 	publisher HealthPublisher
 }
 
 // NewHealthChecker takes the publisher last and optionally: a deployment with
 // no broker still probes and still answers reads, it just publishes nothing.
-func NewHealthChecker(catalog HealthCatalog, origins domain.HealthOrigins, targets domain.HealthTargets, frontend FrontendProber, backend BackendProber, publisher ...HealthPublisher) *HealthChecker {
+func NewHealthChecker(catalog HealthCatalog, targets domain.HealthTargets, backend BackendProber, publisher ...HealthPublisher) *HealthChecker {
 	c := &HealthChecker{
-		catalog:  catalog,
-		origins:  origins,
-		targets:  targets,
-		frontend: frontend,
-		backend:  backend,
-		worker:   domain.NewHealthWorker(nil),
-		plugins:  map[string][]string{},
-		mapped:   map[string]string{},
+		catalog: catalog,
+		targets: targets,
+		backend: backend,
+		worker:  domain.NewHealthWorker(nil),
+		inbox:   domain.NewHealthInbox(),
+		plugins: map[string][]string{},
 	}
 	if len(publisher) > 0 {
 		c.publisher = publisher[0]
@@ -110,10 +111,13 @@ func (c *HealthChecker) Snapshot(now time.Time) map[string]PluginHealth {
 	observed := c.worker.Snapshot(now)
 	out := map[string]PluginHealth{}
 	for id, services := range c.plugins {
-		health := PluginHealth{Frontend: domain.HealthSignal{State: domain.HealthNotConfigured}}
-		if target := c.mapped[id]; target != "" {
-			health.Frontend = observed[frontendKey(id)]
-		}
+		// Frontend health is whatever the plugin last said about itself,
+		// aged against the freshness window. There is no "not configured"
+		// frontend any more: nothing has to be told how to reach a plugin, so
+		// nothing can be left out of a map. A plugin nothing has been heard
+		// from is UNKNOWN, which is a true statement about a plugin that may
+		// simply be starting.
+		health := PluginHealth{Frontend: c.inbox.Signal(id, now)}
 		if services == nil {
 			health.Backend = domain.SummarizeBackend(nil)
 		} else {
@@ -191,16 +195,17 @@ func (c *HealthChecker) announce(ctx context.Context, now time.Time) {
 	})
 }
 
+// AcceptFrontendReport hands one pushed report to the inbox and says whether
+// it was believed. It is the ONLY way frontend health enters this service,
+// and the transport that calls it holds no decision of its own: what to
+// believe is the domain's business (BR-AS61).
+func (c *HealthChecker) AcceptFrontendReport(subjectPluginID string, report mferegistry.HealthReport, at time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inbox.Accept(subjectPluginID, report, at)
+}
+
 func (c *HealthChecker) run(ctx context.Context, key string, at time.Time) domain.HealthProbe {
-	if id, ok := frontendOf(key); ok {
-		c.mu.RLock()
-		target := c.mapped[id]
-		c.mu.RUnlock()
-		if target == "" {
-			return domain.HealthProbeFailed("not-configured", at)
-		}
-		return c.frontend.Probe(ctx, target, at)
-	}
 	return c.backend.Probe(ctx, backendOf(key), at)
 }
 
@@ -220,16 +225,10 @@ func (c *HealthChecker) refreshTargets(ctx context.Context) {
 	}
 
 	plugins := map[string][]string{}
-	mapped := map[string]string{}
 	keys := []string{}
 	for _, entry := range doc.Entries {
 		if entry.Withheld || !entry.Enabled {
 			continue
-		}
-		target, _ := c.origins.Target(entry)
-		mapped[entry.ID] = target
-		if target != "" {
-			keys = append(keys, frontendKey(entry.ID))
 		}
 		services := c.targets.Dependencies(entry.ID)
 		plugins[entry.ID] = services
@@ -240,8 +239,17 @@ func (c *HealthChecker) refreshTargets(ctx context.Context) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.plugins, c.mapped = plugins, mapped
+	c.plugins = plugins
 	c.worker.Watch(keys)
+	// A reading must never outlive the plugin it is about (BR-AS65). The
+	// worker drops backend targets it is no longer watching; the inbox is
+	// swept here for the same reason, so a removed plugin cannot come back
+	// green if it is re-added later.
+	keep := make(map[string]bool, len(plugins))
+	for id := range plugins {
+		keep[id] = true
+	}
+	c.inbox.Forget(keep)
 }
 
 func (c *HealthChecker) stop() {
@@ -251,20 +259,13 @@ func (c *HealthChecker) stop() {
 }
 
 /*
-The worker keys frontend and backend probes in one namespace, prefixed so
-they cannot collide: a plugin id and a service id are different vocabularies
-chosen by different people, and a plugin called "shipping-service" must not
-share a failure count with the service of that name.
+The worker's keys stay prefixed even though only backend probes use them
+now. The prefix costs nothing, and dropping it would silently give a service
+id and a plugin id one namespace again the day anything else is scheduled
+here — a plugin called "shipping-service" must never share a failure count
+with the service of that name.
 */
-func frontendKey(pluginID string) string { return "frontend:" + pluginID }
 func backendKey(serviceID string) string { return "backend:" + serviceID }
-
-func frontendOf(key string) (string, bool) {
-	if len(key) > 9 && key[:9] == "frontend:" {
-		return key[9:], true
-	}
-	return "", false
-}
 
 func backendOf(key string) string {
 	if len(key) > 8 && key[:8] == "backend:" {

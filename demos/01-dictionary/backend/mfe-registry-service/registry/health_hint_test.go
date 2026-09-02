@@ -1,10 +1,16 @@
 package registry_test
 
-// Phase 5d — pushed health snapshots (BR-AS64, BR-AS65).
+// Pushed health snapshots (BR-AS64, BR-AS65).
 //
 // Unlike the catalogue hint, this message is the central checker's completed
 // observation. A full timestamped snapshot after every pass keeps stable
 // healthy results fresh without every browser asking for the same data.
+//
+// Phase 15 decision 14 changed where the frontend half of a snapshot comes
+// from, and NOT what a snapshot is: the checker used to probe a plugin and
+// now reads what the plugin last said about itself. The browser plane below
+// is unchanged, which is the point — one pass, one full snapshot, one
+// broadcast, and no vocabulary a shell has to learn.
 
 import (
 	"context"
@@ -17,6 +23,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/application"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/notify"
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 )
 
 type stubCatalog struct{ doc domain.Document }
@@ -37,6 +44,12 @@ func (p *stubProber) Probe(_ context.Context, _ string, at time.Time) domain.Hea
 		return domain.HealthProbeOK(at)
 	}
 	return domain.HealthProbeFailed("unreachable", at)
+}
+
+func (p *stubProber) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
 }
 
 func (p *stubProber) set(ok bool) {
@@ -65,28 +78,23 @@ func (h *recordingPublisher) updates() []application.HealthSnapshot {
 var _ = Describe("BR-AS64 — the central checker pushes health observations", func() {
 	var (
 		publisher *recordingPublisher
-		front     *stubProber
+		backend   *stubProber
 		checker   *application.HealthChecker
 		clock     time.Time
 	)
 
-	allowed := domain.NewAllowlist([]string{"http://localhost:7110"})
-
 	BeforeEach(func() {
 		publisher = &recordingPublisher{}
-		front = &stubProber{ok: true}
+		backend = &stubProber{ok: true}
 		clock = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
-		origins, _ := domain.NewHealthOrigins(allowed, map[string]string{
-			"http://localhost:7110": "http://plugins.internal:7110",
-		})
 		targets, _ := domain.NewHealthTargets(map[string][]string{"fleet-ops": {}})
 		catalog := stubCatalog{doc: domain.Document{Entries: []domain.Entry{{
 			ID: "fleet-ops", Name: "fleet-ops", Enabled: true,
 			Remote: domain.Remote{Kind: "federated", URL: "http://localhost:7110/fleet-ops.js", Module: "./plugin"},
 		}}}}
 
-		checker = application.NewHealthChecker(catalog, origins, targets, front, front, publisher)
+		checker = application.NewHealthChecker(catalog, targets, backend, publisher)
 	})
 
 	// The clock is the spec's, not the machine's (BR-AS63). Each pass is one
@@ -97,7 +105,16 @@ var _ = Describe("BR-AS64 — the central checker pushes health observations", f
 		clock = clock.Add(domain.HealthProbeInterval)
 	}
 
+	// A plugin reporting itself, at the clock the spec is holding. This is
+	// the only way frontend health enters the service now.
+	report := func(state, cause string) {
+		Expect(checker.AcceptFrontendReport("fleet-ops", mferegistry.HealthReport{
+			PluginID: "fleet-ops", State: state, Cause: cause, At: clock.UnixMilli(),
+		}, clock)).To(BeTrue())
+	}
+
 	It("pushes a complete snapshot when a plugin's health first becomes known", func() {
+		report(mferegistry.HealthReportHealthy, "")
 		onePass()
 
 		updates := publisher.updates()
@@ -108,7 +125,9 @@ var _ = Describe("BR-AS64 — the central checker pushes health observations", f
 	})
 
 	It("pushes a newer observation when the state stays healthy", func() {
+		report(mferegistry.HealthReportHealthy, "")
 		onePass()
+		report(mferegistry.HealthReportHealthy, "")
 		onePass()
 
 		updates := publisher.updates()
@@ -118,16 +137,42 @@ var _ = Describe("BR-AS64 — the central checker pushes health observations", f
 			To(BeTemporally(">", updates[0].Plugins["fleet-ops"].Frontend.LastCheckAt))
 	})
 
-	It("includes the unavailable transition after the failure threshold", func() {
+	// The failure threshold itself is no longer the registry's to apply for a
+	// frontend: the plugin folds its own repeated failures and reports one
+	// verdict (BR-AS63, decision 14). What is specced here is that the
+	// verdict reaches a browser unchanged.
+	It("pushes a plugin's own unavailable verdict, with the cause it gave", func() {
+		report(mferegistry.HealthReportHealthy, "")
 		onePass()
 
-		front.set(false)
-		onePass() // one failure — below the threshold, still healthy
-		onePass() // second consecutive failure — now unavailable
+		report(mferegistry.HealthReportUnhealthy, mferegistry.HealthCauseUnreachable)
+		onePass()
 
 		updates := publisher.updates()
-		Expect(updates).To(HaveLen(3))
-		Expect(updates[2].Plugins["fleet-ops"].Frontend.State).To(Equal(domain.HealthUnavailable))
+		Expect(updates).To(HaveLen(2))
+		Expect(updates[1].Plugins["fleet-ops"].Frontend.State).To(Equal(domain.HealthUnavailable))
+		Expect(updates[1].Plugins["fleet-ops"].Frontend.Cause).To(Equal(mferegistry.HealthCauseUnreachable))
+	})
+
+	It("ages a plugin that stops reporting to stale and absent, with no probe anywhere", func() {
+		report(mferegistry.HealthReportHealthy, "")
+		onePass()
+		before := backend.count()
+
+		// Passes until the clock is past the freshness window, with no
+		// further report. Nothing else notices a dead plugin now, so this is
+		// the whole detection mechanism (BR-AS64).
+		for i := 0; i <= int(mferegistry.HealthFrontendFreshness/domain.HealthProbeInterval); i++ {
+			onePass()
+		}
+
+		updates := publisher.updates()
+		last := updates[len(updates)-1].Plugins["fleet-ops"].Frontend
+		Expect(last.State).To(Equal(domain.HealthStale))
+		Expect(last.Cause).To(Equal(mferegistry.HealthCauseAbsent))
+		// Nothing was dialled to find that out. A frontend-only plugin has no
+		// backend dependency either, so the probe count must not have moved.
+		Expect(backend.count()).To(Equal(before))
 	})
 
 	It("names a subject a shell may only subscribe to", func() {

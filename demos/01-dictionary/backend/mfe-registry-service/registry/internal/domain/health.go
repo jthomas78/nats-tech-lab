@@ -238,57 +238,12 @@ func staleAfter(s HealthSignal, now time.Time) HealthSignal {
 	return s
 }
 
-// HealthOrigins maps a browser origin to the address this service can reach
-// it at, exactly as FetchOrigins does for drift, and for the same reason:
-// nothing here is derived from a manifest. A publisher chooses where its code
-// lives; a deployment chooses what the registry is allowed to dial (BR-AS61).
-//
-// It is a separate type from FetchOrigins rather than a second method on it
-// because the two answer different questions and are allowed to differ: drift
-// only checks preloaded entries and reads /manifest.json, health checks any
-// admitted entry and reads /healthz. Merging them would tie one operator
-// decision to the other.
-type HealthOrigins struct {
-	allowed   Allowlist
-	addresses map[string]string
-}
-
-func (m HealthOrigins) Empty() bool { return len(m.addresses) == 0 }
-
-func NewHealthOrigins(allowed Allowlist, mappings map[string]string) (HealthOrigins, []string) {
-	out := HealthOrigins{allowed: allowed, addresses: map[string]string{}}
-	warnings := []string{}
-	for browser, address := range mappings {
-		browser, address = strings.TrimSpace(browser), strings.TrimSpace(address)
-		if !plainOrigin(browser) || !allowed.Permits(browser) {
-			warnings = append(warnings, "ignored health mapping: browser origin is invalid or not allowlisted")
-			continue
-		}
-		if !plainOrigin(address) {
-			warnings = append(warnings, "ignored health mapping: service address must be an HTTP(S) origin without credentials, path, query or fragment")
-			continue
-		}
-		origin, _ := originOf(browser)
-		out.addresses[origin] = strings.TrimRight(address, "/") + "/healthz"
-	}
-	sort.Strings(warnings)
-	return out, warnings
-}
-
-// Target answers with the address to probe, or with the reason there is none.
-// The reason is NOT CONFIGURED and never unavailable: an operator who mapped
-// nothing has not told us a plugin is broken, and a decoration that said
-// otherwise would report the deployment's silence as the plugin's fault.
-func (m HealthOrigins) Target(entry Entry) (string, HealthSignal) {
-	if m.allowed.Check(entry) != nil {
-		return "", HealthSignal{State: HealthNotConfigured}
-	}
-	origin, _ := originOf(entry.Remote.URL)
-	if target := m.addresses[origin]; target != "" {
-		return target, HealthSignal{}
-	}
-	return "", HealthSignal{State: HealthNotConfigured}
-}
+// HealthOrigins is gone (Phase 15c). It answered "which address may the
+// registry dial for this plugin's frontend", and since decision 14 nothing
+// dials one: the plugin checks itself and publishes on a subject derived from
+// its own id. FetchOrigins, its deliberate near-twin, stays — the drift check
+// really does fetch a manifest (BR-AS45), and the two were separate types
+// precisely so one could be retired without the other.
 
 // HealthTargets is the deployment's map from a plugin to the backend services
 // it depends on (Q6). Configuration, never manifest data: a publisher who

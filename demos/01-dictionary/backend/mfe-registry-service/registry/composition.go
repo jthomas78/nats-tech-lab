@@ -30,7 +30,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/application"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/healthhttp"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/healthnats"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/manifesthttp"
@@ -54,7 +53,7 @@ type Module struct {
 	driftHTTP     *manifesthttp.Client
 	healthCancel  context.CancelFunc
 	healthDone    chan struct{}
-	healthHTTP    *healthhttp.Client
+	healthSub     *nats.Subscription
 }
 
 // healthPublisher publishes the health plane's snapshot. A tiny adapter rather than
@@ -98,21 +97,12 @@ func ParseFetchOrigins(raw string, allowed domain.Allowlist) (domain.FetchOrigin
 	return domain.NewFetchOrigins(allowed, mappings)
 }
 
-// ParseHealthOrigins reads REGISTRY_HEALTH_ORIGINS, the same shape as
-// REGISTRY_FETCH_ORIGINS and read separately on purpose: an operator may want
-// the registry to watch a plugin's availability without granting it a
-// manifest fetch, or the other way round. Unmapped is not checked, never
-// healthy (BR-AS61).
-func ParseHealthOrigins(raw string, allowed domain.Allowlist) (domain.HealthOrigins, []string) {
-	mappings := map[string]string{}
-	if strings.TrimSpace(raw) != "" {
-		if err := json.Unmarshal([]byte(raw), &mappings); err != nil || mappings == nil {
-			origins, _ := domain.NewHealthOrigins(allowed, nil)
-			return origins, []string{"ignored health mappings: expected a JSON object of browser origins to service origins"}
-		}
-	}
-	return domain.NewHealthOrigins(allowed, mappings)
-}
+// REGISTRY_HEALTH_ORIGINS is gone (Phase 15c). It told the registry which
+// address to DIAL for each plugin's frontend, and nothing dials one any more:
+// a plugin reports itself on a subject derived from its own id. Its sibling
+// REGISTRY_FETCH_ORIGINS is untouched — that one serves the manifest drift
+// check (BR-AS45), which really does fetch, and the two were always read
+// separately.
 
 // ParseHealthTargets reads REGISTRY_HEALTH_TARGETS, a JSON object mapping a
 // plugin id to the backend service ids it depends on. An absent plugin is not
@@ -168,21 +158,19 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 	if len(fetchOrigins) > 0 {
 		origins = fetchOrigins[0]
 	}
-	healthOrigins, warnings := ParseHealthOrigins(os.Getenv("REGISTRY_HEALTH_ORIGINS"), allowlist)
 	healthTargets, targetWarnings := ParseHealthTargets(os.Getenv("REGISTRY_HEALTH_TARGETS"))
-	for _, w := range append(warnings, targetWarnings...) {
+	for _, w := range targetWarnings {
 		log.Warn("registry health: " + w)
 	}
-	m.healthHTTP = healthhttp.New()
-	// Health is deployment-owned end to end: the frontend addresses and the
-	// backend service ids both come from configuration, never from a
-	// manifest, so no publisher can point the registry at something it does
-	// not own (BR-AS62/AS65).
+	// What is still deployment-owned is the BACKEND service ids: they come
+	// from configuration and never from a manifest, so no publisher can point
+	// the registry at a service it does not own (BR-AS62/AS65). The frontend
+	// side is not configured at all any more — there is nothing to point.
 	var health *application.HealthChecker
 	if nc != nil {
-		health = application.NewHealthChecker(m.Service, healthOrigins, healthTargets, m.healthHTTP, healthnats.New(nc), healthPublisher{notifier: notifier})
+		health = application.NewHealthChecker(m.Service, healthTargets, healthnats.New(nc), healthPublisher{notifier: notifier})
 	} else {
-		health = application.NewHealthChecker(m.Service, healthOrigins, healthTargets, m.healthHTTP, healthnats.New(nil))
+		health = application.NewHealthChecker(m.Service, healthTargets, healthnats.New(nil))
 	}
 
 	m.driftHTTP = manifesthttp.New()
@@ -210,6 +198,17 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 	m.driftCancel, m.driftDone = workerCancel, make(chan struct{})
 	go func() { defer close(m.driftDone); checker.Run(workerCtx) }()
 
+	if nc != nil {
+		// One subscription for every plugin at once. It is started before the
+		// checker runs, so a report that arrives during start-up is kept
+		// rather than dropped into a window where nothing was listening.
+		sub, err := healthnats.SubscribeFrontend(nc, health, log)
+		if err != nil {
+			return nil, err
+		}
+		m.healthSub = sub
+	}
+
 	healthCtx, healthCancel := context.WithCancel(lifetime)
 	m.healthCancel, m.healthDone = healthCancel, make(chan struct{})
 	go func() { defer close(m.healthDone); health.Run(healthCtx) }()
@@ -225,7 +224,9 @@ func (m *Module) Stop() error {
 	if m.healthCancel != nil {
 		m.healthCancel()
 		<-m.healthDone
-		m.healthHTTP.Close()
+	}
+	if m.healthSub != nil {
+		_ = m.healthSub.Unsubscribe()
 	}
 	return errors.Join(m.adapter.Stop(), m.announcements.Stop())
 }

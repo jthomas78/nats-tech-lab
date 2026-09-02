@@ -879,12 +879,23 @@ stated rather than implied.
   Health never removes, disables, reorders or automatically reloads content. Background failure
   stays inline with safe stage/cause, no URL/host/port/credential, and no unsolicited modal. Existing
   loading/render errors stay visible independently of probe results.
-- **BR-AS61 — Frontend availability is centrally probed through a bounded endpoint.** The registry
-  checks a dedicated frontend `/healthz` with a small validated response, off shell/admin request
-  paths, using BR-AS45's explicit mapped allowlisted origins. No mapping means not checked, never
-  healthy. Timeout, invalid response or non-success status cannot claim health. Redirects, oversized
-  bodies, arbitrary egress and browser-origin fallback are refused. A successful probe does not
-  attest that browser networking, `remoteEntry.js` or lazy assets work.
+- **BR-AS61 — A plugin reports its own frontend health, and each report costs a real local request.**
+  Rewritten 2026-09-02 (Phase 15, decision 14); the responsibility is unchanged, the transport and
+  the direction are not. Nobody outside the plugin probes it. The plugin's own publisher checks
+  itself with a genuine bounded `GET` against its loopback `/healthz`, expecting a small validated
+  response, and publishes the result on a subject derived from the plugin id in the signed catalogue
+  entry — never from a deployment-supplied map of origins and never from anything a manifest says. A
+  report that did not cost a real request would attest that the publisher is running, which is not
+  what is being reported. The self-check deadline must expire strictly before the heartbeat interval,
+  so two checks are never in flight for one plugin. Timeout, invalid response or non-success status
+  cannot claim health. Redirects, oversized bodies, arbitrary egress and browser-origin fallback are
+  refused. The plugin publishes on every change of state and on a heartbeat regardless of change, so
+  a silent plugin is a fact and not an inference. **Absent** (no report inside the freshness window)
+  and **unhealthy** (a plugin said so about itself) are separate causes and are never merged. Every
+  plugin reports — curated entries included — so there is no unmapped state and no plugin that is
+  structurally unhealth-checkable. A publisher publishes its first health state **before** it
+  announces: when an announcement reaches the registry, that plugin's health is already known. A
+  healthy report does not attest that browser networking, `remoteEntry.js` or lazy assets work.
 - **BR-AS62 — Backend targets are deployment-controlled readiness probes.** Deployment configuration
   maps plugin IDs to backend service IDs resolved to narrowly granted NATS request/reply subjects.
   Manifests cannot choose probe targets. Missing mapping is not configured; explicit empty list is
@@ -892,12 +903,21 @@ stated rather than implied.
   the backend summary unavailable; otherwise any unknown/stale dependency makes it unknown/stale;
   all healthy makes it healthy. Presence alone is insufficient; malformed responses, timeouts and
   no responders cannot be reported healthy. No browser `rpc.>` or new broad registry grants.
-- **BR-AS63 — Health transitions use deterministic thresholds.** Probe each configured target every
-  5 seconds with a 2-second timeout; two consecutive failed probes make it unavailable, one success
-  makes it healthy again. Frontend/backend/dependency counters are independent. Initial state is
-  unknown until evidence exists; a first failure from unknown never claims healthy. After a previous
-  success, one failure may retain healthy while within the freshness window. Probes do not overlap
-  for a target and are cancelled/joined at shutdown.
+- **BR-AS63 — Health transitions use deterministic thresholds.** Check each target every 5 seconds
+  with a 2-second timeout; two consecutive failed checks make it unavailable, one success makes it
+  healthy again. Frontend/backend/dependency counters are independent. Initial state is unknown until
+  evidence exists; a first failure from unknown never claims healthy. After a previous success, one
+  failure may retain healthy while within the freshness window. Checks do not overlap for a target
+  and are cancelled/joined at shutdown.
+
+  **Amended 2026-09-02 (decision 14): for frontend health, the plugin owns this, about itself.** The
+  numbers are unchanged and the thresholds mean exactly what they meant — but the counter now lives
+  in the plugin, which self-checks on its own clock and reports the resulting state. Backend
+  readiness (BR-AS62) is unaffected and the registry still owns that loop. **The cost is stated
+  rather than discovered:** one threshold that lived in one service now lives in every plugin image,
+  so changing it is a fleet redeploy, not a config change. The self-check timeout must stay strictly
+  below the heartbeat interval, which is what keeps "checks do not overlap" true once the clock is
+  per-plugin.
 - **BR-AS64 — Missing freshness becomes unknown/stale.** After 15 seconds without a fresh health
   observation, show unknown/stale with last-check time; before the first check, show unknown with
   no invented timestamp. Assess freshness per signal. Duplicate or old snapshots never refresh
@@ -906,6 +926,16 @@ stated rather than implied.
   and each connection epoch, reconciles on a slow jittered interval, and ages/repaints locally
   without a five-second network poll. Loss of transport or reconnect cannot leave old health looking
   current and cannot remove content. Explicit not-configured/not-applicable states are not fabricated health.
+
+  **Amended 2026-09-02 (decision 14): for frontend health this window stops being a backstop and
+  becomes the detection mechanism.** With nobody probing, a plugin that has died is detected only by
+  the absence of its heartbeat, so 15 seconds is now the answer to "how long until a dead plugin
+  shows as dead", not merely a guard against a stale snapshot. Two consequences follow and are rules,
+  not tuning: **the heartbeat interval must stay well below the freshness window** — 5s against 15s
+  is three missed beats, and a heartbeat at or above the window makes every healthy plugin flicker —
+  and **the two move together or not at all**. A registry that has never heard from a plugin shows
+  unknown with no invented timestamp, which includes the window after a registry restart, because
+  frontend health is held in memory and is repopulated by heartbeats rather than by asking.
 - **BR-AS65 — Health observations are separate from catalogue state.** Share read-only health
   snapshots through dedicated request and push NATS subjects, with initial/catch-up/reconnect reads.
   The push and read use the same closed `{ok, asOf, plugins}` shape; Core NATS loss is repaired by a
@@ -932,7 +962,7 @@ rule covered by tests of a look-alike mechanism such as shell connection debounc
 | BR-AS58 | **Done 2026-09-01** in `contributions/slotWithdrawal.spec.js`: withdrawing the owner of an extension point suspends the placements aimed at that point and leaves the contributors running everywhere else — a suspension is NOT a refusal, because the contributor is not at fault and the Plugins screen must not report a rejection against it. The placement is owed back exactly once: restoration re-places only the slots the returning plugin owns, and skips a contributor that is itself withdrawn. Host-owned slots are untouched. | 5c |
 | BR-AS59 | **Shell half done 2026-09-01** in `registry/registryDiff.withdrawal.spec.js`, `contributions/contributionWithdrawal.spec.js`, `loader/pluginLoader.withdrawal.spec.js` and `liveWithdrawal.spec.js`: a return counts only when the validated definition is deep-equal to the one the shell is running — a moved remote or any edit is a reload offer instead, and equality is what licenses reusing the cached module, so `activate()` runs once in total across withdrawal and return. A never-loaded plugin returns to `available` and stays lazy. Restoration re-runs placement rather than replaying the old decision, so a contribution the session may no longer see stays absent and the plugin stays withdrawn; repeated events place nothing twice. A degraded document may withdraw but never restore. **Slot-owner restoration is 5c.** | 5b/5c |
 | BR-AS60 | **Done 2026-09-01** in `registry/health_transport_test.go` (registry) and `healthText.spec.js`, `healthPlane.spec.js`, `PluginsView` / `App.vue` rendering (shell): the two signals are separate fields in the reply and two separate columns on screen, so a plugin whose UI is served while its API is down reads that way instead of as one merged verdict. A cause is one short lowercase word from a closed vocabulary — a structural spec asserts the reply's field set, and the browser refuses any cause outside `^[a-z][a-z0-9-]{0,31}$`, so a host, a port or a message cannot leave the process. The status is inline: no modal, contribution order and availability are untouched, and a healthy endpoint with a broken asset still shows the existing loading error, because health says the origin is serving and never that the code works. `unavailable` renders as a warning, not a failure — the plugin has not failed, something it depends on is not answering. In the navigation the load-status dot wins, and that precedence is now one function — `registry/navMark.js`, specced in `navMark.spec.js` — rather than the order of two template conditionals, because two marks in one corner compete rather than inform. | 5d |
-| BR-AS61 | **Done 2026-09-01; host contract migrated 2026-09-02** in `registry/health_frontend_test.go`, `registry/internal/healthhttp/client.go`, and `shared/mfe-plugin-host/server_test.go`: the probe is a bounded `GET /healthz` against a DEPLOYMENT-mapped target (`REGISTRY_HEALTH_ORIGINS`), read separately from `REGISTRY_FETCH_ORIGINS` so an operator may watch availability without granting a manifest fetch. An unmapped or denied origin is `not configured`, never healthy. Non-success, malformed, oversized, redirected and timed-out answers all end in the closed cause vocabulary rather than an error. The Go plugin host preserves the nginx contract: no-store JSON, no CORS on `/healthz`, and health remains available with an empty asset root. | 5d/14b |
+| BR-AS61 | **Superseded 2026-09-02 by the Phase 15 rewrite above, re-specced in task 15b (see the Phase 15 matrix); this row is kept as the record of the HTTP-transport contract it replaces. `registry/internal/healthhttp/` and `REGISTRY_HEALTH_ORIGINS` no longer exist, and `not configured` is no longer reachable on the frontend plane — it survives only on the backend plane of BR-AS62.** Done 2026-09-01; host contract migrated 2026-09-02 in `registry/health_frontend_test.go`, `registry/internal/healthhttp/client.go`, and `shared/mfe-plugin-host/server_test.go`: the probe is a bounded `GET /healthz` against a DEPLOYMENT-mapped target (`REGISTRY_HEALTH_ORIGINS`), read separately from `REGISTRY_FETCH_ORIGINS` so an operator may watch availability without granting a manifest fetch. An unmapped or denied origin is `not configured`, never healthy. Non-success, malformed, oversized, redirected and timed-out answers all end in the closed cause vocabulary rather than an error. The Go plugin host preserves the nginx contract: no-store JSON, no CORS on `/healthz`, and health remains available with an empty asset root. | 5d/14b |
 | BR-AS62 | **Done 2026-09-01** in `registry/health_backend_test.go`, `shared/natsready/natsready_test.go` (6 tests) and the bootstrap grant: a backend target is a deployment-configured service id (`REGISTRY_HEALTH_TARGETS`) and never anything from a manifest — a publisher naming its own probe target could point the registry at a service it does not own and read the answer back through the decoration. An absent plugin is `not configured`; a plugin mapped to an empty list is `not applicable`; both are configuration answers and never age. Mixed dependencies aggregate to the worst signal. Presence is not readiness: `natsready` runs the real check (`db.PingContext`) on every ask with a 2-second deadline and caches nothing, so a service holding its NATS connection open while its database is gone answers not-ready. The subject `rpc._platform.health.<service>.ready.v1` is in neither browser profile, and the registry's grant is one token wide, not `>`. | 5d |
 | BR-AS63 | **Done 2026-09-01** in `registry/health_worker_test.go` (domain, fake clock) and `registry/health_hint_test.go`, which drives the application layer through the exported `HealthChecker.Step(ctx, now)`: every decision — due, timeout, first versus second failure, an intervening success resetting the count, one success recovering, initial `unknown`, independent counters per target — takes a `now` a spec supplies. `Run` owns the ticker and nothing else. Probes in a pass run concurrently and are joined before the pass ends, so a cancelled shutdown cannot leave one writing into a stopped worker. Numbers as built: interval 5s, timeout 2s, threshold 2 failures. | 5d |
 | BR-AS64 | **Done 2026-09-01; push transport revised 2026-09-02** in `registry/health_hint_test.go`, `healthPlane.spec.js` and `healthText.spec.js`: ageing is evaluated at read time by `worker.Snapshot(now)` in Go and `signalsFor(id)` in the browser. A local five-second repaint exposes staleness without network traffic. `unknown` (never looked) and `stale` (true once) stay different words; configuration states never age. The checker broadcasts the full served snapshot after every completed probe pass, including stable observations whose `lastCheckAt` advanced. The browser installs only a strictly newer millisecond `asOf`, so duplicate/out-of-order pushes cannot renew freshness. A failed reconciliation keeps the last reading and lets it age; a throwing screen subscriber cannot fail the health plane. | 5d |
@@ -1115,11 +1145,13 @@ Stated plainly so nobody reads a signature for more than it is:
   `not checked` (unmapped, timed out, non-200, or unparsable). A failed fetch must never render as
   "no drift".
 
-  **Phase 5 extension, built 2026-09-01:** the gate permits one additional HTTP
-  operation: background frontend `GET /healthz` probes (BR-AS61). They reuse the allowlist and
-  explicit service-origin mapping; no redirects, arbitrary paths, ambient proxy or browser-origin
-  fallback. Health observes both lifecycle classes regardless of source. This does not widen
-  preload-only manifest drift, change its outcomes or permit either observation to curate entries.
+  **Phase 5 extension, built 2026-09-01 — withdrawn 2026-09-02 by Phase 15.** The gate had permitted
+  one additional HTTP operation: background frontend `GET /healthz` probes reusing the allowlist and
+  an explicit service-origin mapping. BR-AS61's rewrite moves that ask onto NATS and the `GET` into
+  the plugin's own process, so the registry makes no outbound health request at all and the mapping
+  it needed is deleted. **Manifest drift is once again the registry's only outbound HTTP
+  capability**, and this rule's envelope narrows accordingly rather than merely going unused. Health
+  still observes both lifecycle classes regardless of source, and still never curates an entry.
 
 
 The operator's preload wrapper may carry `enabled` (decision 79); a plugin's
@@ -1493,3 +1525,60 @@ contracts that shipped with the rules.
 | --- | --- |
 | BR-AS71 | `shared/mferegistry/announcer/announcer_test.go` proves deployment origin + release are stamped before publish and a post-sign rewrite fails verification; `shared/mfe-plugin-host/deployment_test.go` asserts all five checked-in fixture manifests are path-only. |
 | BR-AS72 | `registry/rules_test.go` covers path-only admission, unchanged BR-AS45 checking for absolute URLs, and protocol-relative refusal; `lab-shell/src/shell/loader/federatedAdapter.spec.js` proves resolution against the shell document. |
+
+---
+
+## Phase 15 — health over NATS, and how a lost catalogue is recovered
+
+BR-AS61 above was rewritten in place rather than retired: the responsibility it
+carries is the same one, and a second rule saying "frontend availability" would
+leave two answers to one question. The rule added here is the new one — what
+happens when the registry loses the catalogue itself.
+
+- **BR-AS73 — Catalogue recovery.** Added 2026-09-02. Plugins **must** announce
+  themselves during startup. That is the primary mechanism for populating the
+  registry catalogue, and it is the mechanism every ordinary case uses.
+
+  The registry **may** issue a reset notice when its catalogue must be
+  reconstructed while existing plugins remain running. On receipt, a plugin
+  re-announces after a jitter interval. A reset notice is **not** required for
+  whole-system restarts, where plugins restart and perform their normal startup
+  announcement.
+
+  The notice is a statement of fact on a dedicated subject over core NATS with no
+  durability — it is worth nothing to a plugin that was not running when the
+  catalogue was lost, because such a plugin announces at startup anyway. It
+  carries the jitter window as a field, so the registry can widen the spread
+  across a fleet without redeploying a single plugin. **A plugin clamps that
+  window to a locally-owned floor and ceiling before using it**: the registry
+  keeps the power to widen, and nothing on the wire gains the power to narrow it
+  to zero, which would turn the notice into the simultaneous re-announce it
+  exists to prevent.
+
+  A reset fires only on an actual loss of catalogue, never on a plain restart of
+  the registry with its catalogue intact. Ignoring a notice is inert — a plugin
+  that never re-announces is simply not re-announced, and no path from a notice,
+  or from silence in response to one, may reach unregister (BR-AS54).
+
+  A re-announce of content the catalogue already holds writes no revision and no
+  audit row, but still advances the plugin's accepted release watermark, so a
+  correct-but-unnecessary notice costs the fleet nothing but the messages.
+
+  **Why the scope is stated in the rule.** Start-up announcement is the primary
+  path; the reset notice is the backstop for catalogue loss *without* plugin
+  restart. The common way a catalogue is lost in this lab — `docker compose down
+  -v` — restarts the plugins too, so the notice earns nothing there. It earns its
+  keep on a truncated table, a restored backup, a recreated volume. Written
+  without that sentence, a later reader mistakes the backstop for the recovery
+  path and builds accordingly.
+
+### How Phase 15's rules are checked
+
+Rules first, specs next (task 15b onward). This matrix is filled in as each lands.
+15b and 15c landed 2026-09-02; 15d and 15e are still ahead.
+
+| Rule | Specced by |
+| --- | --- |
+| BR-AS61 (rewritten) | **Done 2026-09-02.** Plugin side in `shared/mferegistry/announcer/health_test.go`: publishes on the subject derived from its own plugin id and no other, carries that id in the body as well, reports healthy only when the loopback request actually succeeded, never claims a state or cause outside the closed vocabulary, never claims the receiver-only `absent`, keeps publishing on the heartbeat when nothing changed, keeps reporting after a publish fails, and refuses to start at all when the self-check target is not a bounded loopback `GET` (no redirect, no credentials/query/fragment, capped body, deadline its own rather than the caller's). The self-check deadline is asserted **strictly less than** the heartbeat rather than both pinned. `first health push, then announce` is asserted as the observable property. A curated plugin reports without announcing, and needs no signing seed. Registry side in `registry/health_frontend_test.go`, on `domain.HealthInbox`: the id on the subject and the id in the body must agree, and everything outside the two claimable states and the closed cause set is refused. Decision 14 reverses decision 12, so `registry/internal/healthhttp/` and `domain.HealthOrigins` were **deleted**, and the probe worker now schedules BR-AS62 backend readiness only. Checklist it was written against: subject; the self-check derived from the signed entry; the self-check deadline asserted strictly less than the heartbeat interval rather than both pinned independently; a report proved to cost a real loopback `GET`; publish-on-change **and** on heartbeat both covered; `absent` and `unhealthy` proved distinct; first-health-push-then-announce asserted as the observable property, not as a source ordering. Decision 14 reverses decision 12, so the probe-worker specs are **expected** to change here. |
+| BR-AS63, BR-AS64 (amended) | **Done 2026-09-02.** Threshold in `announcer/health_test.go` — one failed check is not unhealthy, the second consecutive one is (with that check's cause), any success resets the run so one failure per heartbeat forever never reaches the threshold, and a plugin whose very first checks fail starts unhealthy because nothing ever proved it good. It is the plugin's own count, reported and not inferred. Freshness in `registry/health_frontend_test.go` and `registry/health_hint_test.go` — healthy right up to the window, `stale` with cause `absent` past it, `absent` kept distinct from a plugin's own `unhealthy`, a future timestamp clamped to the receiver's clock so no plugin can buy permanent freshness, a redelivered or out-of-order report refused so nothing refreshes a dead plugin's lease, and a plugin that stops reporting aged to stale **with no probe issued anywhere**. The ratio is specced as `HealthHeartbeat < HealthFrontendFreshness`, not as two pinned numbers. Checklist it was written against: the threshold counter proved to live in the plugin and to be reported, not inferred; the registry's expiry sweep proved to mark a plugin absent one freshness window after its last heartbeat; and a spec asserting `heartbeat < freshness` rather than pinning 5s and 15s independently, since that ratio is what stops a healthy plugin flickering. |
+| BR-AS73 | *Pending 15d* — the reset predicate ("I lost my catalogue", not "I restarted") specced on its own; the carried jitter window proved clamped against an out-of-range value; the five recovery scenarios covered: plugin starts, everything restarts, registry restarts with catalogue intact, catalogue lost with plugins alive, catalogue restored from a stale backup. Convergence of an identical re-announce is specced with BR-AS67 in 15e. |

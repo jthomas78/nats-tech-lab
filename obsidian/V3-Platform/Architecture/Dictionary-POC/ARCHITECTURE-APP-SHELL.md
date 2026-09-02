@@ -189,10 +189,12 @@ marks each with the tier it actually arrives by —
 example frontends. The label is operator-authored documentation read by no code
 on the trust path (decision 80), so nothing failed while it was wrong; a spec in
 `preloadFixture.spec.js` now pins it.
-**Manifest drift (Phase 8c).** The registry makes two outbound HTTP reads, kept apart on purpose:
-`/manifest.json` for preload entries on its own schedule, and the bounded `/healthz` probes
-described below (BR-AS45/61, Phase 5d, mapped by `REGISTRY_HEALTH_ORIGINS`). Drift compares a
-deployed declaration against curated content; health observes availability. Neither curates. The optional
+**Manifest drift (Phase 8c).** Since Phase 15c this is the registry's **only** outbound HTTP
+capability: `/manifest.json` for preload entries, on its own schedule (BR-AS45). The bounded
+`/healthz` probe that used to sit beside it is gone — the plugin now checks itself and publishes
+over NATS (BR-AS61, Phase 15b), so `REGISTRY_HEALTH_ORIGINS` and `registry/internal/healthhttp/`
+were deleted. Drift compares a deployed declaration against curated content; health observes
+availability. Neither curates. The optional
 `REGISTRY_FETCH_ORIGINS` JSON map translates an already allowlisted browser
 origin to a service-reachable origin; it cannot grant an origin, and missing
 mappings never fall back to browser localhost. Compose supplies all five.
@@ -548,6 +550,34 @@ is the shipped topology rather than the proposal — the credential rename and t
 > `demos/01-dictionary/` with:
 > `node diagrams/export-html-png.mjs diagrams/mfe-announcer-topology.html ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/mfe-announcer-topology.png 1024 --clip=".wrap"`
 > Re-run `node diagrams/audit-svg-layout.mjs diagrams/mfe-announcer-topology.html`
+> after any edit to the SVG.
+
+#### Phase 15 (proposed) — how the registry learns a plugin is alive
+
+Phase 14 left one thing behind. The only reason a plugin container still joins
+the `frontend` Docker network is that the registry dials it there with
+`GET /healthz` (BR-AS61), and that probe needs `REGISTRY_HEALTH_ORIGINS`, a
+hand-written map with one entry per plugin. *(That paragraph describes the
+pre-15 state; tasks 15b and 15c shipped the reversal on 2026-09-02.)* Phase 15
+reverses the direction: the
+plugin checks itself and publishes the result, and the registry only listens —
+which deletes both the map and the network membership. The same phase adds a
+catalogue-reset notice (BR-AS73), drawn alongside because it is the reason a
+plugin must now subscribe to anything at all.
+
+**This drawing is the proposal, not the shipped topology.** It is brought to
+as-built at task 15g, the way the Phase 14 drawing above was. The design review
+behind it is `.claude/plans/reviews/adr-phase15-health-over-nats-20260902.md`.
+
+![Before and after of frontend health for an MFE plugin. Before, as built in Phase 14, the plugin container straddles the frontend and backend Docker networks and the registry reaches around over frontend to issue GET :80/healthz directly against the plugin's static host, using a hand-written REGISTRY_HEALTH_ORIGINS map; the plugin's announcer publishes on two subjects and holds no subscribe grant. After, under Phase 15, the plugin joins only the backend network, the announcer performs a loopback GET against 127.0.0.1 on its own clock and publishes the result onto NATS on every change and on a five second heartbeat, and the registry only subscribes; a second dashed edge carries the catalogue reset notice back into the same announcer.](images/mfe-health-over-nats.png)
+
+> Editable source:
+> [mfe-health-over-nats.html](../../../../demos/01-dictionary/diagrams/mfe-health-over-nats.html)
+> — hand-authored inline SVG rather than a Draw.io workbook page, so
+> `./diagrams/export-png.sh` does **not** regenerate it. Re-export from
+> `demos/01-dictionary/` with:
+> `node diagrams/export-html-png.mjs diagrams/mfe-health-over-nats.html ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/mfe-health-over-nats.png 1024 --clip=".wrap"`
+> Re-run `node diagrams/audit-svg-layout.mjs diagrams/mfe-health-over-nats.html`
 > after any edit to the SVG.
 
 ### There are two links, and there always were

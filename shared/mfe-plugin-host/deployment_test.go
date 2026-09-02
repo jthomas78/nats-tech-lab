@@ -79,11 +79,16 @@ var _ = Describe("Migrated plugin deployment", func() {
 			Expect(announcers).To(Equal([]string{"example-plugin-unreachable-announcer:"}))
 		})
 
-		It("joins migrated plugins to both networks without proxy, extra host, or extra port", func() {
+		// One network, not two, since Phase 15c. The second one existed so the
+		// registry could dial a plugin's /healthz from inside the network, and
+		// nothing dials one now — the plugin reports itself. The browser was
+		// never on a docker network to begin with: it uses the published host
+		// port, which the last assertion here still pins to exactly one.
+		It("joins migrated plugins to the backend network only, without proxy, extra host, or extra port", func() {
 			compose := readRepositoryFile("demos", "01-dictionary", "docker-compose.yml")
 			for _, plugin := range migratedPlugins {
 				service := composeService(compose, plugin+"-frontend")
-				Expect(service).To(ContainSubstring("- frontend"), plugin)
+				Expect(service).NotTo(ContainSubstring("- frontend"), plugin)
 				Expect(service).To(ContainSubstring("- backend"), plugin)
 				Expect(service).NotTo(ContainSubstring("proxy_pass"), plugin)
 				Expect(service).NotTo(ContainSubstring("extra_hosts"), plugin)

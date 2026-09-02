@@ -236,7 +236,7 @@ Split by domain so a rule add/edit only requires reading its own file:
 
 - **[BUSINESS_RULES-APP-SHELL.md](BUSINESS_RULES-APP-SHELL.md)** — the
   extensible application shell and its micro-frontend plugins
-  (BR-AS01–BR-AS72; BR-AS01–BR-AS15 approved 2026-08-28, later phases
+  (BR-AS01–BR-AS73; BR-AS01–BR-AS15 approved 2026-08-28, later phases
   appended through 2026-09-02). The one rules file whose subject is
   a **frontend, not a Go service**: the code lives in `lab-shell/`, not under
   `backend/`. Covers curated registry discovery and contract-version
@@ -254,9 +254,11 @@ Split by domain so a rule add/edit only requires reading its own file:
   that must ship before any real app is migrated (BR-AS15). Rules are
   enforced under `lab-shell/src/shell/`, with two as build-time lint/graph
   checks rather than runtime specs. Later phases extend the same file — the
-  registry service and its publisher trust chain, health probing, and the
+  registry service and its publisher trust chain, health probing, the
   Phase 14 rules on where a plugin's public origin comes from
-  (BR-AS71, BR-AS72). That file's own section headers say which phase added
+  (BR-AS71, BR-AS72), and the Phase 15 rules moving the health ask onto NATS
+  (BR-AS61, rewritten in place) and stating how a lost catalogue is recovered
+  (BR-AS73). That file's own section headers say which phase added
   which rules, and which are not yet built.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:

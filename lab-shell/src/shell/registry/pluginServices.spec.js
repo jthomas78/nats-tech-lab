@@ -79,14 +79,20 @@ describe('BR-AS03 / decisions 87, 93–95 — independently built plugin service
     for (const path of ['Dockerfile', 'vite.config.js', 'package.json', 'package-lock.json']) {
       expect(existsSync(resolve(root, 'plugins', name, path))).toBe(true)
     }
+    // Every plugin, the catalogue included, is served by the same shared Go
+    // host since Phase 15c. demo-catalog used to be the exception and ran
+    // nginx; once health became something a plugin publishes over NATS, the
+    // exception would have been the one plugin with no health at all. No
+    // plugin carries an nginx.conf any more — the four that still did were
+    // dead files no Dockerfile referenced, and a dead config that still looks
+    // authoritative is how a deleted contract quietly comes back.
+    expect(read(name, 'Dockerfile')).toContain('FROM mfe-plugin-host')
+    expect(read(name, 'Dockerfile')).toMatch(/COPY --from=build \/\S+\/dist \/srv/)
+    expect(existsSync(resolve(root, 'plugins', name, 'nginx.conf'))).toBe(false)
     if (name === 'demo-catalog') {
       expect(read(name, 'Dockerfile')).toContain(`lab-shell/plugins/${name}/public`)
-      expect(read(name, 'nginx.conf')).toContain('try_files $uri =404')
-      expect(read(name, 'nginx.conf')).not.toContain('proxy_pass ')
     } else {
       expect(entry.remote.url.startsWith('/')).toBe(true)
-      expect(read(name, 'Dockerfile')).toContain('FROM mfe-plugin-host')
-      expect(read(name, 'Dockerfile')).toMatch(/COPY --from=build \/\S+\/dist \/srv/)
     }
   })
   it('keeps only one view in each variant and all six in the main example', () => {

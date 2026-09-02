@@ -494,7 +494,13 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # this IS the service that owns them, and the endpoint table in
 # internal/browserrpc is what decides which exist.
 #
-# Health (Phase 5d, BR-AS62) adds outbound rpc._platform.health.*.ready.v1 —
+# Frontend health (Phase 15, BR-AS61) adds ONE subscribe:
+# notify._platform.health.frontend.*.v1. One token wide, in the plugin-id
+# position, so the registry hears every plugin at once and does no work at
+# rest. It publishes nothing on that plane — the direction reversed in
+# decision 14, and the registry no longer dials a plugin for health at all.
+#
+# Backend health (Phase 5d, BR-AS62) adds outbound rpc._platform.health.*.ready.v1 —
 # publish only, one token wide, and only ever the readiness question. It asks
 # services whether they are ready; the reply comes back on the _INBOX.> it
 # already holds. A `>` here would let the registry call anything under
@@ -512,7 +518,7 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 nsc add user --account PLATFORM mfe-registry-service >/dev/null
 nsc edit user --account PLATFORM --name mfe-registry-service \
   --allow-pub '$SRV.>,_INBOX.>,notify._platform.mfe-registry.frontend-plugins.changed,notify._platform.mfe-registry.frontend-plugins.health,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.mfe-registry.>' \
-  --allow-sub 'api._platform.mfe-registry.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1,$SRV.>,_INBOX.>' >/dev/null
+  --allow-sub 'api._platform.mfe-registry.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1,notify._platform.health.frontend.*.v1,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name mfe-registry-service >"$NATS_DIR/creds/mfe-registry-service.creds"
 
 echo "==> plugin publisher signing keypairs + creds (Phase 14a)"
@@ -533,13 +539,27 @@ echo "==> plugin publisher signing keypairs + creds (Phase 14a)"
 #    panel. They live under creds/plugins/ so tenant discovery excludes the
 #    family by directory rather than by a fragile name suffix (BR-D40).
 #
-# The grant is publish on exactly the two subjects, named in full — never
-# rpc._platform.mfe-registry.entries.>, for the same reason the registry's own
-# grant above names them: unregister is the one message that takes running
-# code off an operator's screen. _INBOX.> is the reply the request needs and
-# nothing more. There is no subscribe grant beyond that inbox: a plugin
-# speaks, it does not listen, and it has no business reading api._platform.>
-# or anyone else's rpc.
+# The announce grant is publish on exactly the two subjects, named in full —
+# never rpc._platform.mfe-registry.entries.>, for the same reason the
+# registry's own grant above names them: unregister is the one message that
+# takes running code off an operator's screen. _INBOX.> is the reply the
+# request needs and nothing more.
+#
+# Phase 15 adds the health plane, and it is the plugin that speaks on it
+# (decision 14). Publish is its OWN health subject, spelled with its own id —
+# not notify._platform.health.frontend.>, which would let any one plugin
+# report on behalf of every other and quietly turn a broken plugin green.
+#
+# The plugin also gains its first SUBSCRIBE grant beyond its inbox, and the
+# comment that used to say "a plugin speaks, it does not listen" is retired
+# with this line rather than left to mislead. It listens on exactly one
+# subject: the health census. Nothing publishes on that yet — the census was
+# deferred, not rejected, because the heartbeat already covers every trigger
+# it would fire on. The GRANT is added now anyway, because the grant is the
+# expensive half to add later: it costs an edit here plus a
+# `docker compose down -v` reseed, while the code that answers it is an
+# ordinary change. A plugin still has no business reading api._platform.> or
+# anyone else's rpc, and still cannot.
 #
 # publishers.json is the public half of each keypair, for Phase 13d's trust
 # seeding to read. Public keys only — the seeds stay in keys/.
@@ -570,8 +590,8 @@ for plugin in "${PLUGIN_PUBLISHERS[@]}"; do
 
   nsc add user --account PLATFORM "$holder" >/dev/null
   nsc edit user --account PLATFORM --name "$holder" \
-    --allow-pub '_INBOX.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1' \
-    --allow-sub '_INBOX.>' >/dev/null
+    --allow-pub "_INBOX.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1,notify._platform.health.frontend.$plugin.v1" \
+    --allow-sub '_INBOX.>,rpc._platform.health.frontend.census.v1' >/dev/null
   nsc generate creds --account PLATFORM --name "$holder" >"$NATS_DIR/creds/plugins/$holder.creds"
 done
 {
@@ -580,6 +600,22 @@ done
   echo "]"
 } >"$NATS_DIR/keys/publishers.json"
 rm -f "$NATS_DIR/keys/publishers.json.tmp"
+
+# demo-catalog is a plugin that never announces. It is curated into the
+# catalogue by the operator's preload file, so it holds no signing key and no
+# announce grant — but since Phase 15c it runs on the same shared Go host as
+# every other plugin and reports its own health like every other plugin, so it
+# needs a credential for that and for nothing else.
+#
+# This is the narrowest grant in the file, and it is what makes the health
+# plane's shape checkable: publish is one exact subject, subscribe is the
+# census and the inbox. It cannot announce, it cannot unregister, and it
+# cannot report on another plugin's behalf.
+nsc add user --account PLATFORM demo-catalog >/dev/null
+nsc edit user --account PLATFORM --name demo-catalog \
+  --allow-pub '_INBOX.>,notify._platform.health.frontend.demo-catalog.v1' \
+  --allow-sub '_INBOX.>,rpc._platform.health.frontend.census.v1' >/dev/null
+nsc generate creds --account PLATFORM --name demo-catalog >"$NATS_DIR/creds/plugins/demo-catalog.creds"
 
 echo "==> SYS account user creds (accounts-service, Phase 14b)"
 nsc generate creds --account SYS --name sys >"$NATS_DIR/creds/sys.creds"

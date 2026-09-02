@@ -88,10 +88,12 @@ compose = compose.replace(
     'REGISTRY_ALLOWED_ORIGINS: "http://localhost:' + port + ',',
     1,
 )
-for mapping_name in ("REGISTRY_FETCH_ORIGINS", "REGISTRY_HEALTH_ORIGINS"):
-    start = compose.index(mapping_name + ": >-")
-    end = compose.index("}", start)
-    compose = compose[:end] + ',\n         "http://localhost:' + port + '":"http://' + plugin_id + '-frontend:8080"' + compose[end:]
+# REGISTRY_FETCH_ORIGINS only. Its twin REGISTRY_HEALTH_ORIGINS was retired
+# in Phase 15c — a new plugin needs no health wiring at all now, because it
+# reports itself on a subject derived from its own id.
+start = compose.index("REGISTRY_FETCH_ORIGINS: >-")
+end = compose.index("}", start)
+compose = compose[:end] + ',\n         "http://localhost:' + port + '":"http://' + plugin_id + '-frontend:8080"' + compose[end:]
 target_marker = '"example-plugin-incompatible":[]}'
 compose = compose.replace(target_marker, '"example-plugin-incompatible":[],\n         "' + plugin_id + '":[]}', 1)
 volume_marker = "  example-plugin-incompatible-release:\n"

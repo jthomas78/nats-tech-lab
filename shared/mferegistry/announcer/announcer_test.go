@@ -220,7 +220,7 @@ var _ = Describe("Resident plugin announcer", func() {
 })
 
 func validConfig() Config {
-	return Config{NATSURL: "nats://127.0.0.1:4222", NATSCredsPath: "/creds", ManifestPath: "/manifest", SigningSeedPath: "/seed", ReleaseStatePath: "/state", PublisherID: "plugin-a", ConnectionName: "plugin-a", PublicOrigin: "https://plugins.example.test"}
+	return Config{NATSURL: "nats://127.0.0.1:4222", NATSCredsPath: "/creds", ManifestPath: "/manifest", SigningSeedPath: "/seed", ReleaseStatePath: "/state", PublisherID: "plugin-a", ConnectionName: "plugin-a", PublicOrigin: "https://plugins.example.test", SelfCheckURL: "http://127.0.0.1:8080/healthz"}
 }
 
 func mustSeed(kp nkeys.KeyPair) []byte {

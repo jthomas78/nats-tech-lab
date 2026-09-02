@@ -518,7 +518,9 @@ approved as proposed. **Decision 10 was amended at approval** — see its entry 
 network. That is the only reason a Phase 14 plugin container joins `frontend` at all — the browser
 arrives on a published host port, not over that network. It is also a per-plugin deployment chore:
 `REGISTRY_HEALTH_ORIGINS` is a hand-maintained map, exactly the kind of thing the 14d scaffolder
-exists to stop generating.
+exists to stop generating. *(Both sentences describe the pre-15 state. As built after 15b/15c:
+`REGISTRY_HEALTH_ORIGINS` is deleted, `registry/internal/healthhttp/` is deleted, and no plugin
+container joins `frontend`.)*
 
 **Two.** A plugin announces once, at start-up. If the registry loses its catalogue while the plugins
 keep running, nothing re-announces. Restarting the containers heals it; nothing else does. That hole
@@ -555,7 +557,7 @@ are the deleted chore and the point below about same-origin.
    token only, never `>`. A plugin must not be able to answer for another plugin.
 
 4. **"Not configured" survives, in a new form.** BR-AS61's safety property is that the registry
-   cannot probe arbitrary targets. Today that is `REGISTRY_HEALTH_ORIGINS`. After this the subject
+   cannot probe arbitrary targets. Before 15b that was `REGISTRY_HEALTH_ORIGINS`. After this the subject
    is derived from the plugin id in the *signed* entry, and the grant is one token wide — so the
    registry can still only reach plugins it holds entries for. The property is preserved; the
    hand-maintained map is not. BR-AS45's allowlist stays untouched for manifest *fetch* origins.
@@ -654,30 +656,151 @@ are the deleted chore and the point below about same-origin.
     implementation detail — and decision 10's convergence question is the safety net, because a
     re-announce of identical content should cost zero writes whether or not the notice was correct.
 
+#### Decision 14 — the health signal is pushed, not polled (reopened 2026-09-02, after 15a)
+
+Decisions 1-13 changed the health *transport* and left BR-AS63's cadence alone, so a polling loop
+written for HTTP landed unexamined on a message bus: the registry asking every plugin, every five
+seconds, forever. Nobody chose that for NATS — it was inherited. Raised from the drawing, not from
+the prose, which is the second time this phase a picture has caught something a review missed.
+
+**Settled: the plugin pushes; the registry listens.** The plugin runs its own clock, self-`GET`s its
+loopback `/healthz`, and publishes its state on change plus a heartbeat. The registry subscribes once
+across all plugins and keeps the last message per plugin. Nothing asks.
+
+**Why this and not the hybrid.** A "push, plus ask on start-up / reconnect / reset" census was
+considered and is the pattern the catalogue plane already uses (BR-AS28, BR-AS29, BR-AS65). It was
+**deferred, not rejected** — because the heartbeat already covers every trigger a census would fire
+on. A registry that boots with empty health fills in at the next heartbeat; so does one that missed a
+change across a reconnect. The census buys **latency, not correctness**: it turns a ≤15s window of
+`unknown` into a sub-second one, and `unknown` is a true statement, not a lie. Decision 13 already
+names what a second trigger predicate costs — a rule that reopens a hole silently when it is wrong —
+and this would be the second one.
+
+**So it is measured before it is built.** Ship push-and-heartbeat; watch the real blank window once
+Phase 15 lands; add the census only if it actually annoys an operator. **One thing is paid for now
+anyway:** the plugin's subscribe grant gets the census subject even though nothing publishes on it,
+because a grant is the one part that is expensive to add later — it is a `bootstrap-operator.sh` edit
+plus a `docker compose down -v` reseed, and doing it now costs one line.
+
+**What this changes from decisions 1-13:**
+
+- **The subject flips family.** `rpc._platform.health.frontend.{pluginID}.ready.v1` (request/reply)
+  becomes `notify._platform.health.frontend.{pluginID}.v1` (push), mirroring decision 3's shape so
+  the `health` namespace stays one namespace. The registry subscribes on
+  `notify._platform.health.frontend.*.v1` — one token wide, in the plugin-id position.
+- **Review finding 2 dissolves.** The registry stops publishing frontend health entirely, so there
+  is no grant to widen. `rpc._platform.health.*.ready.v1` stays exactly as it is, still serving
+  BR-AS62's backend readiness, still one token.
+- **Review finding 6 is restated, not dropped.** "Subscribe → confirm → announce" becomes
+  **first health push, then announce**, so an entry is never briefly visible with no health. The spec
+  still asserts the observable property — when an announcement reaches the registry, that plugin's
+  health is already known — not a source ordering.
+- **Decision 12 reverses.** The probe worker does not stay. It becomes a subscriber plus an expiry
+  sweep, and its existing specs no longer pass unedited — 15b must stop treating that as a red flag.
+- **The failure policy moves into the plugin.** BR-AS63's "two consecutive failures" is now decided
+  by the plugin about itself. That is the real cost of this decision, and it is named: one number
+  that lived in one service now lives in every plugin image, and changing it is a fleet redeploy.
+- **BR-AS64's freshness stops being a backstop and becomes the mechanism.** "No heartbeat inside the
+  window" is now the only way a dead plugin is detected.
+
+**Cadence: heartbeat stays 5s, freshness stays 15s.** Chosen because it moves no existing number —
+15s is exactly three missed beats, the same margin the polling model had — while still halving
+traffic, since the reply disappears. A longer heartbeat is where the real saving is (15s heartbeat is
+roughly one sixth the messages) but freshness must move with it, to ~45s, and that trades detection
+speed for volume the lab has no reason to buy yet. **Raise both together or neither** — a heartbeat
+at or above the freshness window makes every healthy plugin flicker stale.
+
+#### Architecture review — 2026-09-02, folded into the checklist below
+
+A review of the approved decisions (`.claude/plans/reviews/adr-phase15-health-over-nats-20260902.md`)
+found nine gaps, three of them blocking. All nine were walked one at a time and settled the same day;
+two were amended at approval from a Codex reading. The resolutions are recorded in full in that file
+and are carried into the tasks below. The three that would have broken something:
+
+- **`demo-catalog` would have lost health entirely** — it is probed today, but it is curated, with no
+  announcer process and no NATS credential, so nobody could answer for it. Settled: **every plugin
+  has frontend health, curated included.** `demo-catalog` gains a health responder and a credential
+  granted only its own health token. The "not configured" state ceases to exist.
+- **The registry's existing grant would not have matched the new subject** —
+  `rpc._platform.health.*.ready.v1` is a *one*-token wildcard and decision 3's subject has two tokens
+  after `health`. The failure would have been a silent permissions denial at runtime.
+- **`bootstrap-operator.sh` states "a plugin speaks, it does not listen" as a security property**,
+  beside the grant that enforces it. This phase knowingly inverts it, so the comment is rewritten in
+  the same change rather than left contradicting the code.
+
 #### Task checklist — derived from the approved rules, not from an implementation
 
-- [ ] **15a — the rules first.** Rewrite BR-AS61 in place (same responsibility, HTTP-shaped clauses
+- [x] **15a — the rules first. Done 2026-09-02.** Rewrite BR-AS61 in place (same responsibility, HTTP-shaped clauses
       replaced by decision 4's derived subject) and add the reset-notice rule stating decisions 6,
       7, 8 and 9 together. Assign its id at this point; next free is BR-AS73. Update
       `BUSINESS_RULES-APP-SHELL.md` in the same change, per CLAUDE.md's rule 4.
-- [ ] **15b — the health transport.** Specs before code. `rpc._platform.health.frontend.{pluginID}.ready.v1`
+      **From the review:** BR-AS73 is written as catalogue *recovery*, not as a reset notification —
+      "plugins must announce themselves during startup; this is the primary mechanism for populating
+      the catalogue. The registry may issue a reset notice when its catalogue must be reconstructed
+      while existing plugins remain running. A reset notice is not required for whole-system
+      restarts." The sentence to preserve: **start-up announcement is the primary path; reset is the
+      backstop for catalogue loss without plugin restart.** BR-AS61's rewrite must also drop the
+      "no mapping means not checked" clause — after the review there is no unmapped state.
+      **Outcome 2026-09-02:** BR-AS61 rewritten in place; BR-AS73 added as *Catalogue recovery*, in
+      the wording approved at the review. One change beyond the stated scope, and it is a narrowing:
+      BR-AS45's "Phase 5 extension" permitted the registry one outbound health `GET`, and that
+      permission is now withdrawn rather than left standing unused — manifest drift is once again the
+      registry's only outbound HTTP capability. `BUSINESS_RULES.md`'s index updated to BR-AS73. The
+      BR-AS61 evidence row is marked superseded and kept, since it records the contract 15b replaces.
+      **Revised 2026-09-02 by decision 14** (health is pushed, not polled): BR-AS61 rewritten a second
+      time onto `notify._platform.health.frontend.{pluginID}.v1`; BR-AS63 and BR-AS64 amended in place,
+      because the cadence moved into the plugin and freshness became the detection mechanism rather
+      than a backstop. BR-AS73 is unaffected.
+- [x] **15b — the health transport.** *(Done 2026-09-02.)* Specs before code. `rpc._platform.health.frontend.{pluginID}.ready.v1`
       (decision 3), subject derived from the signed entry with a one-token grant (decision 4), and
       the publisher answering only after a real local `GET http://127.0.0.1:<port>/healthz`
       (decision 1). One spec asserts `inner < outer` deadline ordering (decision 11) rather than
       pinning 1s and 2s independently. The probe worker stays (decision 12), so its existing specs
       must still pass unedited — if one needs editing, that is a signal the concurrency shape moved
       when it was not supposed to.
-- [ ] **15c — delete the chore.** `REGISTRY_HEALTH_ORIGINS` and its per-plugin entries go.
+      **Superseded in part by decision 14 — health is pushed, not asked.** The subject is
+      `notify._platform.health.frontend.{pluginID}.v1`; the plugin publishes on change plus a 5s
+      heartbeat; the registry subscribes once on `notify._platform.health.frontend.*.v1` and runs an
+      expiry sweep against BR-AS64's 15s window. The `inner < outer` deadline spec becomes
+      `self-GET deadline < heartbeat interval` — the plugin must never have two checks in flight — and
+      **decision 12 reverses, so the probe-worker specs are expected to change**; 15b must not treat
+      that as a signal something moved when it should not have.
+      **Still standing from the review:** the registry's `rpc._platform.health.*.ready.v1` grant is
+      left exactly as it is, still one token, still serving BR-AS62's backend readiness — finding 2
+      dissolves because the registry no longer publishes frontend health at all. The plugin gains one
+      **publish** subject (its own health token) and subscribes to exactly two named subjects, the
+      reset notice and the reserved census subject, with no wildcard on the plugin side; rewrite
+      `bootstrap-operator.sh`'s "a plugin speaks, it does not listen" comment to state that narrower
+      rule. `absent` (no report inside the freshness window) and `unhealthy` (a plugin said so
+      about itself) are **separate** causes in the closed vocabulary, shown differently. The ordering
+      rule becomes **first health push, then announce**, specced as the *observable* invariant — when
+      an announcement reaches the registry, that plugin's health is already known — rather than as a
+      source-code ordering.
+- [x] **15c — delete the chore.** *(Done 2026-09-02.)* `REGISTRY_HEALTH_ORIGINS` and its per-plugin entries go.
       `REGISTRY_FETCH_ORIGINS` (BR-AS45) stays and must be shown to be untouched. The plugin
       container drops the `frontend` network (decision 5), and `scripts/new-plugin.sh` and its golden
       fixture lose the health-origin chore they currently generate.
+      **From the review:** `demo-catalog` gains a health responder and a credential granted only its
+      own health token — no announce, no unregister. Curation stays a property of how an entry
+      reached the catalogue, not of whether it can be asked whether it is alive.
 - [ ] **15d — the reset notice.** `notify._platform.mfe-registry.entries.reset` on core NATS with no
       durability (decisions 6, 8), carrying its own jitter window (decision 7). The reset *predicate*
       — "I lost my catalogue", not "I restarted" — is itself a rule with a spec (decision 13),
       because a wrong predicate reopens the hole this phase closes and does so silently.
+      **From the review:** the plugin **clamps** the carried jitter window to a locally-owned floor
+      and ceiling. The registry keeps the power to widen the spread without a redeploy; nothing on
+      the wire gains the power to narrow it to zero, which would turn the notice into the stampede
+      decision 7 exists to prevent. That is a rule about not trusting input, so it gets a spec. The
+      predicate's specs follow the review's scenario table: plugin starts → startup announcement;
+      everything restarts → startup announcements; registry restarts with catalogue intact → nothing;
+      catalogue lost with plugins alive, or restored from a stale backup → reset → jitter →
+      re-announce.
 - [ ] **15e — convergence.** A content-equality no-op that writes no revision and no audit row but
       advances `Accepted` (decision 10, amended). Kept distinct from today's `Admission.NoOp`, which
       means a literal replay at an equal release; a spec should pin that the two are different.
+      **From the review:** this is a write to the entry row that does not bump the revision, and it
+      has not been checked against that row's concurrency control. Read the update path here and pin
+      with a spec that a watermark-only write cannot lose a concurrent real announce.
 - [ ] **15f — silence is inert.** Specs proving a plugin that never answers a health ask is unhealthy
       but still registered, and a plugin that ignores a reset notice is simply not re-announced
       (decision 9). Neither path may reach unregister. BR-AS54 unchanged.
@@ -685,9 +808,19 @@ are the deleted chore and the point below about same-origin.
       this phase invalidates; `ARCHITECTURE-COMMUNICATIONS.md` gains the two new subjects. The Phase
       14 topology drawing's "after" panel now shows a plugin on two Docker networks and must be
       re-drawn to one, or explicitly dated as Phase 14's state.
+      **Drawn ahead of the code (2026-09-02):** `diagrams/mfe-health-over-nats.html` is a separate
+      before/after drawing for this phase, embedded in `ARCHITECTURE-APP-SHELL.md` and stamped
+      "proposed". 15g brings it to as-built the way Phase 14's was — re-stamp the eyebrow, and fix
+      any label the implementation moved. The Phase 14 drawing is left alone; it is dated as Phase
+      14's state and the new one carries the change.
 - [ ] **15h — the gate.** `cmd/registry-acceptance` green against the running lab. It asserts health
       today, so unlike Phase 14 this phase should expect to touch it — and any edit is recorded in
       this entry the way Phase 14's three were.
+      **From the review:** step 9's control group changes — `example-plugin-unreachable` now answers
+      and honestly reports `unhealthy` (it self-GETs against a listener that does not exist), where
+      today it reports "not configured". That leaves the new `absent` cause with no fixture, so
+      add a step that stops a running plugin's process and asserts the registry reports
+      `absent` — which exercises BR-AS54 (silence never withdraws) on the same step.
 
 ---
 

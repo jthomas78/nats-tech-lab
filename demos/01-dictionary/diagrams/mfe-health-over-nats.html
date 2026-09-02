@@ -1,0 +1,207 @@
+<title>How the registry learns a plugin is alive</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+.figure-title { padding: 0 2px 10px; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.cfg  { fill: none; stroke: var(--hop); stroke-width: 1.2; stroke-dasharray: 3 3; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Phase 15 (proposed 2026-09-02) &#183; ARCHITECTURE-APP-SHELL &#183; BR-AS45 / BR-AS54 / BR-AS61 / BR-AS73</span>
+      <h1>How the registry learns a plugin is alive</h1>
+      <p class="sub">Phase 14 left one thing behind: the only reason a plugin container still joins the <code>frontend</code> Docker network is that the registry dials it there with <code>GET /healthz</code>. That probe also needs <code>REGISTRY_HEALTH_ORIGINS</code>, a hand-written map with one entry per plugin. Phase 15 removes the question &#8212; the plugin checks itself and publishes the result, and the registry only listens. The same phase adds a catalogue-reset notice, drawn here because it is the second reason a plugin must now listen. This is the proposal, not the shipped topology; it is brought to as-built at task 15g.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <h2 class="figure-title">Before (Phase 14, as built): the registry dials the plugin</h2>
+      <svg viewBox="0 0 980 480" role="img"
+        aria-label="As built in Phase 14, one lb-example-plugin container straddles the frontend and backend Docker networks. The browser fetches assets from its static host over the published port. The registry service, which joins both networks, reaches around through the frontend network to issue GET :80/healthz directly against that same static host, using a hand-written REGISTRY_HEALTH_ORIGINS map that pairs each published host origin with a container origin. Separately, announcer.Start inside the plugin holds one NATS connection with two publish subjects and no subscribe grant at all.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-cfg" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--hop)"/>
+          </marker>
+        </defs>
+
+        <rect class="nb" x="216" y="38" width="744" height="190" rx="4"/>
+        <text class="grp" x="230" y="56">DOCKER NETWORK &#8212; FRONTEND</text>
+        <rect class="nb" x="216" y="228" width="744" height="220" rx="4"/>
+        <text class="grp" x="230" y="246">DOCKER NETWORK &#8212; BACKEND</text>
+
+        <rect class="n" x="18" y="133" width="146" height="48" rx="3"/>
+        <text class="lbl" x="91" y="154" text-anchor="middle">browser</text>
+        <text class="lbl2" x="91" y="168" text-anchor="middle">app shell at :7110</text>
+
+        <rect class="n" x="350" y="124" width="270" height="216" rx="3"/>
+        <text class="lbl" x="362" y="143">lb-example-plugin</text>
+        <text class="lbl2" x="362" y="157">joins frontend + backend</text>
+
+        <rect class="n" x="372" y="166" width="226" height="52" rx="3"/>
+        <text class="lbl" x="485" y="190" text-anchor="middle">static host</text>
+        <text class="lbl2" x="485" y="204" text-anchor="middle">:80 &#183; assets + /healthz</text>
+
+        <rect class="n" x="372" y="258" width="226" height="56" rx="3"/>
+        <text class="lbl" x="485" y="283" text-anchor="middle">announcer.Start</text>
+        <text class="lbl2" x="485" y="297" text-anchor="middle">speaks, never listens</text>
+
+        <rect class="n" x="700" y="204" width="184" height="48" rx="3"/>
+        <text class="lbl" x="792" y="225" text-anchor="middle">lb-mfe-registry-service</text>
+        <text class="lbl2" x="792" y="239" text-anchor="middle">joins frontend + backend</text>
+
+        <rect class="n" x="880" y="312" width="70" height="46" rx="3"/>
+        <text class="lbl" x="915" y="332" text-anchor="middle">nats</text>
+        <text class="lbl2" x="915" y="346" text-anchor="middle">:4222</text>
+
+        <rect class="n" x="240" y="378" width="190" height="44" rx="3"/>
+        <text class="lbl2" x="335" y="397" text-anchor="middle">REGISTRY_HEALTH_ORIGINS</text>
+        <text class="lbl2" x="335" y="411" text-anchor="middle">one entry per plugin, by hand</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M164 157 L190 157 L190 192 L361 192"/>
+        <text class="edge" x="245" y="207" text-anchor="middle">GET :7111 remoteEntry.js</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M884 228 L940 228 L940 76 L570 76 L570 160"/>
+        <text class="edge" x="755" y="70" text-anchor="middle">GET :80/healthz over the frontend network</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M598 286 L700 286 L700 335 L869 335"/>
+        <text class="edge" x="784" y="329" text-anchor="middle">1 conn &#183; 2 pub &#183; no sub</text>
+        <text class="edge" x="784" y="350" text-anchor="middle">example-plugin.creds</text>
+
+        <path class="cfg" marker-end="url(#a-cfg)" d="M430 400 L860 400 L860 258"/>
+        <text class="edge" x="610" y="394" text-anchor="middle">maps host origin &#8594; container origin</text>
+
+        <text class="lbl2" x="18" y="468">this map also carries demo-catalog, which has no announcer and no NATS credential</text>
+      </svg>
+    </div>
+    <figcaption><b>The probe is why the plugin is on two networks.</b> The browser reaches the static host over the published port, from outside Docker entirely &#8212; but the registry reaches the same listener from inside, over <code>frontend</code>, which is the only link that network carries. Every new plugin therefore owes two deployment chores it cannot infer: a <code>frontend</code> membership and a hand-written entry in <code>REGISTRY_HEALTH_ORIGINS</code>. <code>demo-catalog</code> is in that map today and reports real health, which is the fact the next drawing has to keep true.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <h2 class="figure-title">After (Phase 15): the plugin checks itself, and says so</h2>
+      <svg viewBox="0 0 980 480" role="img"
+        aria-label="Under Phase 15 the plugin container joins only the backend Docker network. The browser still fetches assets over the published host port from outside Docker. Inside the plugin, the announcer performs a loopback GET against 127.0.0.1 slash healthz on its own clock, then publishes the result onto NATS on every change and on a five second heartbeat. The registry subscribes across all plugins and never asks; the edge into it is one-way. A second dashed edge carries the catalogue reset notice from NATS back into the announcer, which is the one thing a plugin now subscribes to.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="b-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+        </defs>
+
+        <rect class="nb" x="216" y="38" width="748" height="404" rx="4"/>
+        <text class="grp" x="230" y="56">DOCKER NETWORK &#8212; BACKEND (THE ONLY ONE THE PLUGIN JOINS)</text>
+
+        <rect class="n" x="18" y="130" width="146" height="48" rx="3"/>
+        <text class="lbl" x="91" y="151" text-anchor="middle">browser</text>
+        <text class="lbl2" x="91" y="165" text-anchor="middle">app shell at :7110</text>
+
+        <rect class="n" x="250" y="86" width="260" height="250" rx="3"/>
+        <text class="lbl" x="262" y="105">lb-example-plugin</text>
+        <text class="lbl2" x="262" y="119">backend only</text>
+
+        <rect class="n" x="272" y="128" width="216" height="52" rx="3"/>
+        <text class="lbl" x="380" y="152" text-anchor="middle">static host</text>
+        <text class="lbl2" x="380" y="166" text-anchor="middle">:80 &#183; assets + /healthz</text>
+
+        <rect class="n" x="272" y="220" width="216" height="72" rx="3"/>
+        <text class="lbl" x="380" y="245" text-anchor="middle">announcer.Start</text>
+        <text class="lbl2" x="380" y="259" text-anchor="middle">1 conn &#183; 3 pub &#183; 1 sub</text>
+        <text class="lbl2" x="380" y="273" text-anchor="middle">reports, then announces</text>
+
+        <rect class="n" x="600" y="226" width="110" height="60" rx="3"/>
+        <text class="lbl" x="655" y="250" text-anchor="middle">nats</text>
+        <text class="lbl2" x="655" y="264" text-anchor="middle">:4222</text>
+
+        <rect class="n" x="790" y="226" width="170" height="60" rx="3"/>
+        <text class="lbl" x="875" y="250" text-anchor="middle">mfe-registry</text>
+        <text class="lbl2" x="875" y="264" text-anchor="middle">backend only</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M164 154 L261 154"/>
+        <text class="edge" x="212" y="148" text-anchor="middle">GET :7111</text>
+        <text class="edge" x="212" y="169" text-anchor="middle">host port</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M300 220 L300 189"/>
+        <text class="edge" x="312" y="208">GET 127.0.0.1/healthz &#183; own clock</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M497 256 L591 256"/>
+        <text class="edge" x="544" y="250" text-anchor="middle">push + heartbeat</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M719 256 L781 256"/>
+        <text class="edge" x="750" y="250" text-anchor="middle">subscribes</text>
+
+        <path class="rep" marker-end="url(#b-rep)" d="M655 286 L655 380 L390 380 L390 301"/>
+        <text class="edge" x="520" y="374" text-anchor="middle">notify._platform.mfe-registry.entries.reset</text>
+        <text class="edge" x="520" y="396" text-anchor="middle">registry publishes &#183; plugin clamps the jitter</text>
+
+        <text class="lbl2" x="18" y="468">nothing dials the plugin over Docker any more &#8212; REGISTRY_HEALTH_ORIGINS is deleted</text>
+      </svg>
+    </div>
+    <figcaption><b>Nobody asks, and the answer is still a real HTTP request.</b> The plugin publishes on <code>notify._platform.health.frontend.{pluginID}.v1</code>, derived from the plugin id in the signed entry, on every change of state and on a 5s heartbeat &#8212; and only ever after a genuine loopback <code>GET</code>, whose deadline sits strictly inside the heartbeat so two checks are never in flight. The registry subscribes once on <code>notify._platform.health.frontend.*.v1</code> and does no work at rest. The <code>frontend</code> network membership and the origins map both disappear, and in exchange a plugin subscribes for the first time &#8212; to the reset notice, and to nothing else.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>What the drawing settles</h2>
+    <ul>
+      <li><b>The chore disappears because the direction reverses.</b> Nobody outside the plugin needs to know how to dial it, so nothing has to be told &#8212; the subject is derived from the plugin id that is already inside the signed entry, and <code>REGISTRY_HEALTH_ORIGINS</code> has nothing left to say.</li>
+      <li><b>The <code>frontend</code> network was only ever there for the probe.</b> The browser has always arrived on the published host port, from outside Docker. Removing the probe removes the network membership, which is the whole of task 15c.</li>
+      <li><b>The health signal is still HTTP.</b> The loopback <code>GET</code> is not decoration &#8212; a report that did not cost a real request would attest that the publisher is running, which nobody asked. <code>BR-AS45</code>'s fetch-origin allowlist is a different list and is untouched.</li>
+      <li><b>A plugin listens now, and that is a genuinely new posture.</b> The grant is the shared reset notice plus the census subject, which is granted ahead of use because adding a grant later costs a <code>bootstrap-operator.sh</code> edit and a <code>docker compose down -v</code> reseed. No wildcard on the plugin side, and <code>bootstrap-operator.sh</code>'s &#8220;a plugin speaks, it does not listen&#8221; comment is rewritten in the same change rather than left contradicting the code.</li>
+      <li><b>First health push, then announce &#8212; tested as a property.</b> The spec asserts what an observer sees: when an announcement reaches the registry, that plugin's health is already known. Known before discoverable &#8212; not a line ordering in <code>main.go</code>.</li>
+      <li><b>The census is deferred, not rejected.</b> A registry that asks everyone on start-up, reconnect or catalogue reset would mirror the announce plane. It is left out for now because the heartbeat already covers every one of those triggers: the census buys latency, not correctness &#8212; it turns a &#8804;15s <code>absent</code> window into sub-second. The call is made after the rest of Phase 15 lands.</li>
+      <li><b>Curated plugins report too.</b> <code>demo-catalog</code> is probed successfully today, so it gains a health publisher and a credential granted only its own health token &#8212; no announce, no unregister. Curation stays a property of how an entry reached the catalogue, not of whether it can say it is alive. The &#8220;not configured&#8221; state ceases to exist.</li>
+      <li><b>The cost is a shared fate that did not exist before.</b> A plugin serving browsers perfectly but with a dropped bus connection now reads as broken, where the two used to be independent. <code>BR-AS60</code> keeps that from being destructive, and <code>absent</code> (no report inside the 15s freshness window) and <code>unhealthy</code> (a plugin said so about itself) stay separate causes so the common case is not mistaken for the rare one. Heartbeat and freshness are one pair &#8212; 5s and 15s &#8212; raised together or neither.</li>
+      <li><b>The reset notice is a backstop, not the recovery path.</b> Start-up announcement is what populates the catalogue. The notice earns its keep only when the registry loses its catalogue while plugins keep running &#8212; a truncated table, a restored backup &#8212; and it is exactly that case where jitter matters, because every surviving plugin would otherwise re-announce at once. The window is carried in the message so the registry can widen it without a redeploy, and clamped by the plugin so nothing on the wire can narrow it to zero.</li>
+      <li><b>Silence still never withdraws.</b> <code>BR-AS54</code> is untouched: a plugin that never reports is <code>absent</code> but still registered, and a plugin that ignores a reset notice is simply not re-announced. Neither path reaches unregister.</li>
+    </ul>
+  </section>
+</div>

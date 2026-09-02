@@ -55,22 +55,27 @@ be changed without rebuilding either side is what BR-AS03 actually claims.
 
 ## Its container
 
-`Dockerfile` + `nginx.conf` here, built from this directory's own
-`package.json` and lockfile — the shell's image copies none of it. The nginx
-config is a static file server with **no `proxy_pass` rule of any kind**: a
-plugin origin with a route to accounts-service or the bus would be a second,
-unaudited door beside the narrow one the shell keeps. Two details in it are
+`Dockerfile` here, built from this directory's own `package.json` and lockfile
+— the shell's image copies none of it. The built `dist/` is served by the
+shared Go host in `shared/mfe-plugin-host`, which every plugin now uses; the
+per-plugin `nginx.conf` was deleted in Phase 15c, once the last plugin that
+still ran nginx (`demo-catalog`) moved onto the host too. The host is a static
+file server with **no `proxy_pass`-shaped route of any kind**: a plugin origin
+with a route to accounts-service or the bus would be a second, unaudited door
+beside the narrow one the shell keeps. Its route set is exactly `/healthz` plus
+the asset root. Two behaviours carried over from the nginx it replaced are
 load-bearing rather than boilerplate:
 
-- `try_files $uri =404`, not the SPA fallback the other frontends use — the
+- A missing file is a **404, with no SPA fallback** — the
   `example-plugin-unreachable` entry demonstrates a fetch that 404s, and an
   `/index.html` fallback would answer 200 with HTML and fail later, in the
   wrong state.
 - `Access-Control-Allow-Origin: http://localhost:7110` — federation loads
   `remoteEntry.js` and its chunks as ES modules, fetched in CORS mode, which
-  Vite's `cors: true` supplies in development and nginx has to state
+  Vite's `cors: true` supplies in development and the host has to state
   explicitly. Named origin rather than `*`: the allowlist on the registry side
-  is only half a statement if this side hands its code to anyone.
+  is only half a statement if this side hands its code to anyone. An unset
+  allowed origin is a startup error, not a permissive default.
 
 ## What it contributes
 
