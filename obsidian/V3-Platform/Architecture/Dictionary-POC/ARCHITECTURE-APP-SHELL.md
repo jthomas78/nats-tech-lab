@@ -534,7 +534,10 @@ its thirteen design decisions is
 
 The drawing below is the argument, because the question it answers is a counting
 question: **how many connections does an announced plugin actually hold, and does
-merging the containers change that number?**
+merging the containers change that number?** It was drawn to decide the phase and
+brought to as-built once the exit gate passed on 2026-09-02, so the "after" panel
+is the shipped topology rather than the proposal — the credential rename and the
+`mfe-registry` subject token are in it.
 
 ![Before and after of the MFE plugin announcer topology. Before Phase 14 two containers per plugin each held one kind of link and never talked to each other: the nginx frontend held zero NATS connections and served the browser and the registry's health probe over HTTP, while the announcer sidecar held exactly one NATS connection and ran no listener. After Phase 14 a single container straddles the frontend and backend Docker networks and holds both links in one process, with the connection and listener counts unchanged.](images/mfe-announcer-topology.png)
 

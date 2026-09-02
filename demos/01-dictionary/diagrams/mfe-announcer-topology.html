@@ -50,15 +50,15 @@ li b { color: var(--text); font-weight: 600; }
 <div class="wrap">
   <div class="head">
     <div class="head-txt">
-      <span class="eyebrow">Phase 14 · ARCHITECTURE-APP-SHELL · BR-AS54 / BR-AS61 / BR-AS67</span>
+      <span class="eyebrow">Phase 14 (as built 2026-09-02) · ARCHITECTURE-APP-SHELL · BR-AS54 / BR-AS61 / BR-AS67</span>
       <h1>Where the plugin announcer runs</h1>
-      <p class="sub">Phase 13e gave every announced micro-frontend plugin its own announcer sidecar container, so five plugins cost ten containers and a plugin developer ships two runtime units. Phase 14 moves the announcer into the plugin's own process. The connection topology is what decides whether that is safe, so it is drawn here before and after.</p>
+      <p class="sub">Phase 13e gave every announced micro-frontend plugin its own announcer sidecar container, so five plugins cost ten containers and a plugin developer shipped two runtime units. Phase 14 moved the announcer into the plugin's own process. The connection topology is what decided whether that was safe, so it is drawn here before and after. This is the shipped topology, not the proposal &#8212; the drawing was brought to as-built after the exit gate passed.</p>
     </div>
   </div>
 
   <figure>
     <div class="fig-body">
-      <h2 class="figure-title">Today (Phase 13e): two containers, two links that never meet</h2>
+      <h2 class="figure-title">Before (Phase 13e): two containers, two links that never meet</h2>
       <svg viewBox="0 0 980 470" role="img"
         aria-label="Today in Phase 13e, the browser reaches the HTTP-only lb-example-plugin container on the frontend Docker network, while a separate lb-example-plugin-announcer container reaches NATS and the example-plugin-release volume on the backend network. The two plugin containers have no link between them. The registry service straddles both networks so it can probe the plugin over frontend while using backend for its own bus traffic.">
         <defs>
@@ -124,7 +124,7 @@ li b { color: var(--text); font-weight: 600; }
 
   <figure>
     <div class="fig-body">
-      <h2 class="figure-title">Phase 14: one container, the same two links</h2>
+      <h2 class="figure-title">After (Phase 14): one container, the same two links</h2>
       <svg viewBox="0 0 980 492" role="img"
         aria-label="In Phase 14, one larger lb-example-plugin container straddles the frontend and backend Docker networks and contains both the static HTTP host and announcer.Start. The browser and registry still reach the static host over HTTP, while announcer.Start holds one NATS connection and updates the release volume. The connection and listener counts stay unchanged even though one process now owns both links.">
         <defs>
@@ -177,8 +177,8 @@ li b { color: var(--text); font-weight: 600; }
         <text class="edge" x="755" y="91" text-anchor="middle">GET :80/healthz · unchanged (BR-AS61)</text>
 
         <path class="flow" marker-end="url(#b-sync)" d="M460 314 L460 358 L850 358 L850 335 L869 335"/>
-        <text class="edge" x="655" y="352" text-anchor="middle">1 conn · same credential, same 2 subjects</text>
-        <text class="edge" x="655" y="373" text-anchor="middle">SIGTERM here withdraws this plugin (BR-AS54)</text>
+        <text class="edge" x="690" y="352" text-anchor="middle">1 conn · plugins/example-plugin.creds · 2 subjects</text>
+        <text class="edge" x="690" y="373" text-anchor="middle">SIGTERM here withdraws this plugin (BR-AS54)</text>
 
         <path class="proj" marker-end="url(#b-store)" d="M520 314 L520 420 L749 420"/>
         <text class="edge" x="635" y="414" text-anchor="middle">counter moves with the announcer</text>
@@ -197,7 +197,9 @@ li b { color: var(--text); font-weight: 600; }
       <li><b><code>frontend</code> is not optional and <code>backend</code> is new.</b> The registry's BR-AS61 probe dials the plugin over <code>frontend</code>, and <code>nats</code> lives on <code>backend</code>, so the merged container must join both.</li>
       <li><b>The no-proxy rule is what makes that safe.</b> The Go host's route set is exactly the asset root and <code>/healthz</code>, asserted as a set, and the signing seed and credential mount outside the asset root.</li>
       <li><b>Withdrawal still needs an explicit SIGTERM.</b> BR-AS54 is untouched, and the new risk the merge introduces is that a failure in the serving half must exit without unregistering.</li>
-      <li><b>The credential's name is the one open question.</b> The holder process stops being an announcer, and this repo names a dedicated credential exactly for its holder.</li>
+      <li><b>The credential was renamed, and that is the one line the merge falsified.</b> The holder stopped being an announcer, and this repo names a dedicated credential exactly for its holder, so <code>example-plugin-announcer.creds</code> became <code>plugins/example-plugin.creds</code>. The five moved into <code>nats/creds/plugins/</code> and are excluded from tenant discovery by directory rather than by name suffix, because <code>natstenants.Discover</code> already skips a directory entry (BR-D40).</li>
+      <li><b>The subject token moved with it.</b> Position 3 became <code>mfe-registry</code>, the service name minus <code>-service</code>, matching <code>refdata</code> and <code>shipping</code>. The count of subjects the publisher holds is unchanged; only their spelling is.</li>
+      <li><b>Not drawn here, but shipped alongside: the origin left the image.</b> <code>PLUGIN_PUBLIC_ORIGIN</code> is stamped in immediately before signing, so the origin sits inside the signed bytes (BR-AS47) and moving a plugin is a deployment change rather than a rebuild (BR-AS71). It is deliberately absent from the drawing &#8212; it changes what a manifest says, not which process holds which link.</li>
     </ul>
   </section>
 </div>
