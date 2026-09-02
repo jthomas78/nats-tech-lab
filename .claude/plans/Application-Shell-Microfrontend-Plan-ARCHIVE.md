@@ -2300,3 +2300,442 @@ during implementation; neither is complete without it.
       implemented.
 
 ---
+## Phase 14 — Completed (archived 2026-09-02)
+
+### Phase 14 — COMPLETE (2026-09-02) — One container per plugin: the announcer moves into the plugin's own process
+
+**Status: APPROVED 2026-09-02.** Option A and design decisions 1–10 approved. Scope widened the
+same day by decisions 12 and 13, which add **BR-AS71 and BR-AS72** — the phase is no longer
+rule-neutral, and the earlier "no new business rule IDs" line is superseded. Decisions 11 and 11b (credential naming, and the BR-D40 mechanism
+it moves) were raised after approval by the connection-topology count below, and both are now
+settled: the credentials are renamed to their plugin ids and excluded from tenant discovery by
+directory. Tests are derived; code follows them.
+
+Options review of record:
+[`reviews/adr-announcer-topology-20260902.md`](reviews/adr-announcer-topology-20260902.md) — four
+topologies compared against BR-AS54, BR-AS67, decision 8 and the credential-naming rule. **Option A
+selected**; B (one announce-manager for all plugins), C (Compose anchors only) and D (one-shot
+announce/unregister jobs) were rejected there, with reasons.
+
+#### The problem this phase closes
+
+Phase 13e is correct and stays correct — it is the *deployment shape* that is expensive. Today a
+plugin developer ships **two** runtime units: the frontend image and an `-announcer` sidecar whose
+Compose stanza is ~45 lines. The lab runs 5 plugin containers and 5 announcer containers for 5
+plugins. Nothing about the trust model requires two containers; Compose simply has no pod, so
+"a sidecar in the same pod" has no expression other than "a second container".
+
+The measured DX cost is **not** the container count on its own. Minting a signing keypair, minting an
+`-announcer` credential, adding a `publishers.json` row, and adding `REGISTRY_HEALTH_ORIGINS` /
+`REGISTRY_ALLOWED_ORIGINS` entries are per-plugin chores that **no** topology removes. Any phase that
+only deletes containers leaves most of the burden in place. This one addresses both halves.
+
+#### Design decisions — approved 2026-09-02 (11 and 11b raised after approval, both settled 2026-09-02)
+
+1. **The announcer becomes a library; the CLI becomes a thin wrapper over it.** Extract
+   `cmd/announce-plugin`'s internals into `shared/mferegistry/announcer` behind a single
+   `Start(ctx, Config)` that owns connect, announce, the release counter, and the SIGTERM unregister.
+   `cmd/announce-plugin` keeps its existing `main_test.go` and stays shipped — it is still the right
+   form for an announcer-only fixture and for unusual deployments. This is the same reusable-client
+   shape a *backend* plugin will import in Phase 11/12, so the package is built once here rather than
+   twice later.
+
+2. **A frontend-only plugin's container gets a small Go static host as PID 1, not a second process.**
+   A shared `mfe-plugin-host` image serves the plugin's built assets and calls
+   `announcer.Start` in-process. Running nginx behind a Go supervisor was considered and rejected:
+   two processes in one container is the thing this phase exists to remove, and it reintroduces the
+   signal-forwarding problem that `stop_grace_period` currently works around.
+
+3. **`nginx.conf` is the specification for the Go host, not a starting point.** Its four behaviours
+   are load-bearing and each gets its own test: `/healthz` returns `no-store` JSON with **no** CORS
+   header (BR-AS61 is server-to-server); `try_files $uri =404` with **no** SPA fallback, because
+   `example-plugin-unreachable`'s fixture is a genuine 404 and an `index.html` fallback would turn it
+   into a module parse error in the wrong state; a **named** `Access-Control-Allow-Origin` with
+   `Vary: Origin`, never `*`, because `REGISTRY_ALLOWED_ORIGINS` is only half a statement if this
+   side hands its code to anyone; and **no** `proxy_pass` of any kind.
+
+4. **`example-plugin-unreachable` keeps the CLI form.** It has no web server by design, so it stays
+   an announcer-only container. Five plugins therefore become four host containers plus one CLI
+   container, and the "one publisher per plugin" property is unchanged.
+
+5. **The release counter moves with the announcer, and stays a named volume.** BR-AS67 is unchanged
+   in substance — the counter is still the publisher's state, still persisted outside the image,
+   still injected immediately before signing. It is now attached to the plugin container instead of
+   a sidecar. This needs a one-line amendment under BR-AS67, not a new rule.
+
+6. **The plugin container joins the `backend` network — named as a trade-off, not hidden.** This is
+   the one real cost of Option A: a publicly-served static origin and a NATS credential now share a
+   network namespace. Mitigations are structural: the host serves only its asset root, the signing
+   seed and creds are mounted outside that root, and decision 3 forbids any proxy route. Recorded in
+   `ARCHITECTURE-APP-SHELL.md` as a lab trade-off **and** as a production review item — under
+   Kubernetes this becomes a real second container in the same pod, running the same package, and the
+   Go host goes back to being optional.
+
+7. **Withdrawal stays keyed to SIGTERM of the plugin's own container.** BR-AS54 is untouched: a crash
+   or a failed health probe still withdraws nothing. `stop_grace_period: 30s` moves to the plugin
+   stanza for the same reason it exists today — the unregister is a request/reply round trip and
+   Compose's default 10s turns a slow bus into a kill. This property is precisely what Option B would
+   have cost, and is why B was rejected.
+
+8. **One credential and one signing key per plugin, unchanged.** The bootstrap's existing reasoning
+   holds: a single shared announcer credential destroys connection attribution in the Admin
+   Connections panel and concentrates every signing key in one blast radius. The `nats.Name()` of the
+   plugin host equals its credential name, per the repo's credential-naming rule.
+
+9. **A scaffolder ships in this phase, not "later".** `scripts/new-plugin.sh` generates the plugin
+   directory, the single Compose stanza, the `bootstrap-operator.sh` loop entry, the health/allowed
+   origin mappings and the README port-table row. Per the problem statement above, this is the larger
+   half of the DX win; shipping the container change without it would leave the burden mostly intact.
+
+10. **`cmd/registry-acceptance` must pass unchanged, and is the gate for "done".** It drives
+    `compose stop` / `start` on `example-plugin` and asserts withdrawn → returned at releases
+    `N` / `N+1` / `N+2` with the other four as a control group. If the shape of that command has to
+    change to accommodate this phase, the phase is wrong — that was the tell that disqualified
+    Options B and D.
+
+#### Business rules — confirmed 2026-09-02: no new BR IDs
+
+The user confirmed this is a deployment-shape change only. Each rule below is unchanged in substance;
+the single amendment is one line under BR-AS67, landing with the code in 14e:
+
+- **BR-AS54** — unchanged. Withdrawal on explicit SIGTERM only; never on crash or health failure.
+- **BR-AS67** — unchanged in substance; needs a one-line amendment noting the counter volume now
+  attaches to the plugin container.
+- **BR-AS61** — unchanged. The frontend probe target and its no-CORS `/healthz` contract survive the
+  nginx → Go host swap; decision 3 makes that testable.
+- **BR-AS15** — re-read before implementing. A plugin is built by its own toolchain into its own
+  image; a **shared base image** is new for this repo and the claim should be confirmed as still true
+  (the base contributes a server and a client library, not a build step or a shell import).
+
+#### Connection topology — the fact that shapes decision 6 (added 2026-09-02)
+
+Counted from `docker-compose.yml` and `bootstrap-operator.sh`, **per announced plugin, today**:
+
+| Container | Network | NATS connections | HTTP |
+| --- | --- | --- | --- |
+| `lb-example-plugin` (nginx) | `frontend` only | **zero** | serves 2 callers: the browser on the published port `7111`, and the registry's `/healthz` probe on `example-plugin-frontend:80` |
+| `lb-example-plugin-announcer` | `backend` only | **one** — `example-plugin-announcer.creds`, pub on exactly the announce and unregister subjects, sub on `_INBOX.>` only | **none**, in or out |
+
+So there are **not** two connections in one place today. There are two containers, each holding
+exactly one kind of link, and **they never talk to each other** — they share only the plugin id and
+the manifest file. The frontend is HTTP-only with no bus access at all; the announcer is bus-only
+with no listener at all.
+
+**After this phase the totals are unchanged: one NATS connection and one HTTP listener per plugin.**
+Nothing is added or removed; the two are merely held by the same process. The lab still opens five
+announcer connections, still on five distinct credentials, still visible as five rows in the Admin
+Connections panel.
+
+What *does* change is network membership: the plugin container must now join **both** networks —
+`frontend` because the registry's BR-AS61 probe dials it there (the registry straddles both) and the
+browser reaches the published port, and `backend` because that is where `nats` is. That is decision
+6 stated precisely. The existing `frontend` comment ("for uniformity only. This container has no
+`proxy_pass` rule of any kind, so joining the network gains it nothing it can use") stops being true
+of `backend`, and decision 3's no-proxy rule is what keeps it from mattering.
+
+#### Decision 11 — the credential's name follows its holder — SETTLED 2026-09-02: option (a), rename
+
+The repo's credential rule is that a dedicated credential is *named for its holder, spelled exactly
+as that process's `nats.Name()`*, so that a Name/Credential mismatch in the Connections panel is a
+signal rather than noise. Today the holder is a process called the announcer, and
+`example-plugin-announcer` is right. After this phase the holder is the plugin host, and the name
+would be describing a job the process does rather than the process itself.
+
+**The call: rename.** Each plugin's credential becomes its plugin id — `example-plugin`,
+`example-plugin-slow`, `example-plugin-activate-throws`, `example-plugin-incompatible`,
+`example-plugin-unreachable` — and the host sets `nats.Name(pluginID)` to match. The rejected
+alternative was keeping `-announcer` and pointing `nats.Name()` at it: no reseed, but the panel
+would show a connection named for a container that no longer exists, which is the quiet drift the
+naming rule exists to prevent.
+
+Renaming an `nsc` user is delete-and-re-add, so this mints a new NKey for each of the five and needs
+`docker compose down -v` plus a bootstrap reseed, with the compose mounts moving to the new
+filenames in the same change. That is the lab's normal path and the release volumes are re-created
+on a fresh boot anyway (BR-AS66), so the cost lands entirely inside 14a.
+
+#### Decision 11b — BR-D40 stops keying on the name and starts keying on the directory
+
+Discovered while pricing decision 11, and it is the reason the rename is not a pure find-and-replace.
+`natstenants.NonTenantCredsSuffixes` is `[]string{"-announcer"}` — the suffix *is* how BR-D40 keeps
+five plugin credentials from being read as five bogus tenants. Rename the stems to plugin ids and
+that match evaporates, and the failure BR-D40 describes arrives five at a time. The plugin ids share
+no suffix to match on, and matching the `example-plugin` prefix would only work because these five
+are fixtures — a real `acme-widgets` plugin would not carry it.
+
+**Move the family marker from the spelling to the location.** `natstenants.Discover` scans one
+directory with `os.ReadDir` and already skips entries where `e.IsDir()`, so plugin credentials
+minted into `nats/creds/plugins/` are invisible to tenant discovery without any name matching at
+all. The bootstrap writes them there, the compose mounts read them from there, and
+`NonTenantCredsSuffixes` loses its only entry.
+
+Two consequences worth stating, because both are improvements the rename paid for rather than costs:
+
+- **A plugin credential can now be named anything a plugin id can be**, including a name that would
+  otherwise collide with a tenant. The directory boundary is stronger than a suffix convention, and
+  it cannot be defeated by a plugin author picking an unlucky id.
+- **`NonTenantCredsSuffixes` becomes an empty exported slice, not a deleted one.** The mechanism was
+  right and is worth keeping for the next family that genuinely has a shared suffix; its doc comment
+  changes to record why the announcer family stopped needing it.
+
+Its spec follows the same move: the existing BR-D40 case asserting that `-announcer` stems are
+skipped is replaced by one asserting that a `plugins/` subdirectory is not descended into, and that
+a `.creds` file whose stem equals a plugin id in the *top-level* directory is still read as a
+tenant — the rule has to keep working in the direction that would be a security problem if it did
+#### Decision 12 — the origin is stamped at announce time (BR-AS71, BR-AS72) — added 2026-09-02
+
+Found by reading how Module Federation actually resolves a remote. `public/manifest.json` ships
+`"url": "http://localhost:7111/remoteEntry.js"` **inside the image**, which is a live BR-AS15
+violation: the image is tied to one deployment, and a plugin built on a laptop would announce a
+laptop address to production.
+
+This lands in Phase 14 rather than a phase of its own because 14a already opens the exact code path.
+The announcer is moving into the plugin's own process, where it can read `PLUGIN_PUBLIC_ORIGIN` from
+deployment configuration and stamp it into the manifest immediately before signing — the same place,
+and the same one-line move, as the release counter already makes (BR-AS67). Doing it later means
+opening the announce path twice.
+
+Two shapes of URL are admissible after this, and the second is the one that matters for production:
+
+- **An absolute origin**, stamped from configuration, checked against BR-AS45's allowlist. This is
+  the lab, where five plugins sit on five ports.
+- **A path with no origin at all** (`/plugins/example-plugin/remoteEntry.js`), which is same-origin
+  with the shell and needs no allowlist entry. This is the likely production shape — one hostname,
+  one path prefix per plugin, no cross-origin fetch and therefore no CORS header anywhere.
+
+The refusal case is the reason BR-AS72 is a rule rather than a parser detail: a protocol-relative
+`//host/path` reads as a path and resolves to a foreign host, so it would walk a plugin past the
+allowlist while looking like the safe form.
+
+Federation needs nothing for the path-prefixed case. `remoteEntry.js` already loads its chunks with
+a relative `import('./assets/…')` resolved against its own URL, so every chunk follows the entry
+wherever it is mounted.
+
+#### Decision 13 — `registry` becomes `mfe-registry` in subject position 3 — added 2026-09-02
+
+Position 3 is the service token, and the convention is the service name minus `-service`:
+`refdata-service` → `refdata`, `shipping-service` → `shipping`. `mfe-registry-service` → `registry`
+is the one deviation in the taxonomy, and it leaves three spellings of one thing (service
+`mfe-registry-service`, package `mferegistry`, subject `registry`). After this there are two, and
+they differ only because Go forbids a hyphen.
+
+Measured before deciding: **129 occurrences across 35 files.** It rides Phase 14 because a subject
+rename is a breaking wire change needing `docker compose down -v` plus a bootstrap reseed, which
+14a already requires for the credential rename. Held back, it costs a second reseed.
+
+The Go side is mechanically safe — twelve constants in `shared/mferegistry/subjects.go`, with
+`TestShellReadIsUngatedAndEverythingElseIsNot` iterating `Subjects()` so a missed grant fails a test.
+**The JS side is not, and that is the real work.** `lab-shell` is disciplined (three exported
+constants), but `demos/01-dictionary/frontend/admin/src/api.js` inlines six raw subject strings at
+their call sites with no constants and no drift test. A missed string there does not fail a build;
+it fails at runtime as a request that times out. So 14a pulls those six into a constants module
+mirroring `subjects.go` **before** renaming anything — a module worth having whether or not the
+rename happens.
+
+Two things deliberately not done:
+
+- **`frontend-plugins` is not shortened.** With `mfe-registry` in position 3 the word "plugins"
+  appears twice, which is normal — position 3 is the service and position 4 is the entity, and
+  `refdata` reads the same way. The `frontend-plugins` / `entries` split is meaningful (the browser
+  view versus the publisher records), and bundling a second rename doubles the risk for nothing.
+- **The archives are not rewritten.** `Application-Shell-Microfrontend-Plan-ARCHIVE.md` is
+  append-only, and `lab-shell/diagrams/phase2-*` / `phase3-*` are historical design mockups. They
+  record what was true then. A blanket `sed` across the repo would corrupt the record, so the rename
+  is scoped to live code, live grants, live tests and live docs.
+
+not.
+#### Derived tests — from the rules, before the code
+
+Per `CLAUDE.md`: each rule gets a `Context` with one or more `It`s, specs land before the
+implementation, and the `BUSINESS_RULES-APP-SHELL.md` edit lands in the same task as the code.
+
+**BR-AS67 — the release sequence survives the move.** The four existing `It`s in
+`cmd/announce-plugin/main_test.go` move into the new package suite with their meaning unchanged:
+`N`/`N+1`/`N+2` across announce → unregister → re-announce; a crash retries the *current* announce
+release rather than claiming a new availability action; lost state that reuses a spent release and
+draws a `NoOp` demands explicit recovery; an exhausted or plugin-mismatched state file is refused.
+Two are **new to this phase**:
+
+- [ ] The state path is honoured as given, and there is **no** fallback to a path inside the image —
+      a config with an unset release path is a startup error, not a silent write to a layer that
+      vanishes with the container.
+- [ ] **The CLI and the host share one state format.** A state file written by `announce-plugin`
+      is read by the plugin host and continues the same sequence, and the reverse. This is the real
+      risk of the extraction — a forked format would look green in both suites and lose the counter
+      exactly once, in production, at the migration.
+
+**BR-AS54 — only SIGTERM withdraws.** The three existing `It`s move unchanged: a crash or a failed
+health check neither unregisters nor spends a release; SIGTERM publishes the unregister and persists
+the spent release; a failed SIGTERM unregister warns and still exits. **New surface to cover**, and
+the one genuinely new risk Option A introduces — the host now has a second way to die that a sidecar
+never had:
+
+- [ ] A failure in the *serving* half (an unreadable asset root, a listener that cannot bind, a
+      panic in a handler) exits **without** unregistering. Serving is not availability, and a plugin
+      whose disk went read-only has not been withdrawn by anybody.
+- [ ] `Start` returns without unregistering when its context is cancelled for any reason other than
+      SIGTERM.
+
+**BR-AS61 — the probe contract survives nginx → Go.** New specs against the host's handler:
+
+- [ ] `GET /healthz` answers 200 `application/json` with `Cache-Control: no-store`.
+- [ ] `/healthz` carries **no** `Access-Control-Allow-Origin` header. It is server-to-server, and a
+      CORS header here would invite the browser to ask a question it must read from the registry.
+- [ ] `/healthz` answers even when the asset root is empty — it says this origin is still serving,
+      never that the code works.
+
+**Decision 3 — the static contract is the specification, so each clause is a spec.**
+
+- [ ] A missing path is 404, never `index.html`. `example-plugin-unreachable`'s fixture depends on
+      this; an SPA fallback turns a fetch 404 into a module parse error in the wrong state.
+- [ ] An existing asset is 200 with a **named** `Access-Control-Allow-Origin` and `Vary: Origin`.
+- [ ] The allowed origin is required configuration. Unset is a startup error; `*` is never produced.
+- [ ] A traversal (`../`) cannot leave the asset root. nginx gave this away free and Go does not, and
+      the signing seed and credential are mounted as siblings of that root.
+- [ ] The mux's route set is exactly `/healthz` and the asset root — asserted as a set, so a future
+      `proxy`-shaped handler fails the suite rather than passing review.
+
+**BR-AS15 — own toolchain, own image, now over a shared base.** Per the
+`app-shell-deployment-gaps` memory, a green unit suite proves nothing about a Dockerfile, so these
+read the real files:
+
+- [ ] Each migrated plugin's Dockerfile keeps its own `package.json`, its own lockfile and its own
+      `npm run build`, and its final stage copies **only** `dist` into the shared base. The base
+      contributes a server and a client library, never a build step and never a shell import.
+- [ ] Compose shape: every announced plugin is exactly one service, and the only `-announcer`
+      service remaining is `example-plugin-unreachable`'s.
+- [ ] Every migrated plugin service joins both networks, and none of them gains a `proxy_pass`,
+      an `extra_hosts` or a port beyond its own.
+
+**Decision 9 — the scaffolder cannot drift from the real stanzas.**
+
+- [ ] `scripts/new-plugin.sh` run for a fixed id is compared against a golden fixture, and the
+      fixture is generated from a real migrated plugin — so a hand-edit to one of the five that the
+      generator does not know about fails the suite.
+
+
+**BR-D40 — the plugin credential family is excluded by location, not by spelling (decision 11b).**
+Two `It`s in `shared/natstenants`, replacing the one that asserts a `-announcer` stem is skipped:
+
+- [ ] `Discover` on a directory holding `acme.creds` and a `plugins/` subdirectory containing
+      `example-plugin.creds` returns exactly one tenant, `acme` — the subdirectory is not descended
+      into and its contents are not tenants.
+- [ ] `Discover` still returns a tenant for a top-level `example-plugin.creds`. The exclusion is the
+      directory and nothing else, so a future change that starts matching plugin ids by name is a
+      failing spec rather than a silent widening of what counts as not-a-tenant.
+
+
+**BR-AS71 — the origin is stamped, and it is stamped before the signature (decision 12).** Three
+`It`s in the announcer package, plus one fixture assertion:
+
+- [ ] Every fixture's checked-in `public/manifest.json` has a `remote.url` with no scheme and no
+      authority. Asserted over the set, so a sixth plugin added with a baked-in origin fails here
+      rather than in a deployment.
+- [ ] `announcer.Start` with `PLUGIN_PUBLIC_ORIGIN` configured publishes a manifest whose
+      `remote.url` carries that origin, and the plugin's own build never supplied it.
+- [ ] A manifest whose origin is rewritten *after* signing fails attestation. This is what pins the
+      stamp ahead of the signature rather than merely near it — without it, a passing suite would
+      still allow an ingress to rewrite the origin a shell loads from.
+
+**BR-AS72 — the three URL shapes (decision 12).** Four `It`s at the registry's admission boundary,
+one in the shell:
+
+- [ ] A path-only `remote.url` is admitted with no allowlist entry present.
+- [ ] An absolute `remote.url` is still checked against BR-AS45's allowlist and refused when unlisted
+      — the relative form must not have widened the absolute one.
+- [ ] A protocol-relative `//host/remoteEntry.js` is refused. The one that looks safe and is not.
+- [ ] A path-only entry resolves against the shell's own document origin in `federatedAdapter`, so
+      the same manifest loads correctly from any hostname.
+
+**Decision 13 — the subject rename has one list per language.** Not a business rule, so it earns
+structural specs rather than a `Context`:
+
+- [ ] The admin app's six inlined subject strings become one constants module, and a spec asserts the
+      module's values against the subject list — so the next rename is one edit per language, not a
+      repo-wide find-and-replace with no safety net.
+- [ ] `TestShellReadIsUngatedAndEverythingElseIsNot` passes unchanged after the rename, which is the
+      existing gate proving no subject shipped without a grant decision.
+
+**The exit criterion is not a unit test.** `go run ./backend/mfe-registry-service/cmd/registry-acceptance`
+must pass **unchanged**, against the running lab, with its nine steps and its four-plugin control
+group. If that command has to be edited to accommodate this phase, the phase is wrong — needing to
+edit it is precisely what disqualified Options B and D.
+
+**Outcome 2026-09-02: PASSED, and the harness did need three edits.** They are recorded here rather
+than waved through, because "unchanged" was the written criterion and this is a deviation from it.
+Decision 10 states the test as *shape*, and none of the three touches the shape: all nine steps
+survive, every assertion survives, and the four-plugin control group survives. What changed is the
+deployment vocabulary the harness speaks, which is exactly what this phase set out to change.
+
+- `subjectService` moves from `example-plugin-announcer` to `example-plugin-frontend`. 14c *requires*
+  deleting that Compose service, so no version of this phase could have left the constant standing —
+  the criterion and the task list cannot both be satisfied literally.
+- `pathOf` and `reOrigin` are deleted, with their three unit tests. Step 6 relocated the plugin by
+  rewriting the manifest's origin. Since BR-AS71 there is no origin in a manifest to rewrite, and
+  `PLUGIN_PUBLIC_ORIGIN` is required with no fallback, so the rewrite was not merely redundant — the
+  stamped value silently won and the step asserted against a value the publisher never sent.
+- `spawn` gains an env argument, and step 6 moves the plugin by overriding `PLUGIN_PUBLIC_ORIGIN` for
+  that one container. This is a **stronger** test than the one it replaces: "the requeue turns on the
+  origin and nothing else" used to be three assertions about a rewrite, and is now true by
+  construction because the harness no longer touches the manifest at all.
+
+The run that passed used `-reset` (registry schema drop and re-seed). A run against a registry left
+mid-sequence by an earlier failure will fail at step 1 on a stale approval — that is the flag doing
+its job, not a regression.
+
+#### Task checklist
+
+- [x] **14a — the package.** Extract `shared/mferegistry/announcer` (own `go.mod`, added to
+      `go.work` beside `shared/mferegistry/client`). Move the BR-AS67 and BR-AS54 specs first, then
+      the code; `cmd/announce-plugin` becomes a wrapper and keeps a passing suite. Carries decisions
+      11 and 11b: the five credentials are re-minted under their plugin ids into `nats/creds/plugins/`,
+      `NonTenantCredsSuffixes` empties, `natstenants` gains its subdirectory spec, and the compose
+      mounts move in the same change. Also carries decision 13: the admin constants module lands
+      FIRST, then `registry` becomes `mfe-registry` across live code, grants, tests and docs — never
+      the archives. Ends with `docker compose down -v` and a bootstrap reseed, one for all three
+      breaking changes.
+      *Shipped: `shared/mferegistry/announcer` (announcer.go, release.go, own module in `go.work`);
+      `cmd/announce-plugin` is now a wrapper. Creds live in `nats/creds/plugins/` under plugin ids,
+      excluded by directory (BR-D40) since `natstenants.Discover` skips `IsDir()`. Subject token
+      `registry` → `mfe-registry` across live code, grants, tests and docs; admin reads it from the
+      new `registrySubjects.js`. `frontend-plugins` and `rpc._platform.health.{service}.ready.v1`
+      unchanged by design. Reseeded with `down -v`.*
+- [x] **14a2 — the origin.** Decision 12: `PLUGIN_PUBLIC_ORIGIN` stamped before signing, the three
+      URL shapes at the registry boundary, relative resolution in `federatedAdapter`, and the five
+      fixture manifests stripped of their baked-in `http://localhost:711x`. Specs before code.
+      *Shipped: `PLUGIN_PUBLIC_ORIGIN` is required with no manifest fallback, stamped in immediately
+      before signing so the signed bytes carry it (BR-AS47). All five manifests now hold a path-only
+      URL. Protocol-relative `//host/path` is refused (BR-AS72).*
+- [x] **14b — the host.** `shared/mfe-plugin-host`: the decision-3 and BR-AS61 specs first, then the
+      server, then `announcer.Start` alongside it. No second process.
+      *Shipped: `shared/mfe-plugin-host` — one Go binary serving the asset root plus a bounded
+      `/healthz` with no CORS header (BR-AS61), a named `Access-Control-Allow-Origin` (never `*`) on
+      assets, `try_files`-equivalent 404 with no SPA fallback, and a route set asserted as a set so
+      no proxy-shaped route can be added. Announcer runs in-process; SIGTERM is still the only thing
+      that withdraws (BR-AS54).*
+- [x] **14c — migrate four fixtures.** `example-plugin`, `-slow`, `-activate-throws`,
+      `-incompatible` onto the base image; delete their four announcer stanzas; move
+      `stop_grace_period` and the release volume onto the plugin service; add `backend`.
+      `example-plugin-unreachable` keeps the CLI form and its own stanza.
+      *Shipped: ten containers became five. `example-plugin-unreachable` keeps its CLI announcer, and
+      `demo-catalog` was left alone — it is curated (`mfe.source: preload`), not announced.*
+- [x] **14d — the scaffolder.** `scripts/new-plugin.sh` plus its golden-fixture spec, and the
+      bootstrap/origins/README chores it generates.
+      *Shipped: `scripts/new-plugin.sh` + `scripts/templates/plugin-compose.yml.tpl`, pinned by a
+      golden fixture in `shared/mfe-plugin-host/deployment_test.go`. `lab-shell/plugins/README.md`
+      documents the flow.*
+- [x] **14e — rules and docs.** The one-line BR-AS67 amendment (the counter volume now attaches to
+      the plugin container), the credential-naming table row (decision 11), and the subject-token row
+      for `mfe-registry` (decision 13). BR-AS71 and BR-AS72 are already written; 14e checks their
+      test matrix against what shipped.
+      `ARCHITECTURE-APP-SHELL.md` gains the Phase 14 as-built section, the before/after diagram, and
+      loses the Phase 13 claims the migration invalidates.
+      *Shipped: BR-AS67 amended, credential-naming row added, `ARCHITECTURE-COMMUNICATIONS.md` gained
+      the `{service}` = service-name-minus-`-service` rule (decision 13), `ARCHITECTURE-APP-SHELL.md`
+      gained the BR-AS71/72 origin section plus an as-built subsection, and
+      `diagrams/mfe-announcer-topology.html` → `images/mfe-announcer-topology.png` is the before/after.
+      Phase 2 and Phase 3 diagrams left untouched as historical record.*
+- [x] **14f — the gate.** `cmd/registry-acceptance` unchanged and green against the running lab.
+      *PASSED 2026-09-02 with `-reset`: all nine steps, four-plugin control group intact. The harness
+      needed three edits; they are recorded and justified in "Outcome 2026-09-02" above.*
+
+---
