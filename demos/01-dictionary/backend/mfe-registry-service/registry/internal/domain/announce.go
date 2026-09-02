@@ -61,15 +61,17 @@ const (
 //     own origin, and re-queues when the remote crosses one. An enabled entry
 //     with no recorded lifecycle is not dynamic and does not get this.
 func DecideAnnounce(existing *Entry, incoming Entry) (AnnounceOutcome, Entry) {
-	// A plugin never states its own trust tier or activation. ParseManifest
-	// refuses a payload that tried; this is the second line, so a caller
-	// that built an Entry some other way cannot get past it either
-	// (BR-AS39, BR-AS43).
-	incoming.Enabled = false
+	// A plugin never states its own trust tier, activation, availability or
+	// announcement stamps. ParseManifest refuses a payload that tried; this is
+	// the second line, so a caller that built an Entry some other way cannot
+	// get past it either (BR-AS39, BR-AS43, BR-AS70). Cleared as a set rather
+	// than field by field — the field-by-field version had already missed
+	// Withheld.
+	incoming = incoming.WithoutCuration()
+	// The one curated fact an announcement does decide for itself: an
+	// announced entry is dynamic by construction. Whether it comes back from a
+	// withdrawal is decided below, per branch.
 	incoming.Lifecycle = LifecycleDynamic
-	// Availability is store-owned too (BR-AS43): a payload cannot declare
-	// itself back. Whether it comes back is decided below, per branch.
-	incoming.Withdrawn = false
 
 	if existing == nil {
 		return AnnounceInserted, incoming

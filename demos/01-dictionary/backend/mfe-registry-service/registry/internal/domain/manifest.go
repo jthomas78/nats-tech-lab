@@ -69,11 +69,13 @@ func (e Entry) Attested() bool {
 
 // signedContent is the entry with everything the signature does not cover
 // zeroed out, so two entries can be compared on what was actually signed.
+// The curated facts are cleared through the one definition of that set, not
+// by a second list here: this list and the announcement's had already drifted
+// apart from the struct — neither cleared Withheld or Withdrawn, so a
+// withdrawn signed entry read as un-attested although nothing signed had
+// changed.
 func (e Entry) signedContent() Entry {
-	e.Enabled = false
-	e.Lifecycle = ""
-	e.AnnouncedAt = ""
-	e.LastAnnouncedAt = ""
+	e = e.WithoutCuration()
 	e.Manifest = nil
 	return e
 }

@@ -1284,6 +1284,28 @@ below add no new ID — they record a decision *not* to grow an existing rule.
   contract. Before this rule the registry stored entries every shell rejected
   as `incompatible`, and the operator who curated one learned nothing until
   someone opened the Plugins screen.
+- **BR-AS70 — Publisher-asserted and platform-owned are one named split.**
+  Added 2026-09-02. `enabled`, `lifecycle`, `withheld`, `withdrawn`,
+  `announcedAt` and `lastAnnouncedAt` are the platform's; everything else in an
+  entry is the publisher's. `release` is deliberately the publisher's — it is
+  inside the signed bytes, so it cannot be moved without the key (BR-AS47). The
+  set is named once, in `domain.CuratedFields()`, and the three paths that
+  cross the split ask it: a payload asserting one of these is **refused by
+  name** rather than ignored (a publisher who is ignored believes they were
+  heard); an announcement clears the whole set whatever the caller assembled;
+  and attestation compares the publisher's half only, so a platform decision
+  never invalidates a signature.
+
+  **Why one definition.** Each path used to carry its own list, and they had
+  drifted: the parser refused four names, the announcement zeroed three fields,
+  the attestation comparison zeroed four, and the struct's comments named two
+  more. Two live consequences followed. A signed payload could assert
+  `"withheld": true`, which reaches every shell running that plugin as a
+  tombstone and forces a reload — a publisher choosing a platform action. And a
+  withdrawn signed entry reported itself un-attested, because the comparison
+  still counted a field the platform had set. A spec pins every field of
+  `Entry` to one side or the other, so a field added without a decision fails a
+  test rather than defaulting to publisher-asserted by silence.
   - **Test:** `cmd/seed-publishers/main_test.go` — pins the exact op sequence
     for an empty registry and its ordering independence from the file's own
     order; a second run planning zero writes; a `revoked` key left revoked and

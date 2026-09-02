@@ -97,7 +97,10 @@ func ParsePreload(raw []byte) (PreloadFile, error) {
 // ParsePreload by exactly one field: a plugin may not enable itself
 // (decisions 72, 79; BR-AS43).
 func ParseManifest(raw []byte) (Entry, error) {
-	if err := refuseSelfAsserted(raw, "source", "lifecycle", "enabled", "revision"); err != nil {
+	// The platform-owned set plus two names that are not Entry fields at all:
+	// "source", which the store decides, and "revision", which only the store
+	// can assign (BR-AS17).
+	if err := refuseSelfAsserted(raw, append(CuratedFields(), "source", "revision")...); err != nil {
 		return Entry{}, err
 	}
 	var e Entry
