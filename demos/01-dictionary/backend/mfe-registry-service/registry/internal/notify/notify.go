@@ -15,7 +15,10 @@
 // published it.
 package notify
 
-import "github.com/jthomas78/nats-tech-lab/shared/natsnotify"
+import (
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
+)
 
 // Changed is the change notification the shell and the admin surface watch.
 // It is a hint and never a payload to install from (decision 55): a shell
@@ -44,6 +47,24 @@ func HealthChanged() natsnotify.Subject {
 			Service: "registry",
 			Entity:  "frontend-plugins",
 			Action:  "health",
+		},
+	}
+}
+
+// EntriesReset is the catalogue-reset notice (BR-AS73). Publisher-facing, so
+// the entity is `entries` and not the browser's `frontend-plugins` view: the
+// audience is the processes that announce, not the ones that read.
+//
+// It is a statement of fact and never a command — deliberately not `cmd.*`,
+// which would claim the registry has authority over a plugin's process.
+func EntriesReset() natsnotify.Subject {
+	return natsnotify.Subject{
+		Name: mferegistry.EntriesReset,
+		Tokens: natsnotify.Tokens{
+			Context: "_platform",
+			Service: "registry",
+			Entity:  "entries",
+			Action:  "reset",
 		},
 	}
 }

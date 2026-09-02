@@ -513,11 +513,16 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # takes running code off an operator's screen, so it is granted on purpose
 # and not swept up by a prefix.
 #
+# The catalogue-reset notice is publish-only here and subscribe-only over
+# there (BR-AS73). The registry can state that it lost its catalogue; it can
+# never hear another party state it, so nothing outside this service can make
+# the fleet re-announce.
+#
 # What is deliberately absent: broad rpc.>, any evt.>, any other service's api.*,
 # and the whole $SYS axis. The registry reads and writes one catalog.
 nsc add user --account PLATFORM mfe-registry-service >/dev/null
 nsc edit user --account PLATFORM --name mfe-registry-service \
-  --allow-pub '$SRV.>,_INBOX.>,notify._platform.mfe-registry.frontend-plugins.changed,notify._platform.mfe-registry.frontend-plugins.health,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.mfe-registry.>' \
+  --allow-pub '$SRV.>,_INBOX.>,notify._platform.mfe-registry.frontend-plugins.changed,notify._platform.mfe-registry.frontend-plugins.health,notify._platform.mfe-registry.entries.reset,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.mfe-registry.>' \
   --allow-sub 'api._platform.mfe-registry.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1,notify._platform.health.frontend.*.v1,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name mfe-registry-service >"$NATS_DIR/creds/mfe-registry-service.creds"
 
@@ -591,7 +596,7 @@ for plugin in "${PLUGIN_PUBLISHERS[@]}"; do
   nsc add user --account PLATFORM "$holder" >/dev/null
   nsc edit user --account PLATFORM --name "$holder" \
     --allow-pub "_INBOX.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1,notify._platform.health.frontend.$plugin.v1" \
-    --allow-sub '_INBOX.>,rpc._platform.health.frontend.census.v1' >/dev/null
+    --allow-sub '_INBOX.>,rpc._platform.health.frontend.census.v1,notify._platform.mfe-registry.entries.reset' >/dev/null
   nsc generate creds --account PLATFORM --name "$holder" >"$NATS_DIR/creds/plugins/$holder.creds"
 done
 {
@@ -611,6 +616,12 @@ rm -f "$NATS_DIR/keys/publishers.json.tmp"
 # plane's shape checkable: publish is one exact subject, subscribe is the
 # census and the inbox. It cannot announce, it cannot unregister, and it
 # cannot report on another plugin's behalf.
+#
+# It also does NOT subscribe to the catalogue-reset notice the announcing
+# plugins above hear (BR-AS73). The notice asks a publisher to re-announce,
+# and this one has no announce path to use — a grant to hear it would be a
+# grant to do nothing. Its entry survives a catalogue loss the other way:
+# the operator's preload file puts it back.
 nsc add user --account PLATFORM demo-catalog >/dev/null
 nsc edit user --account PLATFORM --name demo-catalog \
   --allow-pub '_INBOX.>,notify._platform.health.frontend.demo-catalog.v1' \

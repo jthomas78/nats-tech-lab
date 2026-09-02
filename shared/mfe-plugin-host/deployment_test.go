@@ -113,6 +113,46 @@ var _ = Describe("Migrated plugin deployment", func() {
 		})
 	})
 
+	// The reset notice's grants are the rule made server-enforced (BR-AS73):
+	// one party may state a catalogue loss and everyone else may only hear it.
+	// A spec, not a comment in the bootstrap, because a grant that quietly
+	// widens is exactly the kind of change nothing else reports.
+	Context("BR-AS73 — who may state a catalogue reset, and who may only hear one", func() {
+		const subject = "notify._platform.mfe-registry.entries.reset"
+
+		grant := func(bootstrap, flag, user string) string {
+			at := strings.Index(bootstrap, "--name "+user+" \\\n")
+			Expect(at).To(BeNumerically(">=", 0), user)
+			rest := bootstrap[at:]
+			line := strings.Index(rest, flag+" ")
+			Expect(line).To(BeNumerically(">=", 0), user+" "+flag)
+			rest = rest[line+len(flag)+2:]
+			return rest[:strings.Index(rest, "'")]
+		}
+
+		It("lets only the registry publish it, and only the announcing plugins hear it", func() {
+			bootstrap := readRepositoryFile("demos", "01-dictionary", "nats", "bootstrap-operator.sh")
+			Expect(grant(bootstrap, "--allow-pub", "mfe-registry-service")).To(ContainSubstring(subject))
+			Expect(grant(bootstrap, "--allow-sub", "mfe-registry-service")).NotTo(ContainSubstring("entries.reset"))
+			Expect(grant(bootstrap, "--allow-sub", `"$holder"`)).To(ContainSubstring(subject))
+			Expect(grant(bootstrap, "--allow-pub", `"$holder"`)).NotTo(ContainSubstring("entries.reset"))
+		})
+
+		// demo-catalog has no announce grant, so hearing the notice would let
+		// it do nothing. Its entry comes back from the operator's preload.
+		It("does not grant it to the curated plugin, which has nothing to re-announce", func() {
+			bootstrap := readRepositoryFile("demos", "01-dictionary", "nats", "bootstrap-operator.sh")
+			Expect(grant(bootstrap, "--allow-sub", "demo-catalog")).NotTo(ContainSubstring("entries.reset"))
+		})
+
+		It("is granted as one exact subject, never a prefix", func() {
+			bootstrap := readRepositoryFile("demos", "01-dictionary", "nats", "bootstrap-operator.sh")
+			for _, wildcard := range []string{"notify._platform.mfe-registry.entries.>", "notify._platform.mfe-registry.>"} {
+				Expect(bootstrap).NotTo(ContainSubstring(wildcard), wildcard)
+			}
+		})
+	})
+
 	Context("BR-AS67 — CLI and host use the same release implementation", func() {
 		It("calls announcer.Start from both process entry points", func() {
 			cli := readRepositoryFile("demos", "01-dictionary", "backend", "mfe-registry-service", "cmd", "announce-plugin", "main.go")

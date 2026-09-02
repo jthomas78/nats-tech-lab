@@ -153,3 +153,32 @@ func isWrongLastRevision(err error) bool {
 	}
 	return false
 }
+
+// Reset overwrites the cached document UNCONDITIONALLY, discarding a held
+// copy at a higher revision.
+//
+// It is the one write that is allowed past BR-AS51's monotonic rule, and only
+// because the premise that rule rests on has failed. Put refuses to go
+// backwards so that a late or reordered write cannot serve withdrawn code
+// during an outage. When the source of truth itself has gone backwards — a
+// truncated table, a restore from a stale backup — the cached higher revision
+// is no longer a newer truth to protect; it is a memory of entries that no
+// longer exist, and serving it during the next outage is the harm, not the
+// safeguard.
+//
+// So this is reachable from exactly one place: the catalogue-reset path,
+// after the loss has been concluded and stated (BR-AS73). It is deliberately
+// not a flag on Put — a boolean there would make going backwards an option at
+// every call site rather than a decision taken once.
+func (c *Cache) Reset(ctx context.Context, doc domain.Document) error {
+	kv, err := c.bucket(ctx)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	_, err = kv.Put(ctx, Key, body)
+	return err
+}

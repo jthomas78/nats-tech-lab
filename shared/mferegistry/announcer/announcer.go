@@ -319,6 +319,31 @@ func Start(ctx context.Context, cfg Config) error {
 		}
 	}
 
+	// The reset watcher goes up only AFTER the start-up announcement has been
+	// accepted, and only for a publisher that has an announce path at all.
+	// Subscribing first would leave a notice able to race the very
+	// announcement it is asking for, over one release store; the window this
+	// costs instead is a notice arriving during start-up, which is worth
+	// nothing to a plugin that is announcing in that same moment (BR-AS73).
+	if r != nil && bus != nil {
+		if subscriber, ok := bus.(noticeBus); ok {
+			watcher := newResetWatcher(pluginID, func(ctx context.Context) error {
+				announceCtx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout)
+				defer cancel()
+				return r.announce(announceCtx)
+			}, cfg.Logger)
+			stopWatch, watchErr := watcher.Watch(ctx, subscriber)
+			if watchErr != nil {
+				// A publisher that cannot hear the backstop is still a
+				// correctly announced publisher. Failing start-up here would
+				// make the recovery mechanism a new way to fail to start.
+				cfg.Logger.Warn("catalogue-reset notices will not be heard", "plugin", pluginID, "error", watchErr)
+			} else {
+				defer stopWatch()
+			}
+		}
+	}
+
 	term := cfg.signals
 	if term == nil {
 		owned := make(chan os.Signal, 1)

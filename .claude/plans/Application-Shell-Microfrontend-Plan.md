@@ -783,7 +783,7 @@ and are carried into the tasks below. The three that would have broken something
       **From the review:** `demo-catalog` gains a health responder and a credential granted only its
       own health token — no announce, no unregister. Curation stays a property of how an entry
       reached the catalogue, not of whether it can be asked whether it is alive.
-- [ ] **15d — the reset notice.** `notify._platform.mfe-registry.entries.reset` on core NATS with no
+- [x] **15d — the reset notice.** *(Done 2026-09-02.)* `notify._platform.mfe-registry.entries.reset` on core NATS with no
       durability (decisions 6, 8), carrying its own jitter window (decision 7). The reset *predicate*
       — "I lost my catalogue", not "I restarted" — is itself a rule with a spec (decision 13),
       because a wrong predicate reopens the hole this phase closes and does so silently.

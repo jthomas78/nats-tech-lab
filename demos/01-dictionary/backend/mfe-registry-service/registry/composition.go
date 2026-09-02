@@ -149,6 +149,28 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 
 	notifier := natsnotify.New(nc, log)
 	m := &Module{Service: application.New(store, cache, allowlist, notifier, log), store: store}
+	/*
+		The catalogue-reset check runs HERE, first, and the ordering is the
+		rule rather than a preference (BR-AS73).
+
+		Its witness is the read cache, and almost everything below repairs
+		that cache on the way past — preload writes entries, and the first
+		health pass reads the catalogue through the service. Either would
+		erase the evidence before it was looked at, and the failure would be
+		silent: no error, just a backstop that never fires again.
+
+		A notice here reaches only the plugins that are up. That is the whole
+		point — the ones that are not up will announce when they start.
+	*/
+	if fired, resetErr := m.Service.AnnounceCatalogueReset(ctx, "registry startup", time.Now().UTC()); resetErr != nil {
+		// Not fatal. A registry that could not state a reset is still a
+		// registry; making the recovery path a new way to fail to start
+		// would trade a rare silent gap for a common loud one.
+		log.Warn("registry: could not state a catalogue reset", "error", resetErr)
+	} else if fired {
+		log.Warn("registry: catalogue reset stated; live publishers will re-announce after their jitter")
+	}
+
 	var err error
 	m.Preload, err = preload.Run(ctx, os.Getenv("REGISTRY_PRELOAD_FILE"), m.Service, log)
 	if err != nil {
