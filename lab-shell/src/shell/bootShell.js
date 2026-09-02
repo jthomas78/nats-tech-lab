@@ -21,7 +21,7 @@ import { createContributionRegistry } from './contributions/contributionRegistry
 import { declareShellExtensionPoints } from './extensions/extensionPoints.js'
 import { validateManifest } from './registry/manifestSchema.js'
 import { PLUGIN_STATUS, PluginStatusRecord } from './registry/pluginStatus.js'
-import { diffRegistry, RELOAD_REASON } from './registry/registryDiff.js'
+import { decideRead } from './registry/readPolicy.js'
 import { RemoteAllowlist } from './registry/remoteAllowlist.js'
 
 /**
@@ -141,148 +141,66 @@ export async function bootShell({
     }
   }
 
-  /* The tombstones in a document, against what the shell is running.
-     Deliberately NOT diffRegistry: that function reads an absent id as a
-     removal, which is right for a document the service vouched for and wrong
-     for a stale one. Here the only signal taken is the presence of a
-     tombstone — never the absence of an entry. */
-  const revocationsIn = (entries = []) => {
-    const running = new Set(plugins.map((p) => p.id))
-    return (entries ?? [])
-      .filter((e) => e?.withheld === true && running.has(e.id))
-      .map((e) => ({
-        id: e.id,
-        name: plugins.find((p) => p.id === e.id)?.name ?? e.id,
-        reason: RELOAD_REASON.REVOKED,
-        forced: true,
-      }))
-  }
-
-  /* The withdrawal markers in a document, against what the shell is running
-     (BR-AS54). Read on the same terms as a tombstone: only the PRESENCE of a
-     marker is taken, never the absence of an entry, because a filtered,
-     degraded or failed read is also an absence. */
-  const withdrawalsIn = (entries = []) =>
-    (entries ?? [])
-      .filter((e) => e?.withdrawn === true && e?.withheld !== true)
-      .filter((e) => plugins.some((p) => p.id === e.id))
-      .map((e) => ({ id: e.id, name: plugins.find((p) => p.id === e.id)?.name ?? e.id }))
-
   const applyWithdrawals = (changes) => {
     for (const change of changes) contributions.withdraw(change.id, statuses)
     return changes
   }
 
+  /*
+    Decide, then do. Every rule about what a read MEANS — degraded, 304,
+    failed, a document — lives in `decideRead`, which is pure and specced on
+    its own; what is left here is the doing, and it is deliberately dull:
+    install the state the policy returned, index what it says is new, offer
+    what it says needs a reload, apply what it says was taken away.
+
+    The one thing this function still decides is ORDER, because order is an
+    effect: routes are measured before admission so only the new ones are
+    handed back.
+  */
   const applyRegistry = (discovery) => {
-    if (!discovery?.ok) {
-      /* Recorded, not thrown. The native shell frame remains usable, and the
-         Plugins screen shows why the remote list is empty. */
-      registryError.value = { code: discovery?.code ?? 'registry-malformed', message: discovery?.message ?? '' }
-      /* Same rule as the degraded branch (decision 48): a read the shell
-         could not complete leaves it unable to say what the server would
-         honour, so the next one asks unconditionally rather than betting the
-         recovery on a token from before the outage. */
-      registry.heldRevision = null
-      return { added: [], addedRoutes: [], reloadRequired: [], withdrawn: [], restored: [] }
+    const decision = decideRead(discovery, {
+      current: registry,
+      running: plugins,
+      isWithdrawn: (id) => contributions.isWithdrawn(id),
+    })
+
+    registryError.value = decision.error
+    Object.assign(registry, decision.registry)
+
+    let addedRoutes = []
+    if (decision.added.length > 0 || decision.outcome === 'document') {
+      const before = new Set(contributions.routes.map((route) => route.qualifiedId))
+      for (const manifest of decision.added) admit(manifest)
+      contributions.index(plugins, statuses)
+      /* Only the routes this read placed. The caller adds them to a router
+         that already holds the rest, so handing back all of them would
+         re-register every route on every change. */
+      addedRoutes = contributions.routes.filter((route) => !before.has(route.qualifiedId))
     }
 
-    registryError.value = null
-    registry.fetchedAt = discovery.fetchedAt ?? registry.fetchedAt
-    /* Cleared on ANY successful read, a 304 included, and therefore before
-       the `unchanged` guard below rather than after it (decision 48). A 304
-       is positive evidence the service is answering; leaving the flag set
-       through one made degraded a one-way door, because recovery at the same
-       revision is exactly what answers 304. */
-    registry.degraded = discovery.degraded === true
-    /* BR-AS22: an empty document that says it is degraded is not the same
-       claim as an empty registry, and the native frame remains usable either
-       way. A degraded read is therefore never read as "everything was
-       withdrawn" — diffing it would offer a reload for every remote plugin
-       the shell is running, on the strength of a document the service already
-       said it could not vouch for. */
-    if (registry.degraded) {
-      /* And the conditional token goes with it. A degraded response carries
-         no revision it stands behind, so keeping the pre-outage one would have
-         the shell ask
-         "anything newer than the revision I hold?" and be told no — for a
-         document the service never served it. The next read is unconditional
-         and the answer is a real document. */
-      registry.heldRevision = null
-      /* One thing IS taken from a degraded document: a tombstone (BR-AS49).
-         The reasoning above is that a stale document cannot be trusted to
-         say what exists — but it can be trusted to say what was withdrawn,
-         because cache writes are monotonic (BR-AS51) and withdrawal is the
-         safe direction to be wrong in. A revocation that arrived just before
-         Postgres went down must not wait out the outage. */
-      /* Raised, never synced. A degraded document is not evidence that
-         anything was taken back (decision 48), so an offer standing from a
-         healthy read must survive the outage. */
-      const withheld = revocationsIn(discovery.plugins)
-      raiseReload(withheld)
-      /* A withdrawal is taken from a degraded document for the same reason a
-         tombstone is: the shell cannot trust a stale document to say what
-         exists, but it can trust it to say what was taken away, and away is
-         the safe direction to be wrong in. No RETURN is ever taken from one —
-         putting a plugin back needs a document the service vouched for. */
-      return {
-        added: [],
-        addedRoutes: [],
-        reloadRequired: withheld,
-        withdrawn: applyWithdrawals(withdrawalsIn(discovery.plugins)),
-        restored: [],
-      }
-    }
-
-    /* Kept beside the revision so the watcher can pick the conditional read
-       up from wherever the shell left off — including a boot read it did not
-       make itself. */
-    registry.heldRevision = discovery.heldRevision ?? registry.heldRevision
-    /* A 304 carries no document. Nothing to diff, nothing to place — and
-       deliberately no clearing of what is already on screen. */
-    if (discovery.unchanged) {
-      return { added: [], addedRoutes: [], reloadRequired: [], withdrawn: [], restored: [] }
-    }
-
-    registry.revision = discovery.revision ?? null
-
-    const { added, reloadRequired, withdrawn, restored } = diffRegistry(
-      plugins,
-      discovery.plugins,
-      { isWithdrawn: (id) => contributions.isWithdrawn(id) },
-    )
-    const before = new Set(contributions.routes.map((route) => route.qualifiedId))
-    for (const manifest of added) admit(manifest)
-    contributions.index(plugins, statuses)
-
-    /* Synced with this read, not accumulated across reads. `diffRegistry` is a
-       pure comparison of the document against the manifests the shell is
-       running, and the running set only ever grows — so a change that still
-       holds is produced again by every later read, and one this read did not
-       produce is one the document no longer supports.
-
-       Retraction is what that buys, and it is not a nicety: an operator who
+    /* Sync retracts an offer this read no longer supports; raise cannot.
+       Which one a read earns is the policy's call, not this function's — see
+       `retract` in readPolicy.js. Retraction is not a nicety: an operator who
        disabled an entry and re-enabled it seconds later left every running
        shell insisting a plugin it was still rendering had been withdrawn.
        Nothing here applies anything — the offer is withdrawn, never the
        plugin (decision 25 / BR-AS19). */
-    syncPendingReload(reloadRequired)
+    if (decision.retract) syncPendingReload(decision.reloadRequired)
+    else raiseReload(decision.reloadRequired)
 
     /* Applied, not offered — the one catalogue change other than an addition
        that a running shell may act on (BR-AS56). Taking UI away cannot leave
        two versions of one plugin in one page, which is what every reload
        offer above exists to prevent. */
-    applyWithdrawals(withdrawn)
-    for (const change of restored) contributions.restore(change.id, statuses)
+    applyWithdrawals(decision.withdrawn)
+    for (const change of decision.restored) contributions.restore(change.id, statuses)
 
     return {
-      added,
-      withdrawn,
-      restored,
-      /* Only the routes this read placed. The caller adds them to a router
-         that already holds the rest, so handing back all of them would
-         re-register every route on every change. */
-      addedRoutes: contributions.routes.filter((route) => !before.has(route.qualifiedId)),
-      reloadRequired,
+      added: decision.added,
+      withdrawn: decision.withdrawn,
+      restored: decision.restored,
+      addedRoutes,
+      reloadRequired: decision.reloadRequired,
     }
   }
 

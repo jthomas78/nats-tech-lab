@@ -599,6 +599,16 @@ survive the Phase 6 move (decision 40).
   left every running shell claiming a plugin it was still rendering had been
   withdrawn.)
 
+  **Decided in one place, done in another, since 2026-09-02.** What a read
+  means — failed, degraded, `unchanged`, or a document the service vouched for,
+  and what each one licenses — is a pure function, `shell/registry/readPolicy.js`.
+  `bootShell` installs what it returns and does nothing else with it. The rules
+  above are the shell's hardest reasoning and they were previously assertable
+  only by booting a shell, admitting manifests and reading back reactive state,
+  so a spec about "what a degraded read may retract" had to go through three
+  collaborators that have nothing to do with the question. No rule changed in
+  the move; `readPolicy.spec.js` states them directly.
+
   **A new entry id is the only difference a running shell may apply to itself
   (decision 46).** Every other difference between the entry it holds and the
   entry that arrives — a changed label, order, route prefix, permission,
@@ -781,7 +791,7 @@ mounts rule.
 | BR-AS16 — service state | *2a, done.* `registry/store_integration_test.go`, against real Postgres: an entry applied through `Apply` is present in the next `Current`, and reads back through a *second* `Store` so nothing is held in process memory |
 | BR-AS17 — monotonic revision | *2a, done.* `domain.NextRevision` in `registry/rules_test.go`; end to end in `store_integration_test.go` — first write is revision 1, three accepted writes are 1/2/3, and `Apply` returns the entries and the revision together. The two setters (`SetCuratedFrontendPlugins`/`SetCuratedFrontendRevision`) are gone with the endpoint |
 | BR-AS18 — revision-checked writes | `domain.CheckRevision` and `store_integration_test.go` pin both directions and no revision consumed on refusal; `browserrpc/adapter_test.go` and `wire_test.go` pin missing/stale payload refusals. Explicit JSON `ifRevision: 0` is valid for the first curation; omission/null never reaches the store. `FrontendPluginsPanel.spec.js` and `RegistryNatsPanels.spec.js` show both revisions and offer reload, never merge/force |
-| BR-AS19 — notify, never unload | `registryTransport.spec.js` pins conditional read/unchanged; `changeSubscription.spec.js` pins push/reconnect instead of the deleted watcher. `registrySession.spec.js` covers recovery and the boot-read/subscription gap. `phase2RegistryContract.spec.js`, `registryDiff.spec.js`, `RegistrySignalBanner.spec.js`, and `FrontendPluginsPanel.spec.js` preserve reload offers and leave existing contributions running; `liveChange.spec.js` pins retraction on a re-added entry, replacement on an edited one, and no retraction from an unchanged or degraded read |
+| BR-AS19 — notify, never unload | `registryTransport.spec.js` pins conditional read/unchanged; `changeSubscription.spec.js` pins push/reconnect instead of the deleted watcher. `registrySession.spec.js` covers recovery and the boot-read/subscription gap. `phase2RegistryContract.spec.js`, `registryDiff.spec.js`, `RegistrySignalBanner.spec.js`, and `FrontendPluginsPanel.spec.js` preserve reload offers and leave existing contributions running; `liveChange.spec.js` pins retraction on a re-added entry, replacement on an edited one, and no retraction from an unchanged or degraded read; `readPolicy.spec.js` states each outcome's licence — failed, degraded, 304, document — without booting a shell |
 | BR-AS20 — origin allowlist | *2a, done.* Refused on write (`store_integration_test.go`: nothing stored, revision unmoved) and withheld on read (`rules_test.go`: `Document.Readable` against a narrowed allowlist and an already-stored row, leaving the stored document unmutated). `NewAllowlist(nil)` permits nothing — empty is not allow-all. *2b, done.* `FrontendPluginsPanel.spec.js` — a non-conforming entry is listed as `withheld` rather than dropped, and the 422 is surfaced by stage and cause with neither the URL nor the configured origins echoed back (BR-AS04) . The allowlist itself is shown on the panel as service configuration with no control to widen it |
 | BR-AS21 — no self-activation | `browserrpc/adapter_test.go` pins the exact five registered subjects, `auth/token_test.go` pins their grants, and `rest_test.go` pins an empty route list and 404s. `set-enabled` cannot insert (`adapter_test.go`, `store_integration_test.go`). Phase 8 adds `announce_transport_test.go` (fail-closed verification and pending entries) and `auth/announce_permissions_test.go` (the broker refuses shell announcement) |
 | BR-AS22 — degrades, does not fail | *2a* for the response shape; *2c* for the shell's handling. `manifestSchema.js` passes `degraded` through, `bootShell.applyRegistry` records it and skips the diff (a document the service could not vouch for is no basis for offering a reload), and `ShellFooter.spec.js` pins the three-way distinction: normal, degraded, and unreachable. `phase2RegistryContract.spec.js` still pins `revision: 0` validating as `"0"`, which is what lets 0 carry the degraded meaning |

@@ -30,7 +30,7 @@ describe('BR-AS15 / decisions 90–92 — the federated catalog owns its regions
     const panel = defineComponent({ props: { context: Object }, render() { return h('p', `Sidebar for ${this.context.demoId}`) } })
     const load = vi.fn(async (remote) => remote.url === catalog.remote.url ? catalogModule : { components: { panel } })
     const loader = createPluginLoader({ allowlist: shell.allowlist, statuses: shell.statuses, adapters: { federated: { load } } })
-    const router = createRouter({ history: createMemoryHistory(), routes: createShellRoutes({ contributions: shell.contributions, loader, plugins }) })
+    const router = createRouter({ history: createMemoryHistory(), routes: createShellRoutes({ contributions: shell.contributions, loader, manifestFor: shell.manifestFor }) })
     expect(load).not.toHaveBeenCalled()
     await router.push('/demos')
     const view = mount({ template: '<router-view />' }, { global: { plugins: [router, PrimeVue], provide: { [SHELL]: withRuntime(shell, { loader }) } } })

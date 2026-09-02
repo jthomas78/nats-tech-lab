@@ -36,6 +36,14 @@ const federationPlugin = process.env.VITEST
 export default defineConfig({
   plugins: [vue(), ...federationPlugin],
   resolve: {
+    /* One Vue, one PrimeVue, whatever a nested workspace resolves for itself.
+       An example plugin under `plugins/` installs its own copies, so a spec
+       that imports a plugin's source got a second Vue — and a second Vue means
+       `renderSlot` reads a null rendering instance the moment a PrimeVue
+       component from one copy renders inside a tree owned by the other. It is
+       the same singleton the federation config declares for the browser, said
+       again for the resolver. */
+    dedupe: ['vue', 'primevue', '@primeuix/styled'],
     alias: {
       // Shared UniFi theme preset at the repo root (see CLAUDE.md).
       '@unifi-theme': fileURLToPath(new URL('../shared/unifi-theme', import.meta.url)),
