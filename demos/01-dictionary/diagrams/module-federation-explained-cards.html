@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>How Module Federation Works — Reference Cards</title>
+<style>
+  :root{
+    --bg:#0d0f11; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf; --truth:#27C07F;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{background:var(--bg);color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px;line-height:20px;font-feature-settings:"cv05","ss01";}
+  .page{width:210mm;height:297mm;overflow:hidden;padding:14mm 13mm 10mm;
+    display:flex;flex-direction:column;page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);}
+  .page:last-child{page-break-after:auto}
+
+  .eyebrow-pill{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:45px;line-height:52px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:84%;margin-top:16px}
+  .cover-q{margin-top:22px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:15px 20px;max-width:95%;}
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:14px;line-height:23px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:13px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 30px;margin-top:9px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:14px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:9px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{margin-top:14px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:14px 20px 16px;
+    display:grid;grid-template-columns:54px 1fr;gap:4px 14px;}
+  .num{font-size:29px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:33px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:23px;line-height:29px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+  .decision{margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    padding:12px 18px;display:grid;grid-template-columns:74px 1fr;gap:14px;align-items:start;}
+  .decision .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fam);padding-top:3px}
+  .decision p{font-size:13.5px;line-height:21px}
+  .decision b{color:var(--tx)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px 15px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:8px}
+  .panel.note{border-left:2px solid var(--amber)} .panel.note > .lbl{color:var(--amber)}
+  .panel.st{border-left:2px solid var(--teal)} .panel.st > .lbl{color:var(--teal)}
+  .panel.dy{border-left:2px solid var(--purple)} .panel.dy > .lbl{color:var(--purple)}
+  .panel.ok{border-left:2px solid var(--green)} .panel.ok > .lbl{color:var(--green)}
+  .panel.no{border-left:2px solid var(--red)} .panel.no > .lbl{color:var(--red)}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:11.8px;line-height:17.5px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"\203A";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:var(--mono);font-size:10.5px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 7px 0;font-weight:500}
+  td{padding:5px 8px 5px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .verdict{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;}
+  .pill{border:1px solid var(--fam);color:var(--fam);border-radius:5px;padding:6px 11px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .verdict p{font-size:12.5px;line-height:19px}
+  .verdict .side{font-size:10.5px;color:var(--tx3);letter-spacing:.06em;white-space:nowrap;font-family:var(--mono)}
+  .figwrap{margin-top:11px}
+
+  /* ---- AWS-style topology primitives ---- */
+  svg{display:block;width:100%;height:auto}
+  .grp{fill:rgba(255,255,255,.014);stroke-width:1.1}
+  .grp-l{font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:600}
+  .tile-t{font-size:12.5px;font-weight:600;fill:#DEE0E3}
+  .tile-s{font-size:10.5px;fill:#8b929b}
+  .tile-m{font-size:10px;fill:#B7BCC2;font-family:var(--mono)}
+  .icn-g{font-size:12px;font-weight:700;fill:#0d0f11;text-anchor:middle}
+  .edge{fill:none;stroke:#4A515B;stroke-width:1.3;marker-end:url(#ah)}
+  .edge.ev{stroke-dasharray:5 4}
+  .edge.blue{stroke:#3b8bff;marker-end:url(#ahb)}
+  .edge.grn{stroke:#34d399;marker-end:url(#ahg)}
+  .edge.red{stroke:#f87171;marker-end:url(#ahr)}
+  .edge.amb{stroke:#f5b13d;marker-end:url(#aha)}
+  .e-l{font-size:10px;fill:#B7BCC2}
+  .e-l2{font-size:9.5px;fill:#8b929b;font-family:var(--mono)}
+  .lg{font-size:9.5px;fill:#8b929b}
+  /* ---- schematic primitives ---- */
+  .n{fill:none;stroke:#4A515B;stroke-width:1}
+  .nf{fill:#15181c;stroke:#3a424c;stroke-width:1}
+  .lbl{font-family:var(--mono);font-size:11px;fill:#DEE0E3}
+  .lbl2{font-family:var(--mono);font-size:9.5px;fill:#8b929b}
+  .grpl{font-family:var(--mono);font-size:9.5px;fill:#8b929b;letter-spacing:.07em}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <marker id="ah" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#4A515B"/></marker>
+  <marker id="ahb" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#3b8bff"/></marker>
+  <marker id="ahg" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#34d399"/></marker>
+  <marker id="ahr" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#f87171"/></marker>
+  <marker id="aha" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#f5b13d"/></marker>
+</defs></svg>
+
+<!-- ============ COVER ============ -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Explainer &#183; module federation &#183; nats-tech-lab</span></div>
+  <h1 class="cover">How <span class="hl">Module Federation</span><br>actually works</h1>
+  <p class="cover-sub">A shell app draws the frame. Separate apps, built and deployed on their own, ship chunks of
+    finished screen into it while the page is running. Nothing is imported at build time. These eight cards explain
+    the mechanism from the ground up, using the plugins this repository actually builds.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The one-sentence version</div>
+    <p>Module Federation lets <b>one JavaScript application load code out of another application at runtime</b>,
+      over HTTP, while sharing a single copy of the libraries they both use &#8212; so the two can be written,
+      built and deployed by different people at different times.</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:12px">
+    <div class="lbl" style="color:var(--amber)">Read this first if the words are new</div>
+    <p>A <b>chunk</b> is just a JavaScript file the browser can fetch on demand. A <b>host</b> is the app that asks
+      for one. A <b>remote</b> is the app that offers one. Everything else on these cards is detail hanging off
+      those three words.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The eight cards</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>01 &#183; The problem &#8212; one page, many teams</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>02 &#183; The five words you need</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>03 &#183; Build time &#8212; what a plugin produces</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>04 &#183; Runtime &#8212; the eight steps</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>05 &#183; Shared singletons &#8212; why one Vue</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>06 &#183; The seam &#8212; one method, one file</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>07 &#183; A worked example, end to end</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>08 &#183; What federation does not give you</div>
+    </div>
+    <div class="cover-meta">
+      <span>SOURCES &#183; MARTINFOWLER.COM/ARTICLES/MICRO-FRONTENDS.HTML &#183; DEVJAM.IN/FRONTEND-ARCHITECT/MICRO-FRONTENDS/ARCHITECTURE</span>
+      <span>AS BUILT &#183; 2026-09-02</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CARD 01 ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>How module federation works</span><span class="r">Card 01 &#183; The problem</span></div>
+  <div class="titleblock">
+    <div class="num">01</div>
+    <div class="fam-lbl">Why anybody wanted this</div>
+    <h2>One page, many teams</h2>
+    <p class="lede">A browser shows one page. A company has many teams. For twenty years those two facts were
+      reconciled by putting every team's code in one build &#8212; which means every team ships when the slowest
+      one is ready. Micro-frontends break that link. Module Federation is the plumbing that makes it practical.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 256" role="img" aria-label="A comparison of two ways to build one web page. On the left, four teams commit into one repository, which produces one build, which produces one deploy: everybody ships together. On the right, the same four teams each own their own repository, their own build and their own deploy, and a separate host application called lab-shell composes their output in the browser while the page is running.">
+    <rect class="grp" x="16" y="34" width="470" height="196" rx="12" stroke="#f87171"/>
+    <text class="grp-l" x="34" y="26" fill="#f87171">The single build</text>
+    <rect class="nf" x="34" y="54" width="100" height="32" rx="7"/><text class="tile-s" x="84" y="74" text-anchor="middle" fill="#B7BCC2">Catalog team</text>
+    <rect class="nf" x="144" y="54" width="100" height="32" rx="7"/><text class="tile-s" x="194" y="74" text-anchor="middle" fill="#B7BCC2">Ops team</text>
+    <rect class="nf" x="254" y="54" width="100" height="32" rx="7"/><text class="tile-s" x="304" y="74" text-anchor="middle" fill="#B7BCC2">Pricing team</text>
+    <rect class="nf" x="364" y="54" width="100" height="32" rx="7"/><text class="tile-s" x="414" y="74" text-anchor="middle" fill="#B7BCC2">Admin team</text>
+    <path class="edge" d="M84,90 L84,106"/><path class="edge" d="M194,90 L194,106"/>
+    <path class="edge" d="M304,90 L304,106"/><path class="edge" d="M414,90 L414,106"/>
+    <rect x="34" y="112" width="430" height="32" rx="7" fill="#1A1E23" stroke="#3a424c"/>
+    <text class="tile-t" x="249" y="132" text-anchor="middle">one repository, one build</text>
+    <path class="edge" d="M249,148 L249,164"/>
+    <rect x="34" y="170" width="430" height="32" rx="7" fill="#1A1E23" stroke="#f87171"/>
+    <text class="tile-t" x="249" y="190" text-anchor="middle" fill="#f87171">one deploy &#8212; everybody ships together</text>
+
+    <rect class="grp" x="514" y="34" width="470" height="196" rx="12" stroke="#34d399"/>
+    <text class="grp-l" x="532" y="26" fill="#34d399">The federated page</text>
+    <rect class="nf" x="532" y="54" width="104" height="44" rx="7"/><text class="tile-s" x="584" y="74" text-anchor="middle" fill="#B7BCC2">Catalog team</text><text class="lg" x="584" y="88" text-anchor="middle">own repo &#183; own deploy</text>
+    <rect class="nf" x="646" y="54" width="104" height="44" rx="7"/><text class="tile-s" x="698" y="74" text-anchor="middle" fill="#B7BCC2">Ops team</text><text class="lg" x="698" y="88" text-anchor="middle">own repo &#183; own deploy</text>
+    <rect class="nf" x="760" y="54" width="104" height="44" rx="7"/><text class="tile-s" x="812" y="74" text-anchor="middle" fill="#B7BCC2">Pricing team</text><text class="lg" x="812" y="88" text-anchor="middle">own repo &#183; own deploy</text>
+    <rect class="nf" x="874" y="54" width="104" height="44" rx="7"/><text class="tile-s" x="926" y="74" text-anchor="middle" fill="#B7BCC2">Admin team</text><text class="lg" x="926" y="88" text-anchor="middle">own repo &#183; own deploy</text>
+    <path class="edge grn" d="M584,102 L584,158"/><path class="edge grn" d="M698,102 L698,158"/>
+    <path class="edge grn" d="M812,102 L812,158"/><path class="edge grn" d="M926,102 L926,158"/>
+    <rect x="532" y="164" width="446" height="44" rx="8" fill="#1A1E23" stroke="#34d399"/>
+    <text class="tile-t" x="755" y="184" text-anchor="middle">lab-shell &#8212; the host</text>
+    <text class="tile-s" x="755" y="199" text-anchor="middle">composes their output in the browser, while the page is running</text>
+
+    <text class="lg" x="16" y="248">Nothing on the right is a build-time link. The host's own build names none of those teams &#8212; which is exactly why none of them needs the host to rebuild.</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel no"><div class="lbl">What the single build costs</div>
+      <ul><li>One team's failing test blocks four teams' releases</li>
+        <li>Upgrading a shared library is a company-wide event</li>
+        <li>The build gets slower for everyone, forever</li>
+        <li>Ownership blurs: everything is in everyone's repository</li></ul></div>
+    <div class="panel ok"><div class="lbl">What federation buys</div>
+      <ul><li>A team ships when <b>it</b> is ready, on its own pipeline</li>
+        <li>Adding a feature to the product is a <b>configuration change</b>, not a host rebuild</li>
+        <li>A broken feature can be switched off without redeploying anything</li>
+        <li>The page still feels like one app, because the shell owns the frame</li></ul></div>
+  </div>
+
+  <div class="decision"><div class="lbl">In this repo</div>
+    <p>The host is <code>lab-shell</code>. The features are the folders under <code>lab-shell/plugins/</code> &#8212;
+      <code>demo-catalog</code> on port 7112, <code>example-plugin</code> on 7111, and three deliberately broken ones
+      used to prove failures stay contained. Each has its own <code>package.json</code>, its own
+      <code>vite.config.js</code> and its own dev server. <b>The shell imports none of them.</b></p></div>
+
+  <div class="verdict"><span class="pill">Card 01</span>
+    <p>Micro-frontends are an organisational answer before they are a technical one. Federation is worth its
+      complexity only when independent deployment is something you actually need.</p>
+    <span class="side">martinfowler.com/articles/micro-frontends.html</span></div>
+</section>
+<!-- ============ CARD 02 ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>How module federation works</span><span class="r">Card 02 &#183; Vocabulary</span></div>
+  <div class="titleblock">
+    <div class="num">02</div>
+    <div class="fam-lbl">The five words you need</div>
+    <h2>Host, remote, container, exposed module, chunk</h2>
+    <p class="lede">Every explanation of Module Federation uses these five words in the first paragraph and defines
+      none of them. Here they are, mapped onto two real folders in this repository: the shell at
+      <code>lab-shell/</code> and the demo plugin at <code>lab-shell/plugins/demo-catalog/</code>.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 292" role="img" aria-label="On the left, the remote build for the demo-catalog plugin produces three kinds of file: remoteEntry.js which is the container and lists what is on offer, the exposed module ./plugin which maps to src slash plugin dot js and is the only entry point, and lazily loaded chunk files. On the right, the host build for lab-shell produces an application that names no remote at build time. At runtime the host calls registerRemotes and then loadRemote, which fetches remoteEntry.js from the remote's server on first use.">
+    <rect class="grp" x="16" y="34" width="460" height="230" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l" x="34" y="26" fill="#a78bfa">REMOTE BUILD &#8212; demo-catalog, port 7112</text>
+    <rect class="nf" x="36" y="58" width="420" height="52" rx="8"/>
+    <rect class="icn-g" x="50" y="70" width="26" height="26" rx="7" fill="#a78bfa"/><text class="tile-m" x="63" y="88" text-anchor="middle" fill="#0d0f11">C</text>
+    <text class="tile-t" x="88" y="80">remoteEntry.js &#8212; the <b>container</b></text>
+    <text class="tile-s" x="88" y="97">a tiny file listing what this plugin offers. Nothing else.</text>
+    <rect class="nf" x="36" y="122" width="420" height="52" rx="8"/>
+    <rect class="icn-g" x="50" y="134" width="26" height="26" rx="7" fill="#a78bfa"/><text class="tile-m" x="63" y="152" text-anchor="middle" fill="#0d0f11">E</text>
+    <text class="tile-t" x="88" y="144">./plugin &#8212; the <b>exposed module</b></text>
+    <text class="tile-s" x="88" y="161">maps to src/plugin.js. The only door in; everything else is private.</text>
+    <rect class="nf" x="36" y="186" width="420" height="52" rx="8"/>
+    <rect class="icn-g" x="50" y="198" width="26" height="26" rx="7" fill="#a78bfa"/><text class="tile-m" x="63" y="216" text-anchor="middle" fill="#0d0f11">J</text>
+    <text class="tile-t" x="88" y="208">chunk-*.js &#8212; the <b>chunks</b></text>
+    <text class="tile-s" x="88" y="225">the actual views and CSS. Fetched only when the plugin is first used.</text>
+
+    <rect class="grp" x="524" y="34" width="460" height="112" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="542" y="26" fill="#3b8bff">HOST BUILD &#8212; lab-shell, port 7110</text>
+    <rect class="nf" x="544" y="58" width="420" height="68" rx="8"/>
+    <rect class="icn-g" x="558" y="72" width="26" height="26" rx="7" fill="#3b8bff"/><text class="tile-m" x="571" y="90" text-anchor="middle" fill="#0d0f11">H</text>
+    <text class="tile-t" x="596" y="82">lab-shell &#8212; the <b>host</b></text>
+    <text class="tile-s" x="596" y="99">its vite.config.js declares remotes: {} &#8212; an empty list.</text>
+    <text class="tile-s" x="596" y="115">It is built without knowing any plugin exists.</text>
+
+    <rect class="grp" x="524" y="172" width="460" height="92" rx="12" stroke="#2fd4e8"/>
+    <text class="grp-l" x="542" y="164" fill="#2fd4e8">AT RUNTIME &#8212; in the browser</text>
+    <rect class="nf" x="544" y="192" width="420" height="26" rx="6"/>
+    <text class="lbl" x="556" y="209">registerRemotes([{ name, entry, type: 'module' }])</text>
+    <rect class="nf" x="544" y="226" width="420" height="26" rx="6"/>
+    <text class="lbl" x="556" y="243">loadRemote('demo_catalog/plugin')</text>
+
+    <path class="edge blue" d="M754,130 L754,166"/>
+    <path class="edge" d="M540,232 L500,232 L500,84 L462,84"/>
+    <text class="lg" x="502" y="76">fetch, on first use</text>
+    <text class="lg" x="16" y="284">The arrow crosses a network boundary, not a build boundary. That is the whole trick.</text>
+  </svg>
+  </div>
+
+  <div class="grid3">
+    <div class="panel flat"><div class="lbl">Host</div><p>The app that asks. Owns the page, the router, the layout. Here: <code>lab_shell</code>.</p></div>
+    <div class="panel flat"><div class="lbl">Remote</div><p>The app that offers. Built and deployed alone. Here: <code>demo_catalog</code>, <code>example_plugin</code>.</p></div>
+    <div class="panel flat"><div class="lbl">Container</div><p><code>remoteEntry.js</code>. A menu, not a meal &#8212; it names what can be loaded and how.</p></div>
+  </div>
+
+  <div class="decision"><div class="lbl">A naming detail that trips people</div>
+    <p>The container name is snake_case (<code>demo_catalog</code>) because it can become a global JavaScript
+      identifier in some output formats. The plugin's <b>id</b> stays kebab-case (<code>demo-catalog</code>), and the
+      plugin manifest carries the mapping between the two. They are different names for different layers &#8212; do
+      not "tidy" one into the other.</p></div>
+
+  <div class="verdict"><span class="pill">Card 02</span>
+    <p>Host and remote are roles, not products. One app can be both. In this repo the shell is only ever a host and
+      the plugins are only ever remotes, which keeps the direction of trust easy to reason about.</p></div>
+</section>
+
+<!-- ============ CARD 03 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>How module federation works</span><span class="r">Card 03 &#183; Build time</span></div>
+  <div class="titleblock">
+    <div class="num">03</div>
+    <div class="fam-lbl">What a plugin build produces</div>
+    <h2>Six lines of config, and what each one makes</h2>
+    <p class="lede">A plugin is an ordinary Vite app with one extra build plugin. This is the whole of
+      <code>lab-shell/plugins/demo-catalog/vite.config.js</code> that matters, and what each key is responsible for
+      in the finished output.</p>
+  </div>
+
+  <table>
+    <tr><th style="width:24%">Config key</th><th style="width:30%">Value, as built</th><th>What it produces, and why it is set that way</th></tr>
+    <tr><td><code>name</code></td><td><code>'demo_catalog'</code></td><td>The container's identity. The host uses this exact string in <code>loadRemote('demo_catalog/plugin')</code>. snake_case, because it can become a global identifier.</td></tr>
+    <tr><td><code>filename</code></td><td><code>'remoteEntry.js'</code></td><td>The file the host fetches first. It is the plugin's public address &#8212; here, <code>http://localhost:7112/remoteEntry.js</code>.</td></tr>
+    <tr><td><code>exposes</code></td><td><code>{ './plugin': './src/plugin.js' }</code></td><td>The one door in. Everything not listed here is private to the plugin, no matter what it exports.</td></tr>
+    <tr><td><code>shared</code></td><td><code>vue</code>, <code>@primeuix/styled</code><br>both <code>singleton: true</code></td><td>Libraries the plugin will borrow from the host instead of shipping its own. See Card 05 &#8212; getting this wrong is the classic federation bug.</td></tr>
+    <tr><td><code>bundleAllCSS</code></td><td><code>true</code></td><td>Puts the plugin's styles inside its chunks, so a loaded plugin arrives already styled. No separate stylesheet for the host to know about.</td></tr>
+    <tr><td><code>build.target</code></td><td><code>'esnext'</code></td><td>Modern module output. The host must load this as <code>type: 'module'</code> &#8212; see the warning below.</td></tr>
+  </table>
+
+  <div class="grid2">
+    <div class="panel st"><div class="lbl">What is in the plugin's dist folder</div>
+      <ul><li><code>remoteEntry.js</code> &#8212; small, always fetched first</li>
+        <li><code>__federation_expose_plugin-*.js</code> &#8212; the exposed module</li>
+        <li><code>chunk-*.js</code> &#8212; views, components and CSS, fetched behind it</li>
+        <li><code>manifest.json</code> &#8212; this repo's own metadata file, <b>not</b> a federation file</li></ul></div>
+    <div class="panel note"><div class="lbl">The manifest is not federation</div>
+      <p>Module Federation knows nothing about routes, navigation entries or panels. Those live in this repo's own
+        <code>manifest.json</code> and are read by the shell <b>before</b> any federation call happens. Federation only
+        ever answers one question: "give me the code behind this name."</p></div>
+  </div>
+
+  <div class="decision" style="border-left-color:var(--red)"><div class="lbl" style="color:var(--red)">The failure that wastes an afternoon</div>
+    <p>Vite emits ES modules, so the host must register the remote with <code>type: 'module'</code>. Federation's
+      default is a classic script, which dies on the first <code>import</code> statement with a raw
+      <code>SyntaxError</code> naming neither the plugin nor the cause. It looks like a broken bundle. It is one
+      missing word.</p></div>
+
+  <div class="verdict"><span class="pill">Card 03</span>
+    <p>A plugin build is a normal build plus a declaration of what it lends and what it borrows. Nothing about the
+      host appears anywhere in it.</p></div>
+</section>
+<!-- ============ CARD 04 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>How module federation works</span><span class="r">Card 04 &#183; Runtime</span></div>
+  <div class="titleblock">
+    <div class="num">04</div>
+    <div class="fam-lbl">From cold page to mounted panel</div>
+    <h2>The eight steps, in order</h2>
+    <p class="lede">This is the whole mechanism. Steps 1 and 2 happen at boot for every plugin. Steps 3 to 8 happen
+      once per plugin, the first time something on screen actually needs it &#8212; and never again.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 288" role="img" aria-label="An eight-step sequence read left to right along the top row and then right to left along the bottom row. Step one: the shell boots and reads the curated registry, fetching zero plugin code. Step two: it indexes routes, navigation and slots from metadata alone. Step three: a user opens a route or a region renders, which is first use. Step four: the shell calls registerRemotes with the plugin's URL. Step five: the browser fetches remoteEntry.js from port 7112, the first byte of plugin code. Step six: host and remote negotiate the shared Vue copy. Step seven: loadRemote returns the exposed module. Step eight: activate runs once and the named component mounts into its region.">
+    <rect class="nf" x="16" y="44" width="220" height="78" rx="8"/>
+    <text class="lbl" x="30" y="66" fill="#2fd4e8">1 &#183; boot</text>
+    <text class="tile-s" x="30" y="84">The shell reads the curated</text><text class="tile-s" x="30" y="99">registry over NATS.</text>
+    <text class="lg" x="30" y="114">Plugin bytes fetched: zero.</text>
+    <rect class="nf" x="260" y="44" width="220" height="78" rx="8"/>
+    <text class="lbl" x="274" y="66" fill="#2fd4e8">2 &#183; index</text>
+    <text class="tile-s" x="274" y="84">Routes, nav entries and slot</text><text class="tile-s" x="274" y="99">targets built from metadata.</text>
+    <text class="lg" x="274" y="114">Still zero plugin bytes.</text>
+    <rect class="nf" x="504" y="44" width="220" height="78" rx="8"/>
+    <text class="lbl" x="518" y="66" fill="#2fd4e8">3 &#183; first use</text>
+    <text class="tile-s" x="518" y="84">Somebody opens the route,</text><text class="tile-s" x="518" y="99">or a region renders.</text>
+    <text class="lg" x="518" y="114">This is the trigger.</text>
+    <rect class="nf" x="748" y="44" width="220" height="78" rx="8"/>
+    <text class="lbl" x="762" y="66" fill="#2fd4e8">4 &#183; register</text>
+    <text class="tile-s" x="762" y="84">registerRemotes with the</text><text class="tile-s" x="762" y="99">plugin's URL and name.</text>
+    <text class="lg" x="762" y="114">Once per plugin.</text>
+
+    <path class="edge" d="M240,83 L254,83"/><path class="edge" d="M484,83 L498,83"/>
+    <path class="edge" d="M728,83 L742,83"/>
+    <path class="edge" d="M858,126 L858,174"/>
+
+    <rect class="nf" x="748" y="180" width="220" height="78" rx="8"/>
+    <text class="lbl" x="762" y="202" fill="#34d399">5 &#183; fetch</text>
+    <text class="tile-s" x="762" y="220">Browser GETs remoteEntry.js</text><text class="tile-s" x="762" y="235">from localhost:7112.</text>
+    <text class="lg" x="762" y="250">The first plugin byte.</text>
+    <rect class="nf" x="504" y="180" width="220" height="78" rx="8"/>
+    <text class="lbl" x="518" y="202" fill="#34d399">6 &#183; negotiate</text>
+    <text class="tile-s" x="518" y="220">Shared libraries matched.</text><text class="tile-s" x="518" y="235">Plugin borrows host's Vue.</text>
+    <text class="lg" x="518" y="250">Card 05 explains why.</text>
+    <rect class="nf" x="260" y="180" width="220" height="78" rx="8"/>
+    <text class="lbl" x="274" y="202" fill="#34d399">7 &#183; load</text>
+    <text class="tile-s" x="274" y="220">loadRemote returns the</text><text class="tile-s" x="274" y="235">exposed module object.</text>
+    <text class="lg" x="274" y="250">Chunks arrive behind it.</text>
+    <rect class="nf" x="16" y="180" width="220" height="78" rx="8" stroke="#34d399"/>
+    <text class="lbl" x="30" y="202" fill="#34d399">8 &#183; mount</text>
+    <text class="tile-s" x="30" y="220">activate() runs once. The</text><text class="tile-s" x="30" y="235">named component mounts.</text>
+    <text class="lg" x="30" y="250">On screen.</text>
+
+    <path class="edge grn" d="M744,219 L730,219"/><path class="edge grn" d="M500,219 L486,219"/><path class="edge grn" d="M256,219 L242,219"/>
+    <text class="lg" x="16" y="280">Two components asking in the same tick share one load and one activate() &#8212; the shell keeps a promise per plugin id, so the work is never done twice.</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel ok"><div class="lbl">Why steps 1&#8211;2 must fetch nothing</div>
+      <p>A booted shell has a complete navigation tree and a complete route table with <b>zero</b> plugin chunks
+        fetched. Metadata before code. Twenty plugins cost twenty manifest entries at boot, not twenty bundles &#8212;
+        so the shell's start-up time does not grow with the product.</p></div>
+    <div class="panel st"><div class="lbl">What "first use" means in practice</div>
+      <ul><li>A user clicks a nav entry the plugin contributed</li>
+        <li>A page renders an extension region the plugin fills</li>
+        <li>A topbar control or footer item comes into view</li></ul>
+      <p>Any of these is enough. None of them happens at boot.</p></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 04</span>
+    <p>Federation's only job is steps 4 to 7. Step 1, 2, 3 and 8 are the shell's own work &#8212; which is why the
+      shell could swap federation for something else and keep its behaviour (Card 06).</p></div>
+</section>
+
+<!-- ============ CARD 05 ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>How module federation works</span><span class="r">Card 05 &#183; Shared libraries</span></div>
+  <div class="titleblock">
+    <div class="num">05</div>
+    <div class="fam-lbl">The one setting that breaks everything</div>
+    <h2>Why there must be exactly one Vue</h2>
+    <p class="lede">The host is a Vue app. Every plugin is written in Vue. If each one ships its own copy, the page
+      ends up running two Vues that cannot see each other &#8212; and the symptoms look nothing like the cause.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 208" role="img" aria-label="Two arrangements. On the left, marked wrong, the host has its own Vue and the plugin has its own Vue; a dashed red line between the two plugin trees is marked as not connected, and provide and inject stop working across it. On the right, marked right, a single shared Vue sits between host and plugin, both point at it, and one component tree spans both.">
+    <rect class="grp" x="16" y="30" width="470" height="150" rx="12" stroke="#f87171"/>
+    <text class="grp-l" x="34" y="22" fill="#f87171">WITHOUT singleton: true</text>
+    <rect class="nf" x="40" y="52" width="180" height="40" rx="7"/><text class="tile-t" x="130" y="70" text-anchor="middle">lab-shell</text><text class="lg" x="130" y="85" text-anchor="middle">vue #1</text>
+    <rect class="nf" x="282" y="52" width="180" height="40" rx="7"/><text class="tile-t" x="372" y="70" text-anchor="middle">demo-catalog</text><text class="lg" x="372" y="85" text-anchor="middle">vue #2</text>
+    <path class="edge red" d="M226,72 L276,72"/>
+    <rect class="nf" x="40" y="112" width="422" height="50" rx="7" stroke="#f87171"/>
+    <text class="tile-s" x="251" y="132" text-anchor="middle" fill="#f87171">provide/inject stops crossing &#183; two reactivity systems</text>
+    <text class="lg" x="251" y="149" text-anchor="middle">"my injected value is undefined and I cannot see why"</text>
+
+    <rect class="grp" x="514" y="30" width="470" height="150" rx="12" stroke="#34d399"/>
+    <text class="grp-l" x="532" y="22" fill="#34d399">WITH singleton: true &#8212; as built</text>
+    <rect class="nf" x="538" y="52" width="150" height="40" rx="7"/><text class="tile-t" x="613" y="76" text-anchor="middle">lab-shell</text>
+    <rect class="nf" x="810" y="52" width="150" height="40" rx="7"/><text class="tile-t" x="885" y="76" text-anchor="middle">demo-catalog</text>
+    <rect class="nf" x="700" y="112" width="98" height="40" rx="7" stroke="#34d399"/><text class="tile-t" x="749" y="136" text-anchor="middle" fill="#34d399">one vue</text>
+    <path class="edge grn" d="M645,96 L645,132 L694,132"/>
+    <path class="edge grn" d="M885,96 L885,132 L804,132"/>
+    <text class="lg" x="16" y="200">Also shared as a singleton here: @primeuix/styled, so host and plugin resolve to one theme registry rather than two.</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel no"><div class="lbl">Symptoms of a duplicated Vue</div>
+      <ul><li><code>inject()</code> returns <code>undefined</code> in a plugin component</li>
+        <li>A ref updates but nothing re-renders</li>
+        <li>Theme tokens apply in the shell and not in the panel</li>
+        <li>Console warnings about multiple Vue instances, easily missed</li></ul></div>
+    <div class="panel ok"><div class="lbl">The two settings that prevent it</div>
+      <ul><li><code>shared: { vue: { singleton: true, requiredVersion: '^3.5' } }</code> in <b>both</b> configs</li>
+        <li><code>resolve.dedupe: ['vue','primevue','@primeuix/styled']</code> in the host</li></ul>
+      <p><code>requiredVersion</code> is the guard: if a plugin needs a Vue the host cannot supply, federation says so
+        at load time rather than half-working.</p></div>
+  </div>
+
+  <div class="decision"><div class="lbl">The trade this makes</div>
+    <p>Sharing is what makes a plugin small and the page coherent &#8212; but it is also a real coupling. A plugin
+      cannot unilaterally jump to a Vue major version the shell does not run. That is the honest cost of federation,
+      and the reason the shared list is kept short and deliberate: Vue and the theme registry, nothing else.</p></div>
+
+  <div class="verdict"><span class="pill">Card 05</span>
+    <p>Independent deployment is not independent everything. The shared scope is the seam where the two apps must
+      still agree, so keep it small and write it down.</p></div>
+</section>
+<!-- ============ CARD 06 ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>How module federation works</span><span class="r">Card 06 &#183; The seam</span></div>
+  <div class="titleblock">
+    <div class="num">06</div>
+    <div class="fam-lbl">Keeping federation replaceable</div>
+    <h2>One method, in one file</h2>
+    <p class="lede">Module Federation is a choice, not a law. In this repo the whole of it is confined behind a
+      four-line interface, so the shell above it never learns the word "federation" &#8212; and could be moved to
+      import maps, or to plain dynamic import, by editing one file.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 268" role="img" aria-label="Four layers stacked vertically. From the top: pluginLoader.js, which knows about plugins, guards and status; then the loader interface, a single async load method taking a remote and returning a module; then federatedAdapter.js, the only file that mentions federation; then the module federation runtime library itself. Notes to the right of each layer explain what it owns.">
+    <rect class="nf" x="120" y="16" width="520" height="44" rx="8" stroke="#3b8bff"/>
+    <text class="tile-t" x="380" y="34" text-anchor="middle">pluginLoader.js</text>
+    <text class="tile-s" x="380" y="50" text-anchor="middle">curation guard &#183; status machine &#183; one load per plugin id</text>
+    <path class="edge" d="M380,64 L380,76"/>
+    <rect class="nf" x="120" y="82" width="520" height="44" rx="8" stroke="#a78bfa"/>
+    <text class="lbl" x="380" y="102" text-anchor="middle" fill="#a78bfa">{ async load(remote) &#8594; module }</text>
+    <text class="tile-s" x="380" y="118" text-anchor="middle">the entire contract between the shell and any loading technology</text>
+    <path class="edge" d="M380,130 L380,142"/>
+    <rect class="nf" x="120" y="148" width="520" height="44" rx="8" stroke="#a78bfa"/>
+    <text class="tile-t" x="380" y="166" text-anchor="middle">federatedAdapter.js</text>
+    <text class="tile-s" x="380" y="182" text-anchor="middle">registerRemotes once &#183; loadRemote &#183; type: 'module'</text>
+    <path class="edge" d="M380,196 L380,208"/>
+    <rect class="nf" x="120" y="214" width="520" height="40" rx="8"/>
+    <text class="tile-t" x="380" y="239" text-anchor="middle">@module-federation/runtime</text>
+
+    <path class="e-l" d="M644,38 L676,38"/><text class="lg" x="682" y="35">everything the product cares about</text><text class="lg" x="682" y="48">lives above this line</text>
+    <path class="e-l" d="M644,104 L676,104"/><text class="lg" x="682" y="101">four words. no URLs, no globals,</text><text class="lg" x="682" y="114">no mention of a bundler</text>
+    <path class="e-l" d="M644,170 L676,170"/><text class="lg" x="682" y="167">the only file in the repository</text><text class="lg" x="682" y="180">that says "federation"</text>
+    <path class="e-l" d="M644,234 L676,234"/><text class="lg" x="682" y="231">third-party. replaceable.</text>
+    <path class="e-l" d="M96,38 L112,38"/><text class="lg" x="16" y="35">shell</text>
+    <path class="e-l" d="M96,234 L112,234"/><text class="lg" x="16" y="231">library</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel st"><div class="lbl">What the adapter actually does</div>
+      <ul><li>Turns a relative URL into an absolute one against the page</li>
+        <li>Calls <code>registerRemotes</code> once per plugin, tracked in a <code>Set</code></li>
+        <li>Strips the leading <code>./</code> and calls <code>loadRemote('name/expose')</code></li>
+        <li>Throws a clear error if the remote returns nothing</li></ul>
+      <p>That is the whole file. Roughly thirty lines.</p></div>
+    <div class="panel note"><div class="lbl">Why this seam is worth having</div>
+      <p>Federation is young and the ecosystem moves. Import maps are a browser-native alternative that may make this
+        library unnecessary. Because the shell only ever calls <code>load(remote)</code>, swapping is a change to
+        <b>this file plus one line of main.js</b> &#8212; not a rewrite of the plugin system.</p></div>
+  </div>
+
+  <div class="decision"><div class="lbl">Failures are named, not raw</div>
+    <p>Every way a load can fail is mapped to a stage a human can read: <code>remote-not-curated</code> &#8594;
+      curation check, <code>chunk-load-failed</code> &#8594; remote entry fetch, <code>malformed-module</code> &#8594;
+      module resolution, <code>activate-threw</code> &#8594; plugin activation, <code>render-threw</code> &#8594;
+      contribution render. So "plugin X failed" always comes with "at which step".</p></div>
+
+  <div class="verdict"><span class="pill">Card 06</span>
+    <p>Wrap the vendor. The interface is four words wide, and it is the reason none of the other seven cards would
+      have to be rewritten if the loading technology changed.</p></div>
+</section>
+
+<!-- ============ CARD 07 ============ -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>How module federation works</span><span class="r">Card 07 &#183; Worked example</span></div>
+  <div class="titleblock">
+    <div class="num">07</div>
+    <div class="fam-lbl">End to end, one real plugin</div>
+    <h2>From a line of metadata to a panel on screen</h2>
+    <p class="lede"><code>example-plugin</code> exists to demonstrate one contribution of every kind. Its
+      <code>manifest.json</code> names components as strings; its <code>plugin.js</code> exports those same names as
+      real Vue components. The string is the only link between them &#8212; and it is checked at load time.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 262" role="img" aria-label="Two facing lists joined by five horizontal arrows. On the left, manifest.json, described as metadata with no code: five contribution entries naming a component by string. On the right, plugin.js, the exposed module: the same five names exported as real Vue components. Each manifest entry pairs with exactly one export.">
+    <rect class="grp" x="16" y="34" width="440" height="200" rx="12" stroke="#f5b13d"/>
+    <text class="grp-l" x="34" y="26" fill="#f5b13d">manifest.json &#8212; metadata, no code</text>
+    <rect class="nf" x="32" y="60" width="408" height="28" rx="6"/><text class="lbl" x="44" y="78">route &#183; component: "overview"</text>
+    <rect class="nf" x="32" y="96" width="408" height="28" rx="6"/><text class="lbl" x="44" y="114">extension &#183; component: "home-panel"</text>
+    <rect class="nf" x="32" y="132" width="408" height="28" rx="6"/><text class="lbl" x="44" y="150">extension &#183; component: "demo-sidebar"</text>
+    <rect class="nf" x="32" y="168" width="408" height="28" rx="6"/><text class="lbl" x="44" y="186">shell-control &#183; component: "topbar-control"</text>
+    <rect class="nf" x="32" y="204" width="408" height="28" rx="6"/><text class="lbl" x="44" y="222">shell-footer &#183; component: "footer-item"</text>
+
+    <path class="edge grn" d="M444,74 L554,74"/><path class="edge grn" d="M444,110 L554,110"/>
+    <path class="edge grn" d="M444,146 L554,146"/><path class="edge grn" d="M444,182 L554,182"/>
+    <path class="edge grn" d="M444,218 L554,218"/>
+
+    <rect class="grp" x="544" y="34" width="440" height="200" rx="12" stroke="#34d399"/>
+    <text class="grp-l" x="562" y="26" fill="#34d399">plugin.js &#8212; the exposed module</text>
+    <rect class="nf" x="560" y="60" width="408" height="28" rx="6"/><text class="lbl" x="572" y="78">overview: OverviewView</text>
+    <rect class="nf" x="560" y="96" width="408" height="28" rx="6"/><text class="lbl" x="572" y="114">'home-panel': HomePanel</text>
+    <rect class="nf" x="560" y="132" width="408" height="28" rx="6"/><text class="lbl" x="572" y="150">'demo-sidebar': DemoSidebarPanel</text>
+    <rect class="nf" x="560" y="168" width="408" height="28" rx="6"/><text class="lbl" x="572" y="186">'topbar-control': TopbarControl</text>
+    <rect class="nf" x="560" y="204" width="408" height="28" rx="6"/><text class="lbl" x="572" y="222">'footer-item': FooterItem</text>
+
+    <text class="lg" x="16" y="254">The left column is read at boot. The right column is fetched the first time one of those five places is on screen.</text>
+  </svg>
+  </div>
+
+  <div class="grid3">
+    <div class="panel flat"><div class="lbl">Manifest, at boot</div><p>Read over NATS from the curated registry. Gives the shell a route, a nav entry and three slot targets &#8212; with no code fetched.</p></div>
+    <div class="panel flat"><div class="lbl">Module, at first use</div><p><code>loadRemote</code> returns <code>{ components, activate }</code>. <code>activate(shellApi)</code> runs once and hands the plugin a frozen, read-only shell API.</p></div>
+    <div class="panel flat"><div class="lbl">Render</div><p>The shell looks up the string in <code>components</code>. Missing name, or a component that throws, fails that one contribution &#8212; not the page.</p></div>
+  </div>
+
+  <div class="decision"><div class="lbl">The demo case, in this repo's words</div>
+    <p><code>demo-catalog</code> exposes exactly two components &#8212; <code>catalog</code> (the demo menu) and
+      <code>intro</code> (a demo's intro page). The shell draws the topbar, the rail and the footer; the demo's own
+      screen arrives as a chunk from port 7112 and mounts inside that frame. To the user it is one application. To the
+      build system it is two, and neither one imports the other.</p></div>
+
+  <div class="verdict"><span class="pill">Card 07</span>
+    <p>Names in metadata, components in code, matched at load time. The whole plugin contract fits in one sentence
+      because federation is doing only the fetch.</p></div>
+</section>
+
+<!-- ============ CARD 08 ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>How module federation works</span><span class="r">Card 08 &#183; The limits</span></div>
+  <div class="titleblock">
+    <div class="num">08</div>
+    <div class="fam-lbl">Where the library stops</div>
+    <h2>What Module Federation does not give you</h2>
+    <p class="lede">Federation fetches code and shares libraries. That is all it does. Everything a real product needs
+      around that &#8212; deciding <b>which</b> code may be fetched, containing it when it misbehaves, and proving
+      where it came from &#8212; is the shell's own work, and none of it comes in the box.</p>
+  </div>
+
+  <table>
+    <tr><th style="width:30%">Not provided</th><th style="width:34%">Why it matters</th><th>How this repo answers it</th></tr>
+    <tr><td>Trust</td><td>Any URL federation is given, it will fetch and run.</td><td>A curated registry served over NATS. The loader will only fetch a URL an operator put on the allowlist.</td></tr>
+    <tr><td>Isolation</td><td>A remote's code runs on the host's page, with the host's privileges.</td><td>A frozen, read-only shell API is the only surface handed to a plugin. Extension regions are host-owned.</td></tr>
+    <tr><td>Containment</td><td>One bad component can blank a page.</td><td>A failing contribution fails alone; the rest of the page renders. Deliberately broken fixtures prove it.</td></tr>
+    <tr><td>Versioning</td><td>Nothing checks that a plugin fits this shell.</td><td>Schema and shell-API version checks at validation, before any code is fetched.</td></tr>
+    <tr><td>Provenance</td><td>A fetched bundle is anonymous.</td><td>Signing gates &#8212; a release that is not owned, is revoked, or is stale is refused at index time.</td></tr>
+    <tr><td>Capacity</td><td>Unlimited contributions into one region wreck a layout.</td><td>Regions declare capacity; over-capacity contributions are refused when the index is built, not when it paints.</td></tr>
+  </table>
+
+  <div class="grid2">
+    <div class="panel note"><div class="lbl">When not to reach for this</div>
+      <ul><li>One team owning the whole front end &#8212; the coordination cost buys nothing</li>
+        <li>A page where every part ships together anyway</li>
+        <li>An app small enough that the build is not the bottleneck</li></ul>
+      <p>Federation is the answer to an organisational problem. Without that problem it is just extra moving parts.</p></div>
+    <div class="panel ok"><div class="lbl">When it earns its keep</div>
+      <ul><li>Several teams with genuinely separate release cadences</li>
+        <li>Features that must be switchable without a host deploy</li>
+        <li>Third-party or tenant-supplied UI you must curate rather than trust</li></ul>
+      <p>All three are true here, which is why the lab shell is built this way.</p></div>
+  </div>
+
+  <div class="decision"><div class="lbl">Sources</div>
+    <p>Martin Fowler, <i>Micro Frontends</i> &#8212; <code>martinfowler.com/articles/micro-frontends.html</code> for the
+      integration approaches and the team-autonomy argument. DevJam, <i>Micro-Frontend Architecture</i> &#8212;
+      <code>devjam.in/frontend-architect/micro-frontends/architecture</code> for the host-container and remote-mount-slot
+      shape. Both are generic; every concrete name, port and file path on these cards is this repository as built.</p></div>
+
+  <div class="verdict"><span class="pill">Card 08</span>
+    <p>Module Federation is the delivery mechanism. The shell is the product. Do not confuse the two &#8212; most of
+      the hard work is on the shell's side of the line.</p>
+    <span class="side">BR-AS01 &#183; AS03 &#183; AS08</span></div>
+</section>
+</body>
