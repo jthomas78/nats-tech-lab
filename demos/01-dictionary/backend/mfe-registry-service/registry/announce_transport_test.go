@@ -202,6 +202,137 @@ var _ = Describe("service announcement transport", func() {
 			Expect(readShell().Plugins).To(BeEmpty())
 		})
 	})
+	/*
+		BR-AS73 / decision 10 — a converged resync, end to end and against
+		the entry row's real concurrency control.
+
+		The review's ask was specific: this is a write to the entry row that
+		does not bump the revision, so pin that it cannot lose a concurrent
+		real announce.
+	*/
+	Context("BR-AS73 — an identical re-announce converges", func() {
+		enable := func() {
+			_, err := module.Service.Apply(ctx, domain.Write{Op: domain.OpSetEnabled, EntryID: "plugin", Enabled: true, Actor: domain.SharedAdminActor, IfRevision: 1})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		It("costs no revision, no audit row and no change notification, but moves the watermark", func() {
+			mount(domain.NKeyVerifier{})
+			announce("http://localhost:7110/r.js")
+			enable()
+			before, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			rowsBefore, err := store.Audit(ctx, 100)
+			Expect(err).NotTo(HaveOccurred())
+			hints, err := nc.SubscribeSync(mferegistry.Changed)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(nc.Flush()).To(Succeed())
+
+			// The same URL, so the same content — at the next release.
+			out := announce("http://localhost:7110/r.js")
+			Expect(out.OK).To(BeTrue())
+			Expect(out.Outcome).To(Equal(domain.AnnounceConverged))
+			Expect(out.Revision).To(Equal(before.Revision))
+
+			after, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(after.Revision).To(Equal(before.Revision))
+			rowsAfter, err := store.Audit(ctx, 100)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(auditFor(rowsAfter, "plugin")).To(HaveLen(len(auditFor(rowsBefore, "plugin"))))
+			_, err = hints.NextMsg(30 * time.Millisecond)
+			Expect(err).To(MatchError(nats.ErrTimeout))
+
+			// The one thing that did happen. Without it, every release number
+			// a resync spends stays acceptable forever.
+			Expect(after.Entries[0].Release).To(Equal(release))
+			Expect(before.Entries[0].Release).To(BeNumerically("<", release))
+		})
+
+		It("leaves the earlier release unacceptable, so a resync narrows the replay window", func() {
+			mount(domain.NKeyVerifier{})
+			announce("http://localhost:7110/r.js")
+			enable()
+			spent := release
+			Expect(announce("http://localhost:7110/r.js").Outcome).To(Equal(domain.AnnounceConverged))
+
+			// Replay the number the resync spent. It is now the watermark, so
+			// it is admitted as a literal duplicate and writes nothing — but
+			// anything BELOW it is refused outright.
+			raw := json.RawMessage(`{"id":"plugin","name":"from publisher","release":` + strconv.FormatInt(spent, 10) + `,"contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
+			sig, err := kp.Sign(raw)
+			Expect(err).NotTo(HaveOccurred())
+			body, err := json.Marshal(servicerpc.Request{Payload: raw, Signature: base64.StdEncoding.EncodeToString(sig), SigningKey: publicKey})
+			Expect(err).NotTo(HaveOccurred())
+			msg, err := nc.Request(mferegistry.Announce, body, time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			var out servicerpc.Response
+			Expect(json.Unmarshal(msg.Data, &out)).To(Succeed())
+			Expect(out.OK).To(BeFalse())
+			Expect(out.Code).To(Equal("release-backwards"))
+		})
+
+		/* The concurrency question, asked directly of the store. A real
+		   announce that got there first has already stored a higher release
+		   together with its new content; the watermark write must then find
+		   no row to move and must not touch content in any case — the content
+		   columns are not in its statement at all. */
+		It("cannot move an entry backwards or clobber a concurrent real announce", func() {
+			mount(domain.NKeyVerifier{})
+			announce("http://localhost:7110/r.js")
+			enable()
+			announce("http://localhost:7110/new.js")
+			winner, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			// A watermark write arriving late, carrying the release the
+			// resync had in flight — lower than the one that landed.
+			moved, err := store.AdvanceRelease(ctx, "plugin", winner.Entries[0].Release-1, publicKey)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(moved).To(BeFalse())
+
+			after, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(after).To(Equal(winner))
+		})
+
+		It("moves only the release, consuming no revision and leaving content untouched", func() {
+			mount(domain.NKeyVerifier{})
+			announce("http://localhost:7110/r.js")
+			enable()
+			before, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			moved, err := store.AdvanceRelease(ctx, "plugin", before.Entries[0].Release+10, publicKey)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(moved).To(BeTrue())
+
+			after, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(after.Revision).To(Equal(before.Revision))
+			expected := before
+			expected.Entries[0].Release = before.Entries[0].Release + 10
+			Expect(after).To(Equal(expected))
+		})
+
+		// BR-AS48 reaches this write too: a key revoked between the signature
+		// check and the commit must not get its release number on the record.
+		It("refuses to move the watermark under a key that is no longer enabled", func() {
+			mount(domain.NKeyVerifier{})
+			announce("http://localhost:7110/r.js")
+			enable()
+			before, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = store.AdvanceRelease(ctx, "plugin", before.Entries[0].Release+1, "not-a-trusted-key")
+			Expect(err).To(HaveOccurred())
+
+			after, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(after).To(Equal(before))
+		})
+	})
+
 	Context("decision 77 / BR-AS42 — static wins, but ignored announcements name their publisher", func() {
 		It("writes only an audit row, preserving entry, revision and notifications", func() {
 			mount(domain.NKeyVerifier{})

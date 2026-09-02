@@ -355,6 +355,72 @@ func (s *Store) RecordIgnored(ctx context.Context, w domain.Write) error {
 	return tx.Commit()
 }
 
+/*
+AdvanceRelease moves one entry's release watermark and touches nothing
+else (BR-AS73, decision 10). It reports whether the row actually moved.
+
+This is the write convergence costs, and its safety rests on three
+deliberate choices about concurrency — the review asked for exactly this
+to be checked against the entry row's concurrency control.
+
+FIRST, it takes the same revision lock every other write takes, so it
+serialises against a real announce rather than interleaving with one.
+
+SECOND, it does NOT check IfRevision, and it takes none. Optimistic
+concurrency asks "is the document still what I read?", and this write
+asserts nothing about the document — it ratchets one integer. During a
+reset storm the revision moves constantly for unrelated plugins, so a
+revision check here would refuse hundreds of correct watermark advances
+for a change that had nothing to do with them.
+
+THIRD, and this is what makes it unable to lose a concurrent real
+announce: the UPDATE is guarded by `release < $2` and sets `release`
+ALONE. A real announce that won the lock first has already stored a
+higher release along with its new content; this statement then matches no
+row and does nothing. It can never move content backwards, because it
+never writes content — the columns are not in the statement.
+
+No revision is consumed and no audit row is written. That is the whole
+point: the expensive halves of a write are what convergence skips.
+*/
+func (s *Store) AdvanceRelease(ctx context.Context, entryID string, release int64, signingKey string) (bool, error) {
+	if entryID == "" {
+		return false, domain.ErrNoEntryID
+	}
+	if release <= 0 {
+		return false, domain.ErrNoRelease
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var revision int64
+	if err := tx.QueryRowContext(ctx, `SELECT revision FROM registry.revision WHERE only_row FOR UPDATE`).Scan(&revision); err != nil {
+		return false, err
+	}
+	// BR-AS48 applies here as much as to any other announcement-driven
+	// write: a key revoked between the signature check and this moment must
+	// not get its release number onto the record.
+	if err := requireKeyEnabled(ctx, tx, signingKey); err != nil {
+		return false, err
+	}
+	res, err := tx.ExecContext(ctx,
+		`UPDATE registry.entries SET release = $2, updated_at = now() WHERE id = $1 AND release < $2`, entryID, release)
+	if err != nil {
+		return false, err
+	}
+	moved, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return moved > 0, nil
+}
+
 // AuditPage is one recorded write, for the admin surface.
 type AuditPage struct {
 	Revision *int64 `json:"revision"`

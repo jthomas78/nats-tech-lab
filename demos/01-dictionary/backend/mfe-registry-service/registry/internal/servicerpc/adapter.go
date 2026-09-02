@@ -24,8 +24,14 @@ type Service interface {
 	Allowlist() domain.Allowlist
 }
 
+// Recorder holds the durable writes that consume no catalogue revision.
+// Kept apart from Service for that reason: nothing reachable through this
+// interface can move the document a shell reads.
 type Recorder interface {
 	RecordIgnored(context.Context, domain.Write) error
+	// AdvanceRelease moves one entry's release watermark and nothing else,
+	// reporting whether the row moved (BR-AS73, decision 10).
+	AdvanceRelease(ctx context.Context, entryID string, release int64, signingKey string) (bool, error)
 }
 
 type Endpoints struct {
@@ -101,6 +107,26 @@ func (e *Endpoints) Announce(ctx context.Context, req Request) (Response, error)
 		return Response{}, errors.Join(errManifest, err)
 	}
 	outcome, next := domain.DecideAnnounce(existing, signed)
+	if outcome == domain.AnnounceConverged {
+		/*
+			A resync that says exactly what is stored (BR-AS73, decision 10).
+			No revision, no audit row, no cache refresh and no change
+			notification — a notification here would tell every shell in the
+			estate to re-read a document that did not move, which during a
+			reset storm is the fan-out convergence exists to avoid.
+
+			The one thing that does happen is the watermark: the release
+			number this announcement spent must stop being acceptable, or
+			every resync would widen the replay window by one.
+
+			The revision reported back is the one that was read. It is
+			honest — this call installed no new one.
+		*/
+		if _, err := e.recorder.AdvanceRelease(ctx, next.ID, next.Release, admission.SigningKey); err != nil {
+			return Response{}, err
+		}
+		return Response{OK: true, Outcome: outcome, Revision: doc.Revision}, nil
+	}
 	if outcome == domain.AnnounceIgnored {
 		// An observation, not a registry write: no revision, cache refresh or hint.
 		if err := e.recorder.RecordIgnored(ctx, domain.AnnounceWrite(next, admission.SigningKey, doc.Revision)); err != nil {

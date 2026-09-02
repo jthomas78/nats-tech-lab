@@ -20,6 +20,17 @@ const (
 	AnnounceUpdated  AnnounceOutcome = "updated"
 	AnnounceRequeued AnnounceOutcome = "requeued"
 	AnnounceIgnored  AnnounceOutcome = "ignored"
+	// AnnounceConverged — the announcement was admitted and changed nothing.
+	// A resync at a higher release carrying identical content: no catalogue
+	// revision, no audit row, but the release watermark still advances.
+	//
+	// Deliberately NOT the same as Response.NoOp, which is the narrower
+	// "this exact release is already stored" (a literal replay). The two look
+	// alike from a publisher's chair and are different facts on the wire:
+	// NoOp spent no release number, converged spent one. Collapsing them
+	// would make the watermark's advance invisible to anyone reading a
+	// response (BR-AS73, decision 10).
+	AnnounceConverged AnnounceOutcome = "converged"
 )
 
 // Recorded reports whether an announce outcome represents an audited

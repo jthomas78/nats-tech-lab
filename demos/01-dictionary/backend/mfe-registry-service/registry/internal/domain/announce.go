@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"reflect"
 
 	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 )
@@ -42,7 +43,60 @@ const (
 	// AnnounceIgnored — a static entry outranks the announcement, always
 	// (decision 77). Recorded and shown, never silently dropped.
 	AnnounceIgnored = mferegistry.AnnounceIgnored
+	// AnnounceConverged — admitted, and identical to what is stored. Only
+	// the release watermark moves (decision 10).
+	AnnounceConverged = mferegistry.AnnounceConverged
 )
+
+/*
+	Convergence (BR-AS73, decision 10).
+
+	A catalogue-reset notice makes every live publisher re-announce at once.
+	Almost all of those announcements say exactly what the registry already
+	holds, and treating each one as an ordinary update would cost a catalogue
+	revision and an audit row per plugin — a storm of writes recording that
+	nothing changed, and a revision bump that makes every shell in the estate
+	re-read a document that did not move.
+
+	So identical content is its own outcome. What it still costs is one thing,
+	and it is not optional: the release watermark advances. The counter is
+	this protocol's stale-announcement protection — AdmitAnnouncement refuses
+	Release < Accepted, and an unregister refuses a release the running
+	announcement already spent. If a resync's release number did not become
+	the watermark, every number spent on a resync would stay acceptable
+	indefinitely, widening the replay window by exactly the number of resyncs.
+
+	Note what convergence does NOT refresh: the stored manifest bytes and
+	signature. Those encode the older release, because the counter is inside
+	the signed payload. That is correct rather than merely tolerable — they
+	remain a genuine signed manifest for the content that is stored, which is
+	what BR-AS37 asks of them. Refreshing them would be the write convergence
+	exists to avoid.
+*/
+
+// contentOf strips everything an announcement is allowed to move without
+// changing what the catalogue means: the release counter, the announcement
+// stamps, the signed bytes that carry the counter, and the curation fields
+// no publisher asserts.
+//
+// Written as a subtraction rather than a list of compared fields on purpose.
+// A field added to Entry later is content by default, so the new field makes
+// announcements differ and take the ordinary write path. The other direction
+// — a new field silently excluded from the comparison — would converge two
+// entries that are not the same, and nothing would report it.
+func contentOf(e Entry) Entry {
+	e.Release = 0
+	e.AnnouncedAt = ""
+	e.LastAnnouncedAt = ""
+	e.Manifest = nil
+	return e
+}
+
+// SameAnnouncedContent reports whether storing incoming would change nothing
+// about existing except the numbers that are not content.
+func SameAnnouncedContent(existing, incoming Entry) bool {
+	return reflect.DeepEqual(contentOf(existing), contentOf(incoming))
+}
 
 // DecideAnnounce is the whole of the announcement ruleset, as a pure
 // function of what is stored and what arrived. It returns the entry the
@@ -101,6 +155,19 @@ func DecideAnnounce(existing *Entry, incoming Entry) (AnnounceOutcome, Entry) {
 	if sameOrigin(existing.Remote.URL, incoming.Remote.URL) {
 		incoming.Enabled = true
 		incoming.Lifecycle = existing.Lifecycle
+		// The one branch convergence applies to. The others all have real
+		// work to do: an unknown id must be inserted, a pending one must be
+		// refreshed for the operator looking at it, and a cross-origin
+		// return must be re-queued. Only an enabled dynamic entry moving
+		// within its own origin can be asked to store what it already has.
+		// No field is carried over here, unlike the branches below. If the
+		// content matched, it matched including Withdrawn and Withheld — so
+		// a withdrawn or withheld entry re-announcing differs from what is
+		// stored and takes the ordinary write path, which is what puts it
+		// back on screen (BR-AS55).
+		if SameAnnouncedContent(*existing, incoming) {
+			return AnnounceConverged, incoming
+		}
 		return AnnounceUpdated, incoming
 	}
 	// A cross-origin return is a new place to fetch code from, so it goes

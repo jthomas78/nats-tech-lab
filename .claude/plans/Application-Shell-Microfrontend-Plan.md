@@ -795,7 +795,7 @@ and are carried into the tasks below. The three that would have broken something
       everything restarts → startup announcements; registry restarts with catalogue intact → nothing;
       catalogue lost with plugins alive, or restored from a stale backup → reset → jitter →
       re-announce.
-- [ ] **15e — convergence.** A content-equality no-op that writes no revision and no audit row but
+- [x] **15e — convergence.** *(Done 2026-09-02.)* A content-equality no-op that writes no revision and no audit row but
       advances `Accepted` (decision 10, amended). Kept distinct from today's `Admission.NoOp`, which
       means a literal replay at an equal release; a spec should pin that the two are different.
       **From the review:** this is a write to the entry row that does not bump the revision, and it
