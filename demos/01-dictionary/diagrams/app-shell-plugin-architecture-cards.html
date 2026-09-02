@@ -630,9 +630,9 @@
     <text class="tile-m" x="716" y="110">rpc._platform...announce.v1</text>
     <text class="tile-s" x="716" y="126">verified publisher &#183; dynamic &#183; announced</text>
 
-    <path class="edge" d="M250,154 L250,196 L440,196"/>
-    <path class="edge" d="M500,154 L500,192"/>
-    <path class="edge amb" d="M830,154 L830,196 L560,196"/>
+    <path class="edge" d="M250,154 L250,172 L440,172 L440,194"/>
+    <path class="edge" d="M500,154 L500,194"/>
+    <path class="edge amb" d="M830,154 L830,172 L560,172 L560,194"/>
 
     <rect class="grp" x="24" y="200" width="952" height="76" rx="12" stroke="#34d399"/>
     <text class="grp-l" x="42" y="188" fill="#34d399">Curated catalogue</text>
@@ -872,12 +872,12 @@
     <path class="edge grn" d="M388,99 L418,99"/>
     <path class="edge grn" d="M616,99 L646,99"/>
     <path class="edge grn" d="M844,99 L874,99"/>
-    <path class="edge red" d="M290,150 L290,180"/>
-    <path class="edge red" d="M518,150 L518,180"/>
-    <path class="edge red" d="M746,150 L746,180"/>
-    <text class="lbl2" x="240" y="196" fill="#f87171">not owner</text>
-    <text class="lbl2" x="468" y="196" fill="#f87171">bad / revoked</text>
-    <text class="lbl2" x="700" y="196" fill="#f87171">stale release</text>
+    <path class="edge red" d="M290,150 L290,174"/>
+    <path class="edge red" d="M518,150 L518,174"/>
+    <path class="edge red" d="M746,150 L746,174"/>
+    <rect class="nf" x="234" y="180" width="112" height="24" rx="3" stroke="#f87171"/><text class="lbl2" x="290" y="196" text-anchor="middle" fill="#f87171">not owner</text>
+    <rect class="nf" x="462" y="180" width="112" height="24" rx="3" stroke="#f87171"/><text class="lbl2" x="518" y="196" text-anchor="middle" fill="#f87171">bad / revoked</text>
+    <rect class="nf" x="690" y="180" width="112" height="24" rx="3" stroke="#f87171"/><text class="lbl2" x="746" y="196" text-anchor="middle" fill="#f87171">stale release</text>
     <text class="lg" x="16" y="24">Gates are re-checked where the write commits. Lock order is always publisher_revision, then registry.revision &#8212; the announce path takes only the second, so they cannot deadlock.</text>
   </svg>
   </div>

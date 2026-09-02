@@ -1,0 +1,218 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Where the contribution points are in the UI</title>
+<style>
+:root{
+  --bg:#131416; --panel:#1A1E23; --panel2:#15181c; --sunken:#101315;
+  --line:#252a30; --line2:#333a42; --stroke:#4A515B;
+  --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b; --tx4:#5f666e;
+  --blue:#006FFF; --blue2:#3b8bff; --cyan:#2fd4e8; --green:#27C07F;
+  --purple:#a78bfa; --amber:#f5b13d;
+  --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:var(--sans);
+     font-size:13px;line-height:20px;-webkit-font-smoothing:antialiased}
+.wrap{padding:26px 28px 34px;display:flex;flex-direction:column;gap:18px}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--blue2)}
+h1{margin:5px 0 0;font-size:21px;line-height:27px;font-weight:600;letter-spacing:-.01em}
+.sub{margin:5px 0 0;color:var(--tx2);max-width:96ch}
+.cols{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,.94fr);gap:20px;align-items:start}
+
+/* ---------- the wireframe ---------- */
+.app{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.topbar{height:46px;display:flex;align-items:center;gap:14px;padding:0 12px;
+        background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13.5px;white-space:nowrap}
+.brand .gl{width:15px;height:15px;border:1.3px solid var(--tx2);border-radius:3px;
+           position:relative;flex:0 0 auto}
+.brand .gl::after{content:"";position:absolute;inset:3px;border:1.3px solid var(--tx3);border-radius:1px}
+.crumb{font-size:12.5px;color:var(--tx3)}
+.crumb b{color:var(--tx);font-weight:600}
+.spacer{flex:1}
+.body{display:flex;min-height:408px}
+.rail{width:196px;flex:0 0 auto;background:var(--panel);border-right:1px solid var(--line);
+      padding:12px 10px;display:flex;flex-direction:column;gap:12px;position:relative}
+.grp-eyebrow{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx4);padding:0 6px 5px}
+.nav{display:flex;flex-direction:column;gap:2px}
+.item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:5px;font-size:12.5px;color:var(--tx2)}
+.item.active{background:rgba(0,111,255,.13);color:var(--tx);box-shadow:inset 2px 0 0 var(--blue)}
+.item .ic{width:13px;height:13px;border:1.2px solid currentColor;border-radius:3px;opacity:.75;flex:0 0 auto}
+.item .badge{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--tx4);
+             border:1px solid var(--line2);border-radius:9px;padding:0 6px}
+.railfoot{margin-top:auto;display:flex;justify-content:flex-end;padding-right:2px}
+.railfoot .btn{width:22px;height:22px;border:1px solid var(--line2);border-radius:4px;opacity:.6}
+.main{flex:1;min-width:0;padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--sunken)}
+.banner{border:1px dashed var(--line2);border-radius:6px;padding:7px 10px;font-size:11px;color:var(--tx4);font-family:var(--mono)}
+.route{border:1px solid var(--line2);border-radius:7px;background:var(--panel2);padding:10px;display:flex;flex-direction:column;gap:9px}
+.route-hd{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10.5px;color:var(--tx3)}
+.route-hd .url{color:var(--tx2);background:#0d0f11;border:1px solid var(--line);border-radius:4px;padding:1px 7px}
+.splits{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+.zone{border:1px dashed var(--line2);border-radius:6px;padding:9px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.zone-t{font-family:var(--mono);font-size:10.5px;color:var(--tx2)}
+.zone-s{font-size:10.5px;color:var(--tx4);margin-top:-4px}
+.slot{border:1px solid var(--line);border-radius:5px;background:var(--panel);padding:8px 9px;display:flex;flex-direction:column;gap:5px}
+.slot .cap{font-family:var(--mono);font-size:9.5px;color:var(--tx4)}
+.bar{height:6px;border-radius:3px;background:#20252b}
+.bar.w70{width:70%} .bar.w52{width:52%} .bar.w86{width:86%} .bar.w40{width:40%}
+.footbar{height:34px;display:flex;align-items:center;gap:16px;padding:0 12px;
+         background:var(--panel);border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--tx3)}
+.footbar .k{color:var(--tx4)}
+.ctrl{border:1px solid var(--line2);border-radius:5px;padding:3px 9px;font-family:var(--mono);font-size:10.5px;color:var(--tx2);background:var(--panel2)}
+
+/* numbered callouts */
+.n{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;
+   border-radius:50%;font-family:var(--mono);font-size:10px;font-weight:700;color:#0d0f11;flex:0 0 auto}
+.n.b{background:var(--blue2)} .n.c{background:var(--cyan)} .n.g{background:var(--green)}
+.n.p{background:var(--purple)} .n.a{background:var(--amber)}
+.hi{outline:1.3px solid var(--blue2);outline-offset:2px;border-radius:6px}
+.hi.c{outline-color:var(--cyan)} .hi.g{outline-color:var(--green)}
+.hi.p{outline-color:var(--purple)} .hi.a{outline-color:var(--amber)}
+.tag{display:inline-flex;align-items:center;gap:6px}
+
+/* ---------- tables ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:14px}
+.card > .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--tx4);margin-bottom:9px}
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx4);
+   text-align:left;padding:0 8px 6px 0;border-bottom:1px solid var(--line2);font-weight:500}
+td{padding:6px 8px 6px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:17px}
+td.m,th.m{font-family:var(--mono);font-size:10.5px;color:var(--tx);white-space:nowrap}
+td .mut{color:var(--tx4)}
+.foot{color:var(--tx3);font-size:11.5px;line-height:18px;margin-top:2px}
+.foot code,.sub code,td code{font-family:var(--mono);font-size:10.5px;background:rgba(222,224,227,.07);border-radius:3px;padding:0 4px}
+</style>
+<body>
+<div class="wrap">
+  <div>
+    <div class="eyebrow">Phase 1 &#183; BR-AS06 &#183; BR-AS07 &#183; BR-AS09</div>
+    <h1>Where the contribution points are in the UI</h1>
+    <p class="sub">Every region the shell owns, drawn on the frame a user actually sees. A plugin fills a target; it never chooses where a
+      target lives and it cannot invent one. Capacities below are the ones the shell declares in
+      <code>declareShellExtensionPoints()</code> and <code>demo-catalog</code>'s manifest, as built.</p>
+  </div>
+
+  <div class="cols">
+    <!-- ============ WIREFRAME ============ -->
+    <div>
+      <div class="app">
+        <div class="topbar">
+          <div class="brand"><span class="gl"></span><span>NATS Tech Lab</span></div>
+          <div class="crumb">Demo Catalog <span style="color:var(--tx4)">/</span> <b>Dictionary POC</b></div>
+          <div class="spacer"></div>
+          <div class="tag hi"><span class="n b">1</span><span class="ctrl">shell/topbar-controls/v1 &#183; max 3</span></div>
+        </div>
+
+        <div class="body">
+          <div class="rail">
+            <div>
+              <div class="grp-eyebrow">Shell</div>
+              <div class="nav">
+                <div class="item"><span class="ic"></span>Home</div>
+                <div class="item"><span class="ic"></span>Plugins<span class="badge">6</span></div>
+              </div>
+            </div>
+            <div class="hi c" style="padding:6px 4px">
+              <div class="grp-eyebrow" style="display:flex;align-items:center;gap:7px;white-space:nowrap">
+                <span class="n c">2</span><span>Features</span>
+              </div>
+              <div style="font-size:10.5px;color:var(--tx4);padding:0 6px 6px;line-height:15px">navigation contributions</div>
+              <div class="nav">
+                <div class="item active"><span class="ic"></span>Demos</div>
+                <div class="item"><span class="ic"></span>Fleet Ops</div>
+                <div class="item"><span class="ic"></span>Port Insights</div>
+              </div>
+            </div>
+            <div class="railfoot"><div class="btn"></div></div>
+          </div>
+
+          <div class="main">
+            <div class="banner">RegistrySignalBanner &#8212; shell-owned, above the outlet, never a plugin slot</div>
+
+            <div class="route hi g">
+              <div class="route-hd">
+                <span class="n g">3</span><span>route contributions &#8212; the router outlet</span>
+                <span class="url">/demos/:id</span>
+              </div>
+              <div class="splits">
+                <div class="zone hi a" style="outline-offset:1px">
+                  <div class="zone-t"><span class="n a">4</span> shell/home-main/v1</div>
+                  <div class="zone-s">only on <b>/</b> &#183; shell-owned &#183; max 4 &#183; native empty state when nothing renders</div>
+                  <div class="slot"><span class="cap">panel 1 of 4</span><div class="bar w86"></div><div class="bar w52"></div></div>
+                  <div class="slot"><span class="cap">panel 2 of 4</span><div class="bar w70"></div><div class="bar w40"></div></div>
+                </div>
+                <div class="zone hi p" style="outline-offset:1px">
+                  <div class="zone-t"><span class="n p">5</span> demo-catalog/details-sidebar/v1</div>
+                  <div class="zone-s">only on <b>/demos/:id</b> &#183; owned by a <b>plugin</b>, not the shell &#183; max 4</div>
+                  <div class="slot"><span class="cap">panel 1 of 4</span><div class="bar w70"></div><div class="bar w86"></div></div>
+                  <div class="slot"><span class="cap">panel 2 of 4</span><div class="bar w52"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footbar hi" style="outline-offset:-2px">
+          <span class="n a">6</span>
+          <span><span class="k">plugins</span> 6</span>
+          <span><span class="k">registry</span> revision 41</span>
+          <span style="color:var(--tx4)">&#8226;</span>
+          <span>shell/footer/v1 &#183; max 6 &#183; the bar is shell-owned, the items are not</span>
+        </div>
+      </div>
+      <p class="foot" style="margin-top:9px">The two dashed zones are on <b>different routes</b> and are drawn side by side only to show both owners at once.
+        <b>4</b> renders on Home; <b>5</b> renders on a demo intro. A plugin may declare a target that is not currently mounted &#8212; it renders
+        nothing until that host region exists.</p>
+    </div>
+
+    <!-- ============ TABLES ============ -->
+    <div>
+      <div class="card">
+        <div class="lbl">Target contract &#8212; as declared in code</div>
+        <table>
+          <tr><th class="m">Target</th><th>Owner</th><th>Accepts</th><th>Frozen context</th></tr>
+          <tr><td class="m">shell/topbar-controls/v1</td><td>shell</td><td>shell-control</td><td>route name, params</td></tr>
+          <tr><td class="m">shell/footer/v1</td><td>shell</td><td>shell-footer</td><td>route name, params</td></tr>
+          <tr><td class="m">shell/home-main/v1</td><td>shell</td><td>extension</td><td><span class="mut">&#8212; none &#8212;</span></td></tr>
+          <tr><td class="m">demo-catalog/details-sidebar/v1</td><td>demo-catalog</td><td>extension</td><td>demo id, tags</td></tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="lbl">Order, capacity, empty behaviour</div>
+        <table>
+          <tr><th class="m">Target</th><th>Order / capacity</th><th>When nothing renders</th></tr>
+          <tr><td class="m">shell/topbar-controls/v1</td><td>order asc &#183; max 3</td><td>slot collapses, no gap</td></tr>
+          <tr><td class="m">shell/footer/v1</td><td>order asc &#183; max 6</td><td>bar keeps its shell-owned items</td></tr>
+          <tr><td class="m">shell/home-main/v1</td><td>order asc &#183; max 4</td><td>shell empty state</td></tr>
+          <tr><td class="m">demo-catalog/details-sidebar/v1</td><td>order asc &#183; max 4</td><td>column omitted, page reflows</td></tr>
+        </table>
+        <p class="foot" style="margin-top:8px">Overflow past capacity is refused <b>at index time</b>, with a reason, not dropped at paint &#8212; refusing late would
+          make the outcome depend on render order.</p>
+      </div>
+
+      <div class="card">
+        <div class="lbl">Contribution kinds, and what places them</div>
+        <table>
+          <tr><th class="m">Kind</th><th>Placed by</th></tr>
+          <tr><td class="m">route</td><td>shell router adapter &#8212; namespaced under the plugin's route prefix; reserved paths refused</td></tr>
+          <tr><td class="m">navigation</td><td>sidebar <b>Features</b> group &#8212; group and order metadata only</td></tr>
+          <tr><td class="m">extension</td><td>a named, versioned target &#8212; the only kind that can reach a plugin-owned region</td></tr>
+          <tr><td class="m">shell-control</td><td>topbar, right of the breadcrumb &#8212; active route only</td></tr>
+          <tr><td class="m">shell-footer</td><td>the footer bar &#8212; active route only</td></tr>
+        </table>
+        <p class="foot" style="margin-top:8px">Actions, commands, settings providers, global search and event-bus messages stay out until a real consumer
+          defines their input and layout.</p>
+      </div>
+
+      <div class="card" style="border-left:2px solid var(--blue2);margin-bottom:0">
+        <div class="lbl" style="color:var(--blue2)">The rule the picture is making</div>
+        <p class="foot">Targets are <code>{owner}/{region}/v{major}</code>. Context objects are frozen before delivery, so a contributor mutating
+          what it was handed affects neither the host nor a sibling. <b>Owner is not a synonym for shell</b> &#8212; number <b>5</b> is owned by a
+          federated plugin, and a second plugin contributing into it is the cross-owner case a shell-only proof would miss.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
