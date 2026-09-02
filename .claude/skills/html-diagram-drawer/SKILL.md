@@ -1,6 +1,6 @@
 ---
 name: /Users/jeremy/dev/github/jthomas78/nats-tech-lab/.claude/skills/html-diagram-drawer/SKILL.md
-description: Create hand-authored HTML+inline-SVG architecture diagrams, sequence/flow diagrams, and UI mockups, rendered to a high-DPI PNG via headless Chrome for embedding in this repo's ARCHITECTURE-*.md docs. Use this whenever a diagram benefits from real CSS layout and prose captions around it (multiple related diagrams building one narrative on a page, a design write-up, or a UI mockup for review before implementation) rather than a pure Draw.io node/edge graph — see drawio-architecture-drawer for that case instead. Always reach for this skill, not raw ad hoc SVG or a screenshot mockup, whenever the user asks to "diagram," "sketch," "mock up," or "illustrate" something for this repo's architecture docs.
+description: Create hand-authored HTML+inline-SVG architecture diagrams, sequence/flow diagrams, and UI mockups, rendered to a high-DPI PNG via headless Chrome for embedding in this repo's ARCHITECTURE-*.md docs. Use this whenever a diagram benefits from real CSS layout and prose captions around it (multiple related diagrams building one narrative on a page, a design write-up, or a UI mockup for review before implementation) rather than a pure Draw.io node/edge graph — see drawio-architecture-drawer for that case instead. Always reach for this skill, not raw ad hoc SVG or a screenshot mockup, whenever the user asks to "diagram," "sketch," "mock up," or "illustrate" something for this repo's architecture docs. Carries two drawing variants: the default schematic style for mechanism, sequence and before/after figures, and an AWS-style topology variant for "AWS-style", "cloud architecture", "topology", "landscape" or "system overview" diagrams.
 ---
 
 # HTML Diagram Drawer
@@ -293,6 +293,116 @@ generated SVG. Get these specifics right:
   arithmetic and connector-routing rules that follow from this are their
   own section — see "Layout geometry" below, and run its audit before
   rendering.
+## Variant — AWS-style topology layout
+
+The default style above is the **schematic** variant: outlined boxes,
+monospace, no fills. It is right for a mechanism drawing — one path, one
+argument, a before/after. It is *wrong* for a system-landscape drawing,
+where a reader needs to see at a glance which boxes are peers, what
+contains what, and which plane a component sits in.
+
+**Use this variant when** the user asks for an "AWS-style", "cloud
+architecture", "topology", "landscape", or "system overview" diagram, or
+when the drawing's job is to answer *what is running and where* rather
+than *what happens in what order*. When in doubt, ask — the two variants
+must not be mixed inside a single figure. Different figures on the same
+page may use different variants.
+
+### What this variant overrides
+
+Only these rules change. Everything else in this skill — the lane grid,
+box-sizing arithmetic, "never put a label on a line", the mechanical
+check, the export commands, the validation checklist — applies unchanged.
+
+| Rule | Schematic (default) | AWS-style topology |
+| --- | --- | --- |
+| Node fill | `fill: none` | Panel fill `#1A1E23`, nested panel `#15181c` |
+| Node stroke | `currentColor`, 1px | `#3a424c`, 1.1px |
+| Corner radius | `rx=3` node, `rx=4` group | `rx=8` node tile, `rx=12` group boundary |
+| Typography | monospace throughout | Inter — the repo's UI face; monospace only for literal subjects, ids, ports |
+| Icons | none | one filled rounded tile per node, `rx=7`, 22–26px |
+| Group boundary | dashed, 50% opacity | solid 1.1px in the group's accent color, label *outside* the top-left corner |
+
+### The grammar
+
+- **Every node is a boundary or a tile. Nothing floats.** A tile that
+  belongs to no group is a drawing error — add the group, or delete the
+  tile.
+- **Boundaries nest at most two deep.** Region → plane → group is the
+  limit. A third level means the diagram is two diagrams.
+- **A group's label sits above its top-left corner**, uppercase,
+  `letter-spacing: .13em`, 11px, in the group's accent color. It names
+  the boundary *and* what enforces it — `PLATFORM SERVICES — BACKEND
+  DOCKER NETWORK`, not `PLATFORM SERVICES`.
+- **A node tile is: icon tile, primary label, optional secondary line,
+  and an optional detail line at the tile's foot.** Never a fourth. The
+  detail line carries the fact a reader would otherwise ask for out loud
+  — a port, a count, a policy.
+- **Icon glyphs are a single capital letter** in `#0d0f11` on the filled
+  tile. This repo has no icon set; do not import one, do not draw a
+  service logo, and never use a real cloud vendor's icon — the diagram is
+  AWS-*shaped*, not AWS-branded.
+
+### Group accent colors
+
+Accent color encodes the **plane**, not the technology. Reuse the same
+color for the same plane across every diagram in a set.
+
+| Plane | Token | Hex |
+| --- | --- | --- |
+| Browser / client | `--blue` | `#3b8bff` |
+| Messaging backbone | `--cyan` | `#2fd4e8` |
+| Platform / shared services | `--green` | `#34d399` |
+| Tenant / plugin-owned / third-party | `--purple` | `#a78bfa` |
+| Persistence (source of truth) | — | `#27C07F` |
+| Persistence (cache / derived) | `--amber` | `#f5b13d` |
+| Infrastructure / runtime | `--stroke` | `#4A515B` |
+
+A node tile's icon takes its group's accent. A tile that is deliberately
+*not* the group's normal kind — a failure fixture among healthy plugins —
+takes `--tx3` `#8b929b` instead, so the exception is visible without a
+caption.
+
+### Connector semantics
+
+One closed set, same as the default variant's edge colors, but the
+*shape* carries the delivery guarantee:
+
+| Style | Meaning |
+| --- | --- |
+| Solid, arrow | request/reply, or a read the caller waits on |
+| Dashed, arrow | pushed, fire-and-forget, event or heartbeat |
+| Dotted | replication or sync between two stores |
+| Thin solid, no label | a service reading its own database |
+
+Label the *first* edge of each kind and leave the rest bare — the legend
+carries the meaning. Every AWS-style figure ends with a one-line legend
+strip below a `#2a3038` rule, naming line shapes then colors.
+
+### Layout heuristics
+
+- **Left-to-right for a landscape, top-to-bottom for a flow.** Pick one
+  per figure.
+- **Actors and clients at the top or left. Infrastructure at the bottom
+  or outermost. Persistence directly beneath the services that own it.**
+- **A messaging backbone goes in the middle band, full width of the
+  boxes it serves** — if NATS is the backbone, every arrow that crosses
+  planes should cross that band, and any arrow that does not is telling
+  the reader about a second transport. Make sure that is true before you
+  draw it.
+- **Leave one clear vertical lane** down one side for the long edge that
+  skips a band (a browser fetching plugin assets past the backbone).
+  Shorten the backbone band rather than routing that edge through it.
+- **Technology names only where they change the reader's model.**
+  `Postgres` earns its name; `HTTP server` does not.
+
+### Not this variant's job
+
+Do not use it for sequence diagrams, state machines, before/after
+mechanism drawings, or decision flows. Those stay schematic. A landscape
+diagram that starts sprouting numbered steps has become a sequence
+diagram and should be redrawn in the default variant.
+
 
 ## Layout geometry — text placement and connector routing
 

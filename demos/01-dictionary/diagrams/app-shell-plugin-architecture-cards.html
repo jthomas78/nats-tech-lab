@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Application Shell &amp; Plugin Architecture — Reference Cards</title>
+<style>
+  :root{
+    --bg:#0d0f11; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf; --truth:#27C07F;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{background:var(--bg);color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px;line-height:20px;font-feature-settings:"cv05","ss01";}
+  .page{width:210mm;height:297mm;overflow:hidden;padding:14mm 13mm 10mm;
+    display:flex;flex-direction:column;page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);}
+  .page:last-child{page-break-after:auto}
+
+  .eyebrow-pill{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:45px;line-height:52px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:84%;margin-top:16px}
+  .cover-q{margin-top:22px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:15px 20px;max-width:95%;}
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:14px;line-height:23px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:13px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 30px;margin-top:9px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:14px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:9px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{margin-top:14px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:14px 20px 16px;
+    display:grid;grid-template-columns:54px 1fr;gap:4px 14px;}
+  .num{font-size:29px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:33px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:23px;line-height:29px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+  .decision{margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    padding:12px 18px;display:grid;grid-template-columns:74px 1fr;gap:14px;align-items:start;}
+  .decision .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fam);padding-top:3px}
+  .decision p{font-size:13.5px;line-height:21px}
+  .decision b{color:var(--tx)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px 15px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:8px}
+  .panel.note{border-left:2px solid var(--amber)} .panel.note > .lbl{color:var(--amber)}
+  .panel.st{border-left:2px solid var(--teal)} .panel.st > .lbl{color:var(--teal)}
+  .panel.dy{border-left:2px solid var(--purple)} .panel.dy > .lbl{color:var(--purple)}
+  .panel.ok{border-left:2px solid var(--green)} .panel.ok > .lbl{color:var(--green)}
+  .panel.no{border-left:2px solid var(--red)} .panel.no > .lbl{color:var(--red)}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:11.8px;line-height:17.5px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"\203A";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:var(--mono);font-size:10.5px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 7px 0;font-weight:500}
+  td{padding:5px 8px 5px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .verdict{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;}
+  .pill{border:1px solid var(--fam);color:var(--fam);border-radius:5px;padding:6px 11px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .verdict p{font-size:12.5px;line-height:19px}
+  .verdict .side{font-size:10.5px;color:var(--tx3);letter-spacing:.06em;white-space:nowrap;font-family:var(--mono)}
+  .figwrap{margin-top:11px}
+
+  /* ---- AWS-style topology primitives ---- */
+  svg{display:block;width:100%;height:auto}
+  .grp{fill:rgba(255,255,255,.014);stroke-width:1.1}
+  .grp-l{font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:600}
+  .tile-t{font-size:12.5px;font-weight:600;fill:#DEE0E3}
+  .tile-s{font-size:10.5px;fill:#8b929b}
+  .tile-m{font-size:10px;fill:#B7BCC2;font-family:var(--mono)}
+  .icn-g{font-size:12px;font-weight:700;fill:#0d0f11;text-anchor:middle}
+  .edge{fill:none;stroke:#4A515B;stroke-width:1.3;marker-end:url(#ah)}
+  .edge.ev{stroke-dasharray:5 4}
+  .edge.blue{stroke:#3b8bff;marker-end:url(#ahb)}
+  .edge.grn{stroke:#34d399;marker-end:url(#ahg)}
+  .edge.red{stroke:#f87171;marker-end:url(#ahr)}
+  .edge.amb{stroke:#f5b13d;marker-end:url(#aha)}
+  .e-l{font-size:10px;fill:#B7BCC2}
+  .e-l2{font-size:9.5px;fill:#8b929b;font-family:var(--mono)}
+  .lg{font-size:9.5px;fill:#8b929b}
+  /* ---- schematic primitives ---- */
+  .n{fill:none;stroke:#4A515B;stroke-width:1}
+  .nf{fill:#15181c;stroke:#3a424c;stroke-width:1}
+  .lbl{font-family:var(--mono);font-size:11px;fill:#DEE0E3}
+  .lbl2{font-family:var(--mono);font-size:9.5px;fill:#8b929b}
+  .grpl{font-family:var(--mono);font-size:9.5px;fill:#8b929b;letter-spacing:.07em}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <marker id="ah" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#4A515B"/></marker>
+  <marker id="ahb" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#3b8bff"/></marker>
+  <marker id="ahg" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#34d399"/></marker>
+  <marker id="ahr" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#f87171"/></marker>
+  <marker id="aha" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#f5b13d"/></marker>
+</defs></svg>
+
+<!-- ============ COVER ============ -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Architecture reference &#183; lab-shell &#183; nats-tech-lab</span></div>
+  <h1 class="cover">The Application Shell<br>&amp; its <span class="hl">Plugin Architecture</span></h1>
+  <p class="cover-sub">One Vue host, no feature imports. Everything a user sees beyond the frame arrives as a
+    curated, signed, independently built micro-frontend plugin. These twelve cards state how that works, as built.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The governing invariant</div>
+    <p><b>Metadata before code.</b> The shell must know a plugin's identity, contract compatibility, permissions,
+      routes, navigation and extension assignments <i>before</i> it loads a single byte of that plugin's
+      executable remote module.</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:12px">
+    <div class="lbl" style="color:var(--amber)">And what it is not</div>
+    <p>This is a <b>trusted first-party plugin model, not a browser sandbox.</b> Runtime discovery removes host
+      rebuilds; it does not make arbitrary remote JavaScript safe. Every card that touches trust says so again.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The twelve cards</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>01 &#183; System overview &#8212; what is actually running</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>02 &#183; Anatomy of a plugin &#8212; two files, two links</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>03 &#183; Contribution kinds &#8212; how UI is declared</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>04 &#183; Injection &#8212; metadata, first use, render</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>05 &#183; Host-owned extension points</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>06 &#183; Registration paths &#8212; three tiers</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>07 &#183; Entry modes &#8212; static vs dynamic</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>08 &#183; The seven states, and withdrawal</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>09 &#183; Signing &amp; the three trust gates</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>10 &#183; Revocation, tombstones, degraded read</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>11 &#183; Versioning &amp; compatibility resolution</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>12 &#183; Curation &#8212; the Admin UI's role</div>
+    </div>
+    <div class="cover-meta">
+      <span>DRAWN FROM ARCHITECTURE-APP-SHELL.MD &#183; BUSINESS_RULES-APP-SHELL.MD</span>
+      <span>AS BUILT THROUGH PHASE 15 &#183; 2026-09-02</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CARD 01 ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 01 &#183; System overview</span></div>
+  <div class="titleblock">
+    <div class="num">01</div>
+    <div class="fam-lbl">The services involved</div>
+    <h2>What is actually running</h2>
+    <p class="lede">Three platform services, one browser page, and one container per plugin. Nothing here talks to
+      a plugin over HTTP except the browser fetching its code.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 654" role="img" aria-label="System overview of the application shell. A browser boundary holds one lab-shell page containing the shell kernel, five typed contribution registries, the Module Federation remote loader and the host-owned extension regions. Below it a NATS band carries api, rpc and notify subjects. Below that, a platform services boundary holds mfe-registry-service, accounts-service and auth-service over Postgres and a NATS KV cache, and a plugin hosts boundary holds one container per plugin. The browser reads the registry over NATS and fetches plugin code over HTTPS down a clear right-hand lane; plugin containers announce and publish health into NATS.">
+    <rect class="grp" x="24" y="26" width="952" height="164" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="42" y="18" fill="#3b8bff">Browser &#8212; one page, one shell</text>
+    <rect x="46" y="60" width="908" height="112" rx="10" fill="#15181c" stroke="#2a3038"/>
+    <text class="tile-s" x="62" y="80">lab-shell &#183; Vue 3 + Vite + shared/unifi-theme &#183; zero feature imports</text>
+    <rect x="62" y="90" width="206" height="68" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="76" y="104" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="89" y="121">K</text>
+    <text class="tile-t" x="112" y="115">Shell kernel</text><text class="tile-s" x="112" y="130">router &#183; Pinia &#183; PrimeVue</text>
+    <text class="tile-s" x="76" y="149">one of everything global</text>
+    <rect x="286" y="90" width="206" height="68" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="300" y="104" width="26" height="26" rx="7" fill="#2fd4e8"/><text class="icn-g" x="313" y="121">R</text>
+    <text class="tile-t" x="336" y="115">Contribution</text><text class="tile-s" x="336" y="130">registries &#8212; five, typed</text>
+    <text class="tile-s" x="300" y="149">route &#183; nav &#183; topbar &#183; footer &#183; ext</text>
+    <rect x="510" y="90" width="206" height="68" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="524" y="104" width="26" height="26" rx="7" fill="#a78bfa"/><text class="icn-g" x="537" y="121">L</text>
+    <text class="tile-t" x="560" y="115">Remote loader</text><text class="tile-s" x="560" y="130">Module Federation</text>
+    <text class="tile-s" x="524" y="149">allowlist &#183; timeout &#183; activate once</text>
+    <rect x="734" y="90" width="206" height="68" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="748" y="104" width="26" height="26" rx="7" fill="#f5b13d"/><text class="icn-g" x="761" y="121">X</text>
+    <text class="tile-t" x="784" y="115">Extension regions</text><text class="tile-s" x="784" y="130">host-owned slots</text>
+    <text class="tile-s" x="748" y="149">layout &#183; capacity &#183; order &#183; context</text>
+
+    <path class="edge blue" d="M210,190 L210,256"/>
+    <text class="e-l" x="222" y="214">WSS &#183; least-privilege read</text>
+    <text class="e-l2" x="222" y="230">api._platform.mfe-registry.read.v1</text>
+    <path class="edge ev" d="M900,190 L900,402"/>
+    <text class="e-l" x="700" y="238" text-anchor="end">HTTPS &#183; remoteEntry.js</text>
+    <text class="e-l2" x="700" y="254" text-anchor="end">allowlisted origin only</text>
+
+    <rect class="grp" x="24" y="258" width="796" height="80" rx="12" stroke="#2fd4e8"/>
+    <text class="grp-l" x="42" y="250" fill="#2fd4e8">NATS backbone</text>
+    <rect x="46" y="278" width="40" height="40" rx="7" fill="#2fd4e8"/><text class="icn-g" x="66" y="304">N</text>
+    <text class="tile-t" x="100" y="292">JetStream &#183; KV &#183; operator-mode accounts</text>
+    <text class="tile-s" x="100" y="310">api.* browser grants &#183; rpc.* service-to-service &#183; notify.* change notice</text>
+
+    <rect class="grp" x="24" y="404" width="556" height="196" rx="12" stroke="#34d399"/>
+    <text class="grp-l" x="42" y="396" fill="#34d399">Platform services</text>
+    <rect x="44" y="428" width="176" height="72" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="58" y="442" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="71" y="459">M</text>
+    <text class="tile-t" x="94" y="453">mfe-registry</text><text class="tile-s" x="94" y="468">-service</text>
+    <text class="tile-s" x="58" y="490">curation &#183; admission &#183; health</text>
+    <rect x="234" y="428" width="160" height="72" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="248" y="442" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="261" y="459">A</text>
+    <text class="tile-t" x="284" y="459">accounts-service</text>
+    <text class="tile-s" x="248" y="490">mints the browser grants</text>
+    <rect x="408" y="428" width="152" height="72" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="422" y="442" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="435" y="459">J</text>
+    <text class="tile-t" x="458" y="459">auth-service</text>
+    <text class="tile-s" x="422" y="490">JWT claims &#8212; BR-AS05</text>
+    <rect x="44" y="518" width="176" height="60" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="58" y="532" width="24" height="24" rx="7" fill="#27C07F"/><text class="icn-g" x="70" y="548">P</text>
+    <text class="tile-t" x="92" y="542">Postgres</text><text class="tile-s" x="92" y="557">curated catalogue &#8212; truth</text>
+    <rect x="234" y="518" width="326" height="60" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="248" y="532" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="260" y="548">V</text>
+    <text class="tile-t" x="282" y="542">NATS KV cache</text>
+    <text class="tile-s" x="282" y="557">degraded read only &#183; monotonic &#183; labelled stale</text>
+    <path class="edge grn" d="M210,338 L210,426"/>
+    <text class="e-l2" x="220" y="384">serves &amp; listens</text>
+    <path class="edge" d="M132,500 L132,516"/>
+    <path class="edge" d="M300,500 L300,516"/>
+
+    <rect class="grp" x="616" y="404" width="360" height="196" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l" x="634" y="396" fill="#a78bfa">Plugin hosts</text>
+    <rect x="634" y="428" width="156" height="52" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="646" y="440" width="22" height="22" rx="7" fill="#a78bfa"/><text class="icn-g" x="657" y="455">C</text>
+    <text class="tile-t" x="676" y="450">demo-catalog</text><text class="tile-s" x="676" y="465">7112 &#183; preload</text>
+    <rect x="802" y="428" width="156" height="52" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="814" y="440" width="22" height="22" rx="7" fill="#a78bfa"/><text class="icn-g" x="825" y="455">E</text>
+    <text class="tile-t" x="844" y="450">example</text><text class="tile-s" x="844" y="465">7111 &#183; announced</text>
+    <rect x="634" y="492" width="324" height="52" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="646" y="504" width="22" height="22" rx="7" fill="#8b929b"/><text class="icn-g" x="657" y="519">F</text>
+    <text class="tile-t" x="676" y="514">three failure fixtures</text>
+    <text class="tile-s" x="676" y="529">7113 slow &#183; 7114 throws &#183; 7115 incompatible</text>
+    <text class="tile-s" x="634" y="564">Each: own package, lockfile, Dockerfile,</text>
+    <text class="tile-s" x="634" y="580">one &#8216;plugin&#8217; exposure, one listener, one NATS conn.</text>
+    <path class="edge grn ev" d="M760,402 L760,340"/>
+    <text class="e-l" x="772" y="362">announce.v1 (signed)</text>
+    <text class="e-l2" x="772" y="378">+ health every 5s</text>
+
+    <line x1="24" y1="616" x2="976" y2="616" stroke="#2a3038"/>
+    <text class="lg" x="24" y="631">Solid = request/reply or a read the caller waits on &#160;&#183;&#160; Dashed = pushed, fire-and-forget &#160;&#183;&#160; Blue = browser plane &#160;&#183;&#160; Cyan = backbone &#160;&#183;&#160; Green = platform &#160;&#183;&#160; Purple = plugin-owned</text>
+    <text class="lg" x="24" y="646">Boundary labels name the plane. Platform services share one backend Docker network; each plugin is its own container.</text>
+  </svg>
+  </div>
+
+  <div class="grid3">
+    <div class="panel"><div class="lbl">What the shell never does</div>
+      <ul><li>Import a plugin at build time</li><li>Open a business NATS connection for a plugin</li><li>Accept a remote URL from any channel but the registry</li></ul></div>
+    <div class="panel"><div class="lbl">What the registry never does</div>
+      <ul><li>Execute plugin code</li><li>Mint or hold credentials</li><li>Enable an entry on a publisher's say-so</li></ul></div>
+    <div class="panel"><div class="lbl">What a plugin never does</div>
+      <ul><li>Dial the browser &#8212; the browser dials it</li><li>Set its own <code>enabled</code>, <code>lifecycle</code> or <code>revision</code></li><li>Reach another plugin's connection</li></ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 01</span>
+    <p>Every arrow crossing a boundary is either an allowlisted asset fetch or a NATS subject. There is no third
+      way in, and that is the whole security perimeter.</p>
+    <span class="side">BR-AS01 &#183; AS03 &#183; AS20</span></div>
+</section>
+
+<!-- ============ CARD 02 ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 02 &#183; Anatomy of a plugin</span></div>
+  <div class="titleblock">
+    <div class="num">02</div>
+    <div class="fam-lbl">One container, two links</div>
+    <h2>What a plugin is made of</h2>
+    <p class="lede">A plugin is one process holding exactly two links: an HTTP listener the browser dials, and one
+      NATS connection it dials out on. Phase 14 merged the containers; the counts did not change.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 292" role="img" aria-label="Anatomy of one plugin container. On the left the browser boundary holds the shell. In the middle a plugin container boundary holds a Go plugin host process containing static build output and an announcer with a release counter volume. On the right the NATS boundary. The browser fetches remoteEntry.js from the container over HTTPS; the announcer publishes a signed announcement and a health heartbeat into NATS and subscribes to the catalogue reset notice coming back.">
+    <rect class="grp" x="14" y="40" width="196" height="182" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="30" y="32" fill="#3b8bff">Browser</text>
+    <rect x="34" y="86" width="156" height="72" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="48" y="100" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="61" y="117">S</text>
+    <text class="tile-t" x="84" y="117">lab-shell</text>
+    <text class="tile-s" x="48" y="146">the only HTTP caller</text>
+
+    <rect class="grp" x="266" y="40" width="424" height="182" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l" x="282" y="32" fill="#a78bfa">Plugin container &#8212; one process, backend network only</text>
+    <rect x="286" y="64" width="384" height="140" rx="10" fill="#15181c" stroke="#2a3038"/>
+    <text class="tile-s" x="300" y="84">Go mfe-plugin-host &#183; one PID</text>
+    <rect x="300" y="94" width="172" height="60" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="312" y="106" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="324" y="122">B</text>
+    <text class="tile-t" x="346" y="122">build output</text>
+    <text class="tile-s" x="312" y="146">remoteEntry.js + CSS</text>
+    <rect x="486" y="94" width="172" height="60" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="498" y="106" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="510" y="122">A</text>
+    <text class="tile-t" x="532" y="122">announcer</text>
+    <text class="tile-s" x="498" y="146">signs &#183; heartbeats &#183; listens</text>
+    <rect x="300" y="166" width="358" height="28" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <text class="tile-m" x="312" y="185">release-counter volume &#8212; outside the image</text>
+
+    <rect class="grp" x="746" y="40" width="240" height="182" rx="12" stroke="#2fd4e8"/>
+    <text class="grp-l" x="762" y="32" fill="#2fd4e8">NATS backbone</text>
+    <rect x="766" y="86" width="200" height="72" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="780" y="100" width="26" height="26" rx="7" fill="#2fd4e8"/><text class="icn-g" x="793" y="117">N</text>
+    <text class="tile-t" x="816" y="117">rpc.* &#183; notify.*</text>
+    <text class="tile-s" x="780" y="146">registry listens here</text>
+
+    <path class="edge blue" d="M192,110 L296,110"/>
+    <text class="e-l" x="200" y="102">HTTPS :7111</text>
+    <text class="e-l2" x="200" y="132">remoteEntry.js</text>
+    <path class="edge grn ev" d="M672,112 L762,112"/>
+    <text class="e-l" x="676" y="104">announce + health</text>
+    <path class="edge amb ev" d="M762,146 L676,146"/>
+    <text class="e-l2" x="676" y="166">catalogue reset notice</text>
+
+    <line x1="14" y1="248" x2="986" y2="248" stroke="#2a3038"/>
+    <text class="lg" x="14" y="263">Solid = the browser waits on it &#160;&#183;&#160; Dashed = pushed, fire-and-forget &#160;&#183;&#160; Counts per plugin: 1 HTTP listener, 1 NATS connection &#8212; unchanged by the Phase 14 merge</text>
+    <text class="lg" x="14" y="281">The container joins the backend Docker network only. Since Phase 15 the registry makes no outbound call to it at all.</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel ok"><div class="lbl">manifest.json &#8212; the plugin owns this</div>
+      <ul><li>Identity, version, remote entry, contributions</li>
+        <li>Served at <code>/manifest.json</code> from the plugin itself</li>
+        <li><b>Cannot claim</b> <code>source</code>, <code>lifecycle</code>, <code>enabled</code> or <code>revision</code></li>
+        <li>The release number is injected at runtime, just before signing &#8212; not baked into the image</li></ul></div>
+    <div class="panel st"><div class="lbl">registry.json &#8212; the operator owns this</div>
+      <ul><li>A preload wrapper holding manifests plus enablement</li>
+        <li>Since Phase 13 it wraps <code>demo-catalog</code> alone</li>
+        <li>Editing it and restarting <b>changes no existing row</b></li>
+        <li>It is also the single input to the explicit operator seeder</li></ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:10px"><div class="lbl">Why the merge was worth doing</div>
+    <ul><li>Before Phase 14, five announced plugins meant <b>ten containers</b> &#8212; an nginx frontend and an announcer sidecar that shared nothing but a plugin id.</li>
+      <li>The two links were always two different protocols in two different directions. Merging changed <b>who holds them, not how many there are</b>.</li>
+      <li>Phase 15 then deleted the last reason a plugin joined the frontend network: the registry's <code>GET /healthz</code> probe and its hand-written origin map.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Card 02</span>
+    <p>Two files, two owners; two links, one process. A plugin describes itself and proves who it is. It never
+      grants itself anything.</p>
+    <span class="side">BR-AS45 &#183; AS61 &#183; AS67 &#183; AS71/72</span></div>
+</section>
+
+<!-- ============ CARD 03 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 03 &#183; Contribution kinds</span></div>
+  <div class="titleblock">
+    <div class="num">03</div>
+    <div class="fam-lbl">The integration surface</div>
+    <h2>How UI is declared</h2>
+    <p class="lede">A plugin extends the application through one published contract and nothing else. It declares
+      contributions as metadata; the shell sorts them into five separately typed registries.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 322" role="img" aria-label="How plugin contributions become shell registries. A plugin manifest boundary at the top holds three declared contribution collections: routes, navigation and extensions. An arrow labelled validated and indexed with zero remote bytes fetched leads down into a shell boundary holding five separately typed contribution registries: routes, navigation, topbar controls, footer content and named extension assignments. A note records that a refused contribution is recorded in refusals and never placed while its valid siblings still render.">
+    <rect class="grp" x="24" y="34" width="952" height="98" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l" x="42" y="26" fill="#a78bfa">Plugin manifest &#8212; declared, not executed</text>
+    <rect x="46" y="56" width="292" height="60" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="60" y="68" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="72" y="84">R</text>
+    <text class="tile-t" x="94" y="84">contributions.routes</text>
+    <text class="tile-s" x="60" y="108">namespaced path &#183; title &#183; component ref &#183; permission</text>
+    <rect x="354" y="56" width="292" height="60" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="368" y="68" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="380" y="84">N</text>
+    <text class="tile-t" x="402" y="84">contributions.navigation</text>
+    <text class="tile-s" x="368" y="108">label &#183; icon &#183; route target &#183; group &#183; order</text>
+    <rect x="662" y="56" width="292" height="60" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="676" y="68" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="688" y="84">X</text>
+    <text class="tile-t" x="710" y="84">contributions.extensions</text>
+    <text class="tile-s" x="676" y="108">typed assignment to a versioned target</text>
+
+    <path class="edge blue" d="M500,132 L500,182"/>
+    <text class="e-l" x="514" y="140">validated, then indexed</text>
+    <text class="e-l2" x="514" y="156">zero remote bytes fetched</text>
+
+    <rect class="grp" x="24" y="184" width="952" height="106" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="42" y="176" fill="#3b8bff">Shell registries</text>
+    <rect x="44" y="212" width="176" height="58" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="56" y="224" width="22" height="22" rx="7" fill="#2fd4e8"/><text class="icn-g" x="67" y="239">1</text>
+    <text class="tile-t" x="86" y="239">routes</text><text class="tile-s" x="56" y="262">addressable, deep-linkable</text>
+    <rect x="232" y="212" width="176" height="58" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="244" y="224" width="22" height="22" rx="7" fill="#2fd4e8"/><text class="icn-g" x="255" y="239">2</text>
+    <text class="tile-t" x="274" y="239">navigation</text><text class="tile-s" x="244" y="262">order from metadata</text>
+    <rect x="420" y="212" width="176" height="58" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="432" y="224" width="22" height="22" rx="7" fill="#2fd4e8"/><text class="icn-g" x="443" y="239">3</text>
+    <text class="tile-t" x="462" y="239">topbar controls</text><text class="tile-s" x="432" y="262">capacity 3, route-scoped</text>
+    <rect x="608" y="212" width="176" height="58" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="620" y="224" width="22" height="22" rx="7" fill="#2fd4e8"/><text class="icn-g" x="631" y="239">4</text>
+    <text class="tile-t" x="650" y="239">footer content</text><text class="tile-s" x="620" y="262">shell-owned outlet</text>
+    <rect x="796" y="212" width="160" height="58" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="808" y="224" width="22" height="22" rx="7" fill="#2fd4e8"/><text class="icn-g" x="819" y="239">5</text>
+    <text class="tile-t" x="838" y="239">extensions</text><text class="tile-s" x="808" y="262">named, versioned targets</text>
+
+    <line x1="24" y1="304" x2="976" y2="304" stroke="#2a3038"/>
+    <text class="lg" x="24" y="318">Purple = plugin-owned declaration &#160;&#183;&#160; Blue = shell-owned state &#160;&#183;&#160; The arrow is the only crossing, and it carries metadata only</text>
+  </svg>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p><b>Five typed registries, not one global bag.</b> Each contribution kind is explicit and independently
+      validated, so a bad entry of one kind cannot poison another. Rejection is per contribution, never per plugin
+      and never per registry.</p></div>
+
+  <div class="grid3">
+    <div class="panel"><div class="lbl">Identity &amp; order</div>
+      <ul><li>Every plugin and contribution ID is <b>namespaced</b></li>
+        <li>Pinia store IDs become <code>{plugin-id}/{store-id}</code> &#8212; three apps each had a store called <code>tenant</code></li>
+        <li>Render order comes from accepted metadata, <b>not</b> from remote load timing</li></ul></div>
+    <div class="panel"><div class="lbl">What is refused</div>
+      <ul><li>A duplicate plugin ID &#8212; the whole entry</li>
+        <li>A duplicate or malformed contribution &#8212; that one only</li>
+        <li>A contribution aimed at an undeclared or wrong-version target</li>
+        <li>Every refusal is recorded in <code>refusals</code>, never silently dropped</li></ul></div>
+    <div class="panel no"><div class="lbl">Not a sandbox &#8212; say it plainly</div>
+      <ul><li>Plugin code runs in the shell's own JS realm</li>
+        <li>It can reach <code>document</code>, so it <b>could</b> mount a second shell or write outside its container</li>
+        <li>Nothing in the repo prevents that. The rule is a contract, held up by curation and review</li></ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 03</span>
+    <p>The contract is narrow on purpose: a plugin gets a container the host chose and a frozen context. It is
+      handed no router, no theme, and no shell DOM.</p>
+    <span class="side">BR-AS02 &#183; AS06 &#183; AS09 &#183; AS13</span></div>
+</section>
+
+<!-- ============ CARD 04 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 04 &#183; Injection lifecycle</span></div>
+  <div class="titleblock">
+    <div class="num">04</div>
+    <div class="fam-lbl">Boot to render</div>
+    <h2>When the code actually loads</h2>
+    <p class="lede">Seven stages. The first four fetch no remote code at all &#8212; navigation and routes are already
+      live and clickable before a single plugin byte exists in the page.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 250" role="img" aria-label="The seven-stage frontend injection lifecycle drawn as a left-to-right pipeline. Stages one to four — boot the host, fetch and validate metadata, index contributions, and wait for first use — sit under a bracket marked zero remote bytes. Stages five to seven — load and activate, render through a host boundary, and end the runtime at reload — sit under a second bracket marked remote code executing. An arrow from stage four to stage five is labelled route match or active extension assignment.">
+    <text class="grpl" x="16" y="24">STAGE 1&#8211;4 &#8212; METADATA ONLY</text>
+    <path d="M16 32 L16 40 L470 40 L470 32" class="n" stroke="#2fd4e8"/>
+    <text class="grpl" x="540" y="24" fill="#a78bfa">STAGE 5&#8211;7 &#8212; REMOTE CODE EXECUTING</text>
+    <path d="M540 32 L540 40 L984 40 L984 32" class="n" stroke="#a78bfa"/>
+
+    <rect class="nf" x="16" y="60" width="104" height="72" rx="3"/>
+    <text class="lbl" x="26" y="82">1 boot</text><text class="lbl2" x="26" y="98">router, Pinia,</text>
+    <text class="lbl2" x="26" y="111">theme, gates,</text><text class="lbl2" x="26" y="124">error boundary</text>
+    <rect class="nf" x="136" y="60" width="118" height="72" rx="3"/>
+    <text class="lbl" x="146" y="82">2 validate</text><text class="lbl2" x="146" y="98">schema, ids,</text>
+    <text class="lbl2" x="146" y="111">origins, contract,</text><text class="lbl2" x="146" y="124">permissions</text>
+    <rect class="nf" x="256" y="60" width="104" height="72" rx="3"/>
+    <text class="lbl" x="266" y="82">3 index</text><text class="lbl2" x="266" y="98">nav, routes,</text>
+    <text class="lbl2" x="266" y="111">topbar, footer,</text><text class="lbl2" x="266" y="124">extensions</text>
+    <rect class="nf" x="376" y="60" width="106" height="72" rx="3"/>
+    <text class="lbl" x="386" y="82">4 wait</text><text class="lbl2" x="386" y="98">nav is live,</text>
+    <text class="lbl2" x="386" y="111">routes resolve,</text><text class="lbl2" x="386" y="124">nothing fetched</text>
+
+    <path class="edge blue" d="M484,96 L536,96"/>
+    <text class="e-l" x="474" y="88">first use</text>
+    <text class="e-l2" x="446" y="152">route match or active extension assignment</text>
+
+    <rect class="nf" x="540" y="60" width="132" height="72" rx="3"/>
+    <text class="lbl" x="550" y="82">5 load</text><text class="lbl2" x="550" y="98">resolve remote,</text>
+    <text class="lbl2" x="550" y="111">activate(shellApi)</text><text class="lbl2" x="550" y="124">exactly once</text>
+    <rect class="nf" x="688" y="60" width="132" height="72" rx="3"/>
+    <text class="lbl" x="698" y="82">6 render</text><text class="lbl2" x="698" y="98">host boundary,</text>
+    <text class="lbl2" x="698" y="111">frozen context,</text><text class="lbl2" x="698" y="124">host owns layout</text>
+    <rect class="nf" x="836" y="60" width="148" height="72" rx="3"/>
+    <text class="lbl" x="846" y="82">7 end</text><text class="lbl2" x="846" y="98">reload ends the</text>
+    <text class="lbl2" x="846" y="111">browser runtime.</text><text class="lbl2" x="846" y="124">no full disposal yet</text>
+
+    <path class="edge" d="M120,96 L132,96"/><path class="edge" d="M256,96 L262,96"/><path class="edge" d="M360,96 L372,96"/>
+    <path class="edge" d="M672,96 L684,96"/><path class="edge" d="M820,96 L832,96"/>
+
+    <rect class="nf" x="16" y="176" width="968" height="46" rx="3" stroke="#2a3038"/>
+    <text class="lbl2" x="30" y="196" fill="#B7BCC2">A browser session uses exactly one accepted registry snapshot. It never mixes policy, metadata, contract and executable versions</text>
+    <text class="lbl2" x="30" y="212" fill="#B7BCC2">within one page &#8212; which is why adopting a new registry or plugin version is a page reload, not a hot swap.</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><div class="lbl">The cold deep link</div>
+      <ul><li>A URL into a not-yet-loaded remote resolves from <b>metadata</b>, then loads</li>
+        <li>The route is addressable before the code exists &#8212; that is the point of BR-AS12</li>
+        <li>Pending regions animate rather than showing an empty frame</li></ul></div>
+    <div class="panel"><div class="lbl">The shell API a plugin receives</div>
+      <ul><li>One shared frozen object: <code>{ version: 1, ui: { ExtensionRegion } }</code></li>
+        <li>No connection, no credential, no host registry</li>
+        <li>Deliberately narrow &#8212; and still not a sandbox for same-realm code</li></ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 04</span>
+    <p>Lazy is not an optimisation here, it is the trust model. Declaring a route or a nav entry downloads
+      nothing, so a refused entry costs zero executed bytes.</p>
+    <span class="side">BR-AS08 &#183; AS12 &#183; AS13</span></div>
+</section>
+
+<!-- ============ CARD 05 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 05 &#183; Extension points</span></div>
+  <div class="titleblock">
+    <div class="num">05</div>
+    <div class="fam-lbl">Host-owned regions</div>
+    <h2>The host decides where</h2>
+    <p class="lede">Plugins fill targets. They never choose where a target lives. A region's owner declares it,
+      versions it, sets order and capacity, and freezes the context it hands out.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 350" role="img" aria-label="Host-owned extension points including the cross-owner case. A shell boundary at the top left owns three targets: shell topbar-controls v1 with capacity three, shell footer v1, and shell home-main v1. A separate boundary at the top right shows demo-catalog, itself a federated feature, owning demo-catalog details-sidebar v1 with capacity four. Below, two independent remotes — fleet-ops and port-insights — contribute upward into targets owned by both the shell and the catalog. Dashed edges run back down from the catalog target to both contributors carrying the same frozen readonly context, the selected demo id.">
+    <rect class="grp" x="24" y="34" width="556" height="112" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="42" y="26" fill="#3b8bff">Shell &#8212; owner of its own regions</text>
+    <rect x="44" y="58" width="168" height="70" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="56" y="70" width="22" height="22" rx="7" fill="#3b8bff"/><text class="icn-g" x="67" y="85">T</text>
+    <text class="tile-m" x="86" y="85" fill="#DEE0E3">topbar-controls/v1</text>
+    <text class="tile-s" x="56" y="106">capacity 3</text><text class="tile-s" x="56" y="120">route-scoped</text>
+    <rect x="228" y="58" width="168" height="70" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="240" y="70" width="22" height="22" rx="7" fill="#3b8bff"/><text class="icn-g" x="251" y="85">F</text>
+    <text class="tile-m" x="270" y="85" fill="#DEE0E3">footer/v1</text>
+    <text class="tile-s" x="240" y="106">shell outlet</text><text class="tile-s" x="240" y="120">ordered</text>
+    <rect x="412" y="58" width="150" height="70" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="424" y="70" width="22" height="22" rx="7" fill="#3b8bff"/><text class="icn-g" x="435" y="85">H</text>
+    <text class="tile-m" x="454" y="85" fill="#DEE0E3">home-main/v1</text>
+    <text class="tile-s" x="424" y="106">native fallback</text><text class="tile-s" x="424" y="120">always renders</text>
+
+    <rect class="grp" x="628" y="34" width="348" height="112" rx="12" stroke="#27C07F"/>
+    <text class="grp-l" x="640" y="26" fill="#27C07F">demo-catalog &#8212; a plugin owning a region</text>
+    <rect x="648" y="58" width="308" height="70" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="660" y="70" width="22" height="22" rx="7" fill="#27C07F"/><text class="icn-g" x="671" y="85">D</text>
+    <text class="tile-m" x="690" y="85" fill="#DEE0E3">demo-catalog/details-sidebar/v1</text>
+    <text class="tile-s" x="660" y="106">capacity 4 &#183; ordered &#183; owned by a plugin, not the shell</text>
+    <text class="tile-s" x="660" y="120">this is the cross-owner case a shell-only proof would miss</text>
+
+    <rect class="grp" x="24" y="216" width="952" height="76" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l" x="42" y="208" fill="#a78bfa">Contributors</text>
+    <rect x="140" y="238" width="252" height="42" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="152" y="248" width="22" height="22" rx="7" fill="#a78bfa"/><text class="icn-g" x="163" y="263">1</text>
+    <text class="tile-t" x="182" y="263">remote: fleet-ops</text>
+    <rect x="608" y="238" width="252" height="42" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="620" y="248" width="22" height="22" rx="7" fill="#a78bfa"/><text class="icn-g" x="631" y="263">2</text>
+    <text class="tile-t" x="650" y="263">remote: port-insights</text>
+
+    <path class="edge blue" d="M180,236 L128,132"/>
+    <path class="edge blue" d="M266,236 L300,132"/>
+    <path class="edge grn" d="M356,236 L740,132"/>
+    <path class="edge grn" d="M700,236 L790,132"/>
+    <path class="edge blue" d="M772,236 L500,132"/>
+
+    <path class="edge amb ev" d="M840,132 L866,232"/>
+    <text class="e-l2" x="866" y="186" fill="#f5b13d">frozen context</text>
+
+    <line x1="24" y1="306" x2="976" y2="306" stroke="#2a3038"/>
+    <text class="lg" x="24" y="320">Solid = a placed contribution &#160;&#183;&#160; Dashed amber = the frozen readonly context &#160;&#183;&#160; Blue = shell-owned target &#160;&#183;&#160; Green = plugin-owned target</text>
+    <text class="lg" x="24" y="336">Contributors are independent remotes with no knowledge of each other. One of them fills a shell target and a catalog target under the same contract.</text>
+  </svg>
+  </div>
+
+  <div class="grid3">
+    <div class="panel"><div class="lbl">What an owner declares</div>
+      <ul><li>A stable, versioned target ID &#8212; <code>{owner}/{region}/v{major}</code></li>
+        <li>The accepted contribution type</li>
+        <li>Layout, capacity and deterministic order</li>
+        <li>The readonly context, and any permission constraint</li></ul></div>
+    <div class="panel"><div class="lbl">What a contributor cannot do</div>
+      <ul><li>Query for a DOM element and attach itself</li>
+        <li>Choose its own position or reorder siblings</li>
+        <li>Mutate the context &#8212; it is frozen on the way in</li>
+        <li>Exceed capacity quietly: overflow is <b>reported</b></li></ul></div>
+    <div class="panel note"><div class="lbl">When an owner is withdrawn</div>
+      <ul><li>Only placements <b>into that slot</b> suspend</li>
+        <li>Their contributors stay active everywhere else</li>
+        <li>Eligible placements return <b>exactly once</b> when the unchanged slot returns</li></ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 05</span>
+    <p>Host ownership is what preserves accessibility, visual fidelity and local layout control. It is also what
+      lets one plugin safely host another plugin's UI.</p>
+    <span class="side">BR-AS07 &#183; AS06 &#183; AS13</span></div>
+</section>
+
+<!-- ============ CARD 06 ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 06 &#183; Registration paths</span></div>
+  <div class="titleblock">
+    <div class="num">06</div>
+    <div class="fam-lbl">Three tiers, one catalogue</div>
+    <h2>How an entry gets in</h2>
+    <p class="lede">Three paths write the same curated registry and all three pass the origin allowlist. They differ
+      in authority and in what they default to &#8212; not in where they land.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 314" role="img" aria-label="Three registration paths converging on one curated registry. Admin curation writes over an operator api subject with a revision check and produces a static entry authored by admin. Preload reads an optional mounted registry.json at service boot and inserts only when the id has never existed, defaulting to static. Service announcement sends a signed manifest over an rpc subject, defaults to dynamic, and lands announced and withheld until an operator enables it. All three converge on the mfe-registry-service catalogue in Postgres, which serves the shell.">
+    <rect class="grp" x="24" y="34" width="292" height="118" rx="12" stroke="#2dd4bf"/>
+    <text class="grp-l" x="42" y="26" fill="#2dd4bf">Admin curation</text>
+    <rect x="44" y="58" width="252" height="76" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="56" y="70" width="24" height="24" rx="7" fill="#2dd4be"/><text class="icn-g" x="68" y="86">O</text>
+    <text class="tile-t" x="90" y="86">Operator writes</text>
+    <text class="tile-m" x="56" y="110">api._platform.mfe-registry.write</text>
+    <text class="tile-s" x="56" y="126">revision-checked &#183; actor <tspan font-family="ui-monospace">admin</tspan> &#183; default static</text>
+
+    <rect class="grp" x="354" y="34" width="292" height="118" rx="12" stroke="#2dd4bf"/>
+    <text class="grp-l" x="372" y="26" fill="#2dd4bf">Preload</text>
+    <rect x="374" y="58" width="252" height="76" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="386" y="70" width="24" height="24" rx="7" fill="#2dd4be"/><text class="icn-g" x="398" y="86">P</text>
+    <text class="tile-t" x="420" y="86">Mounted file at boot</text>
+    <text class="tile-m" x="386" y="110">registry.json</text>
+    <text class="tile-s" x="386" y="126">insert only if the id never existed &#183; actor <tspan font-family="ui-monospace">preload</tspan></text>
+
+    <rect class="grp" x="684" y="34" width="292" height="118" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l" x="702" y="26" fill="#a78bfa">Service announcement</text>
+    <rect x="704" y="58" width="252" height="76" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="716" y="70" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="728" y="86">S</text>
+    <text class="tile-t" x="750" y="86">Signed manifest</text>
+    <text class="tile-m" x="716" y="110">rpc._platform...announce.v1</text>
+    <text class="tile-s" x="716" y="126">verified publisher &#183; dynamic &#183; announced</text>
+
+    <path class="edge" d="M250,154 L250,196 L440,196"/>
+    <path class="edge" d="M500,154 L500,192"/>
+    <path class="edge amb" d="M830,154 L830,196 L560,196"/>
+
+    <rect class="grp" x="24" y="200" width="952" height="76" rx="12" stroke="#34d399"/>
+    <text class="grp-l" x="42" y="188" fill="#34d399">Curated catalogue</text>
+    <rect x="44" y="224" width="440" height="40" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="56" y="232" width="22" height="22" rx="7" fill="#27C07F"/><text class="icn-g" x="67" y="247">C</text>
+    <text class="tile-t" x="86" y="247">server-assigned monotonic revision, installed all-or-nothing</text>
+    <rect x="504" y="224" width="452" height="40" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="516" y="232" width="22" height="22" rx="7" fill="#f5b13d"/><text class="icn-g" x="527" y="247">!</text>
+    <text class="tile-t" x="546" y="247">a stale revision on a write is refused, never merged</text>
+
+    <line x1="24" y1="288" x2="976" y2="288" stroke="#2a3038"/>
+    <text class="lg" x="24" y="300">Teal = an operator acted &#160;&#183;&#160; Purple = a publisher acted &#160;&#183;&#160; Amber edge = arrives inert, awaiting an operator &#160;&#183;&#160; Static curation always wins over an announcement</text>
+  </svg>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p><b>Announcement is not activation.</b> A publisher can report its own manifest. It cannot grant itself
+      permission to execute. An enabled dynamic entry may update within its approved origin; an origin change
+      sends it back to <code>announced</code> until an operator reapproves.</p></div>
+
+  <div class="grid2">
+    <div class="panel"><div class="lbl">A fresh lab, first boot</div>
+      <ul><li><code>demo-catalog</code> is the <b>only</b> plugin served</li>
+        <li>Every announced candidate is stored <b>disabled</b> and stays that way</li>
+        <li>Once enabled, Postgres keeps that decision across restarts</li>
+        <li>The shell says so on screen &#8212; otherwise a correct first run reads as broken</li></ul></div>
+    <div class="panel"><div class="lbl">The seeder, and why it writes nothing twice</div>
+      <ul><li>Reads first, applies only the operations actually missing</li>
+        <li>A <code>revoked</code> key is never handed its trust back</li>
+        <li>A transferred plugin stays with its new owner</li>
+        <li>Re-running against a converged registry performs <b>zero</b> writes</li></ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 06</span>
+    <p>Same destination, different authority. The path an entry took is recorded as provenance, and the operator's
+      decision outranks all of them.</p>
+    <span class="side">BR-AS16&#8211;21 &#183; AS39 &#183; AS66 &#183; AS68</span></div>
+</section>
+
+<!-- ============ CARD 07 · ENTRY MODES ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 07 · Entry modes</span></div>
+
+  <div class="titleblock">
+    <div class="num">07</div>
+    <div class="fam-lbl">Lifecycle class</div>
+    <h2>Static and dynamic</h2>
+    <p class="lede">Lifecycle is explicit platform metadata, set by the operator and independent of how the plugin
+      arrived. It answers exactly one question: may this plugin's UI vanish under the user's hands?</p>
+  </div>
+
+  <div class="decision">
+    <div class="lbl">Decision</div>
+    <p><b>A static plugin is never unloaded live — it is offered a reload. A dynamic plugin's contributions are
+      withdrawn on the spot.</b> One exception, and only one: a security revocation forces the reload on both
+      (BR-AS49).</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 226" role="img" aria-label="Two lanes showing what an operator disable does to a static plugin versus a dynamic plugin.">
+    <rect class="grp" x="14" y="26" width="480" height="184" rx="10" stroke="#2dd4bf"/>
+    <text class="grp-l" x="30" y="18" fill="#2dd4bf">Static — curated, load-bearing</text>
+    <rect x="34" y="52" width="200" height="46" rx="7" fill="#1A1E23" stroke="#3a424c"/>
+    <text class="tile-t" x="48" y="72">Operator disables</text><text class="tile-s" x="48" y="88">or publisher unregisters</text>
+    <path class="edge" d="M240,75 L292,75"/>
+    <rect x="300" y="52" width="176" height="46" rx="7" fill="#15181c" stroke="#2a3038"/>
+    <text class="tile-t" x="314" y="72">Content stays</text><text class="tile-s" x="314" y="88">banner offers reload</text>
+    <rect x="34" y="120" width="442" height="72" rx="7" fill="#15181c" stroke="#2a3038"/>
+    <text class="tile-s" x="48" y="142" fill="#B7BCC2">The user keeps the screen they are on. Nothing disappears mid-task.</text>
+    <text class="tile-s" x="48" y="160" fill="#B7BCC2">A running shell keeps the class it was admitted with, even if the operator</text>
+    <text class="tile-s" x="48" y="178" fill="#B7BCC2">edits it — the edit takes effect on the next reload, not this session.</text>
+
+    <rect class="grp" x="520" y="26" width="466" height="184" rx="10" stroke="#a78bfa"/>
+    <text class="grp-l" x="536" y="18" fill="#a78bfa">Dynamic — announced, revocable</text>
+    <rect x="540" y="52" width="190" height="46" rx="7" fill="#1A1E23" stroke="#3a424c"/>
+    <text class="tile-t" x="554" y="72">Operator disables</text><text class="tile-s" x="554" y="88">or publisher unregisters</text>
+    <path class="edge" d="M736,75 L788,75"/>
+    <rect x="796" y="52" width="172" height="46" rx="7" fill="#15181c" stroke="#2a3038"/>
+    <text class="tile-t" x="810" y="72">Withdrawn live</text><text class="tile-s" x="810" y="88">nav, routes, slots gone</text>
+    <rect x="540" y="120" width="428" height="72" rx="7" fill="#15181c" stroke="#2a3038"/>
+    <text class="tile-s" x="554" y="142" fill="#B7BCC2">The module stays loaded and the activation result is kept, so an unchanged</text>
+    <text class="tile-s" x="554" y="160" fill="#B7BCC2">authorized return restores the contributions without activating twice.</text>
+    <text class="tile-s" x="554" y="178" fill="#B7BCC2">An occupied route keeps its URL and shows a shell-owned explanation.</text>
+  </svg>
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <div class="lbl">Event &#8594; behaviour, by class</div>
+    <table>
+      <tr><th style="width:36%">Event</th><th style="width:32%">Static</th><th>Dynamic</th></tr>
+      <tr><td><b>Operator disable</b></td><td>Keep content, offer reload</td><td class="mid">Withdraw contributions live</td></tr>
+      <tr><td><b>Signed publisher unregister</b></td><td>No live withdrawal — curation is authoritative</td><td class="mid">Withdraw live, keep operator approval</td></tr>
+      <tr><td><b>Service stop / failed health / lost NATS</b></td><td>Decorate only</td><td>Decorate only</td></tr>
+      <tr><td><b>Unchanged authorized return</b></td><td>Retract the obsolete reload offer</td><td>Restore cached contributions, no second activate</td></tr>
+      <tr><td><b>Changed runtime definition</b></td><td>Offer reload</td><td>Offer reload &#8212; never hot replacement</td></tr>
+      <tr><td><b>Operator class edit</b></td><td colspan="2">Offer reload; this session retains its admitted class</td></tr>
+      <tr><td><b>Publisher / key revocation</b></td><td colspan="2" class="bad">Forced reload on both (BR-AS49) &#8212; the banner takes it, it does not offer it</td></tr>
+    </table>
+  </div>
+
+  <div class="grid3">
+    <div class="panel st"><div class="lbl">Where static comes from</div>
+      <ul><li><b>Preload</b> at service boot — insert only if the id never existed</li>
+        <li><b>Admin curation</b> — an operator typed it</li>
+        <li>Legacy unclassified entries default here</li></ul></div>
+    <div class="panel dy"><div class="lbl">Where dynamic comes from</div>
+      <ul><li><b>Announcement</b> — a signed manifest over <code>rpc.*</code></li>
+        <li>Enters <code>announced</code>, withheld until enabled</li>
+        <li>Origin change sends it back to <code>announced</code></li></ul></div>
+    <div class="panel note"><div class="lbl">What withdrawal is not</div>
+      <ul><li>No <code>scope.dispose()</code>, no JS isolation</li>
+        <li>An in-flight callback is not interrupted</li>
+        <li>The only promise: <b>gone at the next paint</b></li></ul></div>
+  </div>
+
+  <div class="verdict">
+    <span class="pill">Card 07</span>
+    <p>Static protects the user's work. Dynamic protects the platform's control. The operator picks which
+      matters more for each plugin, and the choice is metadata — not a rebuild.</p>
+    <span class="side">BR-AS52&#8211;65 &#183; AS49</span>
+  </div>
+</section>
+
+
+<!-- ============ CARD 08 ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 08 &#183; States</span></div>
+  <div class="titleblock">
+    <div class="num">08</div>
+    <div class="fam-lbl">Seven observable states</div>
+    <h2>What the shell can say about a plugin</h2>
+    <p class="lede">Every plugin the shell knows about is in exactly one of seven states, and each one is
+      visible to an operator. Two of them look the same to a user and must never be merged.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 272" role="img" aria-label="The seven plugin states as a state machine. Discovered branches to incompatible, disabled, or available. Available moves to loading on first use, and loading moves to active or failed. Active can move to failed. Failed can move back to loading on an explicit retry. Incompatible is terminal for the session and no remote code is executed to reach it.">
+    <rect class="nf" x="20" y="94" width="126" height="46" rx="3"/>
+    <text class="lbl" x="34" y="116">discovered</text><text class="lbl2" x="34" y="131">registry read</text>
+
+    <rect class="n" x="212" y="14" width="150" height="46" rx="3" stroke="#f87171"/>
+    <text class="lbl" x="226" y="36" fill="#f87171">incompatible</text><text class="lbl2" x="226" y="51">we refused it</text>
+    <rect class="n" x="212" y="94" width="150" height="46" rx="3"/>
+    <text class="lbl" x="226" y="116">disabled</text><text class="lbl2" x="226" y="131">not enabled yet</text>
+    <rect class="n" x="212" y="174" width="150" height="46" rx="3" stroke="#34d399"/>
+    <text class="lbl" x="226" y="196" fill="#34d399">available</text><text class="lbl2" x="226" y="211">nav + routes live</text>
+
+    <rect class="n" x="446" y="174" width="150" height="46" rx="3" stroke="#3b8bff"/>
+    <text class="lbl" x="460" y="196" fill="#3b8bff">loading</text><text class="lbl2" x="460" y="211">first use only</text>
+
+    <rect class="nf" x="680" y="118" width="150" height="46" rx="3"/>
+    <text class="lbl" x="694" y="140" fill="#34d399">active</text><text class="lbl2" x="694" y="155">contributing</text>
+    <rect class="n" x="680" y="196" width="150" height="46" rx="3" stroke="#f87171"/>
+    <text class="lbl" x="694" y="218" fill="#f87171">failed</text><text class="lbl2" x="694" y="233">we tried, it broke</text>
+
+    <path class="edge red" d="M150,110 L150,37 L206,37"/>
+    <path class="edge" d="M150,117 L206,117"/>
+    <path class="edge grn" d="M150,124 L150,197 L206,197"/>
+    <path class="edge blue" d="M366,197 L440,197"/>
+    <text class="e-l2" x="372" y="190">import()</text>
+    <path class="edge grn" d="M600,190 L636,190 L636,141 L674,141"/>
+    <path class="edge red" d="M600,204 L636,204 L636,219 L674,219"/>
+    <path class="edge red" d="M755,168 L755,192"/>
+    <path class="edge blue ev" d="M690,244 L560,244 L520,226"/>
+    <text class="e-l2" x="560" y="256">explicit retry</text>
+
+    <text class="lg" x="20" y="256">Red = a refusal or a break &#160;&#183;&#160; Green = a healthy step &#160;&#183;&#160; Blue = code is fetched here, and only here</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel no"><div class="lbl">Why incompatible &#8800; failed</div>
+      <ul><li><b>incompatible</b> &#8212; the shell refused it. Terminal for the session. <b>No remote code ran.</b></li>
+        <li><b>failed</b> &#8212; the shell tried and it broke. Retryable.</li>
+        <li>Collapsing them would tell an operator to go debug a plugin the shell never executed.</li></ul></div>
+    <div class="panel ok"><div class="lbl">Available means zero bytes fetched</div>
+      <ul><li>Navigation entries and routes are <b>already live</b> at <code>available</code></li>
+        <li>The remote is fetched on first use, not at boot</li>
+        <li>A disabled plugin costs a boot nothing</li></ul></div>
+  </div>
+
+  <div class="panel" style="margin-top:10px"><div class="lbl">What withdrawal removes, and what it keeps</div>
+    <table>
+      <tr><th style="width:50%">Removed</th><th>Kept</th></tr>
+      <tr><td>Navigation entries the plugin owns</td><td>The loaded module &#8212; a re-entry does not re-import</td></tr>
+      <tr><td>Routes, for new navigation</td><td>The activation result &#8212; no second <code>activate()</code></td></tr>
+      <tr><td>Extension placements, controls, footer items</td><td>A <code>withdrawn</code> record, so the reason is auditable</td></tr>
+      <tr><td colspan="2" class="mid">A late-completing import or activation cannot register contributions for a withdrawn plugin. Duplicate events are idempotent.</td></tr>
+      <tr><td colspan="2">An <b>occupied route</b> keeps its URL and shows a shell-owned explanation with a link back. Component and form state is <b>not</b> promised to survive.</td></tr>
+    </table>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 08</span>
+    <p>The state a plugin is in is a platform fact, not a guess from symptoms. That is what makes a failure
+      report actionable instead of a support conversation.</p>
+    <span class="side">BR-AS13 &#183; AS53&#8211;58</span></div>
+</section>
+
+<!-- ============ CARD 09 ============ -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 09 &#183; Signing</span></div>
+  <div class="titleblock">
+    <div class="num">09</div>
+    <div class="fam-lbl">Three trust gates</div>
+    <h2>Who published this manifest</h2>
+    <p class="lede">An announced manifest passes three gates, in order, before it touches the catalogue.
+      All three run in the service. None of them run in the browser.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 208" role="img" aria-label="The three trust gates an announced manifest passes in order. Gate one asks whether the publisher owns this plugin id, and is checked first and on its own cause so a bad signature is distinguishable from a valid signature over someone else's id. Gate two asks whether the signed bytes verify against a key that is trusted and enabled right now; retired keys still verify but revoked keys do not. Gate three asks whether the release number is higher than the highest already accepted; lower is refused and equal is a safe no-op. Passing all three writes one of five outcomes.">
+    <rect class="nf" x="16" y="66" width="130" height="66" rx="3"/>
+    <text class="lbl" x="30" y="92">announce</text><text class="lbl2" x="30" y="108">signed manifest</text><text class="lbl2" x="30" y="122">rpc._platform.*</text>
+
+    <rect class="n" x="196" y="52" width="188" height="94" rx="3" stroke="#34d399"/>
+    <text class="grpl" x="212" y="74">GATE 1 &#183; OWNERSHIP</text>
+    <text class="lbl" x="212" y="96">owns this id?</text>
+    <text class="lbl2" x="212" y="112">asked first, and on</text>
+    <text class="lbl2" x="212" y="126">its own cause code</text>
+
+    <rect class="n" x="424" y="52" width="188" height="94" rx="3" stroke="#34d399"/>
+    <text class="grpl" x="440" y="74">GATE 2 &#183; SIGNATURE</text>
+    <text class="lbl" x="440" y="96">verifies, key live?</text>
+    <text class="lbl2" x="440" y="112">retired keys still verify</text>
+    <text class="lbl2" x="440" y="126">revoked keys do not</text>
+
+    <rect class="n" x="652" y="52" width="188" height="94" rx="3" stroke="#34d399"/>
+    <text class="grpl" x="668" y="74">GATE 3 &#183; RELEASE</text>
+    <text class="lbl" x="668" y="96">higher than last?</text>
+    <text class="lbl2" x="668" y="112">lower &#8594; refused</text>
+    <text class="lbl2" x="668" y="126">equal &#8594; safe no-op</text>
+
+    <rect class="nf" x="880" y="66" width="104" height="66" rx="3"/>
+    <text class="lbl" x="894" y="92">write</text><text class="lbl2" x="894" y="108">5 outcomes</text>
+
+    <path class="edge grn" d="M150,99 L190,99"/>
+    <path class="edge grn" d="M388,99 L418,99"/>
+    <path class="edge grn" d="M616,99 L646,99"/>
+    <path class="edge grn" d="M844,99 L874,99"/>
+    <path class="edge red" d="M290,150 L290,180"/>
+    <path class="edge red" d="M518,150 L518,180"/>
+    <path class="edge red" d="M746,150 L746,180"/>
+    <text class="lbl2" x="240" y="196" fill="#f87171">not owner</text>
+    <text class="lbl2" x="468" y="196" fill="#f87171">bad / revoked</text>
+    <text class="lbl2" x="700" y="196" fill="#f87171">stale release</text>
+    <text class="lg" x="16" y="24">Gates are re-checked where the write commits. Lock order is always publisher_revision, then registry.revision &#8212; the announce path takes only the second, so they cannot deadlock.</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel ok"><div class="lbl">Five outcomes, all auditable</div>
+      <ul><li><code>inserted</code> &#8212; new, and awaiting an operator</li>
+        <li><code>pending</code> &#8212; stored, not yet enabled</li>
+        <li><code>updated</code> &#8212; an approved entry changed in place</li>
+        <li><code>requeued</code> &#8212; origin changed, back to <code>announced</code></li>
+        <li><code>ignored</code> &#8212; nothing to do; retry is safe</li></ul></div>
+    <div class="panel no"><div class="lbl">What signing does <b>not</b> cover</div>
+      <ul><li>Not what the code <b>does</b> &#8212; only who published the manifest</li>
+        <li>Not the remote it points at: those bytes are unsigned and unchecked. The <b>origin allowlist</b> is what bounds where code comes from</li>
+        <li>Deliberately not bound to the announcing service's identity</li>
+        <li>Deliberately not the NATS trust chain &#8212; a leaked publisher key cannot connect to NATS as anything</li></ul></div>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p><b>Ownership is answered before the signature.</b> A refusal must not become a way to enumerate which
+      plugin ids are registered &#8212; and an operator has to be able to tell a forged signature from a genuine
+      signature over somebody else's plugin.</p></div>
+
+  <div class="verdict"><span class="pill">Card 09</span>
+    <p>Signing answers one question honestly and refuses to imply the others. That narrowness is the point:
+      it is a provenance check, not a safety certificate.</p>
+    <span class="side">BR-AS35&#183;36&#183;38&#183;46&#183;47&#183;48</span></div>
+</section>
+
+<!-- ============ CARD 10 ============ -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 10 &#183; Revocation</span></div>
+  <div class="titleblock">
+    <div class="num">10</div>
+    <div class="fam-lbl">Withdrawal &amp; degraded read</div>
+    <h2>Taking it back</h2>
+    <p class="lede">Revoking a key withholds, in one transaction, every entry that key ever signed. The shell
+      learns about it in the document itself &#8212; never only in a notification.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 312" role="img" aria-label="Revocation and the degraded read path. An operator revokes a publisher key. In one transaction the registry sets enabled false and withheld true on every entry that key signed. Postgres is the source of truth and replicates to a NATS key-value cache whose writes are monotonic and refuse a lower revision. The shell reads the catalogue; when Postgres is unavailable the read falls back to the key-value cache and the shell shows a degraded label with the revision it is as of. Withheld entries are served to the shell as tombstones carrying only an id and a withheld flag, with no remote, manifest or contributions.">
+    <rect class="grp" x="20" y="34" width="286" height="94" rx="12" stroke="#2dd4bf"/>
+    <text class="grp-l" x="38" y="26" fill="#2dd4bf">Operator action</text>
+    <rect x="40" y="56" width="246" height="56" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="52" y="68" width="24" height="24" rx="7" fill="#2dd4be"/><text class="icn-g" x="64" y="84">R</text>
+    <text class="tile-t" x="86" y="80">Revoke a publisher key</text>
+    <text class="tile-s" x="52" y="104">bulk and automatic &#8212; restoring is manual</text>
+
+    <rect class="grp" x="352" y="34" width="322" height="94" rx="12" stroke="#34d399"/>
+    <text class="grp-l" x="370" y="26" fill="#34d399">mfe-registry-service &#8212; one transaction</text>
+    <rect x="372" y="56" width="282" height="56" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="384" y="68" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="396" y="84">W</text>
+    <text class="tile-t" x="418" y="80">every entry that key signed</text>
+    <text class="tile-m" x="384" y="104">enabled=false, withheld=true</text>
+
+    <rect class="grp" x="720" y="34" width="260" height="94" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="738" y="26" fill="#3b8bff">Browser</text>
+    <rect x="740" y="56" width="220" height="56" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="752" y="68" width="24" height="24" rx="7" fill="#3b8bff"/><text class="icn-g" x="764" y="84">T</text>
+    <text class="tile-t" x="786" y="80">tombstone in the document</text>
+    <text class="tile-m" x="752" y="104">{ id, withheld: true }</text>
+
+    <rect class="grp" x="352" y="176" width="322" height="86" rx="12" stroke="#27C07F"/>
+    <text class="grp-l" x="370" y="168" fill="#27C07F">Persistence</text>
+    <rect x="372" y="196" width="134" height="52" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="384" y="206" width="22" height="22" rx="7" fill="#27C07F"/><text class="icn-g" x="395" y="221">P</text>
+    <text class="tile-t" x="414" y="221">Postgres</text><text class="tile-s" x="384" y="240">source of truth</text>
+    <rect x="520" y="196" width="134" height="52" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="532" y="206" width="22" height="22" rx="7" fill="#f5b13d"/><text class="icn-g" x="543" y="221">K</text>
+    <text class="tile-t" x="562" y="221">NATS KV</text><text class="tile-s" x="532" y="240">monotonic CAS</text>
+
+    <path class="edge grn" d="M310,82 L346,82"/>
+    <path class="edge blue" d="M678,82 L714,82"/>
+    <path class="edge" d="M470,132 L470,190"/>
+    <path class="edge amb ev" d="M660,222 L850,222 L850,118"/>
+    <text class="e-l2" x="700" y="196" fill="#f5b13d">degraded fallback read</text>
+    <text class="lg" x="20" y="290">A tombstone travels in the document, not in the change notice &#8212; a notify is fire-and-forget, and a revocation must not depend on a message arriving.</text>
+    <text class="lg" x="20" y="304">When Postgres is unavailable the read falls back to the KV cache and the shell says &#8220;degraded, as of revision N&#8221;. Refusing to serve would turn a rare security event into a routine outage.</text>
+  </svg>
+  </div>
+
+  <div class="grid3">
+    <div class="panel no"><div class="lbl">withheld &#8800; disabled</div>
+      <ul><li><b>disabled</b> &#8212; not reviewed yet</li>
+        <li><b>withheld</b> &#8212; we withdrew this</li>
+        <li>Only the second unloads anything &#8212; but one revocation writes both, in one statement</li></ul></div>
+    <div class="panel note"><div class="lbl">Tombstones override the static rule</div>
+      <ul><li>The shell treats a tombstone for a running plugin as a <b>forced</b> reload</li>
+        <li>That beats the static &#8220;never unload live&#8221; rule</li>
+        <li>The only promise is that the plugin <b>stops at the next paint</b> &#8212; not runtime isolation</li></ul></div>
+    <div class="panel ok"><div class="lbl">Why degraded reading is safe enough</div>
+      <ul><li>Cache writes are monotonic &#8212; a lower revision is refused</li>
+        <li>Staleness is <b>visible</b>, never silent</li>
+        <li>A degraded document may say what was <b>withdrawn</b>, never what <b>exists</b>; it can raise a forced reload and never retracts one</li></ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 10</span>
+    <p>Refusing to serve at all would turn a rare security event into a routine outage. Admin has no degraded
+      label at all &#8212; its curated read goes straight to Postgres.</p>
+    <span class="side">BR-AS38 &#183; AS49 &#183; AS42&#8211;44</span></div>
+</section>
+
+<!-- ============ CARD 11 ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 11 &#183; Versioning</span></div>
+  <div class="titleblock">
+    <div class="num">11</div>
+    <div class="fam-lbl">Compatibility &amp; resolution</div>
+    <h2>What a running shell may change about itself</h2>
+    <p class="lede">Compatibility is decided before any remote code runs, per entry, never per registry. And a
+      live shell applies almost nothing to itself &#8212; it offers a reload instead.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p><b>A new entry id is the only difference a running shell may apply to itself.</b> Label, order, route
+      prefix, permission, version, remote, contribution list &#8212; every one of those is a reload offer. It is
+      written as a whitelist on purpose, because the write path is <code>ON CONFLICT DO UPDATE</code> and a
+      blacklist would silently miss a new column.</p></div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 176" role="img" aria-label="Compatibility resolution before execution. A registry document carries a schema version, and each entry carries an id, a version, a shell API version range, a remote and its contributions. The shell checks the schema version first and fails closed on an unsupported major. It then checks each entry independently: an unsupported shell API version, contribution type or extension point version rejects that one entry while its siblings continue. A plugin with two contributions, one invalid, loses only the invalid one. Nothing has executed at this point.">
+    <rect class="nf" x="16" y="30" width="230" height="112" rx="3"/>
+    <text class="grpl" x="30" y="52">REGISTRY DOCUMENT</text>
+    <text class="lbl" x="30" y="74">schemaVersion</text>
+    <text class="lbl2" x="30" y="90">unsupported major &#8594; fail closed,</text>
+    <text class="lbl2" x="30" y="104">whole document, no execution</text>
+    <text class="lbl2" x="30" y="126">revision: server-assigned, monotonic</text>
+
+    <rect class="n" x="270" y="30" width="220" height="112" rx="3" stroke="#f5b13d"/>
+    <text class="grpl" x="284" y="52">PER ENTRY</text>
+    <text class="lbl" x="284" y="74">shellApiVersion</text>
+    <text class="lbl2" x="284" y="90">contract range the entry needs</text>
+    <text class="lbl" x="284" y="112">version &#183; remote &#183; id</text>
+    <text class="lbl2" x="284" y="128">exact release named by the snapshot</text>
+
+    <rect class="n" x="540" y="30" width="220" height="112" rx="3" stroke="#f5b13d"/>
+    <text class="grpl" x="554" y="52">PER CONTRIBUTION</text>
+    <text class="lbl" x="554" y="74">routes &#183; navigation</text>
+    <text class="lbl" x="554" y="92">extensions</text>
+    <text class="lbl2" x="554" y="110">an unknown type or extension-point</text>
+    <text class="lbl2" x="554" y="124">version drops that one contribution</text>
+
+    <rect class="nf" x="810" y="30" width="174" height="112" rx="3"/>
+    <text class="grpl" x="824" y="52">RESULT</text>
+    <text class="lbl" x="824" y="74" fill="#34d399">siblings continue</text>
+    <text class="lbl2" x="824" y="92">rejection is per entry,</text>
+    <text class="lbl2" x="824" y="106">never per registry</text>
+    <text class="lbl2" x="824" y="128">no remote code has run</text>
+
+    <path class="edge amb" d="M250,86 L264,86"/>
+    <path class="edge amb" d="M494,86 L534,86"/>
+    <path class="edge grn" d="M764,86 L804,86"/>
+    <text class="lg" x="16" y="168">A revision change is published on notify._platform.mfe-registry.frontend-plugins.changed and read conditionally. Every reconnect reads unconditionally. No focus watcher, no interval poll, no HTTP fallback.</text>
+  </svg>
+  </div>
+
+  <div class="panel" style="margin-top:10px"><div class="lbl">Failure model &#8212; what happens, and how far it spreads</div>
+    <table>
+      <tr><th style="width:40%">Failure</th><th>Containment</th></tr>
+      <tr><td><b>Registry unavailable</b></td><td>Native Home and Plugins still render, with a diagnostic</td></tr>
+      <tr><td><b>One invalid entry</b></td><td>Reject that entry, continue with its siblings</td></tr>
+      <tr><td><b>Duplicate id</b></td><td>Reject the conflicting entry</td></tr>
+      <tr><td><b>Remote load timeout</b></td><td>Local, retryable fallback &#8212; the rest of the shell is unaffected</td></tr>
+      <tr><td><b>activate() throws</b></td><td>Roll back the partial registration</td></tr>
+      <tr><td><b>A contribution fails to render</b></td><td>Contained at the route or extension-host boundary</td></tr>
+    </table>
+  </div>
+
+  <div class="grid2">
+    <div class="panel note"><div class="lbl">Release counters go one way</div>
+      <ul><li>A publisher owns its counter and it only goes <b>up</b></li>
+        <li>A withdraw-then-return spends <b>three</b> numbers: announce, unregister, re-announce</li>
+        <li>The release is injected at runtime, just before signing</li></ul></div>
+    <div class="panel"><div class="lbl">A resync that changes nothing</div>
+      <ul><li>Result is <code>converged</code>: no revision, no audit row, no notification, no cache refresh</li>
+        <li><b>The accepted release still advances</b> &#8212; it is the watermark the backwards and reused checks read</li>
+        <li><code>converged</code> and <code>NoOp</code> stay distinct on the wire and must not be collapsed</li></ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 11</span>
+    <p>Offers are synced with each successful read, not accumulated. A read that carries no document &#8212;
+      <code>unchanged</code>, or degraded &#8212; retracts nothing. The policy is a pure function:
+      <code>shell/registry/readPolicy.js</code>.</p>
+    <span class="side">BR-AS13 &#183; AS17&#8211;19 &#183; AS67</span></div>
+</section>
+
+<!-- ============ CARD 12 ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 12 &#183; Curation</span></div>
+  <div class="titleblock">
+    <div class="num">12</div>
+    <div class="fam-lbl">The operator surface</div>
+    <h2>Curation, drift, and the one HTTP call left</h2>
+    <p class="lede">The registry is service state, not a build artifact. An operator adds or removes a curated
+      entry and a newly booting shell sees it &#8212; without restarting any service.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 296" role="img" aria-label="The curation surface. An operator works in the Admin UI, which writes over an operator api subject with a revision check. The mfe-registry-service enforces the origin allowlist on write and again on read. A manifest drift worker is the registry's only outbound HTTP capability: it is bounded to two seconds and one mebibyte, refuses redirects, retries once after two hundred milliseconds, and runs serial passes one minute apart. Drift observations are held in memory only and never write to the catalogue. Postgres holds the curated copy, which always wins.">
+    <rect class="grp" x="20" y="34" width="252" height="118" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="38" y="26" fill="#3b8bff">Admin UI &#8212; operator browser</text>
+    <rect x="40" y="58" width="212" height="76" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="52" y="70" width="24" height="24" rx="7" fill="#3b8bff"/><text class="icn-g" x="64" y="86">A</text>
+    <text class="tile-t" x="86" y="86">Curate entries</text>
+    <text class="tile-m" x="52" y="110">api._platform.mfe-registry.*</text>
+    <text class="tile-s" x="52" y="126">revision-checked &#183; reads Postgres</text>
+
+    <rect class="grp" x="318" y="34" width="368" height="118" rx="12" stroke="#34d399"/>
+    <text class="grp-l" x="336" y="26" fill="#34d399">mfe-registry-service</text>
+    <rect x="338" y="58" width="160" height="76" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="350" y="70" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="362" y="86">O</text>
+    <text class="tile-t" x="384" y="86">Origin allowlist</text>
+    <text class="tile-s" x="350" y="110">on write AND on read</text>
+    <text class="tile-s" x="350" y="126">narrowing it strands rows</text>
+    <rect x="514" y="58" width="156" height="76" rx="8" fill="#1A1E23" stroke="#3a424c"/>
+    <rect x="526" y="70" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="538" y="86">M</text>
+    <text class="tile-t" x="560" y="86">Manifest drift</text>
+    <text class="tile-s" x="526" y="110">2 s &#183; 1 MiB &#183; no redirects</text>
+    <text class="tile-s" x="526" y="126">1 retry @200 ms &#183; serial, 1 min</text>
+
+    <rect class="grp" x="732" y="34" width="248" height="118" rx="12" stroke="#27C07F"/>
+    <text class="grp-l" x="750" y="26" fill="#27C07F">Persistence</text>
+    <rect x="752" y="58" width="208" height="76" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="764" y="70" width="24" height="24" rx="7" fill="#27C07F"/><text class="icn-g" x="776" y="86">P</text>
+    <text class="tile-t" x="798" y="86">Postgres &#8212; curated copy</text>
+    <text class="tile-s" x="764" y="110">the curated copy always wins</text>
+    <text class="tile-s" x="764" y="126">drift never writes here</text>
+
+    <rect class="grp" x="318" y="196" width="368" height="76" rx="12" stroke="#8b929b"/>
+    <text class="grp-l" x="336" y="188" fill="#8b929b">The public internet</text>
+    <rect x="338" y="216" width="332" height="42" rx="8" fill="#15181c" stroke="#2a3038"/>
+    <rect x="350" y="226" width="22" height="22" rx="7" fill="#8b929b"/><text class="icn-g" x="361" y="241">H</text>
+    <text class="tile-t" x="380" y="241">the published manifest, fetched read-only</text>
+
+    <path class="edge blue" d="M276,94 L312,94"/>
+    <path class="edge grn" d="M674,94 L726,94"/>
+    <path class="edge ev" d="M592,140 L592,210"/>
+    <text class="e-l2" x="604" y="176">the only outbound hop left &#8212; worker</text>
+    <text class="e-l2" x="604" y="190">shares the service lifetime, not startup</text>
+    <text class="lg" x="20" y="290">REGISTRY_FETCH_ORIGINS maps an already-allowlisted browser origin to a service-reachable one. It cannot grant an origin, and a missing mapping never falls back to browser localhost.</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><div class="lbl">The Manifest column says one of three things</div>
+      <ul><li><code>checked</code> &#8212; the published manifest agrees with the curated copy</li>
+        <li><code>drift</code> &#8212; it disagrees, naming the differing fields</li>
+        <li><code>not checked</code> &#8212; no observation yet</li>
+        <li>Observations are in memory, invalidated by a curated edit, exposed only through <code>EntryView</code></li></ul></div>
+    <div class="panel note"><div class="lbl">Drift changes nothing on its own</div>
+      <ul><li>Refresh reads that snapshot &#8212; it never initiates HTTP itself</li>
+        <li>Neither disagreement nor a failed fetch writes to the catalogue</li>
+        <li>Neither changes whether a plugin is served</li>
+        <li>It is an <b>observation for an operator</b>, not an enforcement point</li></ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Card 12</span>
+    <p>The boot-time seeder writes through the same curated path under the shared operator identity &#8212; not a
+      fourth tier, and not a boot-time bypass of the revision check or the audit trail. It converges, and it never
+      reverses an operator's decision.</p>
+    <span class="side">BR-AS16 &#183; AS20 &#183; AS45 &#183; AS68</span></div>
+</section>
+
+</body>
+</html>
