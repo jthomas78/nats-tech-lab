@@ -36,7 +36,13 @@ type stubService struct {
 	err     error
 }
 
-func (s *stubService) Read(context.Context) domain.Document             { return s.doc }
+// Read filters, because the real Service.Read does: the shell-facing
+// document is produced by the application module and the adapter serves what
+// it is handed. A stub that returned the raw document would let a test pass
+// that only the adapter's own (now removed) second filter made true.
+func (s *stubService) Read(context.Context) domain.Document {
+	return s.doc.Readable(s.Allowlist())
+}
 func (s *stubService) Curated(context.Context) (domain.Document, error) { return s.doc, nil }
 
 // The source badge is 8c's operator affordance and not what these specs are
@@ -193,7 +199,10 @@ func TestDegradedIsAnAnswerAndNeverAnError(t *testing.T) {
 }
 
 // BR-AS20 on the read side: the shell's answer is the filtered document, so a
-// disabled or non-conforming entry never crosses the wire to a browser.
+// disabled or non-conforming entry never crosses the wire to a browser. The
+// filtering itself belongs to the application module and is asserted against
+// the rules in registry/rules_test.go; what this pins is that the adapter
+// serves that document and adds nothing of its own to the reply.
 func TestReadServesOnlyWhatAShellMaySee(t *testing.T) {
 	g := NewWithT(t)
 	disabled := entry("withdrawn", "http://localhost:7110/r.js")

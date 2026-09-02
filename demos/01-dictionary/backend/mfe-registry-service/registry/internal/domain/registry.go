@@ -276,15 +276,14 @@ func Tombstone(id string) Entry {
 // tombstone says trust was withdrawn and forces a reload for either class
 // (BR-AS49), while this says the publisher is gone, which withdraws a
 // dynamic plugin live and offers a static one a reload (BR-AS53, BR-AS54).
-// Enabled stays true on the marker, which reads oddly until you notice that
-// Readable runs twice on the way to a browser — the service filters, and the
-// transport filters again as defence in depth. The withdrawn check sits after
-// the Enabled check on purpose (an entry no operator approved needs nothing
-// said about it), so a marker with Enabled false would be dropped by the
-// second pass and the withdrawal would arrive as plain absence. The flag
-// means what it says here: an operator did approve this, and it is gone.
+//
+// The marker carries the mark and the id, nothing more. It used to carry
+// Enabled true as well, for no reason a reader could see: Readable ran twice
+// on the way to a browser, and the second pass would have dropped a marker
+// whose Enabled was false. The document is filtered once now, so the field
+// no longer has to lie to survive the trip.
 func Withdrawal(id string) Entry {
-	return Entry{ID: id, Withdrawn: true, Enabled: true, Contributions: []Contribution{}}
+	return Entry{ID: id, Withdrawn: true, Contributions: []Contribution{}}
 }
 
 // Write ops. Exhaustive: there is no delete, and BR-AS24 is checked against

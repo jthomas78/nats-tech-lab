@@ -140,7 +140,13 @@ type ReadResponse struct {
 }
 
 func (e *Endpoints) Read(ctx context.Context, req ReadRequest) (ReadResponse, error) {
-	doc := e.svc.Read(ctx).Readable(e.svc.Allowlist())
+	// Filtered once, by Service.Read, which is the only thing that produces
+	// a shell-facing document. The second pass here was defence in depth
+	// against nothing — Readable's own inputs are the same on both calls —
+	// and it was not free: it forced a withdrawal marker to carry Enabled
+	// true purely to survive being filtered again, which put a lie in the
+	// domain to satisfy an adapter.
+	doc := e.svc.Read(ctx)
 	out := ReadResponse{OK: true, SchemaVersion: doc.SchemaVersion, Revision: doc.Revision, Degraded: doc.Degraded}
 	if !doc.AsOf.IsZero() {
 		out.AsOf = doc.AsOf.Unix()

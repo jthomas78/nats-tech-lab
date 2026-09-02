@@ -625,6 +625,13 @@ survive the Phase 6 move (decision 40).
   write time **and** withheld at read time. The read-side check is not
   redundant: narrowing the allowlist leaves already-stored rows non-conforming,
   which is the case the write-time check cannot cover.
+  **Filtered once, clarified 2026-09-02.** The shell-facing document is produced
+  by `Service.Read` and by nothing else; the browser adapter serves what it is
+  handed and adds no second pass. The removed second pass was defence against
+  nothing — `Readable`'s inputs are identical on both calls — and it was not
+  free: a withdrawal marker had to carry `Enabled: true` purely to survive being
+  filtered again, which put a lie in the domain to satisfy an adapter.
+  `domain.Withdrawal` now carries the mark and the id only.
 - **BR-AS21 — No self-activation.** A service may announce its own entry over
   `rpc._platform.registry.entries.announce.v1` when it presents a verified
   publisher key. It may never enable an entry, nor alter `enabled`, `lifecycle`
