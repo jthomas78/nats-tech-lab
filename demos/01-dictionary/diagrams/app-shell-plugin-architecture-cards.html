@@ -593,6 +593,121 @@
     <span class="side">BR-AS07 &#183; AS06 &#183; AS13</span></div>
 </section>
 
+<!-- ============ CARD 05A ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 05a &#183; The points, in the UI</span></div>
+  <div class="titleblock">
+    <div class="num">05<tspan>a</tspan></div>
+    <div class="fam-lbl">The same regions, on the frame a user sees</div>
+    <h2>Where the points actually are</h2>
+    <p class="lede">Card 05 names the regions. This one pins them to the screen. Every capacity here is the one
+      declared in <code>declareShellExtensionPoints()</code> and in <code>demo-catalog</code>'s manifest, as built.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 452" role="img" aria-label="A wireframe of the lab shell with six numbered callouts. One marks shell topbar-controls v1, capacity three, at the right of the topbar beside the breadcrumb. Two marks the sidebar Features group, which holds navigation contributions, below the shell's own Home and Plugins entries. Three marks the router outlet in the main content area, where route contributions render. Four marks shell home-main v1, capacity four, which renders only on the home route. Five marks demo-catalog details-sidebar v1, capacity four, which renders only on a demo intro route and is owned by a federated plugin rather than by the shell. Six marks shell footer v1, capacity six, along the footer bar. A registry signal banner sits above the outlet and is shell-owned, never a plugin slot.">
+    <rect x="8" y="30" width="984" height="382" rx="8" fill="#15181c" stroke="#3a424c"/>
+
+    <!-- topbar -->
+    <path d="M8,38 a8,8 0 0 1 8,-8 h968 a8,8 0 0 1 8,8 v36 h-984 z" fill="#1A1E23"/>
+    <line x1="8" y1="74" x2="992" y2="74" stroke="#2a3038"/>
+    <rect x="26" y="42" width="20" height="20" rx="5" fill="none" stroke="#B7BCC2"/>
+    <text class="tile-t" x="54" y="58">NATS Tech Lab</text>
+    <text class="tile-s" x="182" y="58">Demo Catalog &#8250; <tspan fill="#DEE0E3">Dictionary POC</tspan></text>
+    <circle cx="632" cy="52" r="9" fill="#3b8bff"/><text class="icn-g" x="632" y="56">1</text>
+    <rect x="650" y="40" width="322" height="25" rx="5" fill="#15181c" stroke="#3b8bff"/>
+    <text class="tile-m" x="664" y="57" fill="#DEE0E3">shell/topbar-controls/v1 &#183; max 3</text>
+
+    <!-- rail -->
+    <path d="M8,74 h204 v302 h-204 z" fill="#1A1E23"/>
+    <line x1="212" y1="74" x2="212" y2="376" stroke="#2a3038"/>
+    <text class="lg" x="28" y="98" letter-spacing="1.6">SHELL</text>
+    <rect class="nf" x="24" y="106" width="172" height="26" rx="5"/><text class="tile-s" x="38" y="123" fill="#B7BCC2">Home</text>
+    <rect class="nf" x="24" y="138" width="172" height="26" rx="5"/><text class="tile-s" x="38" y="155" fill="#B7BCC2">Plugins</text>
+    <rect class="grp" x="20" y="176" width="180" height="128" rx="8" stroke="#2fd4e8"/>
+    <circle cx="36" cy="196" r="9" fill="#2fd4e8"/><text class="icn-g" x="36" y="200">2</text>
+    <text class="grp-l" x="52" y="200" fill="#2fd4e8">Features</text>
+    <text class="tile-s" x="32" y="216">navigation contributions</text>
+    <rect x="28" y="226" width="164" height="24" rx="5" fill="#152233" stroke="#2f5c99"/><text class="tile-s" x="42" y="242" fill="#DEE0E3">Demos</text>
+    <rect class="nf" x="28" y="254" width="164" height="24" rx="5"/><text class="tile-s" x="42" y="270" fill="#B7BCC2">Fleet Ops</text>
+    <rect class="nf" x="28" y="282" width="164" height="24" rx="5"/><text class="tile-s" x="42" y="298" fill="#B7BCC2">Port Insights</text>
+    <rect class="nf" x="172" y="342" width="20" height="20" rx="4"/>
+
+    <!-- main -->
+    <rect class="n" x="228" y="88" width="748" height="26" rx="5" stroke-dasharray="4 3" stroke-opacity=".55"/>
+    <text class="tile-s" x="242" y="105">RegistrySignalBanner &#8212; shell-owned, above the outlet, never a plugin slot</text>
+
+    <rect class="grp" x="228" y="128" width="748" height="230" rx="8" stroke="#34d399"/>
+    <circle cx="248" cy="150" r="9" fill="#34d399"/><text class="icn-g" x="248" y="154">3</text>
+    <text class="tile-s" x="264" y="154" fill="#B7BCC2">route contributions &#8212; the router outlet</text>
+    <rect class="nf" x="556" y="140" width="94" height="20" rx="4"/><text class="tile-m" x="568" y="154">/demos/:id</text>
+
+    <rect class="grp" x="240" y="170" width="356" height="176" rx="7" stroke="#f5b13d" stroke-dasharray="5 4"/>
+    <circle cx="260" cy="192" r="9" fill="#f5b13d"/><text class="icn-g" x="260" y="196">4</text>
+    <text class="tile-m" x="276" y="196" fill="#DEE0E3">shell/home-main/v1</text>
+    <text class="tile-s" x="254" y="214">only on <tspan fill="#DEE0E3">/</tspan> &#183; shell-owned &#183; max 4</text>
+    <text class="tile-s" x="254" y="228">shell empty state when nothing renders</text>
+    <rect class="nf" x="254" y="240" width="328" height="46" rx="5"/>
+    <text class="lg" x="266" y="258">panel 1 of 4</text><rect x="266" y="266" width="220" height="6" rx="3" fill="#20252b"/>
+    <rect class="nf" x="254" y="292" width="328" height="46" rx="5"/>
+    <text class="lg" x="266" y="310">panel 2 of 4</text><rect x="266" y="318" width="164" height="6" rx="3" fill="#20252b"/>
+
+    <rect class="grp" x="608" y="170" width="356" height="176" rx="7" stroke="#a78bfa" stroke-dasharray="5 4"/>
+    <circle cx="628" cy="192" r="9" fill="#a78bfa"/><text class="icn-g" x="628" y="196">5</text>
+    <text class="tile-m" x="644" y="196" fill="#DEE0E3">demo-catalog/details-sidebar/v1</text>
+    <text class="tile-s" x="622" y="214">only on <tspan fill="#DEE0E3">/demos/:id</tspan> &#183; max 4</text>
+    <text class="tile-s" x="622" y="228">owned by a <tspan fill="#DEE0E3">plugin</tspan>, not by the shell</text>
+    <rect class="nf" x="622" y="240" width="328" height="46" rx="5"/>
+    <text class="lg" x="634" y="258">panel 1 of 4</text><rect x="634" y="266" width="240" height="6" rx="3" fill="#20252b"/>
+    <rect class="nf" x="622" y="292" width="328" height="46" rx="5"/>
+    <text class="lg" x="634" y="310">panel 2 of 4</text><rect x="634" y="318" width="150" height="6" rx="3" fill="#20252b"/>
+
+    <!-- footer -->
+    <path d="M8,376 h984 v28 a8,8 0 0 1 -8,8 h-968 a8,8 0 0 1 -8,-8 z" fill="#1A1E23"/>
+    <line x1="8" y1="376" x2="992" y2="376" stroke="#2a3038"/>
+    <circle cx="30" cy="394" r="9" fill="#f5b13d"/><text class="icn-g" x="30" y="398">6</text>
+    <text class="tile-m" x="48" y="398">plugins 6 &#160;&#160; registry revision 41 &#160;&#160;&#183;&#160;&#160; shell/footer/v1 &#183; max 6 &#8212; the bar is shell-owned, the items in it are not</text>
+
+    <text class="lg" x="8" y="432">Zones 4 and 5 are on <tspan fill="#DEE0E3">different routes</tspan> and are drawn side by side only to show both owners at once. 4 renders on Home; 5 renders on a demo intro.</text>
+    <text class="lg" x="8" y="446">A plugin may target a region that is not currently mounted &#8212; it renders nothing until that host region exists.</text>
+  </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><div class="lbl">Target contract</div>
+      <table>
+        <tr><th>Target</th><th>Owner</th><th>Context</th></tr>
+        <tr><td>shell/topbar-controls/v1</td><td>shell</td><td>route name, params</td></tr>
+        <tr><td>shell/footer/v1</td><td>shell</td><td>route name, params</td></tr>
+        <tr><td>shell/home-main/v1</td><td>shell</td><td class="mid">&#8212; none &#8212;</td></tr>
+        <tr><td>demo-catalog/&#8203;details-sidebar/v1</td><td>demo-catalog</td><td>demo id, tags</td></tr>
+      </table></div>
+    <div class="panel"><div class="lbl">Order, capacity, empty behaviour</div>
+      <table>
+        <tr><th>Target</th><th>Cap</th><th>When empty</th></tr>
+        <tr><td>topbar-controls/v1</td><td>asc &#183; 3</td><td>slot collapses, no gap</td></tr>
+        <tr><td>footer/v1</td><td>asc &#183; 6</td><td>bar keeps its own items</td></tr>
+        <tr><td>home-main/v1</td><td>asc &#183; 4</td><td>shell empty state</td></tr>
+        <tr><td>details-sidebar/v1</td><td>asc &#183; 4</td><td>column omitted, page reflows</td></tr>
+      </table></div>
+  </div>
+
+  <div class="panel flat"><div class="lbl">Contribution kinds, and what places them</div>
+    <table>
+      <tr><th>Kind</th><th>Placed by</th></tr>
+      <tr><td>route</td><td>the shell router adapter &#8212; namespaced under the plugin's route prefix; reserved paths refused</td></tr>
+      <tr><td>navigation</td><td>the sidebar <b>Features</b> group &#8212; group and order metadata only</td></tr>
+      <tr><td>extension</td><td>a named, versioned target &#8212; the only kind that can reach a plugin-owned region</td></tr>
+      <tr><td>shell-control</td><td>the topbar, right of the breadcrumb &#8212; active route only</td></tr>
+      <tr><td>shell-footer</td><td>the footer bar &#8212; active route only</td></tr>
+    </table></div>
+
+  <div class="verdict"><span class="pill">Card 05a</span>
+    <p>Overflow past capacity is refused <b>at index time</b>, with a reason &#8212; not dropped at paint, which would make
+      the outcome depend on render order. And owner is not a synonym for shell: zone 5 belongs to a federated plugin.</p>
+    <span class="side">BR-AS06 &#183; AS07 &#183; AS09</span></div>
+</section>
+
 <!-- ============ CARD 06 ============ -->
 <section class="page" style="--fam:var(--purple)">
   <div class="chead"><span>Application shell &amp; plugins</span><span class="r">Card 06 &#183; Registration paths</span></div>
