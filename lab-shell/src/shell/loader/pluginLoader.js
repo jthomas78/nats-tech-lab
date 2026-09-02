@@ -52,7 +52,7 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
        nobody is showing. Recorded as the withdrawal's business, not as a
        plugin failure the Plugins screen should explain. */
     if (record?.status === PLUGIN_STATUS.WITHDRAWN) {
-      record.restoreTo = PLUGIN_STATUS.FAILED
+      record.settleWhileWithdrawn(PLUGIN_STATUS.FAILED)
       inFlight.delete(plugin.id)
       throw error
     }
@@ -149,7 +149,7 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
            the status stays withdrawn, and the return it is owed is `active`
            so nothing calls activate() a second time (BR-AS59). */
         if (record?.status === PLUGIN_STATUS.WITHDRAWN) {
-          record.restoreTo = PLUGIN_STATUS.ACTIVE
+          record.settleWhileWithdrawn(PLUGIN_STATUS.ACTIVE)
           inFlight.delete(plugin.id)
           return module
         }

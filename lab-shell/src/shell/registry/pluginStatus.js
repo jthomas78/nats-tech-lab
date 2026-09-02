@@ -60,6 +60,13 @@ const TRANSITIONS = Object.freeze({
   [PLUGIN_STATUS.FAILED]: [PLUGIN_STATUS.LOADING],
 })
 
+/* The statuses a withdrawn plugin may be settled to while it is away. Both are
+   outcomes of work that had already started: `loading` is deliberately absent,
+   because a plugin returning into `loading` would be waiting on a fetch that
+   finished long ago, and `available` is absent because a load that ran is not
+   a load that never happened. */
+const RETURNABLE = new Set([PLUGIN_STATUS.ACTIVE, PLUGIN_STATUS.FAILED])
+
 export function canTransition(from, to) {
   /* Withdrawal is deliberately outside the table. It comes from the registry
      rather than from the plugin's own progress, it can land on any placed
@@ -123,6 +130,38 @@ export class PluginStatusRecord {
     this.reasonCode = code
     this.reason = message
     this.history.push(PLUGIN_STATUS.WITHDRAWN)
+    return true
+  }
+
+  /*
+    Work that finished after the withdrawal landed (BR-AS56, BR-AS59).
+
+    A plugin can be withdrawn while its chunk is in flight. The import or the
+    activate() then settles against a record that is already `withdrawn`, and
+    `transition()` refuses that by design — the plugin must not come back on
+    screen. But the OUTCOME still matters: a load that succeeded must come back
+    `active` so a return does not call activate() a second time, and one that
+    failed must come back `failed` rather than pretending it is ready to use.
+
+    That rule used to be two bare assignments to `restoreTo` from inside the
+    loader, reaching past this interface. It was enforced nowhere: a third
+    caller could have written `loading`, and the plugin would have returned
+    into a state with no fetch behind it. Here it is one call, and only a
+    status a withdrawn plugin may legally return to is accepted.
+
+    (`restoreTo` is a plain field rather than a `#private` one because these
+    records are wrapped in `reactive()`, and a private field is unreadable
+    through a Proxy. Nothing outside this class writes it.)
+  */
+  settleWhileWithdrawn(status) {
+    if (this.status !== PLUGIN_STATUS.WITHDRAWN) return false
+    if (!RETURNABLE.has(status)) {
+      /* Thrown for the same reason an illegal transition is: a shell bug that
+         would otherwise surface much later, as a plugin returning into a state
+         nothing put it in. */
+      throw new Error(`Plugin ${this.id} cannot be settled to ${status} while withdrawn`)
+    }
+    this.restoreTo = status
     return true
   }
 

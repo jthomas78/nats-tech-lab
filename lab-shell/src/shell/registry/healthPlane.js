@@ -12,6 +12,8 @@
   to be current, and there is no interval here to leak.
 */
 
+import { createHintedReader } from './hintedReader.js'
+
 export const HEALTH_READ_SUBJECT = 'api._platform.registry.frontend-plugins.health.v1'
 export const HEALTH_NOTIFY_SUBJECT = 'notify._platform.registry.frontend-plugins.health'
 
@@ -98,51 +100,42 @@ export function createHealthTransport({ request }) {
  * reading ages and a value handed out here would not.
  */
 export function createHealthPlane({ transport, subscribe, onChange = () => {}, now = () => Date.now() }) {
-  let subscription = null
-  let listening = false
-  let inFlight = null
-  /* A hint that arrives mid-read is news the in-flight read may predate, so
-     it is remembered and answered with one more read — never dropped, and
-     never turned into a queue of reads a burst could grow without bound. */
-  let pending = false
   /* id -> {frontend, backend, receivedAt}. Kept through a failed read: losing
      the plane says nothing about any plugin, so the last real observation
      stays and ages rather than being blanked or believed forever. */
   const readings = new Map()
   let latestAsOf = null
+  let started = false
 
-  const refresh = async () => {
-    if (inFlight) {
-      pending = true
-      return inFlight
-    }
-    inFlight = Promise.resolve()
+  /* What a read IS. When to make one is `hintedReader`, shared with the
+     catalogue — the plane used to keep its own copy of that machine, and the
+     copies had drifted. A health hint carries no version, so this reader takes
+     the default hint policy: every hint is news, and a hint held during a read
+     is always answered with one more read. */
+  const read = async () => {
+    const result = await Promise.resolve()
       .then(() => transport.fetchHealth())
       .catch(() => ({ ok: false, code: 'health-unreachable' }))
-      .then((result) => {
-        inFlight = null
-        if (pending) {
-          pending = false
-          void refresh()
-        }
-        if (!result?.ok) return result
-        /* Two reads can land backwards. An older answer must not overwrite a
-           newer one, or a recovered plugin flickers back to broken. */
-        if (latestAsOf !== null && result.asOf !== null && result.asOf < latestAsOf) return result
-        if (result.asOf !== null) latestAsOf = result.asOf
-        const receivedAt = now()
-        for (const [id, signals] of Object.entries(result.plugins)) {
-          readings.set(id, { ...signals, receivedAt })
-        }
-        /* After the readings are installed, so a caller that reads
-           `snapshot()` from here sees this read and not the one before it.
-           Never allowed to break the read: a throwing subscriber is the
-           screen's problem, and health is decoration either way. */
-        try { onChange() } catch { /* a subscriber must not fail a read */ }
-        return result
-      })
-    return inFlight
+    if (!result?.ok) return result
+    /* Two reads can land backwards. An older answer must not overwrite a
+       newer one, or a recovered plugin flickers back to broken. */
+    if (latestAsOf !== null && result.asOf !== null && result.asOf < latestAsOf) return result
+    if (result.asOf !== null) latestAsOf = result.asOf
+    const receivedAt = now()
+    for (const [id, signals] of Object.entries(result.plugins)) {
+      readings.set(id, { ...signals, receivedAt })
+    }
+    /* After the readings are installed, so a caller that reads `snapshot()`
+       from here sees this read and not the one before it. Never allowed to
+       break the read: a throwing subscriber is the screen's problem, and
+       health is decoration either way. */
+    try { onChange() } catch { /* a subscriber must not fail a read */ }
+    return result
   }
+
+  const reader = createHintedReader({ subject: HEALTH_NOTIFY_SUBJECT, subscribe, read })
+
+  const refresh = () => reader.refresh({ reason: 'refresh' })
 
   const age = (signal, receivedAt) => {
     if (CONFIGURED.has(signal.state)) return signal
@@ -151,29 +144,24 @@ export function createHealthPlane({ transport, subscribe, onChange = () => {}, n
   }
 
   return {
+    /* The hint the subscription carries is never installed. Whatever it
+       claims, the read is what is authoritative — the same promise the
+       catalogue's notification makes (BR-AS64). */
     start() {
-      if (listening) return this
-      listening = true
-      subscription = subscribe(HEALTH_NOTIFY_SUBJECT, () => {
-        /* The hint carries nothing to install. Whatever it claims, the read
-           is what is authoritative — the same promise the catalogue's
-           notification makes (BR-AS64). */
-        if (listening) void refresh()
-      })
-      void refresh()
+      if (started) return this
+      started = true
+      reader.start()
+      void reader.refresh({ reason: 'start' })
       return this
     },
     stop() {
-      listening = false
-      subscription?.unsubscribe()
-      subscription = null
+      reader.stop()
       return this
     },
     /* A gap in the subscription is a gap in the hints, and a hint that never
        arrived is indistinguishable from nothing happening. */
     onReconnect() {
-      if (!listening) return Promise.resolve(null)
-      return refresh()
+      return reader.onReconnect()
     },
     refresh,
     signalsFor(id) {

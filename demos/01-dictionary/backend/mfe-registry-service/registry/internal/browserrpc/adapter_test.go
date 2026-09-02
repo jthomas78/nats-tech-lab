@@ -7,6 +7,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/application"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/postgres"
 )
@@ -43,13 +44,17 @@ type stubService struct {
 func (s *stubService) Read(context.Context) domain.Document {
 	return s.doc.Readable(s.Allowlist())
 }
-func (s *stubService) Curated(context.Context) (domain.Document, error) { return s.doc, nil }
 
-// The source badge is 8c's operator affordance and not what these specs are
-// about; an empty map is the honest stub, and the adapter's own rule — an id
-// with no row reads as unknown — is asserted in source_test.go.
-func (s *stubService) Sources(context.Context) map[string]domain.Registration {
-	return map[string]domain.Registration{}
+// The operator view arrives joined. The join itself — the source badge, the
+// unchecked-drift default — belongs to the application layer and is asserted
+// in application/curated_test.go; here the stub runs the real join over an
+// empty source map so these specs stay about the adapter.
+func (s *stubService) CuratedView(ctx context.Context) (application.CuratedView, error) {
+	return s.Curate(ctx, s.doc), nil
+}
+
+func (s *stubService) Curate(_ context.Context, doc domain.Document) application.CuratedView {
+	return application.CurateDocument(doc, map[string]domain.Registration{}, s.Allowlist(), nil)
 }
 
 // The trust table is not what these specs are about; they exist so the stub

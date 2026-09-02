@@ -6,8 +6,8 @@ import AppShell from '@ui-shell/AppShell.vue'
 import { computed, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { healthAttention } from './shell/registry/healthText.js'
-import { attentionTone, summarizeAttention } from './shell/registry/statusRollup.js'
+import { navMark } from './shell/registry/navMark.js'
+import { summarizeAttention } from './shell/registry/statusRollup.js'
 import { breadcrumbTrail } from './shell/routing/breadcrumb.js'
 import { createNavigationPending } from './shell/routing/navigationPending.js'
 import { SHELL } from './shell/shellKey.js'
@@ -35,16 +35,14 @@ const controls = computed(() => shell.contributions.shellControlsFor(route.path)
    every screen without opening the inventory — status only, never a cause
    string, because a cause can quote a remote URL (BR-AS04). */
 const attention = computed(() => summarizeAttention(inventory.value))
-const statusOf = (pluginId) => shell.statuses.get(pluginId)?.status ?? null
 
-/* Health decorates a nav item the shell otherwise believes is fine. A plugin
-   that failed to load is the bigger news and keeps the dot to itself —
-   two marks in one corner of the eye would compete rather than inform
-   (BR-AS60). */
-const healthOf = (pluginId) => {
-  if (attentionTone(statusOf(pluginId))) return null
-  return healthAttention(shell.health?.signals?.[pluginId])
-}
+/* The nav item's single dot. Which of the two signals wins is BR-AS60, and it
+   is decided in `navMark` — this template renders one mark, never a pair of
+   conditionals whose order carries the rule. */
+const markFor = (pluginId) => navMark({
+  status: shell.statuses.get(pluginId)?.status ?? null,
+  health: shell.health?.signals?.[pluginId] ?? null,
+})
 
 /* A deep link into a remote that has never been loaded spends a network fetch
    before the view exists; this is what fills that gap (task 1b-6). */
@@ -154,22 +152,15 @@ function isActive(entry) {
             :class="entry.icon"
           />
           <span class="label-fade">{{ entry.label }}</span>
-          <!-- The dot marks the entry whose own plugin is in trouble. A
-               sibling's failure never dots this one — that isolation is the
-               whole claim the shell makes (BR-AS04). -->
+          <!-- One dot, whichever signal earned it: this plugin's own failure,
+               or a dependency of it that is not answering. A sibling's failure
+               never dots this entry — that isolation is the whole claim the
+               shell makes (BR-AS04). -->
           <span
-            v-if="attentionTone(statusOf(entry.pluginId))"
+            v-if="markFor(entry.pluginId)"
             class="nav-dot"
-            :class="attentionTone(statusOf(entry.pluginId))"
-            :title="statusOf(entry.pluginId)"
-          />
-          <!-- The health mark. Same dot, quieter reason: this plugin loaded,
-               and something it depends on is not answering right now. -->
-          <span
-            v-else-if="healthOf(entry.pluginId)"
-            class="nav-dot"
-            :class="healthOf(entry.pluginId)"
-            title="a dependency is unavailable"
+            :class="markFor(entry.pluginId).tone"
+            :title="markFor(entry.pluginId).title"
           />
         </router-link>
       </nav>

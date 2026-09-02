@@ -186,8 +186,11 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 
 	m.driftHTTP = manifesthttp.New()
 	checker := application.NewDriftChecker(m.Service, origins, m.driftHTTP, application.DriftSchedule{})
+	// The operator view is joined in the application layer, so the checker is
+	// wired to the service rather than to a transport.
+	m.Service.WithDrift(checker)
 	if nc != nil {
-		adapter, err := browserrpc.Mount(nc, browserrpc.NewWithHealth(m.Service, store, health, checker), log)
+		adapter, err := browserrpc.Mount(nc, browserrpc.NewWithHealth(m.Service, store, health), log)
 		if err != nil {
 			return nil, err
 		}

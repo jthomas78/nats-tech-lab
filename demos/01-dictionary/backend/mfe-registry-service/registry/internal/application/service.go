@@ -35,6 +35,8 @@ type Service struct {
 	allowlist domain.Allowlist
 	notifier  *natsnotify.Notifier
 	log       *slog.Logger
+	// Set by WithDrift, and optional: see curated.go.
+	drift DriftSnapshotter
 }
 
 func New(store Store, cache Cache, allowlist domain.Allowlist, notifier *natsnotify.Notifier, log *slog.Logger) *Service {

@@ -95,3 +95,64 @@ describe('the machine refuses states the Plugins screen could not render', () =>
     expect(record.status).toBe(PLUGIN_STATUS.DISCOVERED)
   })
 })
+
+describe('BR-AS56 / AS59 — work that finished after the withdrawal landed', () => {
+  /* The rule used to live in the loader as two bare writes to `restoreTo`.
+     It is a rule about the status machine, so it is stated and enforced here,
+     and the loader now asks for it by name. */
+  const withdrawnFrom = (status) => {
+    const record = new PluginStatusRecord('example-plugin')
+    record.transition(PLUGIN_STATUS.AVAILABLE)
+    if (status !== PLUGIN_STATUS.AVAILABLE) record.transition(status)
+    record.withdraw()
+    return record
+  }
+
+  it('brings a load that succeeded back as active, so activate() is not called twice', () => {
+    const record = withdrawnFrom(PLUGIN_STATUS.LOADING)
+
+    expect(record.settleWhileWithdrawn(PLUGIN_STATUS.ACTIVE)).toBe(true)
+    record.restore()
+
+    expect(record.status).toBe(PLUGIN_STATUS.ACTIVE)
+  })
+
+  it('brings a load that failed back as failed, not as ready to use', () => {
+    const record = withdrawnFrom(PLUGIN_STATUS.LOADING)
+
+    record.settleWhileWithdrawn(PLUGIN_STATUS.FAILED)
+    record.restore()
+
+    expect(record.status).toBe(PLUGIN_STATUS.FAILED)
+  })
+
+  it('overrides where the withdrawal came from, because the work outlived it', () => {
+    // Withdrawn out of `loading`; returning to `loading` would wait on a fetch
+    // that has already settled.
+    const record = withdrawnFrom(PLUGIN_STATUS.LOADING)
+    expect(record.restoreTo).toBe(PLUGIN_STATUS.LOADING)
+
+    record.settleWhileWithdrawn(PLUGIN_STATUS.ACTIVE)
+
+    expect(record.restoreTo).toBe(PLUGIN_STATUS.ACTIVE)
+  })
+
+  it('refuses a status a withdrawn plugin could not have reached', () => {
+    const record = withdrawnFrom(PLUGIN_STATUS.LOADING)
+
+    expect(() => record.settleWhileWithdrawn(PLUGIN_STATUS.LOADING)).toThrow(/cannot be settled/)
+    expect(() => record.settleWhileWithdrawn(PLUGIN_STATUS.AVAILABLE)).toThrow(/cannot be settled/)
+    expect(() => record.settleWhileWithdrawn(PLUGIN_STATUS.DISABLED)).toThrow(/cannot be settled/)
+  })
+
+  it('does nothing to a plugin that is not withdrawn', () => {
+    // The loader calls this on any record it holds; a plugin still running
+    // must not acquire a return it will never take.
+    const record = new PluginStatusRecord('example-plugin')
+    record.transition(PLUGIN_STATUS.AVAILABLE)
+
+    expect(record.settleWhileWithdrawn(PLUGIN_STATUS.FAILED)).toBe(false)
+    expect(record.restoreTo).toBeNull()
+    expect(record.status).toBe(PLUGIN_STATUS.AVAILABLE)
+  })
+})

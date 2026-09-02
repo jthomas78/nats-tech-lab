@@ -1,0 +1,505 @@
+<title>App Shell Deepening Review</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg:#131416; --panel:#1A1E23; --border:#2A2F36; --stroke:#4A515B;
+    --accent:#006FFF; --good:#27C07F; --warn:#9A7B1E;
+    --text:#DEE0E3; --muted:#B7BCC2;
+  }
+  html,body{background:var(--bg);color:var(--text);}
+  body{font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;line-height:20px;margin:0;}
+  h1,h2,h3{letter-spacing:-0.01em;}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;}
+  .eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+  code,.mono{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12px;}
+  code{background:#0E1013;border:1px solid var(--border);border-radius:4px;padding:1px 5px;color:#CFD6DE;}
+  a{color:var(--accent);}
+  .badge{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:100px;border:1px solid;}
+  .b-strong{color:var(--good);border-color:#27C07F55;background:#27C07F14;}
+  .b-worth{color:var(--accent);border-color:#006FFF55;background:#006FFF14;}
+  .b-spec{color:var(--warn);border-color:#9A7B1E66;background:#9A7B1E14;}
+  .mermaid{background:#14171B;border:1px solid var(--border);border-radius:8px;padding:10px;}
+  table{border-collapse:collapse;width:100%;}
+  th,td{border-bottom:1px solid var(--border);padding:6px 8px;text-align:left;vertical-align:top;}
+  th{color:var(--muted);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;}
+  .wrap{overflow-x:auto;}
+  /* Hand-drawn mass diagram: interface bar over implementation body. */
+  .mod{border-radius:8px;overflow:hidden;border:1px solid var(--stroke);}
+  .mod .iface{background:#006FFF22;border-bottom:1px dashed var(--stroke);color:#9EC5FF;
+    font-size:10px;letter-spacing:.1em;text-transform:uppercase;text-align:center;padding:6px 4px;}
+  .mod .impl{background:#20262D;padding:10px;font-size:11px;color:var(--muted);}
+  .mod .impl b{color:var(--text);font-weight:600;}
+  .shallow .iface{padding:22px 4px;background:#9A7B1E22;color:#E3C35F;border-bottom-color:#9A7B1E66;}
+  .shallow .impl{padding:6px 10px;}
+  .split{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center;}
+  @media (max-width:820px){.split{grid-template-columns:1fr;}}
+  .arrow{color:var(--stroke);font-size:20px;text-align:center;}
+</style>
+
+<div class="max-w-[1180px] mx-auto px-6 py-10">
+
+  <div class="eyebrow">Architecture review · 2026-09-02</div>
+  <h1 class="text-3xl font-semibold mt-2">Extensible Application Shell + Micro-Frontend Plugins</h1>
+  <p class="mt-3 max-w-[760px]" style="color:var(--muted)">
+    Deepening opportunities in <code>lab-shell/src/shell/</code> and
+    <code>mfe-registry-service</code>. The twelve findings from the previous review are
+    fixed and shipped; these are the seams that read as friction <i>after</i> those fixes,
+    with weight given to the files that moved most in the last few commits.
+  </p>
+
+  <div class="panel p-4 mt-6" style="border-color:#006FFF44">
+    <div class="eyebrow">The pattern that already worked</div>
+    <p class="mt-2">
+      <code>readPolicy.js</code> pulled every rule about <i>what a registry read means</i> out of
+      <code>bootShell.js</code> into one pure function, leaving the caller to do nothing but apply
+      the decision. Twenty-three specs now run with no shell boot. <b>Three of the five candidates
+      below are the same move, at a different seam</b> — which is itself the signal: the shell keeps
+      growing modules that decide and do in one breath.
+    </p>
+  </div>
+
+  <!-- ───────────────────────── 1 ───────────────────────── -->
+  <div class="panel p-6 mt-8">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <div class="eyebrow">Candidate 01</div>
+        <h2 class="text-xl font-semibold mt-1">The read-coalescing machine now exists twice</h2>
+      </div>
+      <span class="badge b-strong">Strong</span>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6 mt-5">
+      <div>
+        <div class="eyebrow">Files</div>
+        <ul class="mt-2 space-y-1">
+          <li><code>shell/registry/changeSubscription.js</code> — the catalogue's machine</li>
+          <li><code>shell/registry/healthPlane.js</code> — <code>createHealthPlane</code>, lines ~110-150</li>
+        </ul>
+
+        <div class="eyebrow mt-5">Problem</div>
+        <p class="mt-2">
+          Both modules solve the identical problem: a hint subject fires, a read must follow, only
+          one read may be in flight, a hint landing mid-read must be answered exactly once, and a
+          reconnect gap must force a fresh read. The catalogue's copy was consolidated last week into
+          a single machine with <code>outstanding</code>, <code>chain</code>,
+          <code>pendingHint</code> and <code>reconnects</code>. The health plane still carries the
+          earlier, weaker shape: <code>inFlight</code> plus a boolean <code>pending</code>, with the
+          follow-up read fired from inside the <code>.then()</code> of the read it follows.
+        </p>
+        <p class="mt-2">
+          They have already drifted. The catalogue's machine compares the hinted revision against
+          what came back and skips a redundant read; the health plane cannot, because a reading has
+          no revision. The catalogue serialises with a promise chain; health re-enters
+          <code>refresh()</code> recursively. One of these has specs for reconnect-during-boot; the
+          other has none.
+        </p>
+        <p class="mt-2">
+          Under <b>"one adapter is a hypothetical seam, two is a real one"</b>, this crossed the line
+          the day the health plane was written. The seam is real now.
+        </p>
+      </div>
+
+      <div>
+        <div class="eyebrow">Solution</div>
+        <p class="mt-2">
+          Extract the machine as a deep module — provisionally the <b>hinted reader</b> — with a
+          four-method interface: <code>refresh({unconditional, reason})</code>,
+          <code>start()</code>, <code>stop()</code>, <code>onReconnect()</code>. It accepts the
+          <code>read</code> function and the notify subject; it knows nothing about revisions,
+          catalogues or health. The revision-skip becomes an optional
+          <code>isRedundant(result, hint)</code> predicate the catalogue supplies and health omits.
+        </p>
+        <p class="mt-2">
+          <code>changeSubscription.js</code> becomes the catalogue's thin binding of that module;
+          <code>createHealthPlane</code> keeps only what is genuinely its own — ageing readings,
+          out-of-order <code>asOf</code> rejection, and the readings map.
+        </p>
+
+        <div class="eyebrow mt-5">Benefits</div>
+        <ul class="mt-2 space-y-1 list-disc pl-4">
+          <li><b>Locality.</b> "How often does the shell read, and when?" becomes one file. Today a
+            fix to burst behaviour has to be found and made twice, and last week's fix was made once.</li>
+          <li><b>Leverage.</b> The tenant and operator surfaces due to migrate onto this shell will
+            each want the same behaviour; today each would hand-roll a third copy.</li>
+          <li><b>Tests.</b> The four hard specs — reconnect before start, one read at a time, hint
+            behind a queue, nothing after stop — are written once against a fake <code>read</code>,
+            and both callers inherit them. The health plane currently has no equivalent spec at all.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="eyebrow mt-6">Before / after</div>
+    <div class="split mt-3">
+      <div>
+        <div class="mermaid">
+graph TD
+  N1["notify: catalogue changed"] --> CS["changeSubscription.js<br/><i>outstanding · chain · pendingHint · reconnects</i>"]
+  CS --> R1["read catalogue"]
+  N2["notify: health changed"] --> HP["healthPlane.js<br/><i>inFlight · pending</i>"]
+  HP --> R2["read health"]
+  HP -.->|"same problem,<br/>different answer"| CS
+  classDef dup fill:#9A7B1E22,stroke:#9A7B1E,color:#E3C35F
+  class CS,HP dup
+        </div>
+        <p class="text-center mt-2" style="color:var(--muted)">Two machines. The dashed edge is the drift.</p>
+      </div>
+      <div class="arrow">➜</div>
+      <div>
+        <div class="mermaid">
+graph TD
+  N1["notify: catalogue changed"] --> HR
+  N2["notify: health changed"] --> HR
+  HR["hintedReader<br/><i>refresh · start · stop · onReconnect</i>"]
+  HR --> C["catalogue binding<br/><i>+ revision skip</i>"]
+  HR --> H["health binding<br/><i>+ ageing, asOf order</i>"]
+  classDef deep fill:#006FFF22,stroke:#006FFF,color:#9EC5FF
+  class HR deep
+        </div>
+        <p class="text-center mt-2" style="color:var(--muted)">One machine, two thin bindings.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 2 ───────────────────────── -->
+  <div class="panel p-6 mt-8">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <div class="eyebrow">Candidate 02</div>
+        <h2 class="text-xl font-semibold mt-1"><code>contributionRegistry.index()</code> decides and does in one pass</h2>
+      </div>
+      <span class="badge b-strong">Strong</span>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6 mt-5">
+      <div>
+        <div class="eyebrow">Files</div>
+        <ul class="mt-2 space-y-1">
+          <li><code>shell/contributions/contributionRegistry.js</code> (376 lines, one function of ~100)</li>
+          <li><code>shell/extensions/extensionPoints.js</code>, <code>shell/auth/permissions.js</code> (its inputs)</li>
+        </ul>
+
+        <div class="eyebrow mt-5">Problem</div>
+        <p class="mt-2">
+          <code>index()</code> holds the whole placement ruleset — permission refusal, route-prefix
+          first-claim-wins, capacity, suspension when a slot's owner is withdrawn, the
+          <code>available</code>/<code>disabled</code> verdict, cross-plugin sort, and the unresolved-nav
+          sweep — and it applies all of it directly into seven reactive containers while mutating
+          <code>PluginStatusRecord</code>s it was handed.
+        </p>
+        <p class="mt-2">
+          The consequences are visible in the file. <code>restore()</code> has to call
+          <code>this.index([plugin])</code> re-entrantly and delete from
+          <code>indexedPluginIds</code> first to get past the guard at the top — placement rules can
+          only be re-run by faking a first visit. <code>dropFrom()</code> exists solely because the
+          containers must be spliced in place. And a spec for "does a shell-footer aimed at a full
+          region still leave the route placed?" must construct extension points, a permissions
+          object, a status map and a plugin array, then read a getter.
+        </p>
+        <p class="mt-2">
+          Apply the deletion test to the reactive containers: delete them and the rules remain,
+          intact and unstated. That is the shape of a decision trapped inside a store.
+        </p>
+      </div>
+
+      <div>
+        <div class="eyebrow">Solution</div>
+        <p class="mt-2">
+          Same move as <code>readPolicy.js</code>. A pure
+          <code>decidePlacements(plugins, {permissions, capacityOf, occupancy, withdrawn})</code>
+          returns a plain <b>placement plan</b>: <code>{placed, refusals, suspended, statuses,
+          prefixOwners}</code>. <code>index()</code> shrinks to applying that plan to its containers
+          and forwarding the status verdicts.
+        </p>
+        <p class="mt-2">
+          <code>restore()</code> then re-decides honestly — it asks the policy for a fresh plan for
+          one plugin against current occupancy — instead of deleting a bookkeeping entry to trick
+          the guard.
+        </p>
+
+        <div class="eyebrow mt-5">Benefits</div>
+        <ul class="mt-2 space-y-1 list-disc pl-4">
+          <li><b>Leverage.</b> The interface a caller learns drops from "seven reactive collections
+            and an incremental, non-idempotent <code>index</code>" to "give me a plan".</li>
+          <li><b>Locality.</b> Every placement rule is in one file. Today "why did this contribution
+            not appear?" is answered by reading a hundred-line loop with five interleaved concerns.</li>
+          <li><b>Tests.</b> Placement specs stop booting Vue reactivity entirely. Withdrawal and
+            return — the hardest cases, BR-AS56/AS58/AS59 — become plan comparisons rather than
+            before/after reads of a mutated store.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="eyebrow mt-6">Before / after</div>
+    <div class="split mt-3">
+      <div>
+        <div class="mod shallow">
+          <div class="iface">index(plugins, statuses) — and 9 getters, withdraw, restore, isWithdrawn</div>
+          <div class="impl">
+            <b>permission refusal · prefix conflict · capacity · suspension · status verdicts ·
+            sort · nav resolution</b><br/>
+            …all writing straight into 7 reactive containers, plus in-place
+            <code>dropFrom</code> and a re-entrant <code>restore → index</code>.
+          </div>
+        </div>
+        <p class="text-center mt-2" style="color:var(--muted)">Rules and storage in one body.</p>
+      </div>
+      <div class="arrow">➜</div>
+      <div>
+        <div class="mod">
+          <div class="iface">decidePlacements(...) → plan</div>
+          <div class="impl"><b>every placement rule, pure</b><br/>no Vue, no containers, no statuses mutated</div>
+        </div>
+        <div class="mod mt-3">
+          <div class="iface">index(plan) · withdraw · restore</div>
+          <div class="impl">apply the plan to reactive containers</div>
+        </div>
+        <p class="text-center mt-2" style="color:var(--muted)">Decide, then do — as <code>readPolicy.js</code> does.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 3 ───────────────────────── -->
+  <div class="panel p-6 mt-8">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <div class="eyebrow">Candidate 03</div>
+        <h2 class="text-xl font-semibold mt-1">The loader writes <code>restoreTo</code> straight into the status record</h2>
+      </div>
+      <span class="badge b-strong">Strong</span>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6 mt-5">
+      <div>
+        <div class="eyebrow">Files</div>
+        <ul class="mt-2 space-y-1">
+          <li><code>shell/loader/pluginLoader.js:55</code> — <code>record.restoreTo = FAILED</code></li>
+          <li><code>shell/loader/pluginLoader.js:152</code> — <code>record.restoreTo = ACTIVE</code></li>
+          <li><code>shell/registry/pluginStatus.js</code> — the machine that owns the field</li>
+        </ul>
+
+        <div class="eyebrow mt-5">Problem</div>
+        <p class="mt-2">
+          <code>PluginStatusRecord</code> is careful, well-documented, and explicit that an illegal
+          transition throws rather than being swallowed. Its interface is
+          <code>transition</code> / <code>withdraw</code> / <code>restore</code> — and
+          <code>restoreTo</code> is its private memory of where a withdrawal came from.
+        </p>
+        <p class="mt-2">
+          The loader reaches past that interface and assigns the field twice, because it has a case
+          the machine has no word for: an import or an <code>activate()</code> that lands
+          <i>after</i> the plugin was withdrawn. <code>transition()</code> throws on a withdrawn
+          record by design, so the loader routes around it.
+        </p>
+        <p class="mt-2">
+          The rule this encodes is real and subtle — a plugin withdrawn mid-load must come back
+          <code>active</code> so <code>activate()</code> is not called twice (BR-AS59), or
+          <code>failed</code> if the load lost. But it is enforced nowhere. Nothing stops a third
+          caller writing <code>restoreTo = 'loading'</code>, which would resurrect a plugin into a
+          state with no in-flight load behind it.
+        </p>
+      </div>
+
+      <div>
+        <div class="eyebrow">Solution</div>
+        <p class="mt-2">
+          Give the machine the word it is missing. One method — provisionally
+          <code>settleWhileWithdrawn(status)</code> — that accepts only a status a withdrawn plugin
+          may legally return to, throws on anything else, and is a no-op if the record is not
+          withdrawn. The two loader lines become calls; <code>restoreTo</code> goes back to being
+          private.
+        </p>
+        <p class="mt-2">
+          This is a small change with a disproportionate effect on the interface: after it, the whole
+          truth about plugin status lives behind three methods on one class, and
+          <code>pluginStatus.spec.js</code> becomes the complete statement of the state machine.
+        </p>
+
+        <div class="eyebrow mt-5">Benefits</div>
+        <ul class="mt-2 space-y-1 list-disc pl-4">
+          <li><b>Locality.</b> The withdrawal-mid-load rule moves next to every other status rule,
+            instead of living as two bare assignments in the loader.</li>
+          <li><b>Leverage.</b> Callers learn one closed vocabulary. No field on the record is
+            writable from outside.</li>
+          <li><b>Tests.</b> The rule becomes assertable without a loader, a federated adapter or a
+            timing race — today it can only be reached by racing a withdrawal against an import.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="eyebrow mt-6">Before / after</div>
+    <div class="split mt-3">
+      <div>
+        <div class="mermaid">
+graph LR
+  L["pluginLoader"] -->|"transition()"| M["PluginStatusRecord"]
+  L -.->|"record.restoreTo = …<br/>past the interface"| F["restoreTo<br/><i>private field</i>"]
+  F --- M
+  classDef leak fill:#9A7B1E22,stroke:#9A7B1E,color:#E3C35F
+  class F leak
+        </div>
+      </div>
+      <div class="arrow">➜</div>
+      <div>
+        <div class="mermaid">
+graph LR
+  L["pluginLoader"] -->|"transition()"| M["PluginStatusRecord<br/><i>restoreTo stays private</i>"]
+  L -->|"settleWhileWithdrawn()"| M
+  classDef deep fill:#006FFF22,stroke:#006FFF,color:#9EC5FF
+  class M deep
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 4 ───────────────────────── -->
+  <div class="panel p-6 mt-8">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <div class="eyebrow">Candidate 04</div>
+        <h2 class="text-xl font-semibold mt-1">The chrome's attention rules are spread across a template</h2>
+      </div>
+      <span class="badge b-worth">Worth exploring</span>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6 mt-5">
+      <div>
+        <div class="eyebrow">Files</div>
+        <ul class="mt-2 space-y-1">
+          <li><code>src/App.vue</code> — <code>statusOf</code>, <code>healthOf</code>, <code>isActive</code>, and the dot markup</li>
+          <li><code>shell/registry/statusRollup.js</code>, <code>shell/registry/healthText.js</code></li>
+        </ul>
+
+        <div class="eyebrow mt-5">Problem</div>
+        <p class="mt-2">
+          BR-AS60's precedence rule — a failure dot beats a health dot, never both — is written as an
+          early return inside <code>healthOf()</code> in <code>App.vue</code>, and then re-stated in
+          the template as a <code>v-if</code>/<code>v-else-if</code> pair that must stay in the same
+          order to remain true. The rollup for the topbar pill is already extracted
+          (<code>statusRollup.js</code>) precisely because "two surfaces need it"; the per-item mark
+          has the same property and was not.
+        </p>
+        <p class="mt-2">
+          There is no third surface yet, so this is a smaller claim than 01–03. It becomes real the
+          moment the Plugins screen or a migrated app wants the same mark.
+        </p>
+      </div>
+      <div>
+        <div class="eyebrow">Solution</div>
+        <p class="mt-2">
+          A pure <code>navMark(pluginId, {statuses, health})</code> returning
+          <code>{tone, title} | null</code>, with the precedence inside it. The template renders one
+          conditional dot instead of two ordered ones.
+        </p>
+        <div class="eyebrow mt-5">Benefits</div>
+        <ul class="mt-2 space-y-1 list-disc pl-4">
+          <li><b>Locality.</b> One rule, one place, instead of a function and a template ordering
+            that must agree.</li>
+          <li><b>Tests.</b> BR-AS60 becomes a table-driven spec instead of a mounted-component
+            assertion about which <code>span</code> rendered.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 5 ───────────────────────── -->
+  <div class="panel p-6 mt-8">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <div class="eyebrow">Candidate 05</div>
+        <h2 class="text-xl font-semibold mt-1">The operator projection is assembled in the transport adapter</h2>
+      </div>
+      <span class="badge b-spec">Speculative</span>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6 mt-5">
+      <div>
+        <div class="eyebrow">Files</div>
+        <ul class="mt-2 space-y-1">
+          <li><code>registry/internal/browserrpc/endpoints.go</code> — <code>EntryView</code>, <code>curate()</code></li>
+          <li><code>registry/internal/application/service.go</code> — <code>Curated</code>, <code>Sources</code></li>
+        </ul>
+        <div class="eyebrow mt-5">Problem</div>
+        <p class="mt-2">
+          <code>curate()</code> joins three sources — the stored document, the registration sources
+          map, and a drift snapshot — and decides two rules while doing it: an unknown source is
+          spelled out rather than left blank, and a nil drift reader yields
+          <code>awaiting-check</code>. Those are contract decisions sitting in a JSON adapter. A
+          second transport for the same operator view (a REST admin surface, say) would have to
+          restate them.
+        </p>
+        <p class="mt-2" style="color:var(--warn)">
+          Marked speculative deliberately: there is exactly one transport today, so by
+          "one adapter is a hypothetical seam" this does not yet qualify. It is listed so the
+          decision is conscious rather than accidental if a second one arrives.
+        </p>
+      </div>
+      <div>
+        <div class="eyebrow">Solution</div>
+        <p class="mt-2">
+          Move the join into the application layer as a <code>CuratedView</code> the service returns
+          whole; <code>browserrpc</code> keeps only JSON tags.
+        </p>
+        <div class="eyebrow mt-5">Benefits</div>
+        <ul class="mt-2 space-y-1 list-disc pl-4">
+          <li><b>Tests.</b> The unknown-source and unchecked-drift rules become application-layer
+            Ginkgo specs rather than assertions about a marshalled reply.</li>
+          <li><b>Locality</b> only pays off with a second transport. Until then this is a wash.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── summary ───────────────────────── -->
+  <h2 class="text-xl font-semibold mt-10">At a glance</h2>
+  <div class="panel p-4 mt-3 wrap">
+    <table>
+      <tr><th>#</th><th>Candidate</th><th>Seam</th><th>Real or hypothetical</th><th>Strength</th></tr>
+      <tr><td class="mono">01</td><td>Read-coalescing machine, twice</td><td>hinted reader</td><td><b style="color:var(--good)">Real</b> — two adapters, already drifted</td><td><span class="badge b-strong">Strong</span></td></tr>
+      <tr><td class="mono">02</td><td><code>index()</code> decides and does</td><td>placement policy</td><td><b style="color:var(--good)">Real</b> — <code>restore()</code> already fights it</td><td><span class="badge b-strong">Strong</span></td></tr>
+      <tr><td class="mono">03</td><td><code>restoreTo</code> written from outside</td><td>status machine</td><td><b style="color:var(--good)">Real</b> — an unenforced rule</td><td><span class="badge b-strong">Strong</span></td></tr>
+      <tr><td class="mono">04</td><td>Attention rules in the template</td><td>nav mark</td><td>One surface today</td><td><span class="badge b-worth">Worth exploring</span></td></tr>
+      <tr><td class="mono">05</td><td>Operator projection in the adapter</td><td>curated view</td><td><b style="color:var(--warn)">Hypothetical</b> — one transport</td><td><span class="badge b-spec">Speculative</span></td></tr>
+    </table>
+  </div>
+
+  <div class="panel p-6 mt-8" style="border-color:#27C07F55;background:#27C07F0D">
+    <div class="eyebrow" style="color:var(--good)">Top recommendation</div>
+    <h2 class="text-xl font-semibold mt-1">Start with 01 — the hinted reader.</h2>
+    <p class="mt-3">
+      It is the only candidate where the seam is proven rather than argued: two modules already
+      implement the same machine, and they have <i>already</i> diverged — last week's consolidation
+      of burst and reconnect behaviour landed in the catalogue's copy and not the health plane's.
+      That is not a risk, it is a bug waiting for someone to notice that a health hint arriving
+      during a read behaves differently from a catalogue hint arriving during a read.
+    </p>
+    <p class="mt-3">
+      It is also the cheapest. The catalogue's machine is 119 lines, freshly written, and already has
+      the four specs that would become the shared suite; the health plane's copy is smaller and has
+      none. The refactor is mostly deletion, and the deletion test comes back the right way — remove
+      the extracted module and the same coalescing logic reappears in two places.
+    </p>
+    <p class="mt-3">
+      Then <b>03</b> (an afternoon, and it closes an unenforced rule), then <b>02</b> — which is the
+      largest and the one most worth grilling properly, since the placement plan's shape is a real
+      design decision and not a mechanical extraction.
+    </p>
+  </div>
+
+  <p class="mt-8 text-center" style="color:var(--muted)">
+    Vocabulary from <code>/codebase-design</code>: module, interface, depth, seam, adapter, leverage, locality.
+  </p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      background: '#14171B', primaryColor: '#1A1E23', primaryTextColor: '#DEE0E3',
+      primaryBorderColor: '#4A515B', lineColor: '#4A515B', secondaryColor: '#20262D',
+      tertiaryColor: '#20262D', fontFamily: "Inter, -apple-system, 'Segoe UI', Roboto, sans-serif",
+      fontSize: '12px'
+    }
+  })
+</script>

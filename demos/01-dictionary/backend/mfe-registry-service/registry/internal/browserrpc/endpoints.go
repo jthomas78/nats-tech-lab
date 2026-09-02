@@ -42,12 +42,14 @@ var ErrRevisionRequired = domain.ErrRevisionRequired
 
 type Service interface {
 	Read(context.Context) domain.Document
-	Curated(context.Context) (domain.Document, error)
-	Sources(context.Context) map[string]domain.Registration
+	// The operator read, joined for us. This adapter no longer assembles it
+	// from three separate reads — see application/curated.go.
+	CuratedView(context.Context) (application.CuratedView, error)
+	// The same join over a document a write just returned.
+	Curate(context.Context, domain.Document) application.CuratedView
 	Apply(context.Context, domain.Write) (domain.Document, error)
 	Publishers(context.Context) (domain.PublisherDocument, error)
 	ApplyPublisher(context.Context, domain.PublisherWrite) (domain.PublisherDocument, error)
-	Allowlist() domain.Allowlist
 }
 
 type Auditor interface {
@@ -57,7 +59,6 @@ type Auditor interface {
 type Endpoints struct {
 	svc    Service
 	audit  Auditor
-	drift  DriftReader
 	health HealthReader
 }
 
@@ -69,25 +70,15 @@ type HealthReader interface {
 	Snapshot(time.Time) map[string]application.PluginHealth
 }
 
-// DriftReader exposes only a completed observation. Fetching is deliberately
-// not part of this interface: no NATS handler may wait on a plugin's HTTP.
-type DriftReader interface {
-	Snapshot(domain.Entry, string) domain.Drift
-}
-
-func New(svc Service, audit Auditor, drift ...DriftReader) *Endpoints {
-	e := &Endpoints{svc: svc, audit: audit}
-	if len(drift) > 0 {
-		e.drift = drift[0]
-	}
-	return e
+func New(svc Service, audit Auditor) *Endpoints {
+	return &Endpoints{svc: svc, audit: audit}
 }
 
 // NewWithHealth is New plus the health plane. Separate constructor rather
 // than another variadic, so a deployment that maps no health at all is a
 // visible choice in composition and not an omitted argument.
-func NewWithHealth(svc Service, audit Auditor, health HealthReader, drift ...DriftReader) *Endpoints {
-	e := New(svc, audit, drift...)
+func NewWithHealth(svc Service, audit Auditor, health HealthReader) *Endpoints {
+	e := New(svc, audit)
 	e.health = health
 	return e
 }
@@ -187,38 +178,33 @@ type CuratedResponse struct {
 	Plugins        []EntryView `json:"plugins"`
 }
 
-func (e *Endpoints) curate(doc domain.Document, sources map[string]domain.Registration) CuratedResponse {
-	allowed := e.svc.Allowlist()
-	out := CuratedResponse{SchemaVersion: doc.SchemaVersion, Revision: doc.Revision, AllowedOrigins: allowed.Origins(), Plugins: []EntryView{}}
-	for _, entry := range doc.Entries {
-		/* Absent means unknown, spelled out rather than left empty: a blank
-		   badge on one row among many reads as a rendering fault, and the
-		   one thing this field must never do is look like agreement. */
-		reg, ok := sources[entry.ID]
-		if !ok {
-			reg = domain.Registration{Source: domain.SourceUnknown}
-		}
-		drift := domain.UncheckedDrift("awaiting-check")
-		if e.drift != nil {
-			drift = e.drift.Snapshot(entry, reg.Source)
-		}
+// response is the whole of this adapter's contribution to the operator read:
+// JSON tags over a view the application layer already joined.
+func response(view application.CuratedView) CuratedResponse {
+	out := CuratedResponse{
+		SchemaVersion:  view.SchemaVersion,
+		Revision:       view.Revision,
+		AllowedOrigins: view.AllowedOrigins,
+		Plugins:        []EntryView{},
+	}
+	for _, row := range view.Plugins {
 		out.Plugins = append(out.Plugins, EntryView{
-			Entry:        entry,
-			Conforming:   allowed.Check(entry) == nil,
-			Source:       reg.Source,
-			RegisteredBy: reg.By,
-			Drift:        drift,
+			Entry:        row.Entry,
+			Conforming:   row.Conforming,
+			Source:       row.Source,
+			RegisteredBy: row.RegisteredBy,
+			Drift:        row.Drift,
 		})
 	}
 	return out
 }
 
 func (e *Endpoints) Curated(ctx context.Context) (CuratedResponse, error) {
-	doc, err := e.svc.Curated(ctx)
+	view, err := e.svc.CuratedView(ctx)
 	if err != nil {
 		return CuratedResponse{}, errors.New("the registry could not be read")
 	}
-	return e.curate(doc, e.svc.Sources(ctx)), nil
+	return response(view), nil
 }
 
 type UpsertRequest struct {
@@ -301,7 +287,7 @@ func AsStaleRefusal(err error, target *StaleRefusal) bool { return errors.As(err
 func (e *Endpoints) apply(ctx context.Context, w domain.Write) (CuratedResponse, error) {
 	doc, err := e.svc.Apply(ctx, w)
 	if err == nil {
-		return e.curate(doc, e.svc.Sources(ctx)), nil
+		return response(e.svc.Curate(ctx, doc)), nil
 	}
 	var stale domain.StaleRevisionError
 	if errors.As(err, &stale) {

@@ -28,6 +28,7 @@
 import { reactive } from 'vue'
 
 import { PLUGIN_STATUS } from '../registry/pluginStatus.js'
+import { decidePlacements } from './placementPolicy.js'
 
 export function createContributionRegistry({ extensionPoints, permissions }) {
   const routes = reactive([])
@@ -81,25 +82,89 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
     for (const [pointId, list] of extensions) extensions.set(pointId, [...list].sort(byOrder))
   }
 
-  const placeExtension = (contribution, pointId) => {
-    if (withdrawnPluginIds.has(ownerOf(pointId))) {
-      /* Suspended, not refused. The Plugins screen must not tell an operator
-         that this plugin's panel was rejected — the slot it targets simply is
-         not there at the moment. */
-      if (!suspended.some((s) => s.contribution.qualifiedId === contribution.qualifiedId)) {
-        suspended.push({ pointId, contribution })
-      }
-      return false
-    }
+  /* The one path that puts a contribution into a slot, used by an indexing
+     pass and by a return alike, so capacity is re-checked the same way both
+     times. Deciding is `placementPolicy`'s job — this only writes. */
+  const fill = (contribution, pointId) => {
     const placed = extensions.get(pointId) ?? []
-    const verdict = extensionPoints.accepts(pointId, { placedCount: placed.length })
-    if (!verdict.ok) {
-      refuse(contribution, verdict.code, verdict.message)
-      return false
-    }
     placed.push(contribution)
     extensions.set(pointId, placed)
-    return true
+  }
+
+  const hold = (pointId, contribution) => {
+    if (suspended.some((s) => s.contribution.qualifiedId === contribution.qualifiedId)) return
+    suspended.push({ pointId, contribution })
+  }
+
+  /*
+    Decide, then do (BR-AS02, BR-AS06).
+
+    `decidePlacements` answers the questions below and hands back a plan; this
+    walks the plan and writes. Nothing here branches on a rule — if a
+    placement rule ever needs changing, `placementPolicy.js` is the only file
+    that moves.
+
+    `reindex` is how a return re-decides honestly (BR-AS59). A restore has to
+    get past the "already ruled on" guard, and it used to do that by deleting
+    the plugin from `indexedPluginIds` first — briefly telling the registry a
+    plugin it had placed was unknown. Now it says so.
+  */
+  const place = (plugins, statuses, { reindex = false } = {}) => {
+    const plan = decidePlacements(plugins, {
+      alreadyIndexed: (pluginId) => !reindex && indexedPluginIds.has(pluginId),
+      permits: (permission) => permissions.can(permission),
+      prefixOwner: (prefix) => routePrefixOwners.get(prefix),
+      occupancy: (pointId) => (extensions.get(pointId) ?? []).length,
+      accepts: (pointId, info) => extensionPoints.accepts(pointId, info),
+      ownerWithdrawn: (owner) => withdrawnPluginIds.has(owner),
+      routePlaced: (qualifiedId) => routes.some((route) => route.qualifiedId === qualifiedId),
+    })
+
+    for (const plugin of plan.indexed) {
+      indexedPluginIds.add(plugin.id)
+      placedPlugins.set(plugin.id, plugin)
+    }
+    for (const { prefix, pluginId } of plan.prefixClaims) routePrefixOwners.set(prefix, pluginId)
+
+    const dropped = new Set(plan.dropNavigation)
+    for (const { op, contribution, pointId } of plan.actions) {
+      switch (op) {
+        case 'route':
+          routes.push(contribution)
+          break
+        case 'navigation':
+          /* A nav entry naming a route that is not placed is never shown at
+             all, rather than shown and then removed. */
+          if (!dropped.has(contribution.qualifiedId)) navigation.push(contribution)
+          break
+        case 'extension':
+          fill(contribution, pointId)
+          break
+        case 'shell-control':
+          fill(contribution, pointId)
+          shellControls.push(contribution)
+          break
+        case 'shell-footer':
+          fill(contribution, pointId)
+          footerItems.push(contribution)
+          break
+        default:
+          break
+      }
+    }
+
+    for (const { pointId, contribution } of plan.suspensions) hold(pointId, contribution)
+    for (const { contribution, code, message } of plan.refusals) refuse(contribution, code, message)
+    for (const contribution of plan.known) byQualifiedId.set(contribution.qualifiedId, contribution)
+
+    /* Cross-plugin order is settled here, once. Within one order value the
+       tiebreak is plugin id then declaration index — stable, and independent
+       of the order plugins happened to arrive from the registry (BR-AS06). */
+    resort()
+
+    for (const { pluginId, to, code, message } of plan.statuses) {
+      statuses?.get(pluginId)?.transition(to, { code, message })
+    }
   }
 
   return {
@@ -110,119 +175,7 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
      *   re-derive which plugins ended up placed.
      */
     index(plugins, statuses = null) {
-      for (const plugin of plugins) {
-        /* Seen before — including one that was disabled or refused, whose
-           outcome was already recorded, and one that is withdrawn, whose
-           contributions must not come back through a re-index (BR-AS56). A
-           second pass must not re-record it. */
-        if (indexedPluginIds.has(plugin.id)) continue
-        indexedPluginIds.add(plugin.id)
-        placedPlugins.set(plugin.id, plugin)
-
-        if (!plugin.enabled) {
-          statuses?.get(plugin.id)?.transition(PLUGIN_STATUS.DISABLED, {
-            code: 'operator-disabled',
-            message: `${plugin.name} is switched off in the plugin registry`,
-          })
-          continue
-        }
-
-        /* Two plugins claiming one route prefix is unresolvable: the URL
-           would name both. The first claim wins — deterministically, since
-           plugins are indexed in registry order — and the second plugin keeps
-           everything of its own that is not a route. */
-        const prefixOwner = routePrefixOwners.get(plugin.routePrefix)
-        const prefixTaken = prefixOwner !== undefined && prefixOwner !== plugin.id
-        if (!prefixTaken) routePrefixOwners.set(plugin.routePrefix, plugin.id)
-
-        let placedAny = false
-        for (const contribution of plugin.contributions) {
-          /* Permission is checked before placement, not at render: a
-             contribution the viewer may not see must not occupy capacity at
-             an extension point that someone else could have used. */
-          if (!permissions.can(contribution.permission)) {
-            refuse(
-              contribution,
-              'permission-denied',
-              `Requires ${contribution.permission}, which this session's claims do not grant`,
-            )
-            continue
-          }
-
-          switch (contribution.kind) {
-            case 'route':
-              if (prefixTaken) {
-                refuse(
-                  contribution,
-                  'route-prefix-conflict',
-                  `Route prefix /${plugin.routePrefix} is already claimed by ${prefixOwner}`,
-                )
-                break
-              }
-              routes.push(contribution)
-              placedAny = true
-              break
-            case 'navigation':
-              navigation.push(contribution)
-              placedAny = true
-              break
-            case 'extension':
-              placedAny = placeExtension(contribution, contribution.target) || placedAny
-              break
-            case 'shell-control':
-              if (placeExtension(contribution, contribution.region)) {
-                shellControls.push(contribution)
-                placedAny = true
-              }
-              break
-            case 'shell-footer':
-              if (placeExtension(contribution, 'shell/footer/v1')) {
-                footerItems.push(contribution)
-                placedAny = true
-              }
-              break
-            default:
-              refuse(contribution, 'unknown-contribution-kind', `Unhandled kind ${contribution.kind}`)
-          }
-          byQualifiedId.set(contribution.qualifiedId, contribution)
-        }
-
-        const record = statuses?.get(plugin.id)
-        if (!record) continue
-        if (placedAny) {
-          record.transition(PLUGIN_STATUS.AVAILABLE)
-        } else {
-          /* Nothing of this plugin is reachable in this session. That is the
-             same observable outcome as an operator switch-off, so it gets the
-             same status with a different reason — the Plugins screen shows
-             one word and one explanation, never a contradiction. */
-          record.transition(PLUGIN_STATUS.DISABLED, {
-            code: 'no-permitted-contributions',
-            message: `No contribution of ${plugin.name} is available to this session`,
-          })
-        }
-      }
-
-      /* Cross-plugin order is settled here, once. Within one order value the
-         tiebreak is plugin id then declaration index — stable, and independent
-         of the order plugins happened to arrive from the registry (BR-AS06). */
-      resort()
-
-      /* Nav entries are resolved after every route is indexed, so a nav entry
-         may name a route declared later in the manifest. A nav entry naming a
-         route that does not exist is caught here rather than on click. */
-      for (let i = navigation.length - 1; i >= 0; i -= 1) {
-        const entry = navigation[i]
-        if (!routes.some((route) => route.qualifiedId === entry.routeQualifiedId)) {
-          refuse(
-            entry,
-            'unresolved-route',
-            `Navigation ${entry.qualifiedId} names route ${entry.routeQualifiedId}, which is not placed`,
-          )
-          navigation.splice(i, 1)
-        }
-      }
-
+      place(plugins, statuses)
       return this
     },
 
@@ -284,11 +237,10 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
       if (!plugin) return false
 
       withdrawnPluginIds.delete(pluginId)
-      indexedPluginIds.delete(pluginId)
       /* Deliberately without `statuses`: the record is withdrawn, and the
          status it goes back to is the one it left, not the `available` a
          first indexing would assign. */
-      this.index([plugin])
+      place([plugin], null, { reindex: true })
 
       if (!this.all.some((c) => c.pluginId === pluginId)) {
         withdrawnPluginIds.add(pluginId)
@@ -303,10 +255,17 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
         const { pointId, contribution } = suspended[i]
         if (ownerOf(pointId) !== pluginId) continue
         if (withdrawnPluginIds.has(contribution.pluginId)) continue
-        suspended.splice(i, 1)
-        if (placeExtension(contribution, pointId) && contribution.kind === 'shell-control') {
-          shellControls.push(contribution)
+        const verdict = extensionPoints.accepts(pointId, {
+          placedCount: (extensions.get(pointId) ?? []).length,
+        })
+        if (!verdict.ok) {
+          refuse(contribution, verdict.code, verdict.message)
+          suspended.splice(i, 1)
+          continue
         }
+        suspended.splice(i, 1)
+        fill(contribution, pointId)
+        if (contribution.kind === 'shell-control') shellControls.push(contribution)
       }
       resort()
       statuses?.get(pluginId)?.restore()

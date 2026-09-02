@@ -31,6 +31,11 @@
 > all six artboards on one sheet in
 > [`phase2-registry-mockups.png`](../../lab-shell/diagrams/phase2-registry-mockups/phase2-registry-mockups.png)
 >
+> Deepening review (2026-09-02):
+> [`reviews/architecture-review-20260902.html`](reviews/architecture-review-20260902.html)
+> — five shallow-module candidates found by a `/improve-codebase-architecture` pass over the shell,
+> with before/after diagrams. All five were implemented; the report is kept as the record of why.
+>
 > Phase structure reference: [`Main-POC-Plan.md`](Main-POC-Plan.md)
 
 ## Purpose
