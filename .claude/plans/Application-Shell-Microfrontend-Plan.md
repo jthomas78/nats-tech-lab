@@ -1,7 +1,7 @@
 # Extensible Application Shell + Micro-Frontend Plugins — Plan
 
-> **Status: Phases 1–5, 7, 8, 13, 14 COMPLETE and archived. Phase 15 is PROPOSED with its design
-> gate OPEN (2026-09-02) — no tasks, tests or code until it is approved.**
+> **Status: Phases 1–5, 7, 8, 13, 14 COMPLETE and archived. Phase 15's design gate PASSED
+> (2026-09-02); its task checklist is derived and specs are next.**
 >
 > This file follows `CLAUDE.md`'s required sequence: proposed business rules first, then an explicit
 > design gate. The gate was passed on 2026-08-28 — see
@@ -504,11 +504,12 @@ when it is announced. Per-plugin totals are unchanged — one NATS connection, o
 
 ---
 
-### Phase 15 — PROPOSED (design gate OPEN, opened 2026-09-02) — Frontend health over NATS, and a catalogue-reset notice
+### Phase 15 — APPROVED (design gate passed 2026-09-02) — Frontend health over NATS, and a catalogue-reset notice
 
-**Status: PROPOSED. No tasks, no tests, no code until the design decisions below are approved.**
+**Status: APPROVED. Decisions 1-13 are settled; task checklist, specs and code are derived next.**
 Direction agreed 2026-09-02 ("let's move health to NATS"). Decisions 11-13 closed the three open
-questions on 2026-09-02; decisions 1-10 are still awaiting approval, so the gate is still OPEN. Both halves land in one phase by the user's call on 2026-09-02: they make a plugin
+questions, then decisions 1-10 were walked one at a time and approved on 2026-09-02. Nine were
+approved as proposed. **Decision 10 was amended at approval** — see its entry below. Both halves land in one phase by the user's call on 2026-09-02: they make a plugin
 *subscribe* to something for the first time, and that widening is one decision, not two.
 
 #### The two problems this phase closes
@@ -528,7 +529,7 @@ decision 6's named cost. It does not. Decision 6's cost is joining `backend`, an
 needs NATS to announce. What this phase removes is the *second* network, `frontend`. The larger wins
 are the deleted chore and the point below about same-origin.
 
-#### Proposed design decisions — NOT YET APPROVED
+#### Design decisions — APPROVED 2026-09-02 (1-9 as proposed, 10 amended)
 
 1. **The transport moves; the probe does not become an opinion.** The registry asks over NATS. The
    publisher answers only after a real local `GET http://127.0.0.1:<port>/healthz` against its own
@@ -584,12 +585,29 @@ are the deleted chore and the point below about same-origin.
    re-announced. Neither is ever unregistered. BR-AS54 is untouched, and any design that reads
    absence as an authoritative action is wrong by construction.
 
-10. **A resync announce spends a release number (BR-AS67), and a converged registry should still
-    cost zero writes.** Needs checking against BR-AS68's convergence principle: a re-announce with
-    identical content and a higher release ought to be a no-op write, not a revision bump and an
-    audit row per plugin per reset.
+10. **A resync announce spends a release number (BR-AS67); identical content writes no revision and
+    no audit row, but the release watermark still advances.** **Amended at approval (2026-09-02),
+    from a Codex review of the proposed wording.** The proposal said a converged registry should
+    cost *zero* writes. That is very nearly right and is wrong in one way that matters: the release
+    counter is not decoration, it is this protocol's stale-announcement protection.
+    `domain.Verify` refuses `Release < Accepted` with `ErrReleaseBackwards`, and
+    `UnregisterCommand` refuses a release the running announcement already spent
+    (`ErrReleaseReused`). `Accepted` is the watermark both of those read.
 
-#### Proposed rules — one rewrite, one addition
+    So a resync at a higher release with identical content is treated as: **no catalogue revision,
+    no audit event, but `Accepted` advances to the new release.** If the watermark did not advance,
+    every release number the publisher spent on a resync would stay indefinitely acceptable, which
+    widens the replay window by exactly the number of resyncs — the opposite of what the counter is
+    for.
+
+    Stated honestly, this means a reset storm is not literally free: it is one small watermark update
+    per plugin, not zero. It is still the cheap case, because the expensive parts — the revision bump
+    and the audit row — are what convergence skips, and it keeps BR-AS68's principle intact in the
+    form that principle was actually about. Note that today's `Admission.NoOp` is a narrower thing
+    (`Release == Accepted`, i.e. a literal replay); this decision adds a *content*-equality no-op
+    beside it, and the two must not be collapsed into one flag.
+
+#### Rules — one rewrite, one addition (approved 2026-09-02; ids assigned when the specs land)
 
 - **BR-AS61 is rewritten in place**, not superseded. It is the same business rule — frontend
   availability is centrally probed through a bounded endpoint, and a successful probe still does not
@@ -635,6 +653,43 @@ are the deleted chore and the point below about same-origin.
     reopens silently.** That makes the reset predicate itself a rule with a spec, not an
     implementation detail — and decision 10's convergence question is the safety net, because a
     re-announce of identical content should cost zero writes whether or not the notice was correct.
+
+#### Task checklist — derived from the approved rules, not from an implementation
+
+- [ ] **15a — the rules first.** Rewrite BR-AS61 in place (same responsibility, HTTP-shaped clauses
+      replaced by decision 4's derived subject) and add the reset-notice rule stating decisions 6,
+      7, 8 and 9 together. Assign its id at this point; next free is BR-AS73. Update
+      `BUSINESS_RULES-APP-SHELL.md` in the same change, per CLAUDE.md's rule 4.
+- [ ] **15b — the health transport.** Specs before code. `rpc._platform.health.frontend.{pluginID}.ready.v1`
+      (decision 3), subject derived from the signed entry with a one-token grant (decision 4), and
+      the publisher answering only after a real local `GET http://127.0.0.1:<port>/healthz`
+      (decision 1). One spec asserts `inner < outer` deadline ordering (decision 11) rather than
+      pinning 1s and 2s independently. The probe worker stays (decision 12), so its existing specs
+      must still pass unedited — if one needs editing, that is a signal the concurrency shape moved
+      when it was not supposed to.
+- [ ] **15c — delete the chore.** `REGISTRY_HEALTH_ORIGINS` and its per-plugin entries go.
+      `REGISTRY_FETCH_ORIGINS` (BR-AS45) stays and must be shown to be untouched. The plugin
+      container drops the `frontend` network (decision 5), and `scripts/new-plugin.sh` and its golden
+      fixture lose the health-origin chore they currently generate.
+- [ ] **15d — the reset notice.** `notify._platform.mfe-registry.entries.reset` on core NATS with no
+      durability (decisions 6, 8), carrying its own jitter window (decision 7). The reset *predicate*
+      — "I lost my catalogue", not "I restarted" — is itself a rule with a spec (decision 13),
+      because a wrong predicate reopens the hole this phase closes and does so silently.
+- [ ] **15e — convergence.** A content-equality no-op that writes no revision and no audit row but
+      advances `Accepted` (decision 10, amended). Kept distinct from today's `Admission.NoOp`, which
+      means a literal replay at an equal release; a spec should pin that the two are different.
+- [ ] **15f — silence is inert.** Specs proving a plugin that never answers a health ask is unhealthy
+      but still registered, and a plugin that ignores a reset notice is simply not re-announced
+      (decision 9). Neither path may reach unregister. BR-AS54 unchanged.
+- [ ] **15g — docs.** `ARCHITECTURE-APP-SHELL.md` gains the as-built section and loses the claims
+      this phase invalidates; `ARCHITECTURE-COMMUNICATIONS.md` gains the two new subjects. The Phase
+      14 topology drawing's "after" panel now shows a plugin on two Docker networks and must be
+      re-drawn to one, or explicitly dated as Phase 14's state.
+- [ ] **15h — the gate.** `cmd/registry-acceptance` green against the running lab. It asserts health
+      today, so unlike Phase 14 this phase should expect to touch it — and any edit is recorded in
+      this entry the way Phase 14's three were.
+
+---
 
 ---
 
