@@ -1,11 +1,11 @@
 /*
   Connection state keyed by credential profile (BR-AS10).
 
-  The three apps due for migration hold four distinct NATS credentials between
-  them, and they must stay four. The tempting simplification when they share a
-  shell — one connection, broadest permissions — would dissolve a boundary the
-  NATS server enforces today into one the frontend merely intends, and tenancy
-  in this platform is the account boundary (CLAUDE.md).
+  The apps due for migration hold several distinct NATS credentials between
+  them, and they must stay distinct. The tempting simplification when they
+  share a shell — one connection, broadest permissions — would dissolve a
+  boundary the NATS server enforces today into one the frontend merely intends,
+  and tenancy in this platform is the account boundary (CLAUDE.md).
 
   So there is no "current connection" here. Every consumer names the profile it
   wants, and a tenant-scoped profile also names its tenant; the key is the pair.
@@ -15,65 +15,58 @@
   tenant every caller reads — a cross-tenant leak with no error and no symptom.
   A module-global cannot be keyed, so the fix is structural: state lives in a
   registry that has no default.
+
+  **Which profiles exist is the caller's to say, not this file's.** It used to
+  name five as a frozen set while exactly one could be dialled, which meant the
+  rule above was only ever specced against four profiles nothing could reach,
+  and the host had to reject them again at the point of connecting. A profile
+  arrives when the credential that backs it does. The migration map — the
+  operator and SeaFreight profiles and which of them are tenant-scoped — is
+  documented in ARCHITECTURE-APP-SHELL.md, which is where a plan belongs.
 */
 
-/* The four profiles the migration has to preserve. Ids are opaque keys, not
-   credential filenames — the shell asks accounts-service for connect info per
-   profile and never holds a .creds file. */
-export const CREDENTIAL_PROFILE = Object.freeze({
-  /* Shell-owned PLATFORM connection: registry read and notify only. */
-  SHELL_PLATFORM: 'shell-platform',
-  /* Admin UI, PLATFORM account — cross-account diagnostics. */
-  ADMIN_PLATFORM: 'admin-platform',
-  /* Tech Lab Operator's refdata-admin token, also PLATFORM: reference data is
-     platform-scoped, and its context lives in the subject, not the account. */
-  OPERATOR_REFDATA_PLATFORM: 'operator-refdata-platform',
-  /* Tech Lab Operator acting inside one tenant, for Organizations. */
-  OPERATOR_TENANT: 'operator-tenant',
-  /* SeaFreight, inside one tenant. */
-  SEAFREIGHT_TENANT: 'seafreight-tenant',
-})
-
-const TENANT_SCOPED = new Set([
-  CREDENTIAL_PROFILE.OPERATOR_TENANT,
-  CREDENTIAL_PROFILE.SEAFREIGHT_TENANT,
-])
-
-export function isTenantScoped(profile) {
-  return TENANT_SCOPED.has(profile)
-}
-
-export function connectionKey(profile, tenant = null) {
-  if (!Object.values(CREDENTIAL_PROFILE).includes(profile)) {
-    throw new Error(`Unknown credential profile ${JSON.stringify(profile)}`)
-  }
-  if (isTenantScoped(profile)) {
-    if (typeof tenant !== 'string' || tenant === '') {
-      throw new Error(`Credential profile ${profile} is tenant-scoped and needs a tenant`)
-    }
-    return `${profile}#${tenant}`
-  }
-  /* A tenant passed to a platform profile is a category error, and the one it
-     would produce silently is exactly the merge this rule forbids: a caller
-     believing it is scoped to a tenant while holding platform-wide reach. */
-  if (tenant !== null && tenant !== undefined) {
-    throw new Error(`Credential profile ${profile} is not tenant-scoped; got tenant ${tenant}`)
-  }
-  return profile
-}
+/* The shell's own PLATFORM credential: registry read and notify only
+   (BR-AS27). The one profile that can be dialled today, so the one id the
+   shell names. */
+export const SHELL_PLATFORM = 'shell-platform'
 
 /**
  * @param {object} options
+ * @param {Record<string, {tenantScoped?: boolean}>} options.profiles the
+ *   credential profiles that exist, and which of them are scoped to a tenant.
  * @param {(descriptor: {profile: string, tenant: string|null, key: string}) => Promise<object>} options.connect
- *   injected: Phase 1a has no NATS client in the shell, and the specs need none.
+ *   injected: the specs dial nothing, and the host owns how a credential is minted.
  */
-export function createConnectionRegistry({ connect }) {
+export function createConnectionRegistry({ profiles, connect }) {
+  const declared = new Map(Object.entries(profiles ?? {}))
   const connections = new Map()
 
+  const keyFor = (profile, tenant = null) => {
+    const spec = declared.get(profile)
+    if (!spec) {
+      throw new Error(`Unknown credential profile ${JSON.stringify(profile)}`)
+    }
+    if (spec.tenantScoped) {
+      if (typeof tenant !== 'string' || tenant === '') {
+        throw new Error(`Credential profile ${profile} is tenant-scoped and needs a tenant`)
+      }
+      return `${profile}#${tenant}`
+    }
+    /* A tenant passed to a platform profile is a category error, and the one it
+       would produce silently is exactly the merge this rule forbids: a caller
+       believing it is scoped to a tenant while holding platform-wide reach. */
+    if (tenant !== null && tenant !== undefined) {
+      throw new Error(`Credential profile ${profile} is not tenant-scoped; got tenant ${tenant}`)
+    }
+    return profile
+  }
+
   return {
+    keyFor,
+
     /** Shared per key; one connection per profile-and-tenant, never per caller. */
     acquire(profile, tenant = null) {
-      const key = connectionKey(profile, tenant)
+      const key = keyFor(profile, tenant)
       if (!connections.has(key)) {
         connections.set(
           key,
@@ -89,7 +82,7 @@ export function createConnectionRegistry({ connect }) {
     },
 
     has(profile, tenant = null) {
-      return connections.has(connectionKey(profile, tenant))
+      return connections.has(keyFor(profile, tenant))
     },
 
     get keys() {
@@ -97,7 +90,7 @@ export function createConnectionRegistry({ connect }) {
     },
 
     async close(profile, tenant = null) {
-      const key = connectionKey(profile, tenant)
+      const key = keyFor(profile, tenant)
       const pending = connections.get(key)
       if (!pending) return
       connections.delete(key)

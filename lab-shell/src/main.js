@@ -16,7 +16,7 @@ import App from './App.vue'
 import { createPermissionEvaluator } from './shell/auth/permissions.js'
 import { createAfterPaint } from './shell/afterPaint.js'
 import { bootShell, withRuntime } from './shell/bootShell.js'
-import { createConnectionRegistry, CREDENTIAL_PROFILE } from './shell/connections/connectionRegistry.js'
+import { createConnectionRegistry, SHELL_PLATFORM } from './shell/connections/connectionRegistry.js'
 import { createShellConnection } from './shell/connections/shellConnection.js'
 import { createShellDialer } from './shell/connections/shellDialer.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
@@ -84,11 +84,14 @@ export async function bootstrap() {
   installWithdrawalGuard({ router, contributions: shell.contributions })
 
   const dial = createShellDialer({ fetch: window.fetch.bind(window), location: window.location, dial: wsconnect, authenticate: jwtAuthenticator, resolveWsUrl })
-  const connections = createConnectionRegistry({ connect: async ({ profile }) => {
-    if (profile !== CREDENTIAL_PROFILE.SHELL_PLATFORM) throw new Error('profile-unavailable')
-    return createShellConnection({ connect: dial })
-  } })
-  const connection = await connections.acquire(CREDENTIAL_PROFILE.SHELL_PLATFORM)
+  /* One profile, because one credential can be minted today. A migrating app
+     adds its own entry here when its credential arrives; the registry rejects
+     a profile nobody declared, so there is no second guard to keep in step. */
+  const connections = createConnectionRegistry({
+    profiles: { [SHELL_PLATFORM]: {} },
+    connect: async () => createShellConnection({ connect: dial }),
+  })
+  const connection = await connections.acquire(SHELL_PLATFORM)
   const session = createRegistrySession({
     connection,
     client: createRegistryTransport({ request: connection.request }),

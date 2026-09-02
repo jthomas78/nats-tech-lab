@@ -96,6 +96,15 @@ connection objects, and requesting the same profile twice yields one. Assert
 also that deactivating a plugin closes the connections it opened — a
 teardown contract, not a leak.
 
+**Which profiles exist is the host's to declare, since 2026-09-02.** The rule
+is the keying, not the list: `createConnectionRegistry` is told the profiles
+that exist and which are tenant-scoped, and refuses any other. The list used to
+be frozen in the module while exactly one member of it could be dialled, so the
+host had to reject the other four a second time at connect, and every spec
+above proved the rule against profiles nothing could reach. A profile arrives
+when the credential behind it does. The migration map itself lives in
+`ARCHITECTURE-APP-SHELL.md`.
+
 ---
 
 ## Integration surface

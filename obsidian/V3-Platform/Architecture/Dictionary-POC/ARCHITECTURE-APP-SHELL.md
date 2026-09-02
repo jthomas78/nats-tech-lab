@@ -1119,7 +1119,7 @@ places the as-built shape differs from the design above.
 | `loader/pluginLoader.js` | The adapter seam, the two pre-adapter guards, activate-once, and the built-in adapter |
 | `routing/shellRoutes.js` | Route contributions → vue-router records, resolved through the loader |
 | `state/pluginStores.js` | `{plugin-id}/{store-id}` Pinia namespacing |
-| `connections/connectionRegistry.js` | The four credential profiles, keyed and never merged |
+| `connections/connectionRegistry.js` | Credential profiles, keyed and never merged. The host declares which exist (today: `shell-platform` alone); the module owns the keying rule, not the list |
 | `bootShell.js` | The single place they meet: discovery → validation → status records → indexing |
 
 Outside the frame: `src/plugins/demo-catalog/` (the catalog as a plugin), `src/App.vue` (the frame
@@ -1210,6 +1210,18 @@ ephemeral-session mint/registry path: name `lab-shell`, publish only the shell r
 plus `_INBOX.>`, subscribe only the registry notify plus `_INBOX.>`. Federated code
 shares the shell's realm and therefore its credential; no operator grant is present.
 The Vite proxy exposes only the exact shell mint route, never all `/api/auth`.
+
+The migration map, for when each credential arrives (2026-09-02 — the shell
+declares only `shell-platform` today, and `createConnectionRegistry` refuses a
+profile the host did not declare):
+
+| Profile id | Account | Tenant-scoped | Holder |
+| --- | --- | --- | --- |
+| `shell-platform` | PLATFORM | no | the shell itself — registry read and notify only |
+| `admin-platform` | PLATFORM | no | Admin UI, cross-account diagnostics |
+| `operator-refdata-platform` | PLATFORM | no | Tech Lab Operator's refdata-admin token — reference data is platform-scoped and its context lives in the subject |
+| `operator-tenant` | tenant | yes | Tech Lab Operator inside one tenant, for Organizations |
+| `seafreight-tenant` | tenant | yes | SeaFreight, inside one tenant |
 
 Admin keeps its existing PLATFORM connection and gains four explicit subjects:
 `api._platform.registry.entries.{curated,upsert,set-enabled}.v1` and
