@@ -507,8 +507,8 @@ when it is announced. Per-plugin totals are unchanged — one NATS connection, o
 ### Phase 15 — PROPOSED (design gate OPEN, opened 2026-09-02) — Frontend health over NATS, and a catalogue-reset notice
 
 **Status: PROPOSED. No tasks, no tests, no code until the design decisions below are approved.**
-Direction agreed 2026-09-02 ("let's move health to NATS"); the decisions themselves are not yet
-approved. Both halves land in one phase by the user's call on 2026-09-02: they make a plugin
+Direction agreed 2026-09-02 ("let's move health to NATS"). Decisions 11-13 closed the three open
+questions on 2026-09-02; decisions 1-10 are still awaiting approval, so the gate is still OPEN. Both halves land in one phase by the user's call on 2026-09-02: they make a plugin
 *subscribe* to something for the first time, and that widening is one decision, not two.
 
 #### The two problems this phase closes
@@ -604,16 +604,37 @@ are the deleted chore and the point below about same-origin.
   publishers re-announce on their own initiative within a carried, jittered window; the notice is
   not durable and needs not to be; and silence is never withdrawal.
 
-#### Open before the gate closes
+#### Resolved before the gate closes (2026-09-02)
 
-- **Nested deadlines.** The outer NATS request deadline and the inner local-GET deadline. The inner
-  must expire first, or a slow listener returns a NATS timeout that looks like a dead process.
-- **Does the health worker still need its own worker?** BR-AS61's current shape runs probes on a
-  separate worker joined per pass, so a slow probe never delays a catalogue read. Request/reply over
-  NATS may or may not keep that shape.
-- **Whether the reset notice should also fire on a registry *restart***, or only on an actual
-  catalogue reset. Firing on every restart is simpler and self-healing; it also means a rolling
-  restart triggers a full re-announce storm, which decision 7's jitter would have to absorb.
+11. **Nested deadlines: the inner one always expires first, and the gap is a rule, not a habit.**
+    `HealthProbeTimeout` is 2s today and becomes the *outer* NATS request deadline unchanged. The
+    inner local `GET http://127.0.0.1:<port>/healthz` gets **1s**, half the outer. The ordering is
+    what makes the reply meaningful: if the inner expires first the publisher answers, on time, that
+    its own listener is slow — a real observation with a cause. If the outer expired first the
+    registry would see a NATS timeout and could not tell a slow listener from a dead process, a
+    missing subscription, or a broken bus. So the two constants are not independently tunable, and
+    the phase adds a spec asserting `inner < outer` rather than two loose numbers that can drift
+    apart in a later edit. `HealthFreshness` (15s) and `HealthFailureThreshold` (2) are untouched —
+    they are about interpreting answers, not obtaining them.
+
+12. **The health worker stays.** BR-AS61 runs probes on a separate worker joined per pass, so one
+    slow plugin never delays a catalogue read, and that property survives the transport swap
+    unchanged. NATS request/reply is asynchronous and carries its own deadline, so the worker looks
+    redundant — but "a slow probe must not delay a read" is a property this codebase decided was
+    worth owning in a spec, and moving it into the transport's behaviour makes it something no test
+    of ours asserts any more. The existing worker specs stay meaningful, and the diff stays a
+    transport swap instead of a transport swap plus a concurrency change.
+
+13. **The reset notice fires only on an actual catalogue reset, never on a plain restart.** Firing
+    on every restart is simpler and self-healing by construction — the registry never has to know
+    *why* it is empty. It is rejected on cost at the scale this is designed for: a rolling restart
+    would set off a full re-announce storm, and at 500 plugins that is 500 signature verifies and
+    500 Postgres writes that decision 7's jitter window can only spread out, not avoid. The cost
+    accepted in exchange, stated plainly: the registry must now tell "I restarted" apart from "I
+    lost my catalogue", and **if that check is ever wrong the hole this phase exists to close
+    reopens silently.** That makes the reset predicate itself a rule with a spec, not an
+    implementation detail — and decision 10's convergence question is the safety net, because a
+    re-announce of identical content should cost zero writes whether or not the notice was correct.
 
 ---
 
