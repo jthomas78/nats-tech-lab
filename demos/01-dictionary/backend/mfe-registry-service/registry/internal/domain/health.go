@@ -39,8 +39,12 @@ const (
 
 // The state vocabulary. Six values, and the last three exist because "we did
 // not check" must never be spelled the same way as "we checked and it is
-// fine" — the whole point of BR-AS61 is that no mapping means not checked,
-// never healthy.
+// fine".
+//
+// HealthNotConfigured is BACKEND-ONLY since Phase 15. On the frontend plane
+// there is nothing left to configure — a plugin reports about itself on a
+// subject derived from its own id — so an enabled plugin is either heard from
+// or absent, and never "not configured".
 const (
 	HealthUnknown       = "unknown"
 	HealthHealthy       = "healthy"

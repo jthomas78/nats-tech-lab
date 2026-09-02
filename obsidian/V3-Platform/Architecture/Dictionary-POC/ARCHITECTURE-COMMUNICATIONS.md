@@ -553,6 +553,24 @@ wildcard grant:
 | `api._platform.mfe-registry.entries.set-enabled.v1` | Admin; `{ifRevision, entryId, enabled}`, never creates |
 | `api._platform.mfe-registry.audit.list.v1` | Admin; `{limit}` |
 | `notify._platform.mfe-registry.frontend-plugins.changed` | Shell subscription; committed `{revision}` hint only |
+| `api._platform.mfe-registry.frontend-plugins.health.v1` | `lab-shell`; initial and reconnect read of the health snapshot |
+| `notify._platform.mfe-registry.frontend-plugins.health` | Shell subscription; one full snapshot per pass, never a hint |
+
+Phase 15 (2026-09-02) added two more, and they are the first subjects on which a
+**plugin** rather than the registry is a peer:
+
+| Subject | Credential / purpose |
+| --- | --- |
+| `notify._platform.health.frontend.{pluginID}.v1` | Each plugin publishes **only its own** token, derived from the plugin id in its signed entry; the registry subscribes once on `notify._platform.health.frontend.*.v1` and never publishes. Core NATS, not JetStream — a reading is worthless after the 15s freshness window, so there is nothing to retain. |
+| `notify._platform.mfe-registry.entries.reset` | The catalogue-reset notice (BR-AS73). The registry publishes; announcing plugins subscribe and re-announce after a jitter. `notify.`, never `cmd.` — the registry states a fact about itself and instructs nobody; a plugin that ignores it is simply not re-announced. |
+
+The grants are the exact inverse per side: the registry may subscribe on the
+health wildcard and never publish there; a plugin may publish its own health
+token and never subscribe to another's. `demo-catalog`, which is curated and
+cannot announce, holds the health publish grant and not the reset subscription.
+A reserved census subject, `rpc._platform.health.frontend.census.v1`, is
+granted to plugins ahead of use and nothing sends it today — adding a grant later costs a `bootstrap-operator.sh` edit and a
+`docker compose down -v` reseed.
 
 The shell connects after first paint; every reconnect reads unconditionally.
 Operator refusals keep shared `error`/`conflict` semantics with additive revision

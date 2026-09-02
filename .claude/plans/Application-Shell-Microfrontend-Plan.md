@@ -805,7 +805,7 @@ and are carried into the tasks below. The three that would have broken something
       health becomes stale/absent but stays registered, while a never-heard plugin stays unknown; a plugin
       that ignores a reset notice is simply not re-announced (decision 9). Neither path may reach unregister.
       BR-AS54 unchanged.
-- [ ] **15g — docs.** `ARCHITECTURE-APP-SHELL.md` gains the as-built section and loses the claims
+- [x] **15g — docs.** *(Done 2026-09-02.)* `ARCHITECTURE-APP-SHELL.md` gains the as-built section and loses the claims
       this phase invalidates; `ARCHITECTURE-COMMUNICATIONS.md` gains the two new subjects. The Phase
       14 topology drawing's "after" panel now shows a plugin on two Docker networks and must be
       re-drawn to one, or explicitly dated as Phase 14's state.
@@ -814,6 +814,20 @@ and are carried into the tasks below. The three that would have broken something
       "proposed". 15g brings it to as-built the way Phase 14's was — re-stamp the eyebrow, and fix
       any label the implementation moved. The Phase 14 drawing is left alone; it is dated as Phase
       14's state and the new one carries the change.
+      **Done.** `ARCHITECTURE-APP-SHELL.md` § "Independent health observations": the paragraph
+      describing the registry dialling `GET /healthz` through BR-AS45's origin map is withdrawn, the
+      cadence paragraph now says the frontend clock is the plugin's, `not configured` is marked
+      backend-plane-only, and a new "As built, Phase 15" block covers the subject derived from the
+      signed entry, the lost `frontend` network membership, curated publishers reporting, the two
+      subjects a plugin now subscribes to, and `unavailable`/`unreachable` vs `stale`/`absent`.
+      `ARCHITECTURE-COMMUNICATIONS.md` gains the two Phase 15 subjects *and* the two health subjects
+      from Phase 5 that were never listed, with the inverse-grant note and the reserved census
+      subject named. `diagrams/mfe-health-over-nats.html` re-stamped "as built", proposal disclaimer
+      replaced by the 15h live result; one label the implementation moved is fixed — the drawing
+      said `unhealthy` where the shipped vocabulary reports `unavailable` with cause `unreachable`.
+      Layout audit clean, PNG re-exported. Phase 14 drawing untouched, as planned. Also picked up:
+      the stale "no mapping means not checked" clause in `registry/internal/domain/health.go`,
+      which 15a was supposed to drop.
 - [x] **15h — the gate.** *(Done 2026-09-02. Green against the running lab, 11 steps.)*
       `cmd/registry-acceptance` green against the running lab. It asserts health
       today, so unlike Phase 14 this phase should expect to touch it — and any edit is recorded in

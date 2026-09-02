@@ -352,23 +352,33 @@ an owner must not withdraw its contributors or affect unrelated host-owned slots
 
 ### Independent health observations
 
-The registry centrally probes frontend `GET /healthz` and configured backend NATS readiness
-subjects, then broadcasts one read-only, timestamped snapshot after every completed probe pass.
-Frontend HTTP reuses BR-AS45's explicit
-allowlisted browser-origin → service-origin mapping: no redirects, arbitrary URLs, ambient proxy or
-fallback to browser addresses. Frontend services need the dedicated small-response endpoint; a healthy
-endpoint does not prove a browser can load JavaScript assets. Phase 8c manifest drift remains separate
-and preload-only; health covers both lifecycle classes regardless of source.
+The registry observes frontend health and configured backend NATS readiness subjects, then
+broadcasts one read-only, timestamped snapshot. **Since Phase 15 the frontend half is pushed, not
+polled:** the registry makes no outbound health request at all, and the paragraph that used to
+describe it dialling `GET /healthz` through BR-AS45's browser-origin → service-origin mapping is
+withdrawn along with `REGISTRY_HEALTH_ORIGINS` and `registry/internal/healthhttp/`. What survives
+the reversal is the reason the probe was HTTP in the first place: the request is still a real
+`GET /healthz`, it is simply issued by the plugin against its own loopback listener, because a
+report that cost no request would attest only that the publisher is running. A healthy endpoint
+still does not prove a browser can load JavaScript assets. Phase 8c manifest drift remains separate
+and preload-only, and is now the registry's **only** outbound HTTP capability; health covers both
+lifecycle classes regardless of source.
 
 Deployment configuration maps plugin IDs to backend service IDs, never manifest-supplied targets.
-Absent mapping means not configured; an explicit empty list means frontend-only/not applicable. Keep
+Absent mapping means not configured; an explicit empty list means frontend-only/not applicable.
+**Both of those are backend-plane states only.** Nothing is configured on the frontend plane any
+more, so `not configured` is unreachable there: every enabled plugin either reports about itself or
+is `absent`. Keep
 individual dependency results; any unavailable makes the backend summary unavailable, otherwise any
 unknown/stale makes it unknown/stale, and all healthy makes it healthy. Presence alone is insufficient.
 Subject builders/grants must keep probe RPC away from browser credentials and avoid broad registry
 or `$SYS` permissions.
 
 Each target is checked every **5 seconds**, times out after **2 seconds**, becomes unavailable after
-**2 consecutive failures** and recovers after **1 success**. Counters are independent. Start unknown,
+**2 consecutive failures** and recovers after **1 success**. Since Phase 15 the frontend cadence is
+the **plugin's own clock**, not the registry's: the same 5s interval and 2-failure threshold, run
+inside the announcer, with the self-check deadline strictly *inside* the heartbeat so two checks are
+never in flight. Counters are independent. Start unknown,
 and show unknown/stale after **15 seconds** without a fresh observation, with the last-check time.
 Old or duplicate snapshots cannot refresh it. An initial read, a read on every connection epoch and a
 slow jittered reconciliation read close Core NATS delivery gaps; bounded workers run off request paths
@@ -408,6 +418,39 @@ and the health dot is `v-else-if`, because two marks in one corner of the eye co
 inform. The registry owns declared plugin frontend/backend readiness; a browser's own NATS
 connection remains local shell state and general broker connection telemetry remains observability's
 responsibility.
+
+**As built, Phase 15 (2026-09-02) — the frontend plane reversed.** A plugin publishes its own health
+on `notify._platform.health.frontend.{pluginID}.v1`, a subject derived from the plugin id already
+inside its signed entry, so nothing has to be told how to reach it and there is no map to maintain.
+The registry subscribes once on `notify._platform.health.frontend.*.v1` and does no work at rest.
+Core NATS, not JetStream: a health reading is worth nothing after 15 seconds, so there is nothing to
+retain.
+
+Three consequences are worth stating because each removed something:
+
+- **A plugin container no longer joins the `frontend` Docker network.** The probe was the only
+  reason it did; the browser has always arrived on the published host port, from outside Docker.
+- **`not configured` is gone from the frontend plane.** It survives only on the backend plane of
+  BR-AS62. Curated entries report too — `demo-catalog` holds a `HEALTH_ONLY` credential granted its
+  own health token and nothing else: no announce, no unregister. Curation is a property of how an
+  entry reached the catalogue, not of whether it can say it is alive.
+- **A plugin subscribes for the first time.** Two subjects: the catalogue-reset notice
+  (`notify._platform.mfe-registry.entries.reset`, BR-AS73) and a reserved census subject that is
+  granted ahead of use and that nothing sends today — adding a grant later costs a
+  `bootstrap-operator.sh` edit and a `docker compose down -v` reseed, so it was cheaper to grant it
+  now than to need it later.
+
+Silence and failure stay different things. A plugin that says it is broken is `unavailable` with a
+cause it reported (`unreachable`, `timeout`, `http-status`, `invalid-response`); a plugin the
+registry has simply not heard from inside the 15s freshness window is `stale` with cause `absent`,
+which is registry-attached and can never be sent by a plugin. Neither ever withdraws an entry
+(BR-AS54) — the acceptance gate SIGKILLs a live publisher and asserts the entry is still registered,
+spent no release, and stays enabled.
+
+Heartbeat (5s) and freshness (15s) are one pair, raised together or neither. The cost of the
+reversal is a shared fate that did not exist before: a plugin serving browsers perfectly but with a
+dropped bus connection now reads as broken, where the two used to be independent. BR-AS60 keeps that
+from being destructive — health still never removes, reorders, disables or reloads content.
 
 Readiness lives in `shared/natsready`, mounted today by `refdata-service` against `db.PingContext`:
 every ask runs the real check with a 2-second deadline and nothing is cached, because a service
@@ -552,22 +595,20 @@ is the shipped topology rather than the proposal — the credential rename and t
 > Re-run `node diagrams/audit-svg-layout.mjs diagrams/mfe-announcer-topology.html`
 > after any edit to the SVG.
 
-#### Phase 15 (proposed) — how the registry learns a plugin is alive
+#### Phase 15 (as built) — how the registry learns a plugin is alive
 
-Phase 14 left one thing behind. The only reason a plugin container still joins
-the `frontend` Docker network is that the registry dials it there with
-`GET /healthz` (BR-AS61), and that probe needs `REGISTRY_HEALTH_ORIGINS`, a
-hand-written map with one entry per plugin. *(That paragraph describes the
-pre-15 state; tasks 15b and 15c shipped the reversal on 2026-09-02.)* Phase 15
-reverses the direction: the
+Phase 14 left one thing behind. The only reason a plugin container still joined
+the `frontend` Docker network was that the registry dialled it there with
+`GET /healthz` (BR-AS61), and that probe needed `REGISTRY_HEALTH_ORIGINS`, a
+hand-written map with one entry per plugin. Phase 15 reversed the direction: the
 plugin checks itself and publishes the result, and the registry only listens —
-which deletes both the map and the network membership. The same phase adds a
+which deleted both the map and the network membership. The same phase added a
 catalogue-reset notice (BR-AS73), drawn alongside because it is the reason a
-plugin must now subscribe to anything at all.
+plugin subscribes to anything at all.
 
-**This drawing is the proposal, not the shipped topology.** It is brought to
-as-built at task 15g, the way the Phase 14 drawing above was. The design review
-behind it is `.claude/plans/reviews/adr-phase15-health-over-nats-20260902.md`.
+**This drawing is as built** (re-stamped at task 15g, the way the Phase 14
+drawing above was), and was verified live at task 15h. The design review behind
+it is `.claude/plans/reviews/adr-phase15-health-over-nats-20260902.md`.
 
 ![Before and after of frontend health for an MFE plugin. Before, as built in Phase 14, the plugin container straddles the frontend and backend Docker networks and the registry reaches around over frontend to issue GET :80/healthz directly against the plugin's static host, using a hand-written REGISTRY_HEALTH_ORIGINS map; the plugin's announcer publishes on two subjects and holds no subscribe grant. After, under Phase 15, the plugin joins only the backend network, the announcer performs a loopback GET against 127.0.0.1 on its own clock and publishes the result onto NATS on every change and on a five second heartbeat, and the registry only subscribes; a second dashed edge carries the catalogue reset notice back into the same announcer.](images/mfe-health-over-nats.png)
 
@@ -590,7 +631,7 @@ nothing but a plugin id and a manifest file:
 | Link | Held before Phase 14 | Protocol | Direction | Count per plugin |
 | --- | --- | --- | --- | --- |
 | Asset serving | `lb-example-plugin` (nginx, `frontend` only) | HTTP `:80`, published as 7111 | browser dials in | 1 listener, 0 NATS |
-| Health probe | the same nginx listener | HTTP `GET /healthz` | registry dials in (BR-AS61) | shares the listener above |
+| Health probe *(pre-Phase 15)* | the same nginx listener | HTTP `GET /healthz` | registry dialled in (BR-AS61) | shares the listener above |
 | Announcement | `lb-example-plugin-announcer` (`backend` only) | NATS request/reply | the plugin dials out | 1 NATS connection |
 
 Phase 14 changed **who holds them, not how many there are**. After the merge a
