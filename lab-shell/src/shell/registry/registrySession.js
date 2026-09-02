@@ -1,25 +1,28 @@
 import { watch } from 'vue'
 import { createChangeSubscription } from './changeSubscription.js'
 
-// Lifecycle orchestration only. All installation still goes through the
-// caller's applyRegistry path, and conditional state lives in shell.registry.
+/*
+  Lifecycle only (BR-AS30). This starts a connection after paint, establishes
+  the session on every epoch, and takes it all down again — it does not decide
+  when to read, order reads against each other, or hold anything back for
+  later. All of that is the subscription's, in one machine (see
+  changeSubscription.js); this file used to keep a second copy of half of it.
+
+  What stays here is the one thing the subscription cannot know: what a read
+  IS — which conditional token to send, and where the result goes.
+*/
 export function createRegistrySession({ connection, client, shell, onResult, afterPaint }) {
   let disposed = false
   let booted = false
-  let listening = false
-  let reconnectsDuringBoot = 0
   let unwatch = null
-  let queue = Promise.resolve()
 
-  const read = ({ unconditional = false, reason }) => {
-    queue = queue.then(async () => {
-      if (disposed) return null
-      const result = await client.fetchRegistry({ heldRevision: unconditional ? null : shell.registry.heldRevision })
-      if (!disposed) onResult({ ...result, reason })
-      return result
-    })
-    return queue
+  const read = async ({ unconditional = false, reason }) => {
+    if (disposed) return null
+    const result = await client.fetchRegistry({ heldRevision: unconditional ? null : shell.registry.heldRevision })
+    if (!disposed) onResult({ ...result, reason })
+    return result
   }
+
   const subscription = createChangeSubscription({
     subscribe: connection.subscribe,
     read,
@@ -27,22 +30,20 @@ export function createRegistrySession({ connection, client, shell, onResult, aft
   })
 
   const establish = async () => {
+    /* Every epoch after the first is a re-established link, and the
+       subscription holds it whether or not the first one has finished. */
     if (booted) {
-      if (listening) void subscription.onReconnect()
-      else reconnectsDuringBoot++
+      void subscription.onReconnect()
       return
     }
     booted = true
-    await read({ unconditional: true, reason: 'boot' })
+    await subscription.refresh({ unconditional: true, reason: 'boot' })
     if (disposed) return
     subscription.start()
-    listening = true
     await connection.flush()
     // Close the read→subscribe gap. Core NATS cannot replay a write made
     // between the boot snapshot and subscription registration.
-    await read({ reason: 'subscribed' })
-    while (reconnectsDuringBoot-- > 0) void subscription.onReconnect()
-    reconnectsDuringBoot = 0
+    await subscription.refresh({ reason: 'subscribed' })
   }
 
   return {

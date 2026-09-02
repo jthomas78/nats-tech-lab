@@ -740,6 +740,18 @@ answers are in `.claude/plans/Application-Shell-Microfrontend-Plan.md`.
   detection and no redelivery, so without this rule a shell offline for one
   minute is stale forever — strictly worse than the poll it replaces, which at
   least self-healed.
+
+  **One machine decides when to read, since 2026-09-02.** Ordering and
+  coalescing — at most one read at a time, and what a hint or a reconnect that
+  lands during one is worth — belong to `changeSubscription.js`, including the
+  boot read and the read that closes the snapshot/subscription gap.
+  `registrySession.js` starts and stops it and says what a read *is* (which
+  token to send, where the result goes) and nothing more. The two used to hold
+  half a machine each, and each half was blind to the other's: the session
+  queued reads the subscription did not know were outstanding, and kept its own
+  reconnect counter because `onReconnect` would not hold one before `start`.
+  Behaviour is unchanged; `changeSubscription.spec.js` now also pins a
+  reconnect during boot and a hint landing behind a queue of reads.
 - **BR-AS30 — First paint precedes the connection.** The shell renders its
   native Home and Plugins frame before it connects, mints a credential or reads. A shell
   that cannot connect, cannot mint, or is answered with a degraded document still
@@ -765,7 +777,7 @@ answers are in `.claude/plans/Application-Shell-Microfrontend-Plan.md`.
 | --- | --- |
 | BR-AS27 — read capability only | `auth/token_test.go` § `MintShellToken` — an exact `ConsistOf` over `Pub.Allow` and `Sub.Allow`, the same idiom that already forces `MintAdminToken`'s set to be a deliberate list. An exact match rather than a "does not contain a write subject" assertion, because the failure to catch is a subject added later that nobody thought about |
 | BR-AS28 — hint, never payload | `changeSubscription.spec.js` and `changeSubscription.concurrent.spec.js` — bodies are never installed, matching/older revisions read nothing, bursts coalesce without losing a later revision; `registry/transport_integration_test.go` proves the committed `{revision}` hint over real NATS and Postgres |
-| BR-AS29 — reconnect re-reads | `changeSubscription.spec.js` — a reconnect performs an **unconditional** read (no held revision in the payload) and converges on a revision published while the shell was disconnected |
+| BR-AS29 — reconnect re-reads | `changeSubscription.spec.js` — a reconnect performs an **unconditional** read (no held revision in the payload) and converges on a revision published while the shell was disconnected; also pins one read at a time, a reconnect held from before `start`, and a hint held behind a queue |
 | BR-AS30 — first paint precedes connect | `afterPaint.spec.js` pins the two-frame gate, the 1 s no-frame fallback and the single settle; `registrySession.spec.js` mounts native navigation before paint permits connect, covers refused connect and reactive late read errors; `shellConnection.spec.js` and `shellConnection.lifecycle.spec.js` cover socket lifecycle; `ShellFooter.spec.js` pins the 5000 ms notice and immediate recovery |
 | BR-AS31 — writes are operator-scoped | `auth/token_test.go` exact grants; `shell_permissions_test.go` compares the registered subject surface with both profiles; `registry/internal/browserrpc/{adapter,wire}_test.go` pins accepted/stale/missing/origin-refused payloads, including explicit zero; Admin `registryApi.spec.js`, `RegistryNatsPanels.spec.js`, and `connectionFactory.spec.js` cover callers and structured refusals |
 

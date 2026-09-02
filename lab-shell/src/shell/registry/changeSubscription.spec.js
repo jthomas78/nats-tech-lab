@@ -197,3 +197,77 @@ describe('BR-AS29 — a reconnect re-reads unconditionally', () => {
     expect(read.mock.calls[1][0].unconditional).toBe(true)
   })
 })
+
+describe('one machine — the subscription owns every read the shell makes', () => {
+  /* The session used to serialise reads itself and keep a second reconnect
+     counter, because `onReconnect` refused to hold one before `start`. Both
+     jobs live here now, and these are the cases that split them apart. */
+  const deferred = () => {
+    let settle
+    const promise = new Promise((resolve) => { settle = resolve })
+    return { promise, settle }
+  }
+
+  it('holds a reconnect that lands before the subscription is even started', async () => {
+    const boot = deferred()
+    const read = vi.fn().mockReturnValueOnce(boot.promise).mockResolvedValue({ ok: true })
+    const { sub } = harness({ read })
+
+    /* The boot read, then a link re-established while it is still running —
+       the shell is not listening yet, so nothing can be delivered to it, and
+       the reconnect must not simply be dropped. */
+    void sub.refresh({ unconditional: true, reason: 'boot' })
+    sub.onReconnect()
+    await flush()
+    expect(read).toHaveBeenCalledTimes(1)
+
+    boot.settle({ ok: true, revision: 12 })
+    await flush()
+
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(read).toHaveBeenLastCalledWith({ unconditional: true, reason: 'reconnect' })
+  })
+
+  it('runs one read at a time, so an older document cannot install over a newer one', async () => {
+    const first = deferred()
+    const read = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue({ ok: true })
+    const { sub } = harness({ read })
+
+    void sub.refresh({ unconditional: true, reason: 'boot' })
+    void sub.refresh({ reason: 'subscribed' })
+    await flush()
+    expect(read).toHaveBeenCalledTimes(1)
+
+    first.settle({ ok: true, revision: 12 })
+    await flush()
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+
+  it('holds a hint that lands behind a queue of reads, not just behind one', async () => {
+    const first = deferred()
+    const read = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue({ ok: true, unchanged: true })
+    const { sub, deliver } = harness({ held: 12, read })
+    sub.start()
+
+    void sub.refresh({ unconditional: true, reason: 'boot' })
+    void sub.refresh({ reason: 'subscribed' })
+    deliver({ revision: 13 })
+
+    first.settle({ ok: true, revision: 12 })
+    await flush()
+    await flush()
+
+    expect(read.mock.calls.map((c) => c[0].reason)).toEqual(['boot', 'subscribed', 'notify'])
+  })
+
+  it('reads nothing once stopped, whoever asks', async () => {
+    const { sub, read } = harness()
+    sub.start()
+    sub.stop()
+
+    await sub.refresh({ reason: 'boot' })
+    await sub.onReconnect()
+
+    expect(read).not.toHaveBeenCalled()
+  })
+})
