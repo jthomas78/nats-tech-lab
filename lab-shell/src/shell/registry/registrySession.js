@@ -14,7 +14,7 @@ export function createRegistrySession({ connection, client, shell, onResult, aft
   const read = ({ unconditional = false, reason }) => {
     queue = queue.then(async () => {
       if (disposed) return null
-      const result = await client.fetchRegistry({ etag: unconditional ? null : shell.registry.etag })
+      const result = await client.fetchRegistry({ heldRevision: unconditional ? null : shell.registry.heldRevision })
       if (!disposed) onResult({ ...result, reason })
       return result
     })
@@ -23,7 +23,7 @@ export function createRegistrySession({ connection, client, shell, onResult, aft
   const subscription = createChangeSubscription({
     subscribe: connection.subscribe,
     read,
-    currentRevision: () => shell.registry.etag ? shell.registry.revision : null,
+    currentRevision: () => shell.registry.heldRevision !== null ? shell.registry.revision : null,
   })
 
   const establish = async () => {

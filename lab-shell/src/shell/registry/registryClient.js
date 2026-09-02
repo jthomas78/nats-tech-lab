@@ -1,7 +1,8 @@
 /*
   Historical HTTP client retained for the Phase 2 characterization tests.
   Phase 4's host uses registryTransport exclusively; the HTTP endpoint is gone
-  and this is NOT a fallback. RemoteAllowlist below still gates the loader.
+  and this is NOT a fallback. The loader's curation gate moved out to
+  remoteAllowlist.js — it belongs to no single transport.
 
   Curation is the whole point of this module. A domain service must not be able
   to advertise its own frontend and have the browser run it; the only URLs the
@@ -128,27 +129,5 @@ export function createRegistryClient({
         fetchedAt: new Date().toISOString(),
       }
     },
-  }
-}
-
-/**
- * The set of remote entry URLs the operator curated. Built from validated
- * manifests only — a manifest rejected on metadata contributes no URL, so an
- * incompatible plugin cannot smuggle one in.
- */
-export class RemoteAllowlist {
-  #urls = new Set()
-
-  add(plugin) {
-    if (plugin?.remote?.kind === 'federated') this.#urls.add(plugin.remote.url)
-    return this
-  }
-
-  allows(url) {
-    return this.#urls.has(url)
-  }
-
-  get size() {
-    return this.#urls.size
   }
 }

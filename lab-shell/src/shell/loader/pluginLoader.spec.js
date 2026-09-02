@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { validateManifest } from '../registry/manifestSchema.js'
 import { PLUGIN_STATUS, PluginStatusRecord } from '../registry/pluginStatus.js'
-import { RemoteAllowlist } from '../registry/registryClient.js'
+import { RemoteAllowlist } from '../registry/remoteAllowlist.js'
 import { REGISTRY_SCHEMA_VERSION, SHELL_API_VERSION } from '../versions.js'
 import { createPluginLoader } from './pluginLoader.js'
 

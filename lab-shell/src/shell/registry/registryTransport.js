@@ -5,9 +5,13 @@ export const SHELL_READ_SUBJECT = 'api._platform.registry.frontend-plugins.read.
 
 export function createRegistryTransport({ request, now = () => new Date().toISOString() }) {
   return {
-    async fetchRegistry({ etag = null } = {}) {
-      const held = typeof etag === 'string' && /^"\d+"$/.test(etag) ? Number(etag.slice(1, -1)) : null
-      const heldRevision = Number.isSafeInteger(held) ? held : null
+    /* The conditional read is a revision, and only ever was. It travelled as
+       a quoted ETag string while the catalogue came over HTTP; over a subject
+       there is no header to shape, so the costume was removed (decision 27).
+       The shell holds the number it was last served and asks for anything
+       newer. */
+    async fetchRegistry({ heldRevision: held = null } = {}) {
+      const heldRevision = Number.isSafeInteger(held) && held >= 0 ? held : null
       let reply
       try {
         reply = await request(SHELL_READ_SUBJECT, { heldRevision })
@@ -19,7 +23,7 @@ export function createRegistryTransport({ request, now = () => new Date().toISOS
       if (!reply || reply.ok !== true || !Number.isSafeInteger(reply.revision) || reply.revision < 0) return malformed
       if (reply.unchanged === true) {
         if (reply.degraded || heldRevision === null || reply.revision !== heldRevision) return malformed
-        return { ok: true, unchanged: true, etag, revision: reply.revision, degraded: false, fetchedAt: now() }
+        return { ok: true, unchanged: true, heldRevision, revision: reply.revision, degraded: false, fetchedAt: now() }
       }
       const validated = validateRegistryDocument({
         schemaVersion: reply.schemaVersion ?? REGISTRY_SCHEMA_VERSION,
@@ -36,7 +40,7 @@ export function createRegistryTransport({ request, now = () => new Date().toISOS
         revision: reply.revision,
         plugins: validated.plugins,
         degraded: validated.degraded,
-        etag: validated.degraded ? null : `"${reply.revision}"`,
+        heldRevision: validated.degraded ? null : reply.revision,
         fetchedAt: now(),
       }
     },

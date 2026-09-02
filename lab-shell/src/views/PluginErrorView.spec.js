@@ -34,7 +34,7 @@ const mountView = (loader = { load: vi.fn().mockRejectedValue(new Error(REASON))
           statuses: new Map([
             [meta.pluginId, { reasonCode: 'chunk-load-failed', reason: REASON }],
           ]),
-          plugins: new Map([[meta.pluginId, manifest]]),
+          manifestFor: (id) => (id === meta.pluginId ? manifest : null),
           loader,
         },
       },

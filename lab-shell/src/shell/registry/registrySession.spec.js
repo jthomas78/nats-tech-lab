@@ -18,7 +18,7 @@ async function fixture({ connect = async () => ({ close() {} }), afterPaint = as
   let deliver
   connection.subscribe = vi.fn((_subject, handler) => { deliver = handler; return { unsubscribe: vi.fn() } })
   connection.flush = vi.fn(async () => {})
-  const transport = client ?? { fetchRegistry: vi.fn(async () => ({ ok: true, revision: 12, etag: '"12"', plugins: [] })) }
+  const transport = client ?? { fetchRegistry: vi.fn(async () => ({ ok: true, revision: 12, heldRevision: 12, plugins: [] })) }
   const onResult = vi.fn(shell.applyRegistry)
   const session = createRegistrySession({ connection, client: transport, shell, afterPaint, onResult })
   cleanup.push(() => session.stop())
@@ -67,7 +67,7 @@ describe('BR-AS28/29 — session convergence', () => {
     const f = await fixture()
     await f.session.start()
     await flushPromises()
-    expect(f.client.fetchRegistry.mock.calls.map(([opts]) => opts.etag)).toEqual([null, '"12"'])
+    expect(f.client.fetchRegistry.mock.calls.map(([opts]) => opts.heldRevision)).toEqual([null, 12])
     expect(f.client.fetchRegistry.mock.invocationCallOrder[0]).toBeLessThan(f.connection.subscribe.mock.invocationCallOrder[0])
     expect(f.connection.flush).toHaveBeenCalledOnce()
   })
@@ -79,15 +79,15 @@ describe('BR-AS28/29 — session convergence', () => {
     f.client.fetchRegistry.mockResolvedValueOnce({ ok: false, code: 'registry-timeout' })
     f.deliver({ revision: 13 })
     await flushPromises()
-    expect(f.shell.registry.etag).toBe(null)
-    f.client.fetchRegistry.mockResolvedValueOnce({ ok: true, degraded: true, revision: 0, etag: null, plugins: [] })
+    expect(f.shell.registry.heldRevision).toBe(null)
+    f.client.fetchRegistry.mockResolvedValueOnce({ ok: true, degraded: true, revision: 0, heldRevision: null, plugins: [] })
     f.deliver({ revision: 13 })
     await flushPromises()
-    expect(f.client.fetchRegistry).toHaveBeenLastCalledWith({ etag: null })
+    expect(f.client.fetchRegistry).toHaveBeenLastCalledWith({ heldRevision: null })
     expect(f.shell.registry.degraded).toBe(true)
     f.deliver({ revision: 12 })
     await flushPromises()
-    expect(f.client.fetchRegistry).toHaveBeenLastCalledWith({ etag: null })
+    expect(f.client.fetchRegistry).toHaveBeenLastCalledWith({ heldRevision: null })
     expect(f.shell.registry.degraded).toBe(false)
   })
 
@@ -101,9 +101,9 @@ describe('BR-AS28/29 — session convergence', () => {
     await flushPromises()
     f.connection.state.epoch++
     f.connection.state.epoch++
-    read.resolve({ ok: true, revision: 13, etag: '"13"', plugins: [] })
+    read.resolve({ ok: true, revision: 13, heldRevision: 13, plugins: [] })
     await flushPromises()
-    expect(f.client.fetchRegistry.mock.calls.slice(-2).map(([opts]) => opts)).toEqual([{ etag: null }, { etag: null }])
+    expect(f.client.fetchRegistry.mock.calls.slice(-2).map(([opts]) => opts)).toEqual([{ heldRevision: null }, { heldRevision: null }])
   })
 
   it('does not connect after disposal during the first-paint wait', async () => {

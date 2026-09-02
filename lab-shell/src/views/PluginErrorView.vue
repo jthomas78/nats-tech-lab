@@ -22,7 +22,7 @@ const retrying = ref(false)
 const pluginId = computed(() => route.meta?.pluginId ?? '')
 const record = computed(() => shell?.statuses?.get(pluginId.value) ?? null)
 const manifest = computed(() =>
-  shell?.plugins instanceof Map ? (shell.plugins.get(pluginId.value) ?? null) : null,
+  shell?.manifestFor?.(pluginId.value) ?? null,
 )
 const stage = computed(() => failureStage(record.value?.reasonCode ?? null))
 

@@ -88,8 +88,16 @@ export function createHealthTransport({ request }) {
 /**
  * The plane: one read on start, one on every hint, one after a reconnect gap,
  * and an answer for any plugin at any time.
+ *
+ * `onChange` fires once per read that installed new readings. It is how a
+ * hint reaches a screen: without it the plane refreshes on a hint and the
+ * result sits in memory until something else thinks to ask, which made the
+ * host's ageing interval the de facto update cadence and put a hint-driven
+ * change up to that whole interval behind the truth (BR-AS64). It is a
+ * notification, never a payload — the caller reads `snapshot()`, because a
+ * reading ages and a value handed out here would not.
  */
-export function createHealthPlane({ transport, subscribe, now = () => Date.now() }) {
+export function createHealthPlane({ transport, subscribe, onChange = () => {}, now = () => Date.now() }) {
   let subscription = null
   let listening = false
   let inFlight = null
@@ -126,6 +134,11 @@ export function createHealthPlane({ transport, subscribe, now = () => Date.now()
         for (const [id, signals] of Object.entries(result.plugins)) {
           readings.set(id, { ...signals, receivedAt })
         }
+        /* After the readings are installed, so a caller that reads
+           `snapshot()` from here sees this read and not the one before it.
+           Never allowed to break the read: a throwing subscriber is the
+           screen's problem, and health is decoration either way. */
+        try { onChange() } catch { /* a subscriber must not fail a read */ }
         return result
       })
     return inFlight

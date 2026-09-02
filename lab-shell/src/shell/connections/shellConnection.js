@@ -9,6 +9,12 @@ export function createShellConnection({
   // and invoking timers.setTimeout() supplies `timers` as this, which throws.
   timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id) },
   retryDelayMs = 1000,
+  /* How long any request on this connection may take. One number, because
+     every caller here is a browser waiting on a screen: the catalogue read
+     and the health read share the wait and there is no reason for them to
+     disagree about it. Injected so a spec can prove the timeout without
+     spending it. */
+  requestTimeoutMs = 5000,
 }) {
   const state = reactive({ connected: false, epoch: 0, error: null })
   const subscriptions = new Set()
@@ -102,7 +108,7 @@ export function createShellConnection({
     },
     async request(subject, payload) {
       if (!conn || !state.connected) throw new Error('connection-unavailable')
-      const msg = await conn.request(subject, encoder.encode(JSON.stringify(payload)), { timeout: 5000 })
+      const msg = await conn.request(subject, encoder.encode(JSON.stringify(payload)), { timeout: requestTimeoutMs })
       return JSON.parse(decoder.decode(msg.data))
     },
     subscribe(subject, handler) {

@@ -67,7 +67,7 @@ const mountShell = (shell) => mount(Frame, { global: { provide: { [SHELL]: shell
 describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just the registry object', () => {
   it('renders the nav entry of a plugin added to a running shell', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [manifest('fleet-ops')] }),
       permissions,
     })
     const w = mountShell(shell)
@@ -76,7 +76,7 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
     shell.applyRegistry({
       ok: true,
       revision: 8,
-      etag: '"8"',
+      heldRevision: 8,
       plugins: [manifest('fleet-ops'), manifest('billing')],
     })
     await flushPromises()
@@ -88,12 +88,12 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
 
   it('renders the inventory row of a plugin added to a running shell', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [manifest('fleet-ops')] }),
       permissions,
     })
     const w = mountShell(shell)
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [manifest('fleet-ops'), manifest('billing')] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [manifest('fleet-ops'), manifest('billing')] })
     await flushPromises()
 
     expect(w.find('ul').text()).toContain(`billing:${PLUGIN_STATUS.AVAILABLE}`)
@@ -101,7 +101,7 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
 
   it('renders an extension a live-added plugin placed into a shell-owned region', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [] }),
       permissions,
     })
     const w = mountShell(shell)
@@ -110,7 +110,7 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
     shell.applyRegistry({
       ok: true,
       revision: 8,
-      etag: '"8"',
+      heldRevision: 8,
       plugins: [
         manifest('billing', {
           contributions: [
@@ -127,12 +127,12 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
 
   it('renders the reload offer for a change it may not apply', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [manifest('fleet-ops')] }),
       permissions,
     })
     const w = mountShell(shell)
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [] })
     await flushPromises()
 
     expect(w.find('footer').text()).toBe(RELOAD_REASON.REMOVED)
@@ -147,16 +147,16 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
      just read, so a read that no longer produces it must take it back. */
   it('retracts the reload offer when the withdrawn entry comes back unchanged', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [manifest('fleet-ops')] }),
       permissions,
     })
     const w = mountShell(shell)
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [] })
     await flushPromises()
     expect(w.find('footer').text()).toBe(RELOAD_REASON.REMOVED)
 
-    shell.applyRegistry({ ok: true, revision: 9, etag: '"9"', plugins: [manifest('fleet-ops')] })
+    shell.applyRegistry({ ok: true, revision: 9, heldRevision: 9, plugins: [manifest('fleet-ops')] })
     await flushPromises()
 
     expect(w.find('footer').text()).toBe('')
@@ -166,18 +166,18 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
 
   it('replaces the offer rather than clearing it when the entry comes back edited', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [manifest('fleet-ops')] }),
       permissions,
     })
     const w = mountShell(shell)
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [] })
     await flushPromises()
 
     shell.applyRegistry({
       ok: true,
       revision: 9,
-      etag: '"9"',
+      heldRevision: 9,
       plugins: [manifest('fleet-ops', { name: 'Fleet Operations' })],
     })
     await flushPromises()
@@ -190,18 +190,18 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
       registryClient: client({
         ok: true,
         revision: 7,
-        etag: '"7"',
+        heldRevision: 7,
         plugins: [manifest('fleet-ops'), manifest('billing')],
       }),
       permissions,
     })
     const w = mountShell(shell)
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [] })
     await flushPromises()
     expect(w.findAll('footer b')).toHaveLength(2)
 
-    shell.applyRegistry({ ok: true, revision: 9, etag: '"9"', plugins: [manifest('billing')] })
+    shell.applyRegistry({ ok: true, revision: 9, heldRevision: 9, plugins: [manifest('billing')] })
     await flushPromises()
 
     expect(w.findAll('footer b').map((b) => b.text())).toEqual([RELOAD_REASON.REMOVED])
@@ -212,15 +212,15 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
      that anything was taken back (decision 48). */
   it('does not retract an offer on an unchanged or degraded read', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [manifest('fleet-ops')] }),
       permissions,
     })
     const w = mountShell(shell)
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [] })
     await flushPromises()
 
-    shell.applyRegistry({ ok: true, unchanged: true, etag: '"8"' })
+    shell.applyRegistry({ ok: true, unchanged: true, heldRevision: 8 })
     shell.applyRegistry({ ok: true, degraded: true, plugins: [] })
     await flushPromises()
 
@@ -232,7 +232,7 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
     // addition, leaving the shell holding a catalog that existed at no
     // revision at all.
     const shell = await bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [manifest('fleet-ops')] }),
       permissions,
     })
     const w = mountShell(shell)
@@ -240,7 +240,7 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
     shell.applyRegistry({
       ok: true,
       revision: 8,
-      etag: '"8"',
+      heldRevision: 8,
       plugins: [manifest('fleet-ops', { name: 'Fleet Operations' }), manifest('billing')],
     })
     await flushPromises()

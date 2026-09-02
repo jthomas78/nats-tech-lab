@@ -23,13 +23,13 @@
  * @param {object} options
  * @param {{routes: object[]}} options.contributions
  * @param {{load(plugin: object): Promise<object>}} options.loader
- * @param {Map<string, object>} options.plugins by plugin id
+ * @param {(id: string) => object|null} options.manifestFor the admitted manifest for a plugin id
  * @param {any} [options.errorComponent] rendered when the remote will not load
  */
 export function createShellRoutes({
   contributions,
   loader,
-  plugins,
+  manifestFor,
   errorComponent = null,
   /* Which route contributions to build. Boot passes them all; a live addition
      passes only the ones that read placed, because the router already holds
@@ -48,7 +48,7 @@ export function createShellRoutes({
       title: route.title,
       contributionId: route.qualifiedId,
     },
-    component: () => resolveRouteComponent({ route, loader, plugins, errorComponent }),
+    component: () => resolveRouteComponent({ route, loader, manifestFor, errorComponent }),
   }))
 }
 
@@ -68,8 +68,8 @@ export async function installShellRoutes({ router, ...options }) {
  * named. Never rejects: an unresolvable route renders the error component so
  * the shell frame survives (BR-AS04).
  */
-export async function resolveRouteComponent({ route, loader, plugins, errorComponent = null }) {
-  const plugin = plugins.get(route.pluginId)
+export async function resolveRouteComponent({ route, loader, manifestFor, errorComponent = null }) {
+  const plugin = manifestFor(route.pluginId)
   if (!plugin) return errorComponent
 
   /* `loader.load` rejects — it does not return a result object — because the

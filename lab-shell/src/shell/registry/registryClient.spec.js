@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { REGISTRY_SCHEMA_VERSION, SHELL_API_VERSION } from '../versions.js'
 import { validateManifest } from './manifestSchema.js'
-import { createRegistryClient, REGISTRY_ENDPOINT, RemoteAllowlist } from './registryClient.js'
+import { createRegistryClient, REGISTRY_ENDPOINT } from './registryClient.js'
+import { RemoteAllowlist } from './remoteAllowlist.js'
 
 const jsonResponse = (body, status = 200) => ({
   ok: status >= 200 && status < 300,

@@ -53,7 +53,7 @@ const Frame = defineComponent({
 
 const running = async (...ids) => {
   const shell = await bootShell({
-    registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: ids.map((id) => manifest(id)) }),
+    registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: ids.map((id) => manifest(id)) }),
     permissions,
   })
   return { shell, w: mount(Frame, { global: { provide: { [SHELL]: shell } } }) }
@@ -64,7 +64,7 @@ describe('BR-AS56 — a withdrawal takes the plugin off the screen', () => {
     const { shell, w } = await running('fleet-ops')
     expect(w.find('nav').text()).toBe('fleet-ops')
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [withdrawn('fleet-ops')] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [withdrawn('fleet-ops')] })
     await flushPromises()
 
     expect(w.find('nav').text()).toBe('')
@@ -78,7 +78,7 @@ describe('BR-AS56 — a withdrawal takes the plugin off the screen', () => {
     shell.applyRegistry({
       ok: true,
       revision: 8,
-      etag: '"8"',
+      heldRevision: 8,
       plugins: [withdrawn('fleet-ops'), manifest('billing')],
     })
     await flushPromises()
@@ -91,8 +91,8 @@ describe('BR-AS56 — a withdrawal takes the plugin off the screen', () => {
     const { shell, w } = await running('fleet-ops', 'billing')
     const document = { ok: true, revision: 8, plugins: [withdrawn('fleet-ops'), manifest('billing')] }
 
-    shell.applyRegistry({ ...document, etag: '"8"' })
-    shell.applyRegistry({ ...document, revision: 9, etag: '"9"' })
+    shell.applyRegistry({ ...document, heldRevision: 8 })
+    shell.applyRegistry({ ...document, revision: 9, heldRevision: 9 })
     await flushPromises()
 
     expect(w.find('nav').text()).toBe('billing')
@@ -115,7 +115,7 @@ describe('BR-AS56 — a withdrawal takes the plugin off the screen', () => {
   it('does not read a missing entry as a withdrawal', async () => {
     const { shell, w } = await running('fleet-ops')
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [] })
     await flushPromises()
 
     // Absence is not authoritative (BR-AS54): the plugin stays on screen and
@@ -129,8 +129,8 @@ describe('BR-AS59 — an unchanged return puts it back', () => {
   it('restores the nav entry and the status it left', async () => {
     const { shell, w } = await running('fleet-ops')
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [withdrawn('fleet-ops')] })
-    shell.applyRegistry({ ok: true, revision: 9, etag: '"9"', plugins: [manifest('fleet-ops')] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [withdrawn('fleet-ops')] })
+    shell.applyRegistry({ ok: true, revision: 9, heldRevision: 9, plugins: [manifest('fleet-ops')] })
     await flushPromises()
 
     expect(w.find('nav').text()).toBe('fleet-ops')
@@ -141,11 +141,11 @@ describe('BR-AS59 — an unchanged return puts it back', () => {
   it('offers a reload instead when the definition changed while it was away', async () => {
     const { shell, w } = await running('fleet-ops')
 
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [withdrawn('fleet-ops')] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [withdrawn('fleet-ops')] })
     shell.applyRegistry({
       ok: true,
       revision: 9,
-      etag: '"9"',
+      heldRevision: 9,
       plugins: [manifest('fleet-ops', { name: 'Fleet Ops v2' })],
     })
     await flushPromises()

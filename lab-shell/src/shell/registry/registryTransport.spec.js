@@ -2,12 +2,13 @@
   BR-AS27 / decision 58 — the same read, over NATS request/reply.
 
   Phase 4 changes the transport and nothing else. `bootShell.applyRegistry`
-  keeps its contract, so this module's job is to answer in exactly the shape
-  the REST client answered in: `{ok, unchanged, etag, revision, plugins,
-  degraded}` — including the parts that only existed because HTTP had them.
-  Decision 58 says that vocabulary is re-implemented in the payload
-  deliberately: a conditional read is a read that names the revision it
-  holds, and "unchanged" is an answer, not an absence.
+  keeps its contract, so this module answers in one shape: `{ok, unchanged,
+  heldRevision, revision, plugins, degraded}`. Decision 58 says the
+  conditional-read vocabulary is re-implemented in the PAYLOAD deliberately —
+  a conditional read is a read that names the revision it holds, and
+  "unchanged" is an answer, not an absence. So the field is the revision
+  itself, not an HTTP token spelled over a subject that has no headers to
+  shape.
 
   Never throws. Every failure is an `{ok: false, code}` the shell records
   (BR-AS22), because the shell renders its native frame either way.
@@ -39,7 +40,7 @@ describe('BR-AS27 — the shell reads the registry over one subject', () => {
     const request = vi.fn().mockResolvedValue({ ok: true, unchanged: true, revision: 12 })
     const transport = createRegistryTransport({ request })
 
-    const result = await transport.fetchRegistry({ etag: '"12"' })
+    const result = await transport.fetchRegistry({ heldRevision: 12 })
 
     expect(request).toHaveBeenCalledWith(SHELL_READ_SUBJECT, { heldRevision: 12 })
     expect(result.ok).toBe(true)
@@ -47,7 +48,7 @@ describe('BR-AS27 — the shell reads the registry over one subject', () => {
     /* Held, not cleared: the caller's `unchanged` guard returns before it
        touches anything, and losing the token here would make the next read
        unconditional for no reason. */
-    expect(result.etag).toBe('"12"')
+    expect(result.heldRevision).toBe(12)
   })
 
   it('asks unconditionally when it holds nothing', async () => {
@@ -68,7 +69,7 @@ describe('BR-AS27 — the shell reads the registry over one subject', () => {
       entries: [manifest('fleet-ops')],
     })
 
-    const result = await transport.fetchRegistry({ etag: '"12"' })
+    const result = await transport.fetchRegistry({ heldRevision: 12 })
 
     expect(result.ok).toBe(true)
     expect(result.unchanged).toBe(false)
@@ -76,7 +77,7 @@ describe('BR-AS27 — the shell reads the registry over one subject', () => {
     expect(result.plugins.map((p) => p.id)).toEqual(['fleet-ops'])
     /* The revision IS the conditional token — decision 58 keeps the ETag
        spelling so `applyRegistry` and the watcher need no second vocabulary. */
-    expect(result.etag).toBe('"13"')
+    expect(result.heldRevision).toBe(13)
   })
 
   /* BR-AS22, and the half of decision 48 that lives on the read side: a
@@ -86,12 +87,12 @@ describe('BR-AS27 — the shell reads the registry over one subject', () => {
   it('reports a degraded registry as a successful, degraded read carrying no token', async () => {
     const transport = transportWith({ ok: true, unchanged: false, degraded: true, revision: 0, entries: [] })
 
-    const result = await transport.fetchRegistry({ etag: '"12"' })
+    const result = await transport.fetchRegistry({ heldRevision: 12 })
 
     expect(result.ok).toBe(true)
     expect(result.unchanged).toBe(false)
     expect(result.degraded).toBe(true)
-    expect(result.etag).toBe(null)
+    expect(result.heldRevision).toBe(null)
   })
 
   it('reports a timed-out read as a failure the shell records, not a throw', async () => {

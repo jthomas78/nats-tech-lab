@@ -22,7 +22,7 @@ import { declareShellExtensionPoints } from './extensions/extensionPoints.js'
 import { validateManifest } from './registry/manifestSchema.js'
 import { PLUGIN_STATUS, PluginStatusRecord } from './registry/pluginStatus.js'
 import { diffRegistry, RELOAD_REASON } from './registry/registryDiff.js'
-import { RemoteAllowlist } from './registry/registryClient.js'
+import { RemoteAllowlist } from './registry/remoteAllowlist.js'
 
 /**
  * @param {object} options
@@ -44,10 +44,17 @@ export async function bootShell({
   const statuses = reactive(new Map())
   const allowlist = new RemoteAllowlist()
   const plugins = []
+  /* The same admitted manifests, keyed for lookup. Maintained here rather
+     than rebuilt by the host, because a second index built from `plugins`
+     after every read is a second thing that can be stale — and was: the host
+     kept a Map under the same name `plugins`, so a component could not tell
+     from the name whether it held the array or the index (decision 47's
+     mistake, one level up). One collection, two accessors. */
+  const byId = new Map()
   const registryError = ref(null)
   /* Reactive, because these three are on screen (the footer's revision, the
      banner's degraded note) and BR-AS19 lets them move while the shell runs. */
-  const registry = reactive({ revision: null, fetchedAt: null, degraded: false, etag: null })
+  const registry = reactive({ revision: null, fetchedAt: null, degraded: false, heldRevision: null })
   /* Changes the shell may not apply to itself: a withdrawn entry or a moved
      remote (decision 25). Offered here, applied only by a reload — there is
      no transition out of `active`, so tearing a mounted plugin down is not a
@@ -99,6 +106,7 @@ export async function bootShell({
 
     allowlist.add(result.plugin)
     plugins.push(result.plugin)
+    byId.set(result.plugin.id, result.plugin)
   }
 
   const contributions = createContributionRegistry({ extensionPoints, permissions })
@@ -174,7 +182,7 @@ export async function bootShell({
          could not complete leaves it unable to say what the server would
          honour, so the next one asks unconditionally rather than betting the
          recovery on a token from before the outage. */
-      registry.etag = null
+      registry.heldRevision = null
       return { added: [], addedRoutes: [], reloadRequired: [], withdrawn: [], restored: [] }
     }
 
@@ -194,11 +202,12 @@ export async function bootShell({
        said it could not vouch for. */
     if (registry.degraded) {
       /* And the conditional token goes with it. A degraded response carries
-         no ETag, so keeping the pre-outage one would have the shell ask
+         no revision it stands behind, so keeping the pre-outage one would have
+         the shell ask
          "anything newer than the revision I hold?" and be told no — for a
          document the service never served it. The next read is unconditional
          and the answer is a real document. */
-      registry.etag = null
+      registry.heldRevision = null
       /* One thing IS taken from a degraded document: a tombstone (BR-AS49).
          The reasoning above is that a stale document cannot be trusted to
          say what exists — but it can be trusted to say what was withdrawn,
@@ -227,7 +236,7 @@ export async function bootShell({
     /* Kept beside the revision so the watcher can pick the conditional read
        up from wherever the shell left off — including a boot read it did not
        make itself. */
-    registry.etag = discovery.etag ?? registry.etag
+    registry.heldRevision = discovery.heldRevision ?? registry.heldRevision
     /* A 304 carries no document. Nothing to diff, nothing to place — and
        deliberately no clearing of what is already on screen. */
     if (discovery.unchanged) {
@@ -283,6 +292,11 @@ export async function bootShell({
 
   return {
     plugins,
+    /* The one lookup every renderer needs: contribution -> the manifest that
+       supplied it. Null for an id the shell never admitted, which is a real
+       answer (an incompatible plugin has a status but no manifest) and not a
+       missing-collaborator crash. */
+    manifestFor: (id) => byId.get(id) ?? null,
     statuses,
     contributions,
     extensionPoints,
@@ -298,7 +312,7 @@ export async function bootShell({
        artboard): a row per plugin with its status and reason, plus the
        contribution-level refusals that a plugin-level status cannot express. */
     get inventory() {
-      const manifestOf = (id) => plugins.find((plugin) => plugin.id === id) ?? null
+      const manifestOf = (id) => byId.get(id) ?? null
       return [...statuses.values()].map((record) => ({
         id: record.id,
         name: record.name,

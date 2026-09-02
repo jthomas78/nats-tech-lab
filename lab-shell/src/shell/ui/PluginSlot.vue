@@ -48,7 +48,15 @@ function resolveSync(contribution) {
   return module ? (module.components?.[contribution.component] ?? null) : null
 }
 
+/* Which resolve is allowed to write. A slot's contribution can change while a
+   chunk is in flight — a route-scoped control moving between routes does it
+   routinely — and the older load then finishes last and paints the previous
+   plugin's component. The token is taken at entry and re-checked after every
+   await: a superseded resolve reports nothing and renders nothing. */
+let resolveToken = 0
+
 async function resolve(contribution) {
+  const token = ++resolveToken
   failure.value = null
   const ready = resolveSync(contribution)
   if (ready) {
@@ -56,7 +64,7 @@ async function resolve(contribution) {
     return
   }
   component.value = null
-  const plugin = shell.plugins.get(contribution.pluginId)
+  const plugin = shell.manifestFor(contribution.pluginId)
   if (!plugin) {
     failure.value = { stage: 'load', code: 'plugin-not-registered' }
     return
@@ -64,7 +72,9 @@ async function resolve(contribution) {
   let module
   try {
     module = await shell.loader.load(plugin)
+    if (token !== resolveToken) return
   } catch (error) {
+    if (token !== resolveToken) return
     /* The loader already recorded the plugin's status and the reason code; the
        slot only needs to know which stage failed. The message is logged, never
        rendered. */
@@ -96,7 +106,7 @@ onErrorCaptured((error) => {
 })
 
 const label = computed(() => {
-  const plugin = shell.plugins.get(props.contribution.pluginId)
+  const plugin = shell.manifestFor(props.contribution.pluginId)
   return plugin?.name ?? props.contribution.pluginId
 })
 </script>

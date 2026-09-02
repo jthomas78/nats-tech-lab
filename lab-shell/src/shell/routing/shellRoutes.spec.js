@@ -17,7 +17,7 @@ const ErrorPanel = { name: 'ErrorPanel' }
 // Mirrors the real loader: resolves the module, rejects on failure.
 const loaderFor = (module) => ({ load: vi.fn(async () => module) })
 const failingLoader = (code) => ({ load: vi.fn(async () => { throw new Error(code) }) })
-const pluginsFor = (...ids) => new Map(ids.map((id) => [id, { id }]))
+const manifestForOnly = (...ids) => (id) => (ids.includes(id) ? { id } : null)
 
 describe('BR-AS12 — plugin routes are addressable', () => {
   it('gives every route contribution a path and a globally unique name', () => {
@@ -26,7 +26,7 @@ describe('BR-AS12 — plugin routes are addressable', () => {
         routes: [route(), route({ qualifiedId: 'fleet-ops/vessels', pluginId: 'fleet-ops', path: '/fleet/vessels' })],
       },
       loader: loaderFor({}),
-      plugins: pluginsFor('demo-catalog', 'fleet-ops'),
+      manifestFor: manifestForOnly('demo-catalog', 'fleet-ops'),
     })
 
     expect(records.map((r) => [r.path, r.name])).toEqual([
@@ -38,7 +38,7 @@ describe('BR-AS12 — plugin routes are addressable', () => {
   it('builds the table without loading anything', () => {
     const loader = loaderFor({})
 
-    createShellRoutes({ contributions: { routes: [route()] }, loader, plugins: pluginsFor('demo-catalog') })
+    createShellRoutes({ contributions: { routes: [route()] }, loader, manifestFor: manifestForOnly('demo-catalog') })
 
     expect(loader.load).not.toHaveBeenCalled()
   })
@@ -48,7 +48,7 @@ describe('BR-AS12 — plugin routes are addressable', () => {
     const [record] = createShellRoutes({
       contributions: { routes: [route()] },
       loader,
-      plugins: pluginsFor('demo-catalog'),
+      manifestFor: manifestForOnly('demo-catalog'),
     })
 
     await expect(record.component()).resolves.toBe(Catalog)
@@ -61,7 +61,7 @@ describe('BR-AS12 — plugin routes are addressable', () => {
     const records = createShellRoutes({
       contributions: { routes: [] },
       loader: loaderFor({}),
-      plugins: pluginsFor('fleet-ops'),
+      manifestFor: manifestForOnly('fleet-ops'),
     })
 
     expect(records).toEqual([])
@@ -73,7 +73,7 @@ describe('BR-AS04 — a route that will not resolve does not take the shell down
     const component = await resolveRouteComponent({
       route: route(),
       loader: failingLoader('chunk-load-failed'),
-      plugins: pluginsFor('demo-catalog'),
+      manifestFor: manifestForOnly('demo-catalog'),
       errorComponent: ErrorPanel,
     })
 
@@ -84,7 +84,7 @@ describe('BR-AS04 — a route that will not resolve does not take the shell down
     const component = await resolveRouteComponent({
       route: route({ component: 'detail' }),
       loader: loaderFor({ components: { default: Catalog } }),
-      plugins: pluginsFor('demo-catalog'),
+      manifestFor: manifestForOnly('demo-catalog'),
       errorComponent: ErrorPanel,
     })
 
@@ -95,7 +95,7 @@ describe('BR-AS04 — a route that will not resolve does not take the shell down
     const component = await resolveRouteComponent({
       route: route(),
       loader: loaderFor({ components: { default: Catalog } }),
-      plugins: new Map(),
+      manifestFor: () => null,
       errorComponent: ErrorPanel,
     })
 

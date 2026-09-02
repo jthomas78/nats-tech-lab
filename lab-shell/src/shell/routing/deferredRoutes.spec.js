@@ -9,7 +9,7 @@ describe('BR-AS12 — cold deep links survive deferred discovery', () => {
     await router.push('/fleet/vessels?tab=details#ship')
     const loader = { load: vi.fn(async () => ({ components: { vessels: component } })) }
     expect(router.currentRoute.value.name).toBe('not-found')
-    await installShellRoutes({ router, contributions: { routes: [{ qualifiedId: 'fleet/vessels', pluginId: 'fleet', path: '/fleet/vessels', component: 'vessels' }] }, loader, plugins: new Map([['fleet', { id: 'fleet' }]]) })
+    await installShellRoutes({ router, contributions: { routes: [{ qualifiedId: 'fleet/vessels', pluginId: 'fleet', path: '/fleet/vessels', component: 'vessels' }] }, loader, manifestFor: (id) => (id === 'fleet' ? { id: 'fleet' } : null) })
     expect(router.currentRoute.value.name).toBe('fleet/vessels')
     expect(router.currentRoute.value.fullPath).toBe('/fleet/vessels?tab=details#ship')
     expect(loader.load).toHaveBeenCalledOnce()
@@ -18,7 +18,7 @@ describe('BR-AS12 — cold deep links survive deferred discovery', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:pathMatch(.*)*', name: 'not-found', component: { render: () => null } }] })
     await router.push('/unknown')
     const loader = { load: vi.fn() }
-    await installShellRoutes({ router, contributions: { routes: [{ qualifiedId: 'fleet/home', pluginId: 'fleet', path: '/fleet', component: 'home' }] }, loader, plugins: new Map() })
+    await installShellRoutes({ router, contributions: { routes: [{ qualifiedId: 'fleet/home', pluginId: 'fleet', path: '/fleet', component: 'home' }] }, loader, manifestFor: () => null })
     expect(router.currentRoute.value.fullPath).toBe('/unknown')
     expect(loader.load).not.toHaveBeenCalled()
   })

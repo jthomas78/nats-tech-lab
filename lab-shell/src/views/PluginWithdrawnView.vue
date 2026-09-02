@@ -21,7 +21,7 @@ const route = useRoute()
 
 const pluginId = computed(() => route.meta?.pluginId ?? '')
 const manifest = computed(() =>
-  shell?.plugins instanceof Map ? (shell.plugins.get(pluginId.value) ?? null) : null,
+  shell?.manifestFor?.(pluginId.value) ?? null,
 )
 </script>
 

@@ -329,3 +329,66 @@ describe('BR-AS65 — health never reaches into the catalogue', () => {
     expect(plane.signalsFor('never-seen').frontend.state).toBe(HEALTH_STATE.UNKNOWN)
   })
 })
+
+describe('BR-AS64 — a hint reaches the screen, not just the plane', () => {
+  /* The plane already read on a hint. Nothing told the host, so the host
+     copied the snapshot on its own ageing interval and a hint-driven change
+     sat up to that whole interval behind the truth. The seam is what makes
+     the read and the repaint one event. */
+  it('announces a read that installed readings', async () => {
+    const onChange = vi.fn()
+    const transport = { fetchHealth: vi.fn(async () => reply({ fleet: { frontend: signal(HEALTH_STATE.HEALTHY), backend: signal(HEALTH_STATE.HEALTHY) } })) }
+    const plane = createHealthPlane({ transport, subscribe: () => ({ unsubscribe() {} }), onChange })
+
+    await plane.refresh()
+
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('announces after the readings are installed, never before', async () => {
+    // A subscriber that read snapshot() from here and saw the previous read
+    // would repaint one revision behind, which is the bug this replaced.
+    let seen = null
+    const transport = { fetchHealth: vi.fn(async () => reply({ fleet: { frontend: signal(HEALTH_STATE.UNAVAILABLE, { cause: 'refused' }), backend: signal(HEALTH_STATE.HEALTHY) } })) }
+    const plane = createHealthPlane({ transport, subscribe: () => ({ unsubscribe() {} }), onChange: () => { seen = plane.snapshot() } })
+
+    await plane.refresh()
+
+    expect(seen.fleet.frontend.state).toBe(HEALTH_STATE.UNAVAILABLE)
+  })
+
+  it('carries a hint to the subscriber without waiting for anything else', async () => {
+    let hint = null
+    const transport = { fetchHealth: vi.fn(async () => reply({ fleet: { frontend: signal(HEALTH_STATE.HEALTHY), backend: signal(HEALTH_STATE.HEALTHY) } })) }
+    const onChange = vi.fn()
+    const plane = createHealthPlane({ transport, subscribe: (_subject, handler) => { hint = handler; return { unsubscribe() {} } }, onChange })
+    plane.start()
+    await settle()
+    onChange.mockClear()
+
+    hint({})
+    await settle()
+
+    expect(onChange).toHaveBeenCalled()
+  })
+
+  it('says nothing when the read failed — the last reading still stands', async () => {
+    const onChange = vi.fn()
+    const transport = { fetchHealth: vi.fn(async () => ({ ok: false, code: 'health-timeout' })) }
+    const plane = createHealthPlane({ transport, subscribe: () => ({ unsubscribe() {} }), onChange })
+
+    await plane.refresh()
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('survives a subscriber that throws — health is decoration either way', async () => {
+    const transport = { fetchHealth: vi.fn(async () => reply({ fleet: { frontend: signal(HEALTH_STATE.HEALTHY), backend: signal(HEALTH_STATE.HEALTHY) } })) }
+    const plane = createHealthPlane({ transport, subscribe: () => ({ unsubscribe() {} }), onChange: () => { throw new Error('render exploded') } })
+
+    const result = await plane.refresh()
+
+    expect(result.ok).toBe(true)
+    expect(plane.signalsFor('fleet').frontend.state).toBe(HEALTH_STATE.HEALTHY)
+  })
+})

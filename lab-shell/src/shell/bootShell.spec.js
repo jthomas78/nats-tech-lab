@@ -236,7 +236,7 @@ describe('the inventory tracks transitions that happen after boot', () => {
 })
 
 describe('BR-AS22 / decision 48 — degraded is a state the shell leaves', () => {
-  const twoPlugins = { ok: true, revision: 12, etag: '"12"', plugins: [manifest('fleet-ops')] }
+  const twoPlugins = { ok: true, revision: 12, heldRevision: 12, plugins: [manifest('fleet-ops')] }
 
   it('holds what it has and offers no reload when a read comes back degraded', async () => {
     const shell = await bootShell({ registryClient: client(twoPlugins), permissions })
@@ -253,11 +253,11 @@ describe('BR-AS22 / decision 48 — degraded is a state the shell leaves', () =>
 
   it('drops the conditional token when it degrades, so recovery is unconditional', async () => {
     const shell = await bootShell({ registryClient: client(twoPlugins), permissions })
-    expect(shell.registry.etag).toBe('"12"')
+    expect(shell.registry.heldRevision).toBe(12)
 
     shell.applyRegistry({ ok: true, degraded: true, plugins: [] })
 
-    expect(shell.registry.etag).toBeNull()
+    expect(shell.registry.heldRevision).toBeNull()
   })
 
   it('recovers at the same revision — the case that answers 304', async () => {
@@ -271,10 +271,10 @@ describe('BR-AS22 / decision 48 — degraded is a state the shell leaves', () =>
 
     // Same revision, no document: exactly what a recovered service answers to
     // an unconditional read it can satisfy from cache, or to a 304.
-    shell.applyRegistry({ ok: true, unchanged: true, etag: '"12"' })
+    shell.applyRegistry({ ok: true, unchanged: true, heldRevision: 12 })
 
     expect(shell.registry.degraded).toBe(false)
-    expect(shell.registry.etag).toBe('"12"')
+    expect(shell.registry.heldRevision).toBe(12)
     expect(shell.registry.revision).toBe(12)
   })
 
@@ -283,7 +283,7 @@ describe('BR-AS22 / decision 48 — degraded is a state the shell leaves', () =>
 
     shell.applyRegistry({ ok: false, code: 'registry-unreachable', message: '' })
 
-    expect(shell.registry.etag).toBeNull()
+    expect(shell.registry.heldRevision).toBeNull()
     expect(shell.registryError.code).toBe('registry-unreachable')
     // Still running everything it had.
     expect(shell.contributions.navigation).toHaveLength(1)
@@ -302,13 +302,13 @@ describe('BR-AS49 — a tombstone forces a reload', () => {
 
   const bootedWith = (id) =>
     bootShell({
-      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest(id)] }),
+      registryClient: client({ ok: true, revision: 7, heldRevision: 7, plugins: [manifest(id)] }),
       permissions,
     })
 
   it('raises a forced reload for the plugin it is running', async () => {
     const shell = await bootedWith('fleet-ops')
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [tombstone('fleet-ops')] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [tombstone('fleet-ops')] })
 
     expect(shell.pendingReload).toHaveLength(1)
     expect(shell.pendingReload[0]).toMatchObject({ id: 'fleet-ops', forced: true })
@@ -316,7 +316,7 @@ describe('BR-AS49 — a tombstone forces a reload', () => {
 
   it('does not admit the tombstone as a plugin', async () => {
     const shell = await bootedWith('fleet-ops')
-    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [tombstone('billing')] })
+    shell.applyRegistry({ ok: true, revision: 8, heldRevision: 8, plugins: [tombstone('billing')] })
 
     expect(shell.plugins.map((p) => p.id)).toEqual(['fleet-ops'])
   })

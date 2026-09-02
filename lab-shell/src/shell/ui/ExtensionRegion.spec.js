@@ -50,7 +50,7 @@ const shellStub = (contributions, modules) => ({
       return module
     },
   },
-  plugins: new Map(contributions.map((c) => [c.pluginId, { id: c.pluginId, name: c.pluginId }])),
+  manifestFor: (id) => (contributions.some((c) => c.pluginId === id) ? { id, name: id } : null),
   statuses: new Map(contributions.map((c) => [c.pluginId, { reasonCode: 'load-failed' }])),
 })
 

@@ -29,7 +29,7 @@ const shellStub = ({ module = null, load, reasonCode = null, plugins = true } = 
     peek: () => module,
     load: load ?? vi.fn(async () => ({ components: { 'home-panel': Panel } })),
   },
-  plugins: new Map(plugins ? [['example-plugin', { id: 'example-plugin', name: 'Example Plugin' }]] : []),
+  manifestFor: (id) => (plugins && id === 'example-plugin' ? { id: 'example-plugin', name: 'Example Plugin' } : null),
   statuses: new Map([['example-plugin', { reasonCode }]]),
 })
 
@@ -154,5 +154,53 @@ describe('BR-AS04 — the error surface leaks no URL, token or message', () => {
 
     expect(wrapper.text()).not.toContain('http')
     expect(wrapper.text()).not.toContain('exploded')
+  })
+})
+
+describe('BR-AS04 — a superseded load never paints', () => {
+  /* A route-scoped control changes contribution while its chunk is in
+     flight. Without a request token the first load finishes last and writes
+     the previous plugin's component — or its failure card — over the current
+     one. */
+  const other = () => contribution({ pluginId: 'other-plugin', qualifiedId: 'other-plugin/home-panel' })
+
+  const twoPlugins = (load) => ({
+    loader: { peek: () => null, load },
+    manifestFor: (id) => ({ id, name: id }),
+    statuses: new Map([['example-plugin', { reasonCode: 'load-failed' }], ['other-plugin', { reasonCode: null }]]),
+  })
+
+  it('drops the result of a load its contribution has already replaced', async () => {
+    let releaseFirst
+    const Second = defineComponent({ setup: () => () => h('p', { class: 'second' }, 'second') })
+    const load = vi.fn((plugin) => plugin.id === 'example-plugin'
+      ? new Promise((resolve) => { releaseFirst = () => resolve({ components: { 'home-panel': Panel } }) })
+      : Promise.resolve({ components: { 'home-panel': Second } }))
+
+    const wrapper = mountSlot(twoPlugins(load))
+    await wrapper.setProps({ contribution: other() })
+    await flushPromises()
+    releaseFirst()
+    await flushPromises()
+
+    expect(wrapper.find('.second').exists()).toBe(true)
+    expect(wrapper.find('.panel').exists()).toBe(false)
+  })
+
+  it('drops the FAILURE of a load its contribution has already replaced', async () => {
+    let rejectFirst
+    const Second = defineComponent({ setup: () => () => h('p', { class: 'second' }, 'second') })
+    const load = vi.fn((plugin) => plugin.id === 'example-plugin'
+      ? new Promise((_resolve, reject) => { rejectFirst = () => reject(new Error('chunk gone')) })
+      : Promise.resolve({ components: { 'home-panel': Second } }))
+
+    const wrapper = mountSlot(twoPlugins(load))
+    await wrapper.setProps({ contribution: other() })
+    await flushPromises()
+    rejectFirst()
+    await flushPromises()
+
+    expect(wrapper.find('.slot-error').exists()).toBe(false)
+    expect(wrapper.find('.second').exists()).toBe(true)
   })
 })

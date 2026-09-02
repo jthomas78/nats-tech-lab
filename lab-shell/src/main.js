@@ -44,12 +44,10 @@ const waitForPaint = createAfterPaint()
 
 /* Wrapped rather than top-level `await`: TLA constrains the build target, and
    the shell has to boot the same way in every browser the demos are shown in. */
-async function bootstrap() {
+export async function bootstrap() {
   const shell = await bootShell({
     permissions,
   })
-
-  const plugins = new Map(shell.plugins.map((plugin) => [plugin.id, plugin]))
 
   const loader = createPluginLoader({
     allowlist: shell.allowlist,
@@ -73,7 +71,7 @@ async function bootstrap() {
       ...createShellRoutes({
         contributions: shell.contributions,
         loader,
-        plugins,
+        manifestFor: shell.manifestFor,
         errorComponent: PluginErrorView,
       }),
       { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
@@ -105,15 +103,16 @@ async function bootstrap() {
     onResult: (discovery) => {
       const { added, addedRoutes } = shell.applyRegistry(discovery)
       if (added.length === 0) return
-      /* Re-synced rather than merged from `added`: the registry holds the
-         VALIDATED manifests, and a manifest that failed validation must not
-         reach the loader wearing the raw shape it was refused in. */
-      for (const plugin of shell.plugins) plugins.set(plugin.id, plugin)
+      /* `shell.manifestFor` rather than a index the host rebuilds: the shell
+         indexes the VALIDATED manifest as it admits it, so a manifest that
+         failed validation cannot reach the loader wearing the raw shape it
+         was refused in, and there is no second copy for a later read to
+         leave stale. */
       void installShellRoutes({
         router,
         contributions: shell.contributions,
         loader,
-        plugins,
+        manifestFor: shell.manifestFor,
         errorComponent: PluginErrorView,
         routes: addedRoutes,
       })
@@ -124,23 +123,24 @@ async function bootstrap() {
      the catalogue is what the boot depends on, and health is decoration on
      top of whatever the boot produced. */
   const health = reactive({ signals: {} })
+  /* Copy on every read the plane installed. This is what carries a hint to
+     the screen: the plane reads on start, on a hint and after a reconnect,
+     and before this seam existed none of those repainted anything — the
+     ageing interval below was doing it, so a hint could sit up to a whole
+     interval behind the truth. */
+  const publishHealth = () => { health.signals = healthPlane.snapshot() }
   const healthPlane = createHealthPlane({
     transport: createHealthTransport({ request: connection.request }),
     subscribe: (subject, handler) => connection.subscribe(subject, handler),
+    onChange: publishHealth,
   })
-  const refreshHealth = async () => {
-    /* Read, then copy. The read is what makes this a floor cadence and not
-       just a repaint: the plane otherwise reads on start, on a hint and after
-       a reconnect, so a first read that lost the race with the connection
-       coming up would leave every signal `unknown` forever with nothing to
-       wake it. Copying afterwards regardless of the read's outcome is what
-       lets a kept reading age into `stale` on schedule. */
-    await healthPlane.refresh()
-    health.signals = healthPlane.snapshot()
-  }
 
   const app = createApp(App)
-  app.provide(SHELL, withRuntime(shell, { loader, plugins, router, connections, connection: connection.state, health, healthPlane, refreshHealth }))
+  /* Deliberately narrow. The router, the connection registry and the health
+     plane itself were provided here and injected by nothing — a member no
+     screen reads is a member every screen has to be checked against. What is
+     left is what App.vue and the views actually resolve. */
+  app.provide(SHELL, withRuntime(shell, { loader, connection: connection.state, health }))
   app.use(createPinia())
   app.use(router)
   app.use(PrimeVue, {
@@ -156,7 +156,15 @@ async function bootstrap() {
      reading that has aged into `stale` is replaced rather than merely
      labelled. The interval only copies memory into a reactive object; the
      network read is the plane's own business. */
-  const healthTimer = setInterval(() => { void refreshHealth() }, 5_000)
+  const healthTimer = setInterval(() => {
+    /* Read, then republish regardless of the read's outcome. The read is a
+       floor cadence: a first read that lost the race with the connection
+       coming up would otherwise leave every signal `unknown` with nothing to
+       wake it. The unconditional republish is what lets a KEPT reading age
+       into `stale` on schedule, which no read reports because nothing
+       changed. */
+    void healthPlane.refresh().finally(publishHealth)
+  }, 5_000)
   if (import.meta.hot) import.meta.hot.dispose(() => {
     clearInterval(healthTimer)
     healthPlane.stop()
@@ -164,4 +172,8 @@ async function bootstrap() {
   })
 }
 
-bootstrap()
+/* Not called on import. The host is the one module a spec could never reach,
+   because reaching it mounted an app and dialled a broker; exporting the
+   function and gating the call is what makes composition assertable at all
+   (finding 10). */
+if (import.meta.env?.MODE !== 'test') bootstrap()
