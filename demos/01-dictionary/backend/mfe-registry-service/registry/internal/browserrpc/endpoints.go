@@ -83,17 +83,10 @@ func NewWithHealth(svc Service, audit Auditor, health HealthReader) *Endpoints {
 	return e
 }
 
-// HealthResponse carries observations and nothing else. No revision, no
-// entries, no signed bytes: a health reply that could move a shell's idea of
-// the catalogue would be an observation with curation authority (BR-AS65).
-type HealthResponse struct {
-	OK bool `json:"ok"`
-	// Plugins is keyed by plugin id, each with its two independent signals.
-	Plugins map[string]application.PluginHealth `json:"plugins"`
-	// AsOf is when the snapshot was read, seconds since the epoch. Present so
-	// a shell can tell a fresh empty snapshot from a stalled checker.
-	AsOf int64 `json:"asOf,omitempty"`
-}
+// HealthResponse is the same closed snapshot shape the central checker pushes
+// after every probe pass. Sharing the DTO keeps the initial/reconnect read and
+// normal push path from drifting while preserving the health/catalogue split.
+type HealthResponse = application.HealthSnapshot
 
 // Health answers from memory. An unwired checker answers with an empty
 // snapshot rather than an error: a deployment that mapped nothing and a
@@ -101,7 +94,7 @@ type HealthResponse struct {
 // error is what broken looks like.
 func (e *Endpoints) Health(ctx context.Context) (HealthResponse, error) {
 	now := time.Now().UTC()
-	out := HealthResponse{OK: true, Plugins: map[string]application.PluginHealth{}, AsOf: now.Unix()}
+	out := HealthResponse{OK: true, Plugins: map[string]application.PluginHealth{}, AsOf: now.UnixMilli()}
 	if e.health == nil {
 		return out, nil
 	}

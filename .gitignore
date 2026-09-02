@@ -19,3 +19,9 @@ session-export-*.zip
 # os.MkdirTemp. The command removes it on exit; ignored as a backstop, and
 # because a signing seed must never be committed.
 demos/01-dictionary/.acceptance/
+
+# Compiled Go binaries that land beside their source when `go build` is run
+# without -o. `registry-acceptance` was committed by accident in 321aaeb; both
+# are ~10MB of platform-specific Mach-O and rebuild in seconds.
+demos/01-dictionary/backend/mfe-registry-service/cmd/registry-acceptance/registry-acceptance
+shared/mfe-plugin-host/mfe-plugin-host

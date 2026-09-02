@@ -5,6 +5,7 @@
 
 import { usePlatformConnection } from './nats/usePlatformConnection.js'
 import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from './requestorId.js'
+import { REGISTRY_SUBJECTS } from './registrySubjects.js'
 
 // Every REST call carries this tab's Nats-Requestor identity, the same one
 // the api.* calls below send (requestorId.js) — accounts-service's and
@@ -271,19 +272,19 @@ export function getNatsLog({ level, q, tail } = {}) {
 // never torn out from under a shell that already loaded it (BR-AS24).
 
 export function getRegistryEntries() {
-  return registryRequest('api._platform.registry.entries.curated.v1', {})
+  return registryRequest(REGISTRY_SUBJECTS.curated, {})
 }
 
 export function upsertRegistryEntry(entry, ifRevision) {
-  return registryRequest('api._platform.registry.entries.upsert.v1', { ifRevision, entryId: entry.id, entry })
+  return registryRequest(REGISTRY_SUBJECTS.upsert, { ifRevision, entryId: entry.id, entry })
 }
 
 export function setRegistryEntryEnabled(id, enabled, ifRevision) {
-  return registryRequest('api._platform.registry.entries.set-enabled.v1', { ifRevision, entryId: id, enabled })
+  return registryRequest(REGISTRY_SUBJECTS.setEnabled, { ifRevision, entryId: id, enabled })
 }
 
 export function getRegistryAudit(limit) {
-  return registryRequest('api._platform.registry.audit.list.v1', { limit })
+  return registryRequest(REGISTRY_SUBJECTS.audit, { limit })
 }
 
 // ── Publisher trust table (Phase 7b) ─────────────────────────────────────────
@@ -297,7 +298,7 @@ export function getRegistryAudit(limit) {
 // row that once signed something is still there to be read afterwards.
 
 export function getRegistryPublishers() {
-  return registryRequest('api._platform.registry.publishers.list.v1', {})
+  return registryRequest(REGISTRY_SUBJECTS.publishers, {})
 }
 
 export function upsertPublisher(publisher, ifRevision) {
@@ -317,7 +318,7 @@ export function transferPlugin(publisherId, pluginId, ifRevision) {
 }
 
 function publisherWrite(payload, ifRevision) {
-  return registryRequest('api._platform.registry.publishers.write.v1', { ...payload, ifRevision })
+  return registryRequest(REGISTRY_SUBJECTS.publisherWrite, { ...payload, ifRevision })
 }
 
 async function registryRequest(subject, payload) {

@@ -121,3 +121,23 @@ describe('BR-AS03 — the federated adapter registers containers at runtime', ()
     await expect(createFederatedAdapter({ runtime }).load(remote())).rejects.toThrow(/fetch/)
   })
 })
+
+describe('BR-AS72 — same-origin remote paths', () => {
+  it('resolves a path-only entry against the shell document origin', async () => {
+    const runtime = fakeRuntime()
+    const adapter = createFederatedAdapter({
+      runtime,
+      documentURL: 'https://shell.example/app/plugins',
+    })
+
+    await adapter.load(remote({ url: '/plugins/example-plugin/remoteEntry.js' }))
+
+    expect(runtime.registerRemotes).toHaveBeenCalledWith([
+      {
+        name: 'example_plugin',
+        entry: 'https://shell.example/plugins/example-plugin/remoteEntry.js',
+        type: 'module',
+      },
+    ])
+  })
+})

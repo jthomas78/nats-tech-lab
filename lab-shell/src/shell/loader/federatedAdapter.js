@@ -29,8 +29,13 @@ async function defaultRuntime() {
  * @param {{registerRemotes: Function, loadRemote: Function, init?: Function}} [options.runtime]
  *   injected in specs; defaults to @module-federation/runtime
  * @param {string} [options.hostName] the federation identity of the shell itself
+ * @param {string} [options.documentURL] shell document used to resolve BR-AS72 path-only entries
  */
-export function createFederatedAdapter({ runtime = null, hostName = 'lab_shell' } = {}) {
+export function createFederatedAdapter({
+  runtime = null,
+  hostName = 'lab_shell',
+  documentURL = globalThis.document?.baseURI ?? globalThis.location?.href,
+} = {}) {
   /* Container names already registered with the runtime. Re-registering the
      same name with a different entry is how a stale remote would be served
      from a previous URL, so registration is once per name and the loader's own
@@ -57,12 +62,13 @@ export function createFederatedAdapter({ runtime = null, hostName = 'lab_shell' 
     async load(remote) {
       const rt = await resolve()
       if (!registered.has(remote.name)) {
+        const entry = remote.url.startsWith('/') ? new URL(remote.url, documentURL).href : remote.url
         /* `type: 'module'` because every remote in this repo is built by Vite,
            whose output — dev server and `vite build` alike — is an ES module.
            Federation's default is a classic script, which loads the entry and
            then dies on its first `import` statement with a SyntaxError that
            names neither the plugin nor the cause. */
-        rt.registerRemotes([{ name: remote.name, entry: remote.url, type: 'module' }])
+        rt.registerRemotes([{ name: remote.name, entry, type: 'module' }])
         registered.add(remote.name)
       }
       /* Federation addresses an exposed module as `container/expose`, where

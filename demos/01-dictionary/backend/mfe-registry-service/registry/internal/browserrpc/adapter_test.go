@@ -112,14 +112,14 @@ func TestSubjectsAreTheGrantedSet(t *testing.T) {
 	g := NewWithT(t)
 
 	g.Expect(Subjects()).To(ConsistOf(
-		"api._platform.registry.frontend-plugins.read.v1",
-		"api._platform.registry.frontend-plugins.health.v1",
-		"api._platform.registry.entries.curated.v1",
-		"api._platform.registry.entries.upsert.v1",
-		"api._platform.registry.entries.set-enabled.v1",
-		"api._platform.registry.audit.list.v1",
-		"api._platform.registry.publishers.list.v1",
-		"api._platform.registry.publishers.write.v1",
+		"api._platform.mfe-registry.frontend-plugins.read.v1",
+		"api._platform.mfe-registry.frontend-plugins.health.v1",
+		"api._platform.mfe-registry.entries.curated.v1",
+		"api._platform.mfe-registry.entries.upsert.v1",
+		"api._platform.mfe-registry.entries.set-enabled.v1",
+		"api._platform.mfe-registry.audit.list.v1",
+		"api._platform.mfe-registry.publishers.list.v1",
+		"api._platform.mfe-registry.publishers.write.v1",
 	))
 
 	// BR-AS24 restated for the new transport: there is no delete subject, and
@@ -132,9 +132,9 @@ func TestSubjectsAreTheGrantedSet(t *testing.T) {
 	// The two read subjects are the ONLY ones the shell's credential holds
 	// (BR-AS27, BR-AS65). Asserted here as well as in token_test.go because the two
 	// facts live in different modules and only agree by intention.
-	g.Expect(ShellReadSubject).To(Equal("api._platform.registry.frontend-plugins.read.v1"))
+	g.Expect(ShellReadSubject).To(Equal("api._platform.mfe-registry.frontend-plugins.read.v1"))
 	g.Expect(Subjects()).To(ContainElement(ShellReadSubject))
-	g.Expect(HealthReadSubject).To(Equal("api._platform.registry.frontend-plugins.health.v1"))
+	g.Expect(HealthReadSubject).To(Equal("api._platform.mfe-registry.frontend-plugins.health.v1"))
 	g.Expect(Subjects()).To(ContainElement(HealthReadSubject))
 }
 

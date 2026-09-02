@@ -67,7 +67,7 @@ const (
 )
 
 // Publisher trust vocabulary — the closed sets the
-// api._platform.registry.publishers.write.v1 surface accepts. They live here
+// api._platform.mfe-registry.publishers.write.v1 surface accepts. They live here
 // with the rest of the wire contract so an operator client outside this
 // service (cmd/seed-publishers, the Admin UI's Registry Publishers panel)
 // can name an op or a key state without reaching into the registry's own

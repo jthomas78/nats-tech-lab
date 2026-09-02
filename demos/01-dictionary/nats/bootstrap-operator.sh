@@ -41,7 +41,7 @@
 #                                 in an image layer.
 #   nats/keys/publishers.json     the PUBLIC half of each signing key, for
 #                                 Phase 13d's trust seeding to read. No seeds.
-#   nats/creds/*-announcer.creds  one transport credential per announcer,
+#   nats/creds/plugins/*.creds  one transport credential per plugin holder,
 #                                 publish-only on the two registry publisher
 #                                 subjects. A different thing from the signing
 #                                 seed above (design decision 8).
@@ -70,7 +70,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 rm -rf "$NATS_DIR/.nsc-store" "$NATS_DIR/resolver" "$NATS_DIR/creds" "$NATS_DIR/keys" "$NATS_DIR/operator.jwt"
-mkdir -p "$NATS_DIR/resolver" "$NATS_DIR/creds" "$NATS_DIR/keys"
+mkdir -p "$NATS_DIR/resolver" "$NATS_DIR/creds/plugins" "$NATS_DIR/keys"
 
 # Isolate this script's nsc store from the operator's real ~/.local/share
 # store — every artifact this repo needs is exported below and the scratch
@@ -483,7 +483,7 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # bucket, the same shape observability's grants above use); the one notify
 # subject it announces a catalog change on; and its natstrace spans.
 #
-# The trace grant is scoped to obs.trace._platform.registry.> rather than
+# The trace grant is scoped to obs.trace._platform.mfe-registry.> rather than
 # obs.trace.>, because natstrace builds the subject from the service's own
 # context and service tokens and this service only ever has one of each. It
 # was missed on the first pass and the stack said so immediately: every
@@ -501,9 +501,9 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # health.*, and the whole point of the subject is that it carries no verb but
 # this one.
 #
-# Announcements add exactly rpc._platform.registry.entries.announce.v1, and
+# Announcements add exactly rpc._platform.mfe-registry.entries.announce.v1, and
 # Phase 5b's unregister adds exactly one more. Named in full rather than as
-# rpc._platform.registry.entries.> — the withdrawal is the one message that
+# rpc._platform.mfe-registry.entries.> — the withdrawal is the one message that
 # takes running code off an operator's screen, so it is granted on purpose
 # and not swept up by a prefix.
 #
@@ -511,11 +511,11 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # and the whole $SYS axis. The registry reads and writes one catalog.
 nsc add user --account PLATFORM mfe-registry-service >/dev/null
 nsc edit user --account PLATFORM --name mfe-registry-service \
-  --allow-pub '$SRV.>,_INBOX.>,notify._platform.registry.frontend-plugins.changed,notify._platform.registry.frontend-plugins.health,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.registry.>' \
-  --allow-sub 'api._platform.registry.>,rpc._platform.registry.entries.announce.v1,rpc._platform.registry.entries.unregister.v1,$SRV.>,_INBOX.>' >/dev/null
+  --allow-pub '$SRV.>,_INBOX.>,notify._platform.mfe-registry.frontend-plugins.changed,notify._platform.mfe-registry.frontend-plugins.health,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.mfe-registry.>' \
+  --allow-sub 'api._platform.mfe-registry.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name mfe-registry-service >"$NATS_DIR/creds/mfe-registry-service.creds"
 
-echo "==> plugin announcer signing keypairs + creds (Phase 13c)"
+echo "==> plugin publisher signing keypairs + creds (Phase 14a)"
 # Two different things, deliberately kept apart (design decision 8).
 #
 # 1. A SIGNING keypair per publisher, minted with `nsc generate nkey --user`
@@ -527,26 +527,33 @@ echo "==> plugin announcer signing keypairs + creds (Phase 13c)"
 #    announcements the registry will refuse for lack of trust, but it cannot
 #    connect to NATS as anything at all.
 #
-# 2. A NATS TRANSPORT credential per announcer, named for its holder exactly
-#    as that process's nats.Name(). Five of them rather than one shared: the
-#    reason there are five sidecars is per-publisher isolation and connection
-#    attribution, and one shared credential would give that away in the
-#    Connections panel.
+# 2. A NATS TRANSPORT credential per plugin, named for its holder exactly as
+#    that process's nats.Name(). Five of them rather than one shared, retaining
+#    per-publisher isolation and connection attribution in the Connections
+#    panel. They live under creds/plugins/ so tenant discovery excludes the
+#    family by directory rather than by a fragile name suffix (BR-D40).
 #
 # The grant is publish on exactly the two subjects, named in full — never
-# rpc._platform.registry.entries.>, for the same reason the registry's own
+# rpc._platform.mfe-registry.entries.>, for the same reason the registry's own
 # grant above names them: unregister is the one message that takes running
 # code off an operator's screen. _INBOX.> is the reply the request needs and
-# nothing more. There is no subscribe grant beyond that inbox: an announcer
+# nothing more. There is no subscribe grant beyond that inbox: a plugin
 # speaks, it does not listen, and it has no business reading api._platform.>
 # or anyone else's rpc.
 #
 # publishers.json is the public half of each keypair, for Phase 13d's trust
 # seeding to read. Public keys only — the seeds stay in keys/.
 : >"$NATS_DIR/keys/publishers.json.tmp"
-for plugin in example-plugin example-plugin-slow example-plugin-unreachable \
-              example-plugin-activate-throws example-plugin-incompatible; do
-  holder="$plugin-announcer"
+PLUGIN_PUBLISHERS=(
+  example-plugin
+  example-plugin-slow
+  example-plugin-unreachable
+  example-plugin-activate-throws
+  example-plugin-incompatible
+  # new-plugin.sh inserts plugin ids immediately above this marker.
+)
+for plugin in "${PLUGIN_PUBLISHERS[@]}"; do
+  holder="$plugin"
 
   nsc generate nkey --user 2>/dev/null | head -2 >"$NATS_DIR/keys/publisher-$plugin.tmp"
   seed="$(sed -n '1p' "$NATS_DIR/keys/publisher-$plugin.tmp")"
@@ -563,9 +570,9 @@ for plugin in example-plugin example-plugin-slow example-plugin-unreachable \
 
   nsc add user --account PLATFORM "$holder" >/dev/null
   nsc edit user --account PLATFORM --name "$holder" \
-    --allow-pub '_INBOX.>,rpc._platform.registry.entries.announce.v1,rpc._platform.registry.entries.unregister.v1' \
+    --allow-pub '_INBOX.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1' \
     --allow-sub '_INBOX.>' >/dev/null
-  nsc generate creds --account PLATFORM --name "$holder" >"$NATS_DIR/creds/$holder.creds"
+  nsc generate creds --account PLATFORM --name "$holder" >"$NATS_DIR/creds/plugins/$holder.creds"
 done
 {
   echo "["

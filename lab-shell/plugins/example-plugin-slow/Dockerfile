@@ -16,7 +16,5 @@ COPY lab-shell/plugins/example-plugin-slow/public ./lab-shell/plugins/example-pl
 WORKDIR /repo/lab-shell/plugins/example-plugin-slow
 RUN npm ci && npm run build
 
-FROM nginx:1.27-alpine
-COPY lab-shell/plugins/example-plugin-slow/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /repo/lab-shell/plugins/example-plugin-slow/dist /usr/share/nginx/html
-EXPOSE 80
+FROM mfe-plugin-host
+COPY --from=build /repo/lab-shell/plugins/example-plugin-slow/dist /srv

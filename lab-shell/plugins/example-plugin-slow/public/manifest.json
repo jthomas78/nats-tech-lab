@@ -8,7 +8,7 @@
   "routePrefix": "example-slow",
   "remote": {
     "kind": "federated",
-    "url": "http://localhost:7113/remoteEntry.js",
+    "url": "/remoteEntry.js",
     "name": "example_plugin_slow",
     "module": "plugin"
   },

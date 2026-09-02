@@ -24,7 +24,7 @@ const (
 	// Federated plugin code runs in the shell's JS realm, so any capability
 	// this subject carries is a capability every loaded plugin holds — which
 	// is why it is read-only and why the split below is exhaustive.
-	ShellRead = "api._platform.registry.frontend-plugins.read.v1"
+	ShellRead = "api._platform.mfe-registry.frontend-plugins.read.v1"
 
 	// HealthRead is the shell's read of the health plane (BR-AS65). A second
 	// subject rather than more fields on the first, because the two carry
@@ -37,44 +37,43 @@ const (
 	// Read-only in the strong sense: nothing a plugin or a shell says can
 	// write here, so a decoration cannot be forged from inside the realm the
 	// plugins share.
-	HealthRead = "api._platform.registry.frontend-plugins.health.v1"
+	HealthRead = "api._platform.mfe-registry.frontend-plugins.health.v1"
 
-	// HealthChanged is the hint that a snapshot moved. A hint, not the
-	// observation: it carries no state and refreshes nothing, because a
-	// delivery is proof that a message arrived and never proof that a service
-	// was alive (BR-AS64). The shell reads HealthRead to find out.
-	HealthChanged = "notify._platform.registry.frontend-plugins.health"
+	// HealthChanged carries the central checker's timestamped snapshot.
+	// Subscribers still read HealthRead on startup and after reconnect because
+	// notify.* is Core NATS and therefore intentionally not durable (BR-AS64).
+	HealthChanged = "notify._platform.mfe-registry.frontend-plugins.health"
 
 	// Curated, Upsert, SetEnabled and Audit are the operator's. The Admin
 	// UI's credential publishes on them; a shell's never does.
-	Curated    = "api._platform.registry.entries.curated.v1"
-	Upsert     = "api._platform.registry.entries.upsert.v1"
-	SetEnabled = "api._platform.registry.entries.set-enabled.v1"
-	Audit      = "api._platform.registry.audit.list.v1"
+	Curated    = "api._platform.mfe-registry.entries.curated.v1"
+	Upsert     = "api._platform.mfe-registry.entries.upsert.v1"
+	SetEnabled = "api._platform.mfe-registry.entries.set-enabled.v1"
+	Audit      = "api._platform.mfe-registry.audit.list.v1"
 
 	// The trusted-publishers table, also the operator's (BR-AS38). One read
 	// and one write, rather than a subject per op as the entry surface has:
 	// four ops over one curated table, all operator-only and all
 	// revision-checked identically, are not four capabilities, and four more
 	// grants would say they were.
-	Publishers     = "api._platform.registry.publishers.list.v1"
-	PublisherWrite = "api._platform.registry.publishers.write.v1"
+	Publishers     = "api._platform.mfe-registry.publishers.list.v1"
+	PublisherWrite = "api._platform.mfe-registry.publishers.write.v1"
 
 	// Changed is the registry's change notification. It is not an api.*
 	// subject and so is not in Subjects(), but it lives here for the same
 	// reason they do: the shell subscribes to it under a grant minted by
 	// accounts-service, and the publisher is now another service.
-	Changed = "notify._platform.registry.frontend-plugins.changed"
+	Changed = "notify._platform.mfe-registry.frontend-plugins.changed"
 
 	// Announce is a publisher's service-to-service request, never a browser
 	// grant. It deliberately belongs to neither Subjects nor Operator.
-	Announce = "rpc._platform.registry.entries.announce.v1"
+	Announce = "rpc._platform.mfe-registry.entries.announce.v1"
 
 	// Unregister is the same kind of subject and for a stronger reason: it
 	// is the one message that takes running code off an operator's screen
 	// (BR-AS54). Service-to-service only — it belongs to neither Subjects
 	// nor Operator, so no browser credential can carry it.
-	Unregister = "rpc._platform.registry.entries.unregister.v1"
+	Unregister = "rpc._platform.mfe-registry.entries.unregister.v1"
 )
 
 // ServiceReady names the readiness probe for one backend service. It is

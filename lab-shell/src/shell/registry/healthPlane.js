@@ -6,22 +6,29 @@
   or what any of them may do — the worst it can do to a screen is say
   "unknown".
 
-  The one thing this module is strict about is age. A reading is a fact about
-  a moment that has passed, so it ages into `stale` when it is READ rather
-  than on a timer: nothing has to wake up for a stale value to stop claiming
-  to be current, and there is no interval here to leak.
+  The central registry pushes one timestamped snapshot after every completed
+  probe pass. The browser reads once at startup/reconnect and only occasionally
+  reconciles, so opening another shell does not add another five-second poll.
+  Ageing stays local: a reading becomes `stale` when it is READ.
 */
 
 import { createHintedReader } from './hintedReader.js'
 
-export const HEALTH_READ_SUBJECT = 'api._platform.registry.frontend-plugins.health.v1'
-export const HEALTH_NOTIFY_SUBJECT = 'notify._platform.registry.frontend-plugins.health'
+export const HEALTH_READ_SUBJECT = 'api._platform.mfe-registry.frontend-plugins.health.v1'
+export const HEALTH_NOTIFY_SUBJECT = 'notify._platform.mfe-registry.frontend-plugins.health'
 
 /* Mirrors the registry's own freshness window. Stated here rather than read
    from the reply because it is what THIS shell is willing to believe, and a
    registry that shortened its own window must not be able to make a browser
    trust a reading for longer. */
 export const HEALTH_FRESHNESS_MS = 15_000
+export const HEALTH_RECONCILE_BASE_MS = 60_000
+export const HEALTH_RECONCILE_JITTER_MS = 15_000
+
+/* Spread reconciliation reads from shells opened together across a 45–75s
+   window. Push is the normal path; this is only a bounded repair mechanism. */
+export const healthReconcileInterval = (random = Math.random) => HEALTH_RECONCILE_BASE_MS
+  + Math.round((random() * 2 - 1) * HEALTH_RECONCILE_JITTER_MS)
 
 export const HEALTH_STATE = Object.freeze({
   UNKNOWN: 'unknown',
@@ -57,6 +64,21 @@ const readSignal = (raw) => {
   return { state, cause, lastCheckAt }
 }
 
+/* One decoder for both wire paths. A pushed observation and an initial or
+   reconnect response are the same health snapshot; letting those parsers
+   drift would make transport choice change what the UI believes. */
+export function decodeHealthSnapshot(reply) {
+  if (!reply || reply.ok !== true || !reply.plugins || typeof reply.plugins !== 'object' || Array.isArray(reply.plugins)) {
+    return { ok: false, code: 'health-malformed' }
+  }
+  const plugins = {}
+  for (const [id, entry] of Object.entries(reply.plugins)) {
+    plugins[id] = { frontend: readSignal(entry?.frontend), backend: readSignal(entry?.backend) }
+  }
+  const asOf = Number.isSafeInteger(reply.asOf) ? reply.asOf : null
+  return { ok: true, asOf, plugins }
+}
+
 /**
  * The read. Never throws: a health plane that cannot be reached is a code the
  * caller records, exactly as the catalogue's transport does (BR-AS22).
@@ -74,30 +96,20 @@ export function createHealthTransport({ request }) {
           || [error?.name, error?.cause?.name].some((name) => ['TimeoutError', 'NoRespondersError'].includes(name))
         return { ok: false, code: timeout ? 'health-timeout' : 'health-unreachable' }
       }
-      if (!reply || reply.ok !== true || !reply.plugins || typeof reply.plugins !== 'object' || Array.isArray(reply.plugins)) {
-        return { ok: false, code: 'health-malformed' }
-      }
-      const plugins = {}
-      for (const [id, entry] of Object.entries(reply.plugins)) {
-        plugins[id] = { frontend: readSignal(entry?.frontend), backend: readSignal(entry?.backend) }
-      }
-      const asOf = Number.isSafeInteger(reply.asOf) ? reply.asOf : null
-      return { ok: true, asOf, plugins }
+      return decodeHealthSnapshot(reply)
     },
   }
 }
 
 /**
- * The plane: one read on start, one on every hint, one after a reconnect gap,
- * and an answer for any plugin at any time.
+ * The plane: one read on start, pushed observations during the connected
+ * session, one read after a reconnect gap, and an answer for any plugin at
+ * any time. A payload-free legacy hint still triggers a read, which makes the
+ * wire change safe across a rolling backend/frontend restart.
  *
- * `onChange` fires once per read that installed new readings. It is how a
- * hint reaches a screen: without it the plane refreshes on a hint and the
- * result sits in memory until something else thinks to ask, which made the
- * host's ageing interval the de facto update cadence and put a hint-driven
- * change up to that whole interval behind the truth (BR-AS64). It is a
- * notification, never a payload — the caller reads `snapshot()`, because a
- * reading ages and a value handed out here would not.
+ * `onChange` fires once per request or push that installed newer readings.
+ * The caller then reads `snapshot()` because ageing is local and a value
+ * handed out by the transport would not age.
  */
 export function createHealthPlane({ transport, subscribe, onChange = () => {}, now = () => Date.now() }) {
   /* id -> {frontend, backend, receivedAt}. Kept through a failed read: losing
@@ -107,19 +119,13 @@ export function createHealthPlane({ transport, subscribe, onChange = () => {}, n
   let latestAsOf = null
   let started = false
 
-  /* What a read IS. When to make one is `hintedReader`, shared with the
-     catalogue — the plane used to keep its own copy of that machine, and the
-     copies had drifted. A health hint carries no version, so this reader takes
-     the default hint policy: every hint is news, and a hint held during a read
-     is always answered with one more read. */
-  const read = async () => {
-    const result = await Promise.resolve()
-      .then(() => transport.fetchHealth())
-      .catch(() => ({ ok: false, code: 'health-unreachable' }))
+  const install = (result) => {
     if (!result?.ok) return result
     /* Two reads can land backwards. An older answer must not overwrite a
-       newer one, or a recovered plugin flickers back to broken. */
-    if (latestAsOf !== null && result.asOf !== null && result.asOf < latestAsOf) return result
+       newer one, or a recovered plugin flickers back to broken. Equality is
+       also a duplicate: accepting it would incorrectly renew the local
+       freshness lease without a newer central observation. */
+    if (latestAsOf !== null && result.asOf !== null && result.asOf <= latestAsOf) return result
     if (result.asOf !== null) latestAsOf = result.asOf
     const receivedAt = now()
     for (const [id, signals] of Object.entries(result.plugins)) {
@@ -133,7 +139,24 @@ export function createHealthPlane({ transport, subscribe, onChange = () => {}, n
     return result
   }
 
-  const reader = createHintedReader({ subject: HEALTH_NOTIFY_SUBJECT, subscribe, read })
+  /* What a reconciliation read IS. `hintedReader` still owns coalescing for
+     startup, reconnect and a payload-free notification from an older server. */
+  const read = async () => install(await Promise.resolve()
+    .then(() => transport.fetchHealth())
+    .catch(() => ({ ok: false, code: 'health-unreachable' })))
+
+  const pushedSubscribe = (subject, legacyHint) => subscribe(subject, (message) => {
+    const pushed = decodeHealthSnapshot(message)
+    if (pushed.ok && pushed.asOf !== null) {
+      install(pushed)
+      return
+    }
+    /* An empty/malformed notification may be from the payload-free version
+       during a rolling restart. Treat it as its old meaning: look again. */
+    legacyHint(message)
+  })
+
+  const reader = createHintedReader({ subject: HEALTH_NOTIFY_SUBJECT, subscribe: pushedSubscribe, read })
 
   const refresh = () => reader.refresh({ reason: 'refresh' })
 
@@ -144,9 +167,6 @@ export function createHealthPlane({ transport, subscribe, onChange = () => {}, n
   }
 
   return {
-    /* The hint the subscription carries is never installed. Whatever it
-       claims, the read is what is authoritative — the same promise the
-       catalogue's notification makes (BR-AS64). */
     start() {
       if (started) return this
       started = true
@@ -158,8 +178,8 @@ export function createHealthPlane({ transport, subscribe, onChange = () => {}, n
       reader.stop()
       return this
     },
-    /* A gap in the subscription is a gap in the hints, and a hint that never
-       arrived is indistinguishable from nothing happening. */
+    /* A gap in the subscription is a gap in pushed observations, and one
+       that never arrived is indistinguishable from nothing happening. */
     onReconnect() {
       return reader.onReconnect()
     },

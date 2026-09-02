@@ -16,7 +16,5 @@ COPY lab-shell/plugins/example-plugin/public ./lab-shell/plugins/example-plugin/
 WORKDIR /repo/lab-shell/plugins/example-plugin
 RUN npm ci && npm run build
 
-FROM nginx:1.27-alpine
-COPY lab-shell/plugins/example-plugin/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /repo/lab-shell/plugins/example-plugin/dist /usr/share/nginx/html
-EXPOSE 80
+FROM mfe-plugin-host
+COPY --from=build /repo/lab-shell/plugins/example-plugin/dist /srv

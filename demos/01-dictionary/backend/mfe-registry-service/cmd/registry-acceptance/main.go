@@ -34,7 +34,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -55,11 +54,15 @@ const (
 	// other four stay untouched throughout, so "nothing else moved" is
 	// checkable rather than asserted.
 	subjectPlugin = "example-plugin"
-	// Its sidecar's Compose service, and the origin its build-owned manifest
-	// names. altOrigin is another *allowlisted* origin — the requeue branch
+	// Its Compose service, and the origin its deployment configuration stamps
+	// into the manifest at announce time (BR-AS71). Before Phase 14 this named
+	// the plugin's announcer sidecar; the sidecar is now the plugin's own
+	// process, so the service to stop is the plugin itself. The sequence below
+	// is unchanged — same nine steps, same four-plugin control group.
+	// altOrigin is another *allowlisted* origin — the requeue branch
 	// turns on crossing an origin, not on being refused by the allowlist, and
 	// an unallowlisted URL would be rejected before the branch was reached.
-	subjectService = "example-plugin-announcer"
+	subjectService = "example-plugin-frontend"
 	homeOrigin     = "http://localhost:7111"
 	altOrigin      = "http://localhost:7113"
 )
@@ -178,8 +181,16 @@ func (h *harness) compose(args ...string) (string, error) {
 // the sequence announces as a *different* key or a *different* manifest
 // without editing anything the repo owns: the Compose service keeps its own
 // mounts, and the override lives only for the step that needs it.
-func (h *harness) spawn(name string, mounts ...string) error {
+// spawn starts a one-shot publisher over the plugin's own Compose service.
+// env overrides that service's deployment configuration for this container
+// only — since BR-AS71 the public origin is deployment configuration rather
+// than a manifest field, so "the publisher moved origin" is expressed here and
+// not by rewriting the manifest the plugin was built with.
+func (h *harness) spawn(name string, env []string, mounts ...string) error {
 	args := []string{"run", "-d", "--no-deps", "--name", name}
+	for _, e := range env {
+		args = append(args, "-e", e)
+	}
 	for _, m := range mounts {
 		args = append(args, "-v", m)
 	}
@@ -245,9 +256,9 @@ func (h *harness) reset() error {
 		return err
 	}
 	if _, err := h.compose("restart",
-		"example-plugin-announcer", "example-plugin-slow-announcer",
-		"example-plugin-unreachable-announcer", "example-plugin-activate-throws-announcer",
-		"example-plugin-incompatible-announcer"); err != nil {
+		"example-plugin-frontend", "example-plugin-slow-frontend",
+		"example-plugin-unreachable-announcer", "example-plugin-activate-throws-frontend",
+		"example-plugin-incompatible-frontend"); err != nil {
 		return err
 	}
 	return nil
@@ -317,57 +328,4 @@ func (h *harness) newSigningKey(name string) (public, path string, err error) {
 		return "", "", err
 	}
 	return public, path, nil
-}
-
-// reOrigin rewrites only the manifest's remote origin, leaving every other
-// byte alone. Kept pure and separate because it is the one transformation the
-// requeue step depends on being exactly right: change anything else and a
-// failed assertion no longer means what it says.
-func reOrigin(manifest []byte, origin string) ([]byte, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(manifest, &fields); err != nil {
-		return nil, err
-	}
-	rawRemote, ok := fields["remote"]
-	if !ok {
-		return nil, errors.New("manifest has no remote")
-	}
-	var remote map[string]json.RawMessage
-	if err := json.Unmarshal(rawRemote, &remote); err != nil {
-		return nil, err
-	}
-	var url string
-	if err := json.Unmarshal(remote["url"], &url); err != nil {
-		return nil, err
-	}
-	path, err := pathOf(url)
-	if err != nil {
-		return nil, err
-	}
-	if remote["url"], err = json.Marshal(origin + path); err != nil {
-		return nil, err
-	}
-	rewritten, err := json.Marshal(remote)
-	if err != nil {
-		return nil, err
-	}
-	fields["remote"] = rewritten
-	return json.Marshal(fields)
-}
-
-// pathOf is the part of a remote URL after its origin — everything from the
-// third slash on. Written out rather than reached for net/url, so that a URL
-// this cannot read fails loudly here instead of silently producing an origin
-// with no path and a requeue assertion that means nothing.
-func pathOf(raw string) (string, error) {
-	scheme := strings.Index(raw, "://")
-	if scheme < 0 {
-		return "", fmt.Errorf("remote url %q has no scheme", raw)
-	}
-	rest := raw[scheme+3:]
-	slash := strings.Index(rest, "/")
-	if slash < 0 {
-		return "", fmt.Errorf("remote url %q has no path", raw)
-	}
-	return rest[slash:], nil
 }

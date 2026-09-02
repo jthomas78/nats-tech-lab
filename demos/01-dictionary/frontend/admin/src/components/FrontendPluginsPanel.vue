@@ -294,7 +294,7 @@ watch(usePlatformConnection().epoch, load)
             <th style="width: 6%">Shell API</th>
             <th style="width: 11%">Route prefix</th>
             <th style="width: 11%">Contributions</th>
-            <th style="width: 6%">Class</th>
+            <th style="width: 8%">Withdrawal</th>
             <th style="width: 9%">Source</th>
             <th style="width: 15%">State</th>
             <th style="width: 13%">Manifest</th>
@@ -323,7 +323,11 @@ watch(usePlatformConnection().epoch, load)
               <span class="tier mono" data-testid="entry-lifecycle">{{ lifecycleOf(e) }}</span>
             </td>
             <td>
-              <span class="tier mono" data-testid="entry-source">{{ e.source || 'unknown' }}</span>
+              <span
+                class="tier mono"
+                :class="{ announced: e.source === 'announced' }"
+                data-testid="entry-source"
+              >{{ e.source || 'unknown' }}</span>
               <!-- Who and when, on the announced rows only. Approving an
                    announcement is a decision about a publisher, and "how long
                    has this been sitting here" is the other half of it. -->
@@ -430,7 +434,7 @@ watch(usePlatformConnection().epoch, load)
         </table>
         <p class="lab-muted note">
           Every accepted write raises the revision and publishes on
-          <span class="mono">notify._platform.registry.frontend-plugins.changed</span>.
+          <span class="mono">notify._platform.mfe-registry.frontend-plugins.changed</span>.
         </p>
       </div>
     </div>
@@ -525,11 +529,29 @@ watch(usePlatformConnection().epoch, load)
   gap: 0.875rem;
 }
 /* Four stats on one grid, matching the Phase 2 mockup's rhythm: a small
-   uppercase key, the value, and a note that says what the value means. */
+   uppercase key, the value, and a note that says what the value means.
+   Capped rather than stretched: at 1920 four 1fr columns put ~30rem of empty
+   panel between a value and its neighbour, and the four stop reading as one
+   snapshot. A hairline before each stat after the first does the separating
+   that the gap used to, so the strip stays one instrument. */
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 20rem));
   gap: 1.5rem;
+}
+.stat + .stat {
+  padding-left: 1.5rem;
+  border-left: 1px solid var(--lab-panel-border);
+}
+@media (max-width: 1100px) {
+  .stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 1rem;
+  }
+  .stat:nth-child(odd) {
+    padding-left: 0;
+    border-left: none;
+  }
 }
 .stat .k {
   font-size: 10px;
@@ -589,6 +611,14 @@ watch(usePlatformConnection().epoch, load)
   border: 1px solid var(--lab-panel-border);
   border-radius: 3px;
   color: var(--p-text-muted-color);
+}
+/* `announced` is the one source an operator has to act on — every other row
+   in this column arrived by a decision somebody already made. It is still a
+   fact rather than a judgement, so it keeps the tier shape and takes the
+   accent rather than a status tone, which would read as a second State. */
+.tier.announced {
+  color: var(--lab-accent);
+  border-color: var(--lab-accent);
 }
 .id {
   display: block;

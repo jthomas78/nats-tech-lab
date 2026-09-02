@@ -57,13 +57,14 @@ type Module struct {
 	healthHTTP    *healthhttp.Client
 }
 
-// healthHint publishes the health plane's hint. A tiny adapter rather than
+// healthPublisher publishes the health plane's snapshot. A tiny adapter rather than
 // handing the checker a Notifier, so the checker keeps knowing nothing about
-// NATS and a deployment without a broker simply has no hinter (BR-AS64).
-type healthHint struct{ notifier *natsnotify.Notifier }
+// NATS and a deployment without a broker simply has no publisher (BR-AS64).
+type healthPublisher struct{ notifier *natsnotify.Notifier }
 
-func (h healthHint) HealthChanged(ctx context.Context) {
-	h.notifier.Publish(ctx, notify.HealthChanged(), nil)
+func (h healthPublisher) HealthChanged(ctx context.Context, snapshot application.HealthSnapshot) {
+	payload, _ := json.Marshal(snapshot) // this closed struct contains no fallible JSON values
+	h.notifier.Publish(ctx, notify.HealthChanged(), payload)
 }
 
 // MountHTTP mounts the registry's HTTP surface, which is exhaustively empty:
@@ -179,7 +180,7 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 	// not own (BR-AS62/AS65).
 	var health *application.HealthChecker
 	if nc != nil {
-		health = application.NewHealthChecker(m.Service, healthOrigins, healthTargets, m.healthHTTP, healthnats.New(nc), healthHint{notifier: notifier})
+		health = application.NewHealthChecker(m.Service, healthOrigins, healthTargets, m.healthHTTP, healthnats.New(nc), healthPublisher{notifier: notifier})
 	} else {
 		health = application.NewHealthChecker(m.Service, healthOrigins, healthTargets, m.healthHTTP, healthnats.New(nil))
 	}

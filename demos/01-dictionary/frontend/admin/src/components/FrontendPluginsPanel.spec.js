@@ -288,7 +288,7 @@ describe('FrontendPluginsPanel', () => {
     const panel = w.get('[data-testid="write-effects-panel"]')
     expect(panel.text()).toContain('indexed live')
     expect(panel.text()).toContain('never applied under the user')
-    expect(panel.text()).toContain('notify._platform.registry.frontend-plugins.changed')
+    expect(panel.text()).toContain('notify._platform.mfe-registry.frontend-plugins.changed')
   })
 })
 

@@ -136,7 +136,7 @@ describe('createConnectionState reconnect lifecycle', () => {
     wsconnect.mockResolvedValue(f.conn)
     const state = makeState()
     await state.connect()
-    await expect(state.request('api._platform.registry.entries.upsert.v1', {})).rejects.toMatchObject({ conflict: true, code: 'stale-revision', body })
+    await expect(state.request('api._platform.mfe-registry.entries.upsert.v1', {})).rejects.toMatchObject({ conflict: true, code: 'stale-revision', body })
     await state.disconnect()
   })
 })

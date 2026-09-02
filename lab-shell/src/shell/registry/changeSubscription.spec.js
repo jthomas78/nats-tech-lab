@@ -39,7 +39,7 @@ describe('BR-AS28 — a change notification is a hint, never a payload', () => {
     const { sub, subscribe } = harness()
     sub.start()
 
-    expect(NOTIFY_SUBJECT).toBe('notify._platform.registry.frontend-plugins.changed')
+    expect(NOTIFY_SUBJECT).toBe('notify._platform.mfe-registry.frontend-plugins.changed')
     expect(subscribe).toHaveBeenCalledTimes(1)
     expect(subscribe.mock.calls[0][0]).toBe(NOTIFY_SUBJECT)
   })

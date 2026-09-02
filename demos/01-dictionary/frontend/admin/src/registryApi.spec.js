@@ -11,10 +11,10 @@ describe('BR-AS31 — registry curation uses the existing PLATFORM connection', 
     await setRegistryEntryEnabled('fleet', false, 1)
     await getRegistryAudit(200)
     expect(request.mock.calls).toEqual([
-      ['api._platform.registry.entries.curated.v1', {}],
-      ['api._platform.registry.entries.upsert.v1', { ifRevision: 0, entryId: 'fleet', entry: { id: 'fleet' } }],
-      ['api._platform.registry.entries.set-enabled.v1', { ifRevision: 1, entryId: 'fleet', enabled: false }],
-      ['api._platform.registry.audit.list.v1', { limit: 200 }],
+      ['api._platform.mfe-registry.entries.curated.v1', {}],
+      ['api._platform.mfe-registry.entries.upsert.v1', { ifRevision: 0, entryId: 'fleet', entry: { id: 'fleet' } }],
+      ['api._platform.mfe-registry.entries.set-enabled.v1', { ifRevision: 1, entryId: 'fleet', enabled: false }],
+      ['api._platform.mfe-registry.audit.list.v1', { limit: 200 }],
     ])
   })
 
@@ -28,11 +28,11 @@ describe('BR-AS31 — registry curation uses the existing PLATFORM connection', 
     await setPublisherKeyState('platform-team', 'UAKEY', 'revoked', 9)
     await transferPlugin('partner-co', 'fleet', 10)
     expect(request.mock.calls).toEqual([
-      ['api._platform.registry.publishers.list.v1', {}],
-      ['api._platform.registry.publishers.write.v1', { op: 'publisher-upsert', publisherId: 'platform-team', publisher: { id: 'platform-team', name: 'Platform Team' }, ifRevision: 7 }],
-      ['api._platform.registry.publishers.write.v1', { op: 'publisher-add-key', publisherId: 'platform-team', publicKey: 'UAKEY', ifRevision: 8 }],
-      ['api._platform.registry.publishers.write.v1', { op: 'publisher-set-key-state', publisherId: 'platform-team', publicKey: 'UAKEY', keyState: 'revoked', ifRevision: 9 }],
-      ['api._platform.registry.publishers.write.v1', { op: 'publisher-transfer', publisherId: 'partner-co', pluginId: 'fleet', ifRevision: 10 }],
+      ['api._platform.mfe-registry.publishers.list.v1', {}],
+      ['api._platform.mfe-registry.publishers.write.v1', { op: 'publisher-upsert', publisherId: 'platform-team', publisher: { id: 'platform-team', name: 'Platform Team' }, ifRevision: 7 }],
+      ['api._platform.mfe-registry.publishers.write.v1', { op: 'publisher-add-key', publisherId: 'platform-team', publicKey: 'UAKEY', ifRevision: 8 }],
+      ['api._platform.mfe-registry.publishers.write.v1', { op: 'publisher-set-key-state', publisherId: 'platform-team', publicKey: 'UAKEY', keyState: 'revoked', ifRevision: 9 }],
+      ['api._platform.mfe-registry.publishers.write.v1', { op: 'publisher-transfer', publisherId: 'partner-co', pluginId: 'fleet', ifRevision: 10 }],
     ])
   })
 

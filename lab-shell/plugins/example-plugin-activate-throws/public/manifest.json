@@ -8,7 +8,7 @@
   "routePrefix": "example-throws",
   "remote": {
     "kind": "federated",
-    "url": "http://localhost:7114/remoteEntry.js",
+    "url": "/remoteEntry.js",
     "name": "example_plugin_activate_throws",
     "module": "plugin"
   },

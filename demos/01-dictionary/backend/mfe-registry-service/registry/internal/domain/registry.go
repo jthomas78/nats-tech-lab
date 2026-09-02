@@ -398,15 +398,28 @@ func (a Allowlist) Origins() []string {
 	return out
 }
 
-// Permits reports whether rawURL's origin is configured. Scheme, host and
-// port all count: an https entry does not bless the same host over http.
+// Permits reports whether rawURL is same-origin by construction or its
+// absolute origin is configured. Scheme, host and port all count: an https
+// entry does not bless the same host over http. Protocol-relative URLs are
+// neither form and are refused (BR-AS72).
 func (a Allowlist) Permits(rawURL string) bool {
+	if sameOriginPath(rawURL) {
+		return true
+	}
 	o, ok := originOf(rawURL)
 	if !ok {
 		return false
 	}
 	_, allowed := a.origins[o]
 	return allowed
+}
+
+func sameOriginPath(raw string) bool {
+	if !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "" && u.Host == "" && u.Opaque == ""
 }
 
 // Check is Permits for a whole entry, as an error, so a refusal reads the

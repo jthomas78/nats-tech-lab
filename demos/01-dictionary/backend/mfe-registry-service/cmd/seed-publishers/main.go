@@ -5,7 +5,7 @@
 //
 // Like its sibling seed-registry, this is an operator client: it mints the
 // same restricted PLATFORM credential the Admin UI uses and calls the same
-// api._platform.registry.publishers.write.v1 endpoint the Registry Publishers
+// api._platform.mfe-registry.publishers.write.v1 endpoint the Registry Publishers
 // panel calls. There is no boot-time trust bypass and no second write path —
 // a seeded row obeys the revision check and leaves the same audit trail as an
 // operator's own write (decision 7 of app-shell Phase 13).
@@ -76,7 +76,7 @@ func run() error {
 		return fmt.Errorf("%s: %w", *file, err)
 	}
 
-	nc, err := connect(*baseURL, *natsURL)
+	nc, err := connect(*baseURL, *natsURL, *waitFor, *waitStep)
 	if err != nil {
 		return err
 	}
@@ -265,25 +265,65 @@ type client struct {
 	request func(subject string, payload []byte) ([]byte, error)
 }
 
-func connect(base, natsURL string) (*nats.Conn, error) {
+func connect(base, natsURL string, waitFor, waitStep time.Duration) (*nats.Conn, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
+	// accounts-service starts its HTTP listener after its own migrations and
+	// NATS connect, and this one-shot starts beside that container. Minting
+	// the credential is a readiness race, never a decision to retry, so it
+	// runs on the same bounded schedule as the registry read below; a refused
+	// *write* is the only thing that still fails fast.
+	deadline := time.Now().Add(waitFor)
+	var jwt, seed string
+	for {
+		minted, err := mintCredential(httpClient, base)
+		if err == nil {
+			jwt, seed = minted.jwt, minted.seed
+			break
+		}
+		if time.Now().Add(waitStep).After(deadline) {
+			return nil, err
+		}
+		time.Sleep(waitStep)
+	}
+	// This short-lived operator CLI fails fast, unlike a long-lived service.
+	return nats.Connect(natsURL, nats.Name("seed-publishers"), nats.UserJWTAndSeed(jwt, seed), nats.NoReconnect())
+}
+
+// mintCredential performs one fetch-and-decode of the operator connect info.
+// A non-200 answer and a malformed body are both errors; nothing here decides
+// whether the attempt should be retried.
+func mintCredential(httpClient *http.Client, base string) (struct {
+	jwt  string
+	seed string
+}, error) {
 	resp, err := httpClient.Get(base + "/api/auth/adminConnectInfo")
 	if err != nil {
-		return nil, err
+		return struct {
+			jwt  string
+			seed string
+		}{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("minting an operator credential returned %s", resp.Status)
+		return struct {
+			jwt  string
+			seed string
+		}{}, fmt.Errorf("minting an operator credential returned %s", resp.Status)
 	}
 	var info struct {
 		JWT  string `json:"jwt"`
 		Seed string `json:"nkeySeed"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return nil, err
+		return struct {
+			jwt  string
+			seed string
+		}{}, err
 	}
-	// This short-lived operator CLI fails fast, unlike a long-lived service.
-	return nats.Connect(natsURL, nats.Name("seed-publishers"), nats.UserJWTAndSeed(info.JWT, info.Seed), nats.NoReconnect())
+	return struct {
+		jwt  string
+		seed string
+	}{jwt: info.JWT, seed: info.Seed}, nil
 }
 
 // publisher and publisherKey are the read shape of the publishers document,

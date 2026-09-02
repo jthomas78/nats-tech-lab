@@ -206,6 +206,39 @@ Examples: `rpc.acme-northdiv.refdata.item.get.v1` (service-to-service),
 > a doc needs to be unambiguous it uses the hyphenated business-unit form
 > (`acme-northdiv`), which can only be a context value.
 
+#### `{service}` is the service name minus `-service` (Phase 14 decision 13)
+
+The rule is mechanical: take the module's directory name and drop the `-service`
+suffix. `refdata-service` → `refdata`, `shipping-service` → `shipping`,
+`accounts-service` → `accounts`, `pricing-service` → `pricing`. That is why the
+token can be read positionally by a parser and why a grant can be written
+against a service without a lookup table.
+
+`mfe-registry-service` was the one deviation. Its twelve subjects were minted as
+`_platform.registry.*` — the module is `mfe-registry-service`, so the token
+should always have been `mfe-registry`. `registry` also reads as a role rather
+than as a service, which leaves nowhere to put a second registry.
+
+Phase 14 task 14a renamed position 3 to `mfe-registry` across all twelve
+subjects. The live service-token mapping is therefore:
+
+| Service module | Position-3 token |
+|---|---|
+| `mfe-registry-service` | `mfe-registry` |
+
+Two things were deliberately left
+alone:
+
+- **`frontend-plugins` is not shortened.** It is position 4, the entity, and
+  entity naming is governed by § 2.5, not by this rule.
+- **`rpc._platform.health.{service}.ready.v1` does not change.** Its position-3
+  token is `health`, a platform-wide readiness family that no single module
+  owns, and its `{service}` sits in position 4.
+
+Plan archives and the historical mockups under `lab-shell/diagrams/phase2-*`
+and `phase3-*` keep the old spelling — they are a record of what was built at
+the time, not a specification.
+
 ### 2.3 `{context}` — company / business unit, never tenant, never region
 
 `{context}` identifies **which company, or which business unit within a
@@ -514,12 +547,12 @@ wildcard grant:
 
 | Subject | Credential / purpose |
 | --- | --- |
-| `api._platform.registry.frontend-plugins.read.v1` | `lab-shell` only; `{heldRevision}` → unchanged/document/degraded |
-| `api._platform.registry.entries.curated.v1` | Admin; includes withheld entries and configured origins |
-| `api._platform.registry.entries.upsert.v1` | Admin; `{ifRevision, entryId, entry}` |
-| `api._platform.registry.entries.set-enabled.v1` | Admin; `{ifRevision, entryId, enabled}`, never creates |
-| `api._platform.registry.audit.list.v1` | Admin; `{limit}` |
-| `notify._platform.registry.frontend-plugins.changed` | Shell subscription; committed `{revision}` hint only |
+| `api._platform.mfe-registry.frontend-plugins.read.v1` | `lab-shell` only; `{heldRevision}` → unchanged/document/degraded |
+| `api._platform.mfe-registry.entries.curated.v1` | Admin; includes withheld entries and configured origins |
+| `api._platform.mfe-registry.entries.upsert.v1` | Admin; `{ifRevision, entryId, entry}` |
+| `api._platform.mfe-registry.entries.set-enabled.v1` | Admin; `{ifRevision, entryId, enabled}`, never creates |
+| `api._platform.mfe-registry.audit.list.v1` | Admin; `{limit}` |
+| `notify._platform.mfe-registry.frontend-plugins.changed` | Shell subscription; committed `{revision}` hint only |
 
 The shell connects after first paint; every reconnect reads unconditionally.
 Operator refusals keep shared `error`/`conflict` semantics with additive revision

@@ -56,7 +56,7 @@ var _ = Describe("BR-AS65 — health is read on its own subject", func() {
 	})
 
 	It("is a subject of its own, on the shell's list and not the operator's", func() {
-		Expect(mferegistry.HealthRead).To(Equal("api._platform.registry.frontend-plugins.health.v1"))
+		Expect(mferegistry.HealthRead).To(Equal("api._platform.mfe-registry.frontend-plugins.health.v1"))
 		Expect(mferegistry.Subjects()).To(ContainElement(mferegistry.HealthRead))
 		Expect(mferegistry.Operator()).ToNot(ContainElement(mferegistry.HealthRead))
 	})

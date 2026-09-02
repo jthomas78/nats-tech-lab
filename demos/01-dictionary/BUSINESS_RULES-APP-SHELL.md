@@ -399,10 +399,10 @@ aligned or explicitly exempted as part of Phase 1a.
 | Route contributions → vue-router records | `lab-shell/src/shell/routing/` |
 | Pinia store-id namespacing (`{plugin-id}/{store-id}`) | `lab-shell/src/shell/state/` |
 | Build-time graph/lint checks (BR-AS09, BR-AS14) | `lab-shell/eslint.config.js` (editor-time) + `lab-shell/tools/frameOwnership.js` (whole-graph; run by its spec in `npm test` and standalone in `npm run lint`) |
-| Curated registry endpoint (BR-AS01) | `mfe-registry-service/registry/` — `api._platform.registry.*` subjects, served by its own process since 2026-08-31. The subject list is `shared/mferegistry`, read by this service and by `accounts-service`, which grants the subjects when it mints a browser credential (BR-AS25/AS27). |
+| Curated registry endpoint (BR-AS01) | `mfe-registry-service/registry/` — `api._platform.mfe-registry.*` subjects, served by its own process since 2026-08-31. The subject list is `shared/mferegistry`, read by this service and by `accounts-service`, which grants the subjects when it mints a browser credential (BR-AS25/AS27). |
 | Demo catalog, as a plugin like any other (BR-AS15) | `lab-shell/plugins/demo-catalog/` — independent federated package on **7112**, routes under `/demos` |
 | App shell deployment | `lab-shell/Dockerfile` + `lab-shell/nginx.conf` — containerised on **7110** as `app-shell-frontend`; the dev server publishes the same port. Its nginx proxies exactly two paths: the single exact `/api/auth/shellConnectInfo` mint route and the `/nats` WebSocket. Every other `/api/` path returns 404 rather than the SPA page, so a misroute is loud. |
-| Example proof plugin (BR-AS15) | `lab-shell/plugins/example-plugin/` — its own build, its own image and `nginx.conf`, served on **7111** as `example-plugin-frontend` (dev server on the same port), curated by `demos/01-dictionary/registry.json` (Phase 1b) |
+| Example proof plugin (BR-AS15) | `lab-shell/plugins/example-plugin/` — its own build and image, with build output served and announced by the shared Go `mfe-plugin-host` on **7111** as `example-plugin-frontend` (dev server on the same port). Its path-only manifest is signed and announced at runtime; it is not a preload row. |
 | Module Federation loader adapter (BR-AS03) | `lab-shell/src/shell/loader/federatedAdapter.js` (Phase 1b) |
 | Contribution rendering, failure isolation, placeholders (BR-AS04, AS07) | `lab-shell/src/shell/ui/` (Phase 1b) |
 | No-host-rebuild proof (BR-AS03) | `lab-shell/tools/hostBundleFingerprint.mjs` (Phase 1b) |
@@ -589,7 +589,7 @@ survive the Phase 6 move (decision 40).
   is refused, not merged. Two curation decisions are never combined by the
   server.
 - **BR-AS19 — A registry change notifies; ordinary changes offer reload.** A revision change
-  is published on `notify._platform.registry.frontend-plugins.changed`, and
+  is published on `notify._platform.mfe-registry.frontend-plugins.changed`, and
   becomes visible to a running shell through a conditional NATS read triggered
   by that hint. Every reconnect reads unconditionally; there is no focus or
   interval watcher and no HTTP fallback (Phase 4, decisions 55–58). A shell with an
@@ -652,7 +652,7 @@ survive the Phase 6 move (decision 40).
   filtered again, which put a lie in the domain to satisfy an adapter.
   `domain.Withdrawal` now carries the mark and the id only.
 - **BR-AS21 — No self-activation.** A service may announce its own entry over
-  `rpc._platform.registry.entries.announce.v1` when it presents a verified
+  `rpc._platform.mfe-registry.entries.announce.v1` when it presents a verified
   publisher key. It may never enable an entry, nor alter `enabled`, `lifecycle`
   or `revision` on any entry, including its own. An announced entry that is not
   already enabled lands `announced` and is inert until an operator enables it.
@@ -736,7 +736,7 @@ answers are in `.claude/plans/Application-Shell-Microfrontend-Plan.md`.
   operator's write subjects, and the rule would stop being assertable because
   the profile is shared with a writer.
 - **BR-AS28 — A change notification is a hint, never a payload.** The shell
-  reacts to `notify._platform.registry.frontend-plugins.changed` by performing a
+  reacts to `notify._platform.mfe-registry.frontend-plugins.changed` by performing a
   revision-conditional read. It never installs a catalog from the message body,
   and a message whose revision matches what it already holds changes nothing.
   Two reasons, both load-bearing: the message arrives on a subject with no
@@ -901,11 +901,15 @@ stated rather than implied.
 - **BR-AS64 — Missing freshness becomes unknown/stale.** After 15 seconds without a fresh health
   observation, show unknown/stale with last-check time; before the first check, show unknown with
   no invented timestamp. Assess freshness per signal. Duplicate or old snapshots never refresh
-  their check times. Loss of transport or reconnect cannot leave old health looking current and
-  cannot remove content. Explicit not-configured/not-applicable states are not fabricated health.
+  their check times. The central checker pushes a full timestamped snapshot after every completed
+  probe pass, including stable states whose last-check time advanced. The shell reads once on start
+  and each connection epoch, reconciles on a slow jittered interval, and ages/repaints locally
+  without a five-second network poll. Loss of transport or reconnect cannot leave old health looking
+  current and cannot remove content. Explicit not-configured/not-applicable states are not fabricated health.
 - **BR-AS65 — Health observations are separate from catalogue state.** Share read-only health
-  snapshots and update hints through dedicated NATS subjects, with initial/catch-up/reconnect reads.
-  A hint is not a fresh observation. Health never changes catalogue revision, signed bytes, approval,
+  snapshots through dedicated request and push NATS subjects, with initial/catch-up/reconnect reads.
+  The push and read use the same closed `{ok, asOf, plugins}` shape; Core NATS loss is repaired by a
+  reconnect read and a 45–75 second jittered reconciliation. Health never changes catalogue revision, signed bytes, approval,
   curation audit, drift results or reload offers. Responses contain safe result codes/times, not
   configured addresses or credentials. Probe work cannot block catalogue reads/writes.
 
@@ -921,18 +925,18 @@ rule covered by tests of a look-alike mechanism such as shell connection debounc
 | --- | --- | --- |
 | BR-AS52 | **Done 2026-09-01.** `registry/lifecycle_test.go`: the two classes are the only ones a write may state, an unclassified row is read as static, and a migration backfills a legacy row without touching enablement, withholding, the signed bytes or the revision; `phase8_integration_test.go` amended so the unclassified case asserts the backfill. `manifestSchema.spec.js`: the admitted class is the registry's, an unstated or unrecognised one is admitted as static, and the source never implies it. `FrontendPluginsPanel.spec.js`: the class is shown per row, edited from the drawer, sent with the write, and the drawer says the change waits for a reload. `registryDiff.spec.js`: a class edit is a reload offer, and a backfilled `static` against an unstated held class is no change at all. | 5a |
 | BR-AS53 | **Done 2026-09-01** in `registry/operator_withdrawal_test.go` (registry) and `registry/registryDiff.classSequences.spec.js` (shell): the class is a behaviour the REGISTRY implements, and the shell sees only the two documents it produces — a disabled static entry leaves the document, and an absence is a reload OFFER that takes nothing away, while a disabled dynamic entry is served as a withdrawal marker and applied. `Document.Readable` checks `Withdrawn` before `Enabled`, because an operator disable leaves the row `enabled = false` and `withdrawn = true` together and an Enabled check first would turn the marker back into plain absence. An entry no operator ever approved is never marked, so nothing is said about a plugin that was never running. Re-enabling clears the withdrawal and serves the whole entry, and the withdrawal survives a restart. Class-change sequences: a class edit under a running plugin is an ordinary reload offer; a class edit and a disable arriving in the same read are ONE piece of news, not two; BR-AS49 revocation still outranks both. | 5a/5b |
-| BR-AS54 | **Backend done 2026-09-01** in `registry/unregister_test.go` (domain) and `registry/unregister_transport_test.go` (broker): the action, the plugin, the publisher and the signing key are all inside the signed bytes, so an announcement replayed here is refused as "not an unregister" and a signature cannot be lifted onto a request naming another key; ownership, key state and signature reuse Phase 7's gate unchanged, and that gate runs before existence is revealed, so a refusal cannot be used to enumerate registered ids; an older release is refused, the release the running announcement spent is refused as reused, and a duplicate delivery is a no-op at the same revision. The subject `rpc._platform.registry.entries.unregister.v1` is on neither browser list. A withdrawn entry is served to the shell as a marker, not by vanishing, because absence is not authoritative. Trust revoked between announce and unregister is refused at commit time and writes nothing; an acceptance audits under the publisher key and a refusal moves no revision. **Still to do in 5b:** the shell half — a service stop or missing data must never withdraw. Also open: the denial is argued from the subject lists, not yet proven against a real browser credential. | 5b |
+| BR-AS54 | **Backend done 2026-09-01** in `registry/unregister_test.go` (domain) and `registry/unregister_transport_test.go` (broker): the action, the plugin, the publisher and the signing key are all inside the signed bytes, so an announcement replayed here is refused as "not an unregister" and a signature cannot be lifted onto a request naming another key; ownership, key state and signature reuse Phase 7's gate unchanged, and that gate runs before existence is revealed, so a refusal cannot be used to enumerate registered ids; an older release is refused, the release the running announcement spent is refused as reused, and a duplicate delivery is a no-op at the same revision. The subject `rpc._platform.mfe-registry.entries.unregister.v1` is on neither browser list. A withdrawn entry is served to the shell as a marker, not by vanishing, because absence is not authoritative. Trust revoked between announce and unregister is refused at commit time and writes nothing; an acceptance audits under the publisher key and a refusal moves no revision. **Still to do in 5b:** the shell half — a service stop or missing data must never withdraw. Also open: the denial is argued from the subject lists, not yet proven against a real browser credential. | 5b |
 | BR-AS55 | **Backend done 2026-09-01** in `registry/unregister_test.go` and `registry/unregister_store_test.go`: an accepted unregister sets a store-owned `withdrawn` beside `enabled` and leaves approval, row, contributions, signed manifest and history alone; it advances the release so a stale return cannot undo it; it is refused outright for an unknown id; a static or unclassified entry is ignored, because curation outranks a publisher; repeat withdrawal is safe. A same-origin return clears the withdrawal, an operator-disabled entry stays disabled and still withdrawn, and a cross-origin return goes back for approval without restoring availability. `withdrawn` and `release` are real Postgres columns: both survive a restart, and a SIGNED entry withdraws without its signed bytes being rewritten — reading either from the manifest would forget the withdrawal and let the stale announcement back in. An operator enable clears the withdrawal, disable does not set one, and a withdrawal on a stale revision is refused. | 5b |
 | BR-AS56 | **Done 2026-09-01** in `contributions/contributionWithdrawal.spec.js`, `registry/pluginStatus.withdrawal.spec.js`, `loader/pluginLoader.withdrawal.spec.js` and the mounted `liveWithdrawal.spec.js`: a withdrawal takes away the plugin's routes, navigation and footer items and nothing else — siblings stay, including at a shared extension point; repeating it is safe, a marker for a plugin the shell never held is ignored, and a re-index of the same document cannot put it back. The plugin reads `withdrawn`, not `disabled`. An import or activation finishing late keeps its module and records `active` as the status it is owed, but never reaches the screen; starting a load while withdrawn is refused. **No claim is made about disposing plugin resources or cancelling its callbacks.** **The router half is 5c:** the route records are still registered, so a deep link into a withdrawn route still resolves. | 5b |
 | BR-AS57 | **Done 2026-09-01** in `routing/withdrawnRoutes.spec.js` (a real `createMemoryHistory` router) and `views/PluginWithdrawnView.spec.js`: the occupant keeps their URL and is shown a shell-owned view in place, while a `beforeEach` guard returns `false` for anyone navigating in — the route RECORD stays registered, because removing it would turn the path into a not-found and an unchanged return would have to re-register a route with a navigation already in flight. Navigating away clears the exception; a return makes the guard pass again with no re-registration. The view shows curated metadata only, never the remote URL, and offers no retry. | 5c |
 | BR-AS58 | **Done 2026-09-01** in `contributions/slotWithdrawal.spec.js`: withdrawing the owner of an extension point suspends the placements aimed at that point and leaves the contributors running everywhere else — a suspension is NOT a refusal, because the contributor is not at fault and the Plugins screen must not report a rejection against it. The placement is owed back exactly once: restoration re-places only the slots the returning plugin owns, and skips a contributor that is itself withdrawn. Host-owned slots are untouched. | 5c |
 | BR-AS59 | **Shell half done 2026-09-01** in `registry/registryDiff.withdrawal.spec.js`, `contributions/contributionWithdrawal.spec.js`, `loader/pluginLoader.withdrawal.spec.js` and `liveWithdrawal.spec.js`: a return counts only when the validated definition is deep-equal to the one the shell is running — a moved remote or any edit is a reload offer instead, and equality is what licenses reusing the cached module, so `activate()` runs once in total across withdrawal and return. A never-loaded plugin returns to `available` and stays lazy. Restoration re-runs placement rather than replaying the old decision, so a contribution the session may no longer see stays absent and the plugin stays withdrawn; repeated events place nothing twice. A degraded document may withdraw but never restore. **Slot-owner restoration is 5c.** | 5b/5c |
 | BR-AS60 | **Done 2026-09-01** in `registry/health_transport_test.go` (registry) and `healthText.spec.js`, `healthPlane.spec.js`, `PluginsView` / `App.vue` rendering (shell): the two signals are separate fields in the reply and two separate columns on screen, so a plugin whose UI is served while its API is down reads that way instead of as one merged verdict. A cause is one short lowercase word from a closed vocabulary — a structural spec asserts the reply's field set, and the browser refuses any cause outside `^[a-z][a-z0-9-]{0,31}$`, so a host, a port or a message cannot leave the process. The status is inline: no modal, contribution order and availability are untouched, and a healthy endpoint with a broken asset still shows the existing loading error, because health says the origin is serving and never that the code works. `unavailable` renders as a warning, not a failure — the plugin has not failed, something it depends on is not answering. In the navigation the load-status dot wins, and that precedence is now one function — `registry/navMark.js`, specced in `navMark.spec.js` — rather than the order of two template conditionals, because two marks in one corner compete rather than inform. | 5d |
-| BR-AS61 | **Done 2026-09-01** in `registry/health_frontend_test.go` and `registry/internal/healthhttp/client.go`: the probe is a bounded `GET /healthz` against a DEPLOYMENT-mapped target (`REGISTRY_HEALTH_ORIGINS`), read separately from `REGISTRY_FETCH_ORIGINS` so an operator may watch availability without granting a manifest fetch. An unmapped or denied origin is `not configured`, never healthy. Non-success, malformed, oversized, redirected and timed-out answers all end in the closed cause vocabulary rather than an error. Probes run on their own worker and are joined per pass, so a slow probe never delays a catalogue read, and drift is untouched — the two workers share no state. The five plugin nginx images gained a `/healthz` location with `no-store` and deliberately no CORS header (server-to-server only). | 5d |
+| BR-AS61 | **Done 2026-09-01; host contract migrated 2026-09-02** in `registry/health_frontend_test.go`, `registry/internal/healthhttp/client.go`, and `shared/mfe-plugin-host/server_test.go`: the probe is a bounded `GET /healthz` against a DEPLOYMENT-mapped target (`REGISTRY_HEALTH_ORIGINS`), read separately from `REGISTRY_FETCH_ORIGINS` so an operator may watch availability without granting a manifest fetch. An unmapped or denied origin is `not configured`, never healthy. Non-success, malformed, oversized, redirected and timed-out answers all end in the closed cause vocabulary rather than an error. The Go plugin host preserves the nginx contract: no-store JSON, no CORS on `/healthz`, and health remains available with an empty asset root. | 5d/14b |
 | BR-AS62 | **Done 2026-09-01** in `registry/health_backend_test.go`, `shared/natsready/natsready_test.go` (6 tests) and the bootstrap grant: a backend target is a deployment-configured service id (`REGISTRY_HEALTH_TARGETS`) and never anything from a manifest — a publisher naming its own probe target could point the registry at a service it does not own and read the answer back through the decoration. An absent plugin is `not configured`; a plugin mapped to an empty list is `not applicable`; both are configuration answers and never age. Mixed dependencies aggregate to the worst signal. Presence is not readiness: `natsready` runs the real check (`db.PingContext`) on every ask with a 2-second deadline and caches nothing, so a service holding its NATS connection open while its database is gone answers not-ready. The subject `rpc._platform.health.<service>.ready.v1` is in neither browser profile, and the registry's grant is one token wide, not `>`. | 5d |
 | BR-AS63 | **Done 2026-09-01** in `registry/health_worker_test.go` (domain, fake clock) and `registry/health_hint_test.go`, which drives the application layer through the exported `HealthChecker.Step(ctx, now)`: every decision — due, timeout, first versus second failure, an intervening success resetting the count, one success recovering, initial `unknown`, independent counters per target — takes a `now` a spec supplies. `Run` owns the ticker and nothing else. Probes in a pass run concurrently and are joined before the pass ends, so a cancelled shutdown cannot leave one writing into a stopped worker. Numbers as built: interval 5s, timeout 2s, threshold 2 failures. | 5d |
-| BR-AS64 | **Done 2026-09-01** in `registry/health_hint_test.go`, `healthPlane.spec.js` (18 specs) and `healthText.spec.js` (9 specs): ageing happens at READ time — `worker.Snapshot(now)` in Go and `signalsFor(id)` in the browser — so a reading older than 15 seconds stops claiming to be current without anything waking up, and there is no interval to leak. `unknown` (never looked) and `stale` (true once) stay different words. Configuration states never age. The browser restates `HEALTH_FRESHNESS_MS = 15_000` locally, so a registry cannot make a browser trust a reading for longer. The hint carries nothing to install and is sent at most once per pass, and only when the SERVED snapshot moved — two failures below the threshold are the same news as none. Duplicate and out-of-order answers are dropped by `asOf`; a failed read keeps the last reading and lets it age. **Extended 2026-09-02:** `createHealthPlane` takes an `onChange` seam and fires it after each read that installed readings, so a hint repaints the screen at the moment it lands. Before it, only the host's 5-second ageing interval copied the snapshot, and a hint-driven change sat up to that whole interval behind the truth. It is a notification, never a payload — the caller reads `snapshot()`, because a value handed out here would not age. A subscriber that throws never fails the read. | 5d |
-| BR-AS65 | **Done 2026-09-01** in `registry/health_transport_test.go` (7 specs) and `browserrpc/adapter_test.go`: health is its own subject (`api._platform.registry.frontend-plugins.health.v1`) with its own hint and its own reply shape, and the grant test iterates the exhaustive subject list so a new subject cannot ship undecided. The reply carries no revision, no entries and no signed bytes — a probe cannot move a revision, write an audit row, change approval, touch a manifest or offer a reload, because that code is not reachable from the checker, which holds a read-only `Curated` interface. An unwired checker answers with an empty snapshot and `ok`, never an error. The read is a memory snapshot, so a slow probe never blocks the catalogue. The shell reads on connect, on hint, on reconnect and on a 5-second floor, and a coalescing `pending` flag means a hint arriving mid-read is not dropped. | 5d |
+| BR-AS64 | **Done 2026-09-01; push transport revised 2026-09-02** in `registry/health_hint_test.go`, `healthPlane.spec.js` and `healthText.spec.js`: ageing is evaluated at read time by `worker.Snapshot(now)` in Go and `signalsFor(id)` in the browser. A local five-second repaint exposes staleness without network traffic. `unknown` (never looked) and `stale` (true once) stay different words; configuration states never age. The checker broadcasts the full served snapshot after every completed probe pass, including stable observations whose `lastCheckAt` advanced. The browser installs only a strictly newer millisecond `asOf`, so duplicate/out-of-order pushes cannot renew freshness. A failed reconciliation keeps the last reading and lets it age; a throwing screen subscriber cannot fail the health plane. | 5d |
+| BR-AS65 | **Done 2026-09-01; push transport revised 2026-09-02** in `registry/health_transport_test.go`, `registry/health_hint_test.go`, `healthPlane.spec.js` and `browserrpc/adapter_test.go`: health uses its own request (`api._platform.mfe-registry.frontend-plugins.health.v1`) and push (`notify._platform.mfe-registry.frontend-plugins.health`) subjects with one `{ok, asOf, plugins}` snapshot shape. The shape carries no catalogue revision, entries or signed bytes, and the checker holds only a read-only `Curated` interface. An unwired checker answers with an empty snapshot and `ok`; reads touch memory and never wait on probes. The shell reads on startup and every connection epoch, accepts central pushes during the session, and makes only a 45–75 second jittered reconciliation request. Payload-free legacy notifications still trigger a coalesced read during rolling restarts. | 5d |
 
 **Completion evidence (2026-09-01):** registry Ginkgo 358/358 with 0 Skipped against real Postgres
 and an in-process broker; `shared/natsready` 6/6; lab-shell Vitest 480/480 plus a clean `npm run
@@ -957,7 +961,7 @@ is a class of thing no unit spec could have caught:
    predated them, and the script short-circuits on an existing `operator.jwt` — so the running
    stack logged `Publish Violation` on every probe. Exactly the failure BR-AC34 already warned
    about: **a grant change is only live after `./bootstrap-operator.sh --force`.** The same
-   regeneration exposed a second gap — `rpc._platform.registry.entries.unregister.v1` was never in
+   regeneration exposed a second gap — `rpc._platform.mfe-registry.entries.unregister.v1` was never in
    the registry's `--allow-sub` at all, so Phase 5b's withdrawal transport could not have worked in
    Docker. Named in full rather than swept up by a prefix.
 3. The shell's five-second health timer only copied memory into the reactive object; nothing
@@ -1104,7 +1108,7 @@ Stated plainly so nobody reads a signature for more than it is:
   **The allowlist is not the fetch address.** `REGISTRY_ALLOWED_ORIGINS` holds *browser* origins
   (`http://localhost:7111`); `mfe-registry-service` is a container, for which `localhost:7111` is
   itself. A second start-time config maps each allowlisted origin to the URL the *service* reaches it
-  on (`http://example-plugin-frontend:80` — the service is already on the `frontend` network). An
+  on (`http://example-plugin-frontend:8080` — the service is already on the `frontend` network). An
   origin with no mapping is simply not checked. The map may never introduce an origin the allowlist
   does not already carry: it translates addresses, it never widens the envelope.
   **The check has three outcomes, not two:** `checked` (agrees), `drift` (differs, fields named), and
@@ -1174,7 +1178,7 @@ identities, origins and README content from host assets.
 Phase 8c checks entries whose creating audit actor identifies **preload**; a later
 operator edit does not change that source. `REGISTRY_FETCH_ORIGINS` is an optional
 JSON object of browser origin to service-reachable HTTP(S) origin, for example
-`{"http://localhost:7111":"http://example-plugin-frontend:80"}`. Addresses are
+`{"http://localhost:7111":"http://example-plugin-frontend:8080"}`. Addresses are
 origins only (no credentials, non-root paths, query or fragment); the checker
 appends `/manifest.json`. Compose maps the five existing browser origins without
 changing `REGISTRY_ALLOWED_ORIGINS`. Missing mappings remain `not checked`.
@@ -1232,9 +1236,10 @@ below add no new ID — they record a decision *not* to grow an existing rule.
     has the runtime half (an unknown id lands pending, never enabled), and
     nothing else notices when a plugin is quietly re-added to the file that
     bypasses it. Same file also holds 13e's wiring checks — every announced
-    plugin has exactly one publisher, one sidecar, and a release volume outside
-    the container, since a sidecar mounting another plugin's seed or manifest
-    is silent until a signature fails. Same file also pins Compose's
+    plugin has exactly one publisher process and a release volume outside the
+    container. Four publishers run in their frontend's Go host and only the
+    unreachable fixture keeps the CLI announcer; mounting another plugin's seed
+    or manifest is silent until a signature fails. Same file also pins Compose's
     `com.nats-tech-lab.mfe.source` label per frontend — documentation read by
     no code (decision 80), which is why it drifted to `preload` on all five
     until 13g.
@@ -1256,14 +1261,19 @@ below add no new ID — they record a decision *not* to grow an existing rule.
   announcing again, because re-announcing a spent release leaves the plugin
   withdrawn with no error. The registry side is already covered by
   `registry/announce_test.go` and `registry/unregister_test.go`. **Publisher
-  side built 2026-09-01 (13b)** in `cmd/announce-plugin/` — `release.go` holds
-  the counter in an atomically written state file, and `main_test.go` pins
+  side built 2026-09-01 (13b), extracted 2026-09-02 (14a)** in
+  `shared/mferegistry/announcer/` — `release.go` holds the counter in an
+  atomically written state file, and `announcer_test.go` pins
   `N`/`N+1`/`N+2`, a crash restart retrying `N`, and explicit recovery after
   state loss. **The release is injected into the manifest at runtime, just
   before signing**, not baked into the build artifact: the counter is the
   publisher's state, so an image rebuild must not be needed to withdraw and
   return. BR-AS37 still holds — the re-encode happens before signing, never
   between signing and publishing.
+  The named counter volume now attaches to the plugin container that owns the
+  publisher lifecycle; the CLI-only unreachable fixture attaches the same
+  volume to its announcer container. The state format is identical because
+  both process entry points call `announcer.Start`.
 
 - **BR-AS68 — Trust seeding converges, and never reverses an operator
   decision.** The boot-time seeder (`cmd/seed-publishers`, 13d) reads the
@@ -1279,7 +1289,7 @@ below add no new ID — they record a decision *not* to grow an existing rule.
   **zero** writes — not a cosmetic property, since every publisher op is
   revision-checked and spends a revision plus an audit row even when it changes
   nothing (decision 6). The seeder writes through
-  `api._platform.registry.publishers.write.v1` under the shared operator
+  `api._platform.mfe-registry.publishers.write.v1` under the shared operator
   identity, the same endpoint the Registry Publishers panel uses: seeded rows
   are curated writes, not a new tier and not a boot-time bypass of the revision
   check or the audit trail (decision 7, decision 75). A refused write is a
@@ -1351,7 +1361,8 @@ below add no new ID — they record a decision *not* to grow an existing rule.
 
 The rules above are each covered by their own specs. What no spec could show is
 that the deployed pieces meet: a bootstrap-minted credential, a seeded trust
-row, a sidecar holding its seed on a read-only mount, and a Compose `SIGTERM`.
+row, a publisher process holding its seed on a read-only mount, and a Compose
+`SIGTERM`.
 `backend/mfe-registry-service/cmd/registry-acceptance` drives the running lab
 through the whole lifecycle and asserts at each step. A command, not a spec: an
 env-gated spec that skips still prints `ok`, and this one either walks the
@@ -1383,7 +1394,8 @@ way round:
   (BR-AS55).
 
 And the one rule the sequence exists to keep honest: the withdrawal it drives
-is a `docker compose stop` — a `SIGTERM`, so the sidecar sends an explicit
+is a `docker compose stop` — a `SIGTERM`, so the plugin host (or the
+unreachable fixture's CLI announcer) sends an explicit
 signed unregister before exiting. **A crash, a failed health check, or a
 container disappearing withdraws nothing** (BR-AS54). Withdrawal is an action a
 publisher takes; it is never inferred from silence.
@@ -1418,8 +1430,66 @@ No rule changed. What changed is where each rule is enforced, and therefore wher
 
 | Rules | Moved to | Specced in |
 | --- | --- | --- |
-| BR-AS28, BR-AS29, BR-AS64, BR-AS65 — one read at a time, a hint is a reason to read, a reconnect is a gap | `shell/registry/hintedReader.js` — the coalescing machine the catalogue plane and the health plane both ran, previously written twice and already drifting | `hintedReader.spec.js` (the machine on its own), with every existing `changeSubscription.spec.js` and `healthPlane.spec.js` spec passing unchanged |
+| BR-AS28, BR-AS29 and the recovery-read half of BR-AS64/BR-AS65 — one read at a time, a catalogue/legacy hint is a reason to read, a reconnect is a gap | `shell/registry/hintedReader.js` — the coalescing machine the catalogue plane uses for normal notifications and the health plane retains for startup/reconnect/reconciliation/legacy reads; current health pushes install directly after `asOf` validation | `hintedReader.spec.js` (the machine on its own), with `changeSubscription.spec.js` and `healthPlane.spec.js` covering their respective policies |
 | BR-AS02, BR-AS04, BR-AS06, BR-AS07, BR-AS58 — placement, refusal, capacity, suspension | `shell/contributions/placementPolicy.js` — `decidePlacements` returns a plan; `contributionRegistry.index()` only applies it. A return now re-decides through an explicit `reindex` rather than deleting its own bookkeeping to get past its guard | `placementPolicy.spec.js` — plain values, no reactivity, no registry |
 | BR-AS56, BR-AS59 — work that settles after a withdrawal | `PluginStatusRecord.settleWhileWithdrawn()`; the loader no longer writes `restoreTo` directly, and only `active` or `failed` is accepted | `pluginStatus.spec.js` |
 | BR-AS60 — one nav item, one mark | `shell/registry/navMark.js`; the template renders one conditional dot | `navMark.spec.js` |
 | BR-AS43, decision 80 — source badge and drift on the operator view | `registry/internal/application/curated.go` — the join left the NATS adapter, which now holds JSON tags only | `registry/internal/application/curated_test.go` |
+
+---
+
+## Phase 14 — one container per plugin, and where a plugin's origin comes from
+
+- **BR-AS71 — A plugin's public origin is stamped at announce time, never built
+  into its image.** Added 2026-09-02. A plugin image carries its code and its
+  manifest, and never the origin it will be served from. The publisher reads
+  its own public origin from deployment configuration and writes it into the
+  manifest immediately before signing — the same point, and for the same
+  reason, as the release counter (BR-AS67). A manifest in a plugin's source
+  tree therefore carries no origin in `remote.url`, and one image is servable
+  from any deployment.
+
+  **Why the ordering is forced.** BR-AS15 says a plugin is built by its own
+  toolchain, from its own lockfile, into its own image. An origin frozen at
+  build time contradicts that: it ties one image to one deployment, and a
+  plugin built on a laptop announces `http://localhost:7111` to production —
+  which is what the five fixtures do today. The signature settles where the
+  stamp goes. The origin is inside the signed bytes (BR-AS47), so it must be
+  written before signing, and no proxy, ingress or registry can rewrite it
+  afterwards without invalidating the signature. That is the property, not a
+  side effect: the origin a shell loads from is the origin the publisher
+  attested to.
+
+- **BR-AS72 — A remote URL is either same-origin or an allowlisted absolute
+  origin.** Added 2026-09-02. `remote.url` may be a path with no scheme and no
+  authority (`/plugins/example-plugin/remoteEntry.js`). Such a URL is
+  same-origin with the shell by construction, resolves against the shell's own
+  document, and carries no allowlist entry because there is no other origin to
+  allow. Any URL carrying a scheme or an authority is an absolute origin and
+  goes through BR-AS45's allowlist unchanged. Anything in between — a
+  protocol-relative `//host/path`, or a string that resolves to an authority it
+  did not name — is refused rather than guessed at.
+
+  **Why the third case is a rule and not an implementation detail.** A
+  same-origin deployment is the likely production shape: one hostname, one path
+  prefix per plugin, no cross-origin fetch and therefore no CORS header at all.
+  That makes "no origin" a normal answer rather than a missing value. But "no
+  origin" must mean *literally the shell's origin*, and a protocol-relative URL
+  is the trap — it reads as a path, resolves to a foreign host, and would carry
+  a plugin past the allowlist while looking like the safe case. The refusal is
+  what keeps the relative form from becoming a bypass.
+
+  **Federation needs no change for this.** `remoteEntry.js` already loads its
+  chunks with a relative `import('./assets/…')`, resolved against its own URL,
+  so a path-prefixed deployment addresses every chunk correctly with nothing
+  configured. Only the entry URL is at issue.
+
+### How Phase 14's rules are checked
+
+**Built 2026-09-02 in Phase 14 task 14a2.** The matrix names the executable
+contracts that shipped with the rules.
+
+| Rule | Specced by |
+| --- | --- |
+| BR-AS71 | `shared/mferegistry/announcer/announcer_test.go` proves deployment origin + release are stamped before publish and a post-sign rewrite fails verification; `shared/mfe-plugin-host/deployment_test.go` asserts all five checked-in fixture manifests are path-only. |
+| BR-AS72 | `registry/rules_test.go` covers path-only admission, unchanged BR-AS45 checking for absolute URLs, and protocol-relative refusal; `lab-shell/src/shell/loader/federatedAdapter.spec.js` proves resolution against the shell document. |

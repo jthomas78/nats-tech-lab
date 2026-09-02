@@ -22,7 +22,7 @@ import "github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 // that receives it re-reads, and the read is what is authoritative.
 func Changed() natsnotify.Subject {
 	return natsnotify.Subject{
-		Name: "notify._platform.registry.frontend-plugins.changed",
+		Name: "notify._platform.mfe-registry.frontend-plugins.changed",
 		Tokens: natsnotify.Tokens{
 			Context: "_platform",
 			Service: "registry",
@@ -32,16 +32,13 @@ func Changed() natsnotify.Subject {
 	}
 }
 
-// HealthChanged is the health plane's hint (BR-AS64/AS65). Same shape and the
-// same promise as Changed, on its own action token: a shell that hears it
-// re-reads the health subject, and the read is what is authoritative.
-//
-// The hint carries no state at all. A delivery proves that a message arrived,
-// never that a service was alive, so a payload here would be an observation
-// that nothing re-checked.
+// HealthChanged is the health plane's pushed snapshot (BR-AS64/AS65). The
+// central checker publishes one timestamped observation after each completed
+// probe pass. It remains on its own action token and carries no catalogue
+// revision, entries, signed bytes or approval state.
 func HealthChanged() natsnotify.Subject {
 	return natsnotify.Subject{
-		Name: "notify._platform.registry.frontend-plugins.health",
+		Name: "notify._platform.mfe-registry.frontend-plugins.health",
 		Tokens: natsnotify.Tokens{
 			Context: "_platform",
 			Service: "registry",

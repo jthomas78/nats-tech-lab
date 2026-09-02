@@ -1,0 +1,203 @@
+<title>Where the plugin announcer runs</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+.figure-title { padding: 0 2px 10px; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Phase 14 · ARCHITECTURE-APP-SHELL · BR-AS54 / BR-AS61 / BR-AS67</span>
+      <h1>Where the plugin announcer runs</h1>
+      <p class="sub">Phase 13e gave every announced micro-frontend plugin its own announcer sidecar container, so five plugins cost ten containers and a plugin developer ships two runtime units. Phase 14 moves the announcer into the plugin's own process. The connection topology is what decides whether that is safe, so it is drawn here before and after.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <h2 class="figure-title">Today (Phase 13e): two containers, two links that never meet</h2>
+      <svg viewBox="0 0 980 470" role="img"
+        aria-label="Today in Phase 13e, the browser reaches the HTTP-only lb-example-plugin container on the frontend Docker network, while a separate lb-example-plugin-announcer container reaches NATS and the example-plugin-release volume on the backend network. The two plugin containers have no link between them. The registry service straddles both networks so it can probe the plugin over frontend while using backend for its own bus traffic.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+        </defs>
+
+        <!-- Shared network grid: the registry deliberately crosses the divider. -->
+        <rect class="nb" x="216" y="38" width="744" height="190" rx="4"/>
+        <text class="grp" x="230" y="56">DOCKER NETWORK — FRONTEND</text>
+        <rect class="nb" x="216" y="228" width="744" height="220" rx="4"/>
+        <text class="grp" x="230" y="246">DOCKER NETWORK — BACKEND</text>
+
+        <rect class="n" x="18" y="133" width="146" height="48" rx="3"/>
+        <text class="lbl" x="91" y="154" text-anchor="middle">browser</text>
+        <text class="lbl2" x="91" y="168" text-anchor="middle">app shell at :7110</text>
+
+        <rect class="n" x="390" y="128" width="182" height="58" rx="3"/>
+        <text class="lbl" x="481" y="146" text-anchor="middle">lb-example-plugin</text>
+        <text class="lbl2" x="481" y="159" text-anchor="middle">nginx · static files only</text>
+        <text class="lbl2" x="481" y="172" text-anchor="middle">NATS connections: 0</text>
+
+        <rect class="n" x="700" y="204" width="184" height="48" rx="3"/>
+        <text class="lbl" x="792" y="225" text-anchor="middle">lb-mfe-registry-service</text>
+        <text class="lbl2" x="792" y="239" text-anchor="middle">joins frontend + backend</text>
+
+        <rect class="n" x="286" y="306" width="204" height="58" rx="3"/>
+        <text class="lbl" x="388" y="324" text-anchor="middle">lb-example-plugin-announcer</text>
+        <text class="lbl2" x="388" y="337" text-anchor="middle">announce-plugin · no listener</text>
+        <text class="lbl2" x="388" y="350" text-anchor="middle">NATS connections: 1</text>
+
+        <rect class="n" x="880" y="312" width="70" height="46" rx="3"/>
+        <text class="lbl" x="915" y="332" text-anchor="middle">nats</text>
+        <text class="lbl2" x="915" y="346" text-anchor="middle">:4222</text>
+
+        <rect class="n" x="760" y="394" width="160" height="44" rx="3"/>
+        <text class="lbl2" x="840" y="413" text-anchor="middle">example-plugin-release</text>
+        <text class="lbl2" x="840" y="427" text-anchor="middle">named volume</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M164 157 L379 157"/>
+        <text class="edge" x="271" y="151" text-anchor="middle">GET :7111 remoteEntry.js + chunks</text>
+        <text class="edge" x="271" y="172" text-anchor="middle">CORS: named origin :7110</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M884 228 L940 228 L940 76 L520 76 L520 117"/>
+        <text class="edge" x="730" y="91" text-anchor="middle">GET :80/healthz · no CORS header (BR-AS61)</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M490 335 L869 335"/>
+        <text class="edge" x="680" y="329" text-anchor="middle">1 conn · example-plugin-announcer.creds</text>
+        <text class="edge" x="680" y="350" text-anchor="middle">pub announce + unregister · sub _INBOX.&gt;</text>
+
+        <path class="proj" marker-end="url(#a-store)" d="M388 364 L388 416 L749 416"/>
+        <text class="edge" x="568" y="410" text-anchor="middle">release N / N+1 / N+2 (BR-AS67)</text>
+
+        <text class="lbl2" x="429" y="282" text-anchor="middle">no link — they share only the plugin id and a manifest file</text>
+      </svg>
+    </div>
+    <figcaption><b>Two containers, one link each.</b> The frontend container is HTTP-only and holds zero NATS connections; the announcer is bus-only and holds exactly one, with no listener at all, and the two never talk to each other. The registry straddles both networks, which is why its <code>/healthz</code> probe reaches the plugin over <code>frontend</code> while its own bus traffic goes over <code>backend</code>.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <h2 class="figure-title">Phase 14: one container, the same two links</h2>
+      <svg viewBox="0 0 980 492" role="img"
+        aria-label="In Phase 14, one larger lb-example-plugin container straddles the frontend and backend Docker networks and contains both the static HTTP host and announcer.Start. The browser and registry still reach the static host over HTTP, while announcer.Start holds one NATS connection and updates the release volume. The connection and listener counts stay unchanged even though one process now owns both links.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+        </defs>
+
+        <!-- The same network coordinates make this a direct before/after pair. -->
+        <rect class="nb" x="216" y="38" width="744" height="190" rx="4"/>
+        <text class="grp" x="230" y="56">DOCKER NETWORK — FRONTEND</text>
+        <rect class="nb" x="216" y="228" width="744" height="220" rx="4"/>
+        <text class="grp" x="230" y="246">DOCKER NETWORK — BACKEND</text>
+
+        <rect class="n" x="18" y="133" width="146" height="48" rx="3"/>
+        <text class="lbl" x="91" y="154" text-anchor="middle">browser</text>
+        <text class="lbl2" x="91" y="168" text-anchor="middle">app shell at :7110</text>
+
+        <rect class="n" x="350" y="124" width="270" height="216" rx="3"/>
+        <text class="lbl" x="362" y="143">lb-example-plugin</text>
+        <text class="lbl2" x="362" y="157">mfe-plugin-host · one process</text>
+
+        <rect class="n" x="372" y="166" width="226" height="52" rx="3"/>
+        <text class="lbl" x="485" y="190" text-anchor="middle">static host</text>
+        <text class="lbl2" x="485" y="204" text-anchor="middle">:80 · assets + /healthz</text>
+
+        <rect class="n" x="372" y="258" width="226" height="56" rx="3"/>
+        <text class="lbl" x="485" y="283" text-anchor="middle">announcer.Start</text>
+        <text class="lbl2" x="485" y="297" text-anchor="middle">NATS connections: 1</text>
+
+        <rect class="n" x="700" y="204" width="184" height="48" rx="3"/>
+        <text class="lbl" x="792" y="225" text-anchor="middle">lb-mfe-registry-service</text>
+        <text class="lbl2" x="792" y="239" text-anchor="middle">joins frontend + backend</text>
+
+        <rect class="n" x="880" y="312" width="70" height="46" rx="3"/>
+        <text class="lbl" x="915" y="332" text-anchor="middle">nats</text>
+        <text class="lbl2" x="915" y="346" text-anchor="middle">:4222</text>
+
+        <rect class="n" x="760" y="394" width="160" height="44" rx="3"/>
+        <text class="lbl2" x="840" y="413" text-anchor="middle">example-plugin-release</text>
+        <text class="lbl2" x="840" y="427" text-anchor="middle">named volume</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M164 157 L190 157 L190 192 L361 192"/>
+        <text class="edge" x="245" y="207" text-anchor="middle">GET :7111 remoteEntry.js + chunks</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M884 228 L940 228 L940 76 L570 76 L570 155"/>
+        <text class="edge" x="755" y="91" text-anchor="middle">GET :80/healthz · unchanged (BR-AS61)</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M460 314 L460 358 L850 358 L850 335 L869 335"/>
+        <text class="edge" x="655" y="352" text-anchor="middle">1 conn · same credential, same 2 subjects</text>
+        <text class="edge" x="655" y="373" text-anchor="middle">SIGTERM here withdraws this plugin (BR-AS54)</text>
+
+        <path class="proj" marker-end="url(#b-store)" d="M520 314 L520 420 L749 420"/>
+        <text class="edge" x="635" y="414" text-anchor="middle">counter moves with the announcer</text>
+
+        <text class="lbl2" x="18" y="474">announcer sidecar: 4 of 5 deleted &#183; example-plugin-unreachable keeps the CLI form</text>
+      </svg>
+    </div>
+    <figcaption><b>The count does not change; the owner does.</b> It is still one NATS connection and one HTTP listener per plugin, still five credentials and five rows in the Admin Connections panel, but now held by one process, so a <code>docker compose stop</code> of the plugin is what sends the SIGTERM that withdraws it. The cost is that the plugin's public static origin now joins <code>backend</code> too, and the no-proxy rule is what keeps that harmless.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>What the drawing settles</h2>
+    <ul>
+      <li><b>There were never two connections in one place.</b> There were two containers with one link kind each: HTTP-only with zero bus access, and bus-only with no listener. Phase 14 co-locates them without adding or removing either.</li>
+      <li><b>Per-plugin totals are unchanged.</b> One NATS connection and one HTTP listener, before and after. The lab still opens five announcer connections on five distinct credentials.</li>
+      <li><b><code>frontend</code> is not optional and <code>backend</code> is new.</b> The registry's BR-AS61 probe dials the plugin over <code>frontend</code>, and <code>nats</code> lives on <code>backend</code>, so the merged container must join both.</li>
+      <li><b>The no-proxy rule is what makes that safe.</b> The Go host's route set is exactly the asset root and <code>/healthz</code>, asserted as a set, and the signing seed and credential mount outside the asset root.</li>
+      <li><b>Withdrawal still needs an explicit SIGTERM.</b> BR-AS54 is untouched, and the new risk the merge introduces is that a failure in the serving half must exit without unregistering.</li>
+      <li><b>The credential's name is the one open question.</b> The holder process stops being an announcer, and this repo names a dedicated credential exactly for its holder.</li>
+    </ul>
+  </section>
+</div>

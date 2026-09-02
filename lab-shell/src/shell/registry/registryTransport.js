@@ -1,7 +1,7 @@
 import { validateRegistryDocument } from './manifestSchema.js'
 import { REGISTRY_SCHEMA_VERSION } from '../versions.js'
 
-export const SHELL_READ_SUBJECT = 'api._platform.registry.frontend-plugins.read.v1'
+export const SHELL_READ_SUBJECT = 'api._platform.mfe-registry.frontend-plugins.read.v1'
 
 export function createRegistryTransport({ request, now = () => new Date().toISOString() }) {
   return {

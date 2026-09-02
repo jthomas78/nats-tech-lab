@@ -61,7 +61,7 @@ li b { color: var(--text); font-weight: 600; }
 
   <figure>
     <div class="fig-body">
-      <svg viewBox="0 0 960 700" role="img" aria-label="End-to-end announce path. A publisher build signs the manifest bytes and sends them to the subject rpc._platform.registry.entries.announce.v1. The registry runs eight admission gates, consulting the trust table of publishers and keys; any gate can refuse with a distinct cause such as not owned, key retired, key revoked, unsigned, unverified, release backwards, origin not allowlisted, or malformed manifest. Surviving requests reach DecideAnnounce, which returns one of five outcomes; the ignored outcome, where a static entry outranks the announcement, writes an audit row but no revision. The other outcomes commit to Postgres with a revision guard and an audit row, then refresh the KV cache and publish a change hint on notify dot underscore platform dot registry dot frontend-plugins dot changed. Shells re-read the catalogue, and finally an operator enables the entry, because announced rows always land disabled.">
+      <svg viewBox="0 0 960 700" role="img" aria-label="End-to-end announce path. A publisher build signs the manifest bytes and sends them to the subject rpc._platform.mfe-registry.entries.announce.v1. The registry runs eight admission gates, consulting the trust table of publishers and keys; any gate can refuse with a distinct cause such as not owned, key retired, key revoked, unsigned, unverified, release backwards, origin not allowlisted, or malformed manifest. Surviving requests reach DecideAnnounce, which returns one of five outcomes; the ignored outcome, where a static entry outranks the announcement, writes an audit row but no revision. The other outcomes commit to Postgres with a revision guard and an audit row, then refresh the KV cache and publish a change hint on notify dot underscore platform dot registry dot frontend-plugins dot changed. Shells re-read the catalogue, and finally an operator enables the entry, because announced rows always land disabled.">
         <defs>
           <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
           <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
@@ -75,7 +75,7 @@ li b { color: var(--text); font-weight: 600; }
         <text class="lbl2" x="300" y="53" text-anchor="middle">signs the manifest bytes</text>
 
         <rect class="n" x="140" y="106" width="320" height="46" rx="3"/>
-        <text class="lbl" x="300" y="126" text-anchor="middle">rpc._platform.registry</text>
+        <text class="lbl" x="300" y="126" text-anchor="middle">rpc._platform.mfe-registry</text>
         <text class="lbl" x="300" y="139" text-anchor="middle">.entries.announce.v1</text>
 
         <rect class="n" x="6" y="130" width="128" height="46" rx="3"/>

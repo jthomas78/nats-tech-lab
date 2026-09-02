@@ -33,7 +33,7 @@ const transportWith = (reply) =>
 
 describe('BR-AS27 — the shell reads the registry over one subject', () => {
   it('names the read subject and nothing else', () => {
-    expect(SHELL_READ_SUBJECT).toBe('api._platform.registry.frontend-plugins.read.v1')
+    expect(SHELL_READ_SUBJECT).toBe('api._platform.mfe-registry.frontend-plugins.read.v1')
   })
 
   it('sends the revision it holds, so an unchanged registry costs no document', async () => {

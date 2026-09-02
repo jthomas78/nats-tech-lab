@@ -434,11 +434,11 @@ services:
       # Browser localhost is not this container's localhost. These translate
       # existing grants only; missing mappings leave drift as not checked.
       REGISTRY_FETCH_ORIGINS: >-
-        {"http://localhost:7111":"http://example-plugin-frontend:80",
+        {"http://localhost:7111":"http://example-plugin-frontend:8080",
          "http://localhost:7112":"http://demo-catalog-frontend:80",
-         "http://localhost:7113":"http://example-plugin-slow-frontend:80",
-         "http://localhost:7114":"http://example-plugin-activate-throws-frontend:80",
-         "http://localhost:7115":"http://example-plugin-incompatible-frontend:80"}
+         "http://localhost:7113":"http://example-plugin-slow-frontend:8080",
+         "http://localhost:7114":"http://example-plugin-activate-throws-frontend:8080",
+         "http://localhost:7115":"http://example-plugin-incompatible-frontend:8080"}
       # Phase 5d (BR-AS61/AS62/AS65) — the health plane, deployment-owned end
       # to end. Both maps are configuration and never manifest data: a
       # publisher that could name its own probe target would be choosing what
@@ -448,13 +448,14 @@ services:
       # Frontend: browser origin -> the address this container reaches it on,
       # same translation REGISTRY_FETCH_ORIGINS makes and for the same reason
       # (browser localhost is not this container's localhost). "/healthz" is
-      # appended by the registry; each plugin's nginx.conf serves it.
+      # appended by the registry; the shared Go host serves it for the four
+      # announced frontends and the catalog's nginx serves it on 7112.
       REGISTRY_HEALTH_ORIGINS: >-
-        {"http://localhost:7111":"http://example-plugin-frontend:80",
+        {"http://localhost:7111":"http://example-plugin-frontend:8080",
          "http://localhost:7112":"http://demo-catalog-frontend:80",
-         "http://localhost:7113":"http://example-plugin-slow-frontend:80",
-         "http://localhost:7114":"http://example-plugin-activate-throws-frontend:80",
-         "http://localhost:7115":"http://example-plugin-incompatible-frontend:80"}
+         "http://localhost:7113":"http://example-plugin-slow-frontend:8080",
+         "http://localhost:7114":"http://example-plugin-activate-throws-frontend:8080",
+         "http://localhost:7115":"http://example-plugin-incompatible-frontend:8080"}
       # Backend: plugin id -> the services it cannot work without. An id
       # missing here is "not configured"; an id mapped to [] is a
       # frontend-only plugin, which is "not applicable" — a different fact,
@@ -484,7 +485,7 @@ services:
   # Reuses mfe-registry-service's image (a second binary in it, not a second
   # image) and overrides the entrypoint. It reads nats/keys/publishers.json —
   # the public halves bootstrap-operator.sh minted in 13c — and writes the
-  # publisher rows through api._platform.registry.publishers.write.v1, the
+  # publisher rows through api._platform.mfe-registry.publishers.write.v1, the
   # same operator endpoint the Registry Publishers panel uses. No boot-time
   # bypass of the revision check or the audit trail (decision 7).
   #
@@ -495,10 +496,10 @@ services:
   # Compose can offer here; the seeder does its own bounded, logged wait on
   # the registry's read subject rather than racing it and dying.
   #
-  # This is the ordering gate decision 6 requires: the announcer sidecars
-  # added in 13e hang off it with
+  # This is the ordering gate decision 6 requires: the publisher processes
+  # hang off it with
   #   depends_on: { registry-publisher-seed: { condition: service_completed_successfully } }
-  # so no announcer can start before the trust table it will be judged
+  # so no publisher can start before the trust table it will be judged
   # against exists. Without that they race the seed and exit on `not-owned`.
   registry-publisher-seed:
     build:
@@ -749,6 +750,17 @@ services:
       - accounts-service
       - mfe-registry-service
 
+  # Build-only service used as a named Docker build context by each announced
+  # frontend plugin. The profile keeps it out of the runtime topology; its
+  # product is the shared PID-1 image, not another container.
+  mfe-plugin-host:
+    image: mfe-plugin-host:latest
+    deploy:
+      replicas: 0
+    build:
+      context: ../..
+      dockerfile: shared/mfe-plugin-host/Dockerfile
+
   # The BR-AS15 proof plugin's remote, served from its own image on its own
   # port. It is listed here so `docker compose up` brings up a complete,
   # working stack — NOT because the shell needs it at build time. The shell
@@ -762,20 +774,43 @@ services:
   # (BR-AS20).
   example-plugin-frontend:
     build:
-      # Context is the repo root for shared/unifi-theme; nothing else of the
-      # repo enters this build.
       context: ../..
       dockerfile: lab-shell/plugins/example-plugin/Dockerfile
+      additional_contexts:
+        mfe-plugin-host: service:mfe-plugin-host
     container_name: lb-example-plugin
     ports:
-      - "7111:80"
+      - "7111:8080"
     labels:
       com.nats-tech-lab.mfe.source: announced
     networks:
-      # `frontend` for uniformity only. This container has no proxy_pass rule
-      # of any kind, so joining the network gains it nothing it can use — the
-      # browser reaches it on the published port above.
       - frontend
+      - backend
+    environment:
+      HTTP_ADDR: ":8080"
+      ASSET_ROOT: /srv
+      ASSET_ALLOWED_ORIGIN: http://localhost:7110
+      PLUGIN_PUBLIC_ORIGIN: http://localhost:7111
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_PATH: /etc/nats/creds/plugin.creds
+      NATS_CONNECTION_NAME: example-plugin
+      PUBLISHER_ID: example-plugin
+      PLUGIN_MANIFEST_PATH: /srv/manifest.json
+      PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
+      RELEASE_STATE_PATH: /var/lib/announcer/release.json
+    volumes:
+      - ./nats/creds/plugins/example-plugin.creds:/etc/nats/creds/plugin.creds:ro
+      - ./nats/keys/publisher-example-plugin.nk:/etc/plugin/signing.nk:ro
+      - example-plugin-release:/var/lib/announcer
+    stop_grace_period: 30s
+    restart: unless-stopped
+    depends_on: &plugin_dependencies
+      nats:
+        condition: service_started
+      mfe-registry-service:
+        condition: service_started
+      registry-publisher-seed:
+        condition: service_completed_successfully
 
   demo-catalog-frontend:
     build:
@@ -793,143 +828,109 @@ services:
     build:
       context: ../..
       dockerfile: lab-shell/plugins/example-plugin-slow/Dockerfile
+      additional_contexts:
+        mfe-plugin-host: service:mfe-plugin-host
     container_name: lb-example-plugin-slow
     ports:
-      - "7113:80"
+      - "7113:8080"
     networks:
       - frontend
+      - backend
     labels:
       com.nats-tech-lab.mfe.source: announced
+    environment:
+      HTTP_ADDR: ":8080"
+      ASSET_ROOT: /srv
+      ASSET_ALLOWED_ORIGIN: http://localhost:7110
+      PLUGIN_PUBLIC_ORIGIN: http://localhost:7113
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_PATH: /etc/nats/creds/plugin.creds
+      NATS_CONNECTION_NAME: example-plugin-slow
+      PUBLISHER_ID: example-plugin-slow
+      PLUGIN_MANIFEST_PATH: /srv/manifest.json
+      PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
+      RELEASE_STATE_PATH: /var/lib/announcer/release.json
+    volumes:
+      - ./nats/creds/plugins/example-plugin-slow.creds:/etc/nats/creds/plugin.creds:ro
+      - ./nats/keys/publisher-example-plugin-slow.nk:/etc/plugin/signing.nk:ro
+      - example-plugin-slow-release:/var/lib/announcer
+    stop_grace_period: 30s
+    restart: unless-stopped
+    depends_on: *plugin_dependencies
 
   example-plugin-activate-throws-frontend:
     build:
       context: ../..
       dockerfile: lab-shell/plugins/example-plugin-activate-throws/Dockerfile
+      additional_contexts:
+        mfe-plugin-host: service:mfe-plugin-host
     container_name: lb-example-plugin-activate-throws
     ports:
-      - "7114:80"
+      - "7114:8080"
     networks:
       - frontend
+      - backend
     labels:
       com.nats-tech-lab.mfe.source: announced
+    environment:
+      HTTP_ADDR: ":8080"
+      ASSET_ROOT: /srv
+      ASSET_ALLOWED_ORIGIN: http://localhost:7110
+      PLUGIN_PUBLIC_ORIGIN: http://localhost:7114
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_PATH: /etc/nats/creds/plugin.creds
+      NATS_CONNECTION_NAME: example-plugin-activate-throws
+      PUBLISHER_ID: example-plugin-activate-throws
+      PLUGIN_MANIFEST_PATH: /srv/manifest.json
+      PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
+      RELEASE_STATE_PATH: /var/lib/announcer/release.json
+    volumes:
+      - ./nats/creds/plugins/example-plugin-activate-throws.creds:/etc/nats/creds/plugin.creds:ro
+      - ./nats/keys/publisher-example-plugin-activate-throws.nk:/etc/plugin/signing.nk:ro
+      - example-plugin-activate-throws-release:/var/lib/announcer
+    stop_grace_period: 30s
+    restart: unless-stopped
+    depends_on: *plugin_dependencies
 
   example-plugin-incompatible-frontend:
     build:
       context: ../..
       dockerfile: lab-shell/plugins/example-plugin-incompatible/Dockerfile
+      additional_contexts:
+        mfe-plugin-host: service:mfe-plugin-host
     container_name: lb-example-plugin-incompatible
     ports:
-      - "7115:80"
+      - "7115:8080"
     networks:
       - frontend
+      - backend
     labels:
       com.nats-tech-lab.mfe.source: announced
-
-  # Announcer sidecars (app-shell 13e) — one resident publisher per plugin.
-  #
-  # Each runs the shared `announce-plugin` binary from the registry image with
-  # only its mounts differing: the plugin's build-owned manifest, that
-  # publisher's signing seed, and that publisher's NATS credential. It
-  # announces once at start, then holds the connection for the container's
-  # life and publishes a signed unregister on SIGTERM only — never on a crash
-  # or a health-check failure (BR-AS54).
-  #
-  # `stop_grace_period` is deliberate: the unregister is a request/reply round
-  # trip with a 5s REQUEST_TIMEOUT, so the default 10s leaves almost no margin
-  # and a slow bus turns a controlled withdrawal into a kill.
-  #
-  # The release counter lives in a named volume, not the container filesystem,
-  # because it is the publisher's own monotonic sequence (BR-AS67): a stop/start
-  # cycle must spend N / N+1 / N+2, which it cannot do if N is lost with the
-  # container.
-  #
-  # `restart: unless-stopped` is the reconcile loop. A crash exits without
-  # unregistering and the entry is reconciled on the next start; an explicit
-  # `docker compose stop` is honoured and stays stopped, which is what 13f's
-  # live-withdrawal step drives.
-  example-plugin-announcer:
-    build:
-      context: ../..
-      dockerfile: demos/01-dictionary/backend/mfe-registry-service/Dockerfile
-    container_name: lb-example-plugin-announcer
-    entrypoint: ["announce-plugin"]
-    networks:
-      - backend
     environment:
+      HTTP_ADDR: ":8080"
+      ASSET_ROOT: /srv
+      ASSET_ALLOWED_ORIGIN: http://localhost:7110
+      PLUGIN_PUBLIC_ORIGIN: http://localhost:7115
       NATS_URL: nats://nats:4222
-      NATS_CREDS_PATH: /etc/nats/creds/announcer.creds
-      # Set explicitly rather than left to announce-plugin's default so
-      # nats.Name() equals the credential's own name — the repo's credential
-      # naming rule, and what makes a Name/Credential mismatch in the Admin UI
-      # Connections panel a signal rather than noise.
-      NATS_CONNECTION_NAME: example-plugin-announcer
-      PUBLISHER_ID: example-plugin
-      PLUGIN_MANIFEST_PATH: /etc/plugin/manifest.json
+      NATS_CREDS_PATH: /etc/nats/creds/plugin.creds
+      NATS_CONNECTION_NAME: example-plugin-incompatible
+      PUBLISHER_ID: example-plugin-incompatible
+      PLUGIN_MANIFEST_PATH: /srv/manifest.json
       PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
       RELEASE_STATE_PATH: /var/lib/announcer/release.json
     volumes:
-      - ./nats/creds/example-plugin-announcer.creds:/etc/nats/creds/announcer.creds:ro
-      # Read-only, and mounted at runtime rather than copied in: a signing seed
-      # must never enter an image layer (decision 8).
-      - ./nats/keys/publisher-example-plugin.nk:/etc/plugin/signing.nk:ro
-      - ../../lab-shell/plugins/example-plugin/public/manifest.json:/etc/plugin/manifest.json:ro
-      - example-plugin-release:/var/lib/announcer
+      - ./nats/creds/plugins/example-plugin-incompatible.creds:/etc/nats/creds/plugin.creds:ro
+      - ./nats/keys/publisher-example-plugin-incompatible.nk:/etc/plugin/signing.nk:ro
+      - example-plugin-incompatible-release:/var/lib/announcer
     stop_grace_period: 30s
     restart: unless-stopped
-    depends_on:
-      nats:
-        condition: service_started
-      mfe-registry-service:
-        condition: service_started
-      # Decision 6's boot gate. Starting before the trust table exists earns
-      # `not-owned` or `key-not-trusted`, not a plugin.
-      registry-publisher-seed:
-        condition: service_completed_successfully
-
-  example-plugin-slow-announcer:
-    build:
-      context: ../..
-      dockerfile: demos/01-dictionary/backend/mfe-registry-service/Dockerfile
-    container_name: lb-example-plugin-slow-announcer
-    entrypoint: ["announce-plugin"]
-    networks:
-      - backend
-    environment:
-      NATS_URL: nats://nats:4222
-      NATS_CREDS_PATH: /etc/nats/creds/announcer.creds
-      # Set explicitly rather than left to announce-plugin's default so
-      # nats.Name() equals the credential's own name — the repo's credential
-      # naming rule, and what makes a Name/Credential mismatch in the Admin UI
-      # Connections panel a signal rather than noise.
-      NATS_CONNECTION_NAME: example-plugin-slow-announcer
-      PUBLISHER_ID: example-plugin-slow
-      PLUGIN_MANIFEST_PATH: /etc/plugin/manifest.json
-      PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
-      RELEASE_STATE_PATH: /var/lib/announcer/release.json
-    volumes:
-      - ./nats/creds/example-plugin-slow-announcer.creds:/etc/nats/creds/announcer.creds:ro
-      # Read-only, and mounted at runtime rather than copied in: a signing seed
-      # must never enter an image layer (decision 8).
-      - ./nats/keys/publisher-example-plugin-slow.nk:/etc/plugin/signing.nk:ro
-      - ../../lab-shell/plugins/example-plugin-slow/public/manifest.json:/etc/plugin/manifest.json:ro
-      - example-plugin-slow-release:/var/lib/announcer
-    stop_grace_period: 30s
-    restart: unless-stopped
-    depends_on:
-      nats:
-        condition: service_started
-      mfe-registry-service:
-        condition: service_started
-      # Decision 6's boot gate. Starting before the trust table exists earns
-      # `not-owned` or `key-not-trusted`, not a plugin.
-      registry-publisher-seed:
-        condition: service_completed_successfully
+    depends_on: *plugin_dependencies
 
   # Announcer-only: this fixture has no code and no web server, by design
   # (see lab-shell/plugins/example-plugin-unreachable/README.md). It is a
   # manifest pointing at a dead path on example-plugin's port, so the shell's
   # 404 failure path has something to fail on. It still gets its own
-  # publisher: letting example-plugin's sidecar announce it too would put two
+  # publisher: letting example-plugin's host announce it too would put two
   # plugins under one publisher, against decision 4.
   example-plugin-unreachable-announcer:
     build:
@@ -941,101 +942,24 @@ services:
       - backend
     environment:
       NATS_URL: nats://nats:4222
-      NATS_CREDS_PATH: /etc/nats/creds/announcer.creds
+      NATS_CREDS_PATH: /etc/nats/creds/plugin.creds
       # Set explicitly rather than left to announce-plugin's default so
       # nats.Name() equals the credential's own name — the repo's credential
       # naming rule, and what makes a Name/Credential mismatch in the Admin UI
       # Connections panel a signal rather than noise.
-      NATS_CONNECTION_NAME: example-plugin-unreachable-announcer
+      NATS_CONNECTION_NAME: example-plugin-unreachable
       PUBLISHER_ID: example-plugin-unreachable
+      PLUGIN_PUBLIC_ORIGIN: http://localhost:7111
       PLUGIN_MANIFEST_PATH: /etc/plugin/manifest.json
       PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
       RELEASE_STATE_PATH: /var/lib/announcer/release.json
     volumes:
-      - ./nats/creds/example-plugin-unreachable-announcer.creds:/etc/nats/creds/announcer.creds:ro
+      - ./nats/creds/plugins/example-plugin-unreachable.creds:/etc/nats/creds/plugin.creds:ro
       # Read-only, and mounted at runtime rather than copied in: a signing seed
       # must never enter an image layer (decision 8).
       - ./nats/keys/publisher-example-plugin-unreachable.nk:/etc/plugin/signing.nk:ro
       - ../../lab-shell/plugins/example-plugin-unreachable/public/manifest.json:/etc/plugin/manifest.json:ro
       - example-plugin-unreachable-release:/var/lib/announcer
-    stop_grace_period: 30s
-    restart: unless-stopped
-    depends_on:
-      nats:
-        condition: service_started
-      mfe-registry-service:
-        condition: service_started
-      # Decision 6's boot gate. Starting before the trust table exists earns
-      # `not-owned` or `key-not-trusted`, not a plugin.
-      registry-publisher-seed:
-        condition: service_completed_successfully
-
-  example-plugin-activate-throws-announcer:
-    build:
-      context: ../..
-      dockerfile: demos/01-dictionary/backend/mfe-registry-service/Dockerfile
-    container_name: lb-example-plugin-activate-throws-announcer
-    entrypoint: ["announce-plugin"]
-    networks:
-      - backend
-    environment:
-      NATS_URL: nats://nats:4222
-      NATS_CREDS_PATH: /etc/nats/creds/announcer.creds
-      # Set explicitly rather than left to announce-plugin's default so
-      # nats.Name() equals the credential's own name — the repo's credential
-      # naming rule, and what makes a Name/Credential mismatch in the Admin UI
-      # Connections panel a signal rather than noise.
-      NATS_CONNECTION_NAME: example-plugin-activate-throws-announcer
-      PUBLISHER_ID: example-plugin-activate-throws
-      PLUGIN_MANIFEST_PATH: /etc/plugin/manifest.json
-      PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
-      RELEASE_STATE_PATH: /var/lib/announcer/release.json
-    volumes:
-      - ./nats/creds/example-plugin-activate-throws-announcer.creds:/etc/nats/creds/announcer.creds:ro
-      # Read-only, and mounted at runtime rather than copied in: a signing seed
-      # must never enter an image layer (decision 8).
-      - ./nats/keys/publisher-example-plugin-activate-throws.nk:/etc/plugin/signing.nk:ro
-      - ../../lab-shell/plugins/example-plugin-activate-throws/public/manifest.json:/etc/plugin/manifest.json:ro
-      - example-plugin-activate-throws-release:/var/lib/announcer
-    stop_grace_period: 30s
-    restart: unless-stopped
-    depends_on:
-      nats:
-        condition: service_started
-      mfe-registry-service:
-        condition: service_started
-      # Decision 6's boot gate. Starting before the trust table exists earns
-      # `not-owned` or `key-not-trusted`, not a plugin.
-      registry-publisher-seed:
-        condition: service_completed_successfully
-
-  example-plugin-incompatible-announcer:
-    build:
-      context: ../..
-      dockerfile: demos/01-dictionary/backend/mfe-registry-service/Dockerfile
-    container_name: lb-example-plugin-incompatible-announcer
-    entrypoint: ["announce-plugin"]
-    networks:
-      - backend
-    environment:
-      NATS_URL: nats://nats:4222
-      NATS_CREDS_PATH: /etc/nats/creds/announcer.creds
-      # Set explicitly rather than left to announce-plugin's default so
-      # nats.Name() equals the credential's own name — the repo's credential
-      # naming rule, and what makes a Name/Credential mismatch in the Admin UI
-      # Connections panel a signal rather than noise.
-      NATS_CONNECTION_NAME: example-plugin-incompatible-announcer
-      PUBLISHER_ID: example-plugin-incompatible
-      PLUGIN_MANIFEST_PATH: /etc/plugin/manifest.json
-      PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
-      RELEASE_STATE_PATH: /var/lib/announcer/release.json
-    volumes:
-      - ./nats/creds/example-plugin-incompatible-announcer.creds:/etc/nats/creds/announcer.creds:ro
-      # Read-only, and mounted at runtime rather than copied in: a signing seed
-      # must never enter an image layer (decision 8).
-      - ./nats/keys/publisher-example-plugin-incompatible.nk:/etc/plugin/signing.nk:ro
-      - ../../lab-shell/plugins/example-plugin-incompatible/public/manifest.json:/etc/plugin/manifest.json:ro
-      - example-plugin-incompatible-release:/var/lib/announcer
     stop_grace_period: 30s
     restart: unless-stopped
     depends_on:

@@ -34,6 +34,10 @@
      control is still clearly visible, but obviously inactive. */
   --lab-disabled-bg: #3a4049;
   --lab-disabled-text: #9aa1a9;
+  /* Filled secondary buttons: one step up from the panel, so the control has
+     an edge without becoming a second surface. */
+  --lab-secondary-bg: #22262c;
+  --lab-secondary-bg-hover: #2b3037;
   /* Nested-row zone: the blue-shifted background used where an expanded
      table row (business units, service instances) sits inside a parent
      row — distinguishes the nested content from the panel around it. */
@@ -71,6 +75,8 @@
   --lab-accent-ink: #ffffff;
   --lab-nav-active-bg: #ffffff;
   --lab-disabled-bg: #e2e5e9;
+  --lab-secondary-bg: #ffffff;
+  --lab-secondary-bg-hover: #eceef1;
   --lab-disabled-text: #9aa1a9;
   --lab-nested-bg: #eef1f7;
   --lab-nested-bg-hover: #e3e8f2;
@@ -227,4 +233,34 @@ body {
   border-color: var(--lab-disabled-bg) !important;
   color: var(--lab-disabled-text) !important;
   opacity: 1 !important;
+}
+
+/* ── Secondary buttons — readable, and consistent in every app ──
+   PrimeVue's secondary tones resolve well below the text colour on this
+   theme: a `text` secondary painted #4e5560 on #131416 (about 2.2:1) and a
+   filled one #737c87 on #1a1e23, so the ordinary row actions (Enable, Edit,
+   Refresh) read fainter than the DISABLED style directly above. An action a
+   person is meant to take must not look less available than one they cannot.
+
+   Two weights, one scale, used everywhere: `text` is the quiet action and
+   sits at muted, rising to full text colour on hover; filled is the same
+   family one step up, with a hairline border so it keeps its shape on a
+   panel that shares the page background. PrimeVue injects its button styles
+   after this file, hence !important. */
+.p-button.p-button-secondary.p-button-text:not(:disabled):not(.p-disabled),
+.p-button.p-button-secondary.p-button-link:not(:disabled):not(.p-disabled) {
+  color: var(--p-text-muted-color) !important;
+}
+.p-button.p-button-secondary.p-button-text:not(:disabled):not(.p-disabled):hover,
+.p-button.p-button-secondary.p-button-link:not(:disabled):not(.p-disabled):hover {
+  color: var(--p-text-color) !important;
+  background: var(--lab-nav-active-bg) !important;
+}
+.p-button.p-button-secondary:not(.p-button-text):not(.p-button-link):not(.p-button-outlined):not(:disabled):not(.p-disabled) {
+  background: var(--lab-secondary-bg) !important;
+  border-color: var(--lab-panel-border) !important;
+  color: var(--p-text-color) !important;
+}
+.p-button.p-button-secondary:not(.p-button-text):not(.p-button-link):not(.p-button-outlined):not(:disabled):not(.p-disabled):hover {
+  background: var(--lab-secondary-bg-hover) !important;
 }

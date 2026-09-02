@@ -6,6 +6,7 @@ import { bootShell } from '../bootShell.js'
 import { createPluginLoader } from '../loader/pluginLoader.js'
 
 const root = resolve(import.meta.dirname, '../../..')
+const compose = readFileSync(resolve(root, '../demos/01-dictionary/docker-compose.yml'), 'utf8')
 const preload = JSON.parse(readFileSync(resolve(root, '../demos/01-dictionary/registry.json'), 'utf8'))
 const packages = ['example-plugin', 'example-plugin-slow', 'example-plugin-activate-throws', 'example-plugin-incompatible']
 const read = (name, path) => readFileSync(resolve(root, 'plugins', name, path), 'utf8')
@@ -15,6 +16,20 @@ const read = (name, path) => readFileSync(resolve(root, 'plugins', name, path), 
    makes it the right thing for these specs to load the shell from — the same
    bytes the running lab admits, not a second copy of them. */
 const manifest = (name) => JSON.parse(read(name, 'public/manifest.json'))
+const serviceBlock = (service) => {
+  const lines = compose.split('\n')
+  const start = lines.findIndex((line) => line === `  ${service}:`)
+  const end = lines.findIndex((line, index) => index > start && /^ {2}\S/.test(line))
+  return lines.slice(start, end < 0 ? undefined : end).join('\n')
+}
+const publicOrigin = (name) => {
+  const service = name === 'example-plugin-unreachable' ? `${name}-announcer` : `${name}-frontend`
+  return serviceBlock(service).match(/PLUGIN_PUBLIC_ORIGIN:\s*(\S+)/)[1]
+}
+const announcedEntry = (name) => {
+  const value = manifest(name)
+  return { ...value, remote: { ...value.remote, url: new URL(value.remote.url, publicOrigin(name)).href } }
+}
 const entryOf = (name) =>
   name === 'demo-catalog' ? preload.plugins.find((p) => p.id === name) : manifest(name)
 const modules = {
@@ -27,7 +42,7 @@ const modules = {
 // Real entry modules, with only HTTP replaced: failures cross the same loader
 // and status boundary while remaining independent of Docker being available.
 async function loadServices(stopped) {
-  const entries = [...packages, 'example-plugin-unreachable'].map(manifest)
+  const entries = [...packages, 'example-plugin-unreachable'].map(announcedEntry)
   const shell = await bootShell({
     registryClient: { fetchRegistry: async () => ({ ok: true, revision: '1', plugins: entries }) },
     permissions: { can: () => true },
@@ -57,13 +72,22 @@ describe('BR-AS03 / decisions 87, 93–95 — independently built plugin service
     expect(manifest(name)).toEqual(expected)
     const preview = JSON.parse(read(name, 'package.json')).scripts.preview
     const port = preview.match(/--port (\d+)/)?.[1]
-    if (port) expect(port).toBe(new URL(entry.remote.url).port)
-    for (const path of ['Dockerfile', 'nginx.conf', 'vite.config.js', 'package.json', 'package-lock.json']) {
+    if (port) {
+      const origin = name === 'demo-catalog' ? entry.remote.url : publicOrigin(name)
+      expect(port).toBe(new URL(origin).port)
+    }
+    for (const path of ['Dockerfile', 'vite.config.js', 'package.json', 'package-lock.json']) {
       expect(existsSync(resolve(root, 'plugins', name, path))).toBe(true)
     }
-    expect(read(name, 'Dockerfile')).toContain(`lab-shell/plugins/${name}/public`)
-    expect(read(name, 'nginx.conf')).toContain('try_files $uri =404')
-    expect(read(name, 'nginx.conf')).not.toContain('proxy_pass ')
+    if (name === 'demo-catalog') {
+      expect(read(name, 'Dockerfile')).toContain(`lab-shell/plugins/${name}/public`)
+      expect(read(name, 'nginx.conf')).toContain('try_files $uri =404')
+      expect(read(name, 'nginx.conf')).not.toContain('proxy_pass ')
+    } else {
+      expect(entry.remote.url.startsWith('/')).toBe(true)
+      expect(read(name, 'Dockerfile')).toContain('FROM mfe-plugin-host')
+      expect(read(name, 'Dockerfile')).toMatch(/COPY --from=build \/\S+\/dist \/srv/)
+    }
   })
   it('keeps only one view in each variant and all six in the main example', () => {
     for (const name of packages) {
@@ -80,7 +104,7 @@ describe('BR-AS04 / BR-AS13 — independently failing remotes', () => {
   it('preserves all five fixture statuses and never fetches the incompatible remote', async () => {
     const { states, load } = await loadServices()
     expect(states).toEqual(expected)
-    expect(load.mock.calls.some(([r]) => new URL(r.url).port === '7115')).toBe(false)
+    expect(load.mock.calls.some(([r]) => r.name === 'example_plugin_incompatible')).toBe(false)
   }, 15000)
   it('a stopped healthy service fails only that plugin', async () => {
     const { states } = await loadServices('example-plugin')

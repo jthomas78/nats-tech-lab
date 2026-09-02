@@ -11,7 +11,9 @@ use (
 	./demos/01-dictionary/backend/shipping-service
 	./shared/browserrpc
 	./shared/jstream
+	./shared/mfe-plugin-host
 	./shared/mferegistry
+	./shared/mferegistry/announcer
 	./shared/mferegistry/client
 	./shared/natsconn
 	./shared/natsnotify

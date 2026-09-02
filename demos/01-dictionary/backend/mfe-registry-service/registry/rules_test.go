@@ -137,6 +137,23 @@ var _ = Describe("Registry rules", func() {
 		})
 	})
 
+	Context("BR-AS72 — a remote is same-origin or an allowlisted absolute origin", func() {
+		It("admits a path-only URL without an allowlist entry", func() {
+			allowlist := domain.NewAllowlist(nil)
+			Expect(allowlist.Check(federated("same-origin", "/plugins/same-origin/remoteEntry.js"))).To(Succeed())
+		})
+
+		It("still refuses an absolute URL whose origin is not allowlisted", func() {
+			allowlist := domain.NewAllowlist([]string{"https://trusted.example"})
+			Expect(errors.Is(allowlist.Check(federated("rogue", "https://rogue.example/remoteEntry.js")), domain.ErrOriginNotAllowed)).To(BeTrue())
+		})
+
+		It("refuses a protocol-relative URL instead of treating it as a safe path", func() {
+			allowlist := domain.NewAllowlist(nil)
+			Expect(errors.Is(allowlist.Check(federated("rogue", "//rogue.example/remoteEntry.js")), domain.ErrOriginNotAllowed)).To(BeTrue())
+		})
+	})
+
 	Context("BR-AS22: the registry degrades, it does not fail", func() {
 		It("answers with an empty document that says it is degraded", func() {
 			doc := domain.Degraded()

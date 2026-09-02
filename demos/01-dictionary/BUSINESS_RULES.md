@@ -236,7 +236,8 @@ Split by domain so a rule add/edit only requires reading its own file:
 
 - **[BUSINESS_RULES-APP-SHELL.md](BUSINESS_RULES-APP-SHELL.md)** — the
   extensible application shell and its micro-frontend plugins
-  (BR-AS01–BR-AS15, approved 2026-08-28). The one rules file whose subject is
+  (BR-AS01–BR-AS72; BR-AS01–BR-AS15 approved 2026-08-28, later phases
+  appended through 2026-09-02). The one rules file whose subject is
   a **frontend, not a Go service**: the code lives in `lab-shell/`, not under
   `backend/`. Covers curated registry discovery and contract-version
   rejection before remote code executes (BR-AS01, BR-AS13), the
@@ -252,7 +253,11 @@ Split by domain so a rule add/edit only requires reading its own file:
   1920×1080 UniFi fidelity gate (BR-AS14), and the reviewable example plugin
   that must ship before any real app is migrated (BR-AS15). Rules are
   enforced under `lab-shell/src/shell/`, with two as build-time lint/graph
-  checks rather than runtime specs.
+  checks rather than runtime specs. Later phases extend the same file — the
+  registry service and its publisher trust chain, health probing, and the
+  Phase 14 rules on where a plugin's public origin comes from
+  (BR-AS71, BR-AS72). That file's own section headers say which phase added
+  which rules, and which are not yet built.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:
 add/edit the rule in whichever of the domain files above matches the domain

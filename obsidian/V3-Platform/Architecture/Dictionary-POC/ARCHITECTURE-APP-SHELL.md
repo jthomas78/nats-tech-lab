@@ -148,7 +148,7 @@ have different authority and defaults:
 | --- | --- | --- |
 | Admin curation | Operator `api.*` writes with a revision check | Operator controls enablement and lifecycle; actor `admin`. Lifecycle editing in the Admin UI is Phase 5 work. |
 | Preload | Optional mounted `registry.json` at service boot | Insert only when the id has never existed; default `static`, actor `preload`; restart never overwrites curation. Since Phase 13 the lab preloads `demo-catalog` only |
-| Service announcement | Signed manifest over `rpc._platform.registry.entries.announce.v1` | Verified publisher identity, default `dynamic`; a new entry remains `announced` and withheld until operator enablement |
+| Service announcement | Signed manifest over `rpc._platform.mfe-registry.entries.announce.v1` | Verified publisher identity, default `dynamic`; a new entry remains `announced` and withheld until operator enablement |
 
 **Announcement is not activation.** A publisher can report its own manifest but
 cannot grant itself permission to execute. An enabled dynamic entry can update
@@ -179,9 +179,12 @@ rebuilding its feature code.
 
 **Every plugin is independently built.** The catalog is on 7112; the healthy
 example on 7111; slow, activation-throws and incompatible fixtures on 7113–7115.
-Each has its own package, lockfile, Dockerfile, nginx server and single `plugin`
-exposure. The missing-remote fixture has no service and points to a real 404 on
-7111. Compose marks each with the tier it actually arrives by —
+Each has its own package, lockfile, Dockerfile and single `plugin` exposure.
+The catalog retains nginx; the four announced frontends copy only their build
+output onto the shared Go `mfe-plugin-host`, which serves assets and announces
+through one PID. The missing-remote fixture has no web service and points to a
+real 404 on 7111; its CLI announcer is the fifth publisher process. Compose
+marks each with the tier it actually arrives by —
 `com.nats-tech-lab.mfe.source=preload` on the catalog, `=announced` on the four
 example frontends. The label is operator-authored documentation read by no code
 on the trust path (decision 80), so nothing failed while it was wrong; a spec in
@@ -232,10 +235,11 @@ zero plugins. A later failed read preserves already-discovered contributions.
 >
 > **Phase 13 made this path live (2026-09-01).** It used to be reachable only
 > from Ginkgo: `bootstrap-operator.sh` granted `mfe-registry-service`
-> *subscribe* on `rpc._platform.registry.entries.announce.v1` and granted
+> *subscribe* on `rpc._platform.mfe-registry.entries.announce.v1` and granted
 > nobody *publish*. Five publisher accounts, five signing keys and five
-> announcer sidecars later, four of the five figures on this page describe
-> containers that are running. See "Phase 13 — the announced tier, as built".
+> announcer sidecars later, four of the five figures on this page described
+> containers that were running. Phase 14 subsequently merged the four served
+> sidecars into their Go hosts; see the as-built topology section below.
 >
 > Editable source: [registry-announce-flow.html](../../../../demos/01-dictionary/diagrams/registry-announce-flow.html)
 > — hand-authored inline SVG rather than a Draw.io workbook page, so
@@ -346,8 +350,9 @@ an owner must not withdraw its contributors or affect unrelated host-owned slots
 
 ### Independent health observations
 
-The registry centrally probes frontend `GET /healthz` and configured backend NATS readiness subjects,
-then shares read-only snapshots/update hints with shells. Frontend HTTP reuses BR-AS45's explicit
+The registry centrally probes frontend `GET /healthz` and configured backend NATS readiness
+subjects, then broadcasts one read-only, timestamped snapshot after every completed probe pass.
+Frontend HTTP reuses BR-AS45's explicit
 allowlisted browser-origin → service-origin mapping: no redirects, arbitrary URLs, ambient proxy or
 fallback to browser addresses. Frontend services need the dedicated small-response endpoint; a healthy
 endpoint does not prove a browser can load JavaScript assets. Phase 8c manifest drift remains separate
@@ -363,34 +368,44 @@ or `$SYS` permissions.
 Each target is checked every **5 seconds**, times out after **2 seconds**, becomes unavailable after
 **2 consecutive failures** and recovers after **1 success**. Counters are independent. Start unknown,
 and show unknown/stale after **15 seconds** without a fresh observation, with the last-check time.
-Old snapshots and hints cannot refresh it. Initial read, subscription catch-up and reconnect resync
-close delivery gaps; bounded workers run off request paths and cancel/join at shutdown.
+Old or duplicate snapshots cannot refresh it. An initial read, a read on every connection epoch and a
+slow jittered reconciliation read close Core NATS delivery gaps; bounded workers run off request paths
+and cancel/join at shutdown.
 
 Frontend/backend status appears separately in navigation and the Plugins inventory. Health never
 removes, reorders, disables or reloads content. Failures stay inline with safe codes and no unsolicited
 modal, independently of existing loader errors.
 
-**As built.** Health is its own subject (`api._platform.registry.frontend-plugins.health.v1`) with
-its own hint (`notify._platform.registry.frontend-plugins.health`) and its own reply shape, carrying
-no revision, no entries and no signed bytes — the checker holds a read-only `Curated` interface, so
-the code that would move a revision or write an audit row is not reachable from a probe. A second
-subject rather than more fields on the catalogue read, because the catalogue is signed manifests
-that change on curation and health changes every few seconds; folding them would make a shell
-re-read the whole signed catalogue on a five-second timer.
+**As built.** Health has an initial/recovery request subject
+(`api._platform.mfe-registry.frontend-plugins.health.v1`) and a push subject
+(`notify._platform.mfe-registry.frontend-plugins.health`). Both use the same closed snapshot shape:
+`{ok, asOf, plugins}`, where `asOf` is epoch milliseconds and each plugin has separate frontend and
+backend signals. The payload carries no catalogue revision, entries or signed bytes — the checker
+holds a read-only `Curated` interface, so the code that would move a revision or write an audit row
+is not reachable from a probe. Health remains separate from the catalogue because signed manifests
+change on curation while observations change every few seconds.
 
-Ageing happens at READ time on both sides — `worker.Snapshot(now)` in Go, `signalsFor(id)` in the
-browser — so a stale reading stops claiming to be current with nothing awake, and there is no
-interval to leak. The browser restates `HEALTH_FRESHNESS_MS = 15_000` locally, so a registry cannot
-make a browser trust a reading for longer. A cause is one short lowercase word from a closed
-vocabulary (`^[a-z][a-z0-9-]{0,31}$` in the browser); hosts, ports and messages never leave the
-process.
+Ageing is evaluated when state is read on both sides — `worker.Snapshot(now)` in Go and
+`signalsFor(id)` in the browser. The host has a five-second **local repaint timer**, not a network
+poll, so a stopped push stream becomes visibly stale. The browser restates
+`HEALTH_FRESHNESS_MS = 15_000` locally, so a registry cannot make a browser trust a reading for
+longer. A cause is one short lowercase word from a closed vocabulary
+(`^[a-z][a-z0-9-]{0,31}$` in the browser); hosts, ports and messages never leave the process.
 
-A hint is sent at most once per pass and only when the SERVED snapshot moved — two failures below
-the threshold are the same news as none, and a hint every five seconds would train every shell to
-ignore the one that mattered. `unavailable` renders as a warning, not a failure: the plugin has not
-failed, something it depends on is not answering, and it may answer again in five seconds. In the
-navigation the load-status dot wins and the health dot is `v-else-if`, because two marks in one
-corner of the eye compete rather than inform.
+One full snapshot is broadcast after every pass, including when state/cause did not change, because
+successful checks advance `lastCheckAt`; transition-only pushes would make a continuously healthy
+plugin appear stale after 15 seconds. This is one central publication per five seconds rather than
+one request per shell per five seconds. A shell installs only a strictly newer `asOf`, fetches once
+at startup and after each reconnect, and performs a 45–75 second jittered reconciliation read as a
+safety net. A payload-free notification from an older registry is treated as a legacy read hint for
+rolling-restart compatibility.
+
+`unavailable` renders as a warning, not a failure: the plugin has not failed, something it depends
+on is not answering, and it may answer again in five seconds. In navigation the load-status dot wins
+and the health dot is `v-else-if`, because two marks in one corner of the eye compete rather than
+inform. The registry owns declared plugin frontend/backend readiness; a browser's own NATS
+connection remains local shell state and general broker connection telemetry remains observability's
+responsibility.
 
 Readiness lives in `shared/natsready`, mounted today by `refdata-service` against `db.PingContext`:
 every ask runs the real check with a 2-second deadline and nothing is cached, because a service
@@ -408,7 +423,7 @@ still green.
 
 Phase 8 built the announcement path and Phase 7 built the trust gates in front
 of it, but nothing in the lab ever published on
-`rpc._platform.registry.entries.announce.v1` — the tier existed only in specs.
+`rpc._platform.mfe-registry.entries.announce.v1` — the tier existed only in specs.
 Phase 13 moved the five `example-plugin*` fixtures onto it and left
 `demo-catalog` as the only preloaded plugin, so both tiers are represented by
 something running:
@@ -426,12 +441,11 @@ something running:
 
 Four things in a fixed order, each the previous one's precondition:
 
-1. **A publisher account and credential per plugin** (13a/13c). `nsc` mints
-   `<plugin>-announcer` users with *publish* on the announce and unregister
-   subjects and nothing else. The five new `.creds` stems also tripped BR-D40's
-   documented failure mode — `natstenants` reads any unlisted stem in the shared
-   directory as a tenant — closed by a `NonTenantCredsSuffixes` entry rather
-   than five map entries.
+1. **A publisher account and credential per plugin** (13a/13c, renamed in
+   Phase 14). `nsc` mints users named exactly for their plugin holder with
+   *publish* on the announce and unregister subjects and nothing else. Files
+   live under `nats/creds/plugins/`, which keeps the family outside
+   `natstenants` discovery by directory rather than by a name suffix.
 2. **A signing keypair per publisher** (13c), separate from the NATS trust
    chain by design: a leaked signing key cannot connect to NATS as anything.
    Seeds are mounted read-only at runtime and never enter an image layer.
@@ -440,21 +454,20 @@ Four things in a fixed order, each the previous one's precondition:
    applies only the missing operations (BR-AS68) — a converged registry costs
    zero writes, zero revisions and zero audit rows. Compose orders it strictly
    before anything that announces (`service_completed_successfully`); without
-   that ordering the sidecars race it and exit on `not-owned`.
-4. **An announcer sidecar per plugin** (13e). One shared `announce-plugin`
-   binary, built into the registry image beside the service and the seeder, with
-   only its three read-only mounts differing: the plugin's own build-owned
-   `public/manifest.json`, that publisher's signing seed, that publisher's
-   credential. `example-plugin-unreachable` is an **announcer-only** container —
-   no web server, no code, a manifest naming a dead path on 7111 — which keeps
-   one publisher per plugin while leaving its fixture a genuine 404.
+   that ordering the publishers race it and exit on `not-owned`.
+4. **One publisher lifecycle per plugin** (13e, merged in Phase 14). Four
+   served fixtures run `shared/mfe-plugin-host`, whose PID 1 serves `dist/` and
+   calls the shared announcer package in-process. `example-plugin-unreachable`
+   remains the one **announcer-only** container — no web server, no code, a
+   manifest naming a dead path on 7111 — which keeps one publisher per plugin
+   while leaving its fixture a genuine 404.
 
 The release counter (BR-AS67) is the publisher's state, not the build's, so it
-lives in a named volume per plugin rather than in the image: the announcer
+lives in a named volume per plugin rather than in the image: the plugin process
 injects it into the manifest at runtime, immediately before signing, and no
-fixture manifest carries a `release` field. Each sidecar gets
+fixture manifest carries a `release` field. Each publisher container gets
 `stop_grace_period: 30s`, because the unregister is a request/reply round trip
-and Compose's default 10s turns a slow bus into a kill — and a killed sidecar
+and Compose's default 10s turns a slow bus into a kill — and a killed process
 withdraws nothing, which is BR-AS54 working, not failing.
 
 ### What moving tier changed
@@ -485,7 +498,7 @@ container being stopped), talks the operator's own `api.*` subjects on an
 announced-and-pending → operator approval → `stop` (withdrawn, approval intact,
 release `N+1`) → `start` (`updated`, release `N+2`) → key rotation → a
 cross-origin move (`requeued`) → approval at the new origin → revocation and
-recovery, with the other four sidecars as a control group the last step proves
+recovery, with the other four publisher processes as a control group the last step proves
 never moved.
 
 Three things the live run corrected, all of them the implementation being
@@ -505,6 +518,133 @@ stricter than the prose above assumed:
 Known trace: a rotated key is retired, never deleted — there is no delete
 operation by design — so repeated acceptance runs stack retired keys in the
 Publishers panel.
+
+
+---
+
+## Phase 14 — one container per plugin, and the two links it holds (as built 2026-09-02)
+
+Phase 13e's answer to "who publishes an announcement" was a second container per
+plugin. It was correct as a lifecycle boundary and expensive as a developer
+experience: five announced plugins meant ten containers. Phase 14 moved the
+announcer into the plugin's own process. The full option comparison is
+`.claude/plans/reviews/adr-announcer-topology-20260902.md`; the phase entry with
+its thirteen design decisions is
+`.claude/plans/Application-Shell-Microfrontend-Plan.md` § Phase 14.
+
+The drawing below is the argument, because the question it answers is a counting
+question: **how many connections does an announced plugin actually hold, and does
+merging the containers change that number?**
+
+![Before and after of the MFE plugin announcer topology. Before Phase 14 two containers per plugin each held one kind of link and never talked to each other: the nginx frontend held zero NATS connections and served the browser and the registry's health probe over HTTP, while the announcer sidecar held exactly one NATS connection and ran no listener. After Phase 14 a single container straddles the frontend and backend Docker networks and holds both links in one process, with the connection and listener counts unchanged.](images/mfe-announcer-topology.png)
+
+> Editable source:
+> [mfe-announcer-topology.html](../../../../demos/01-dictionary/diagrams/mfe-announcer-topology.html)
+> — hand-authored inline SVG rather than a Draw.io workbook page, so
+> `./diagrams/export-png.sh` does **not** regenerate it. Re-export from
+> `demos/01-dictionary/` with:
+> `node diagrams/export-html-png.mjs diagrams/mfe-announcer-topology.html ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/mfe-announcer-topology.png 1024 --clip=".wrap"`
+> Re-run `node diagrams/audit-svg-layout.mjs diagrams/mfe-announcer-topology.html`
+> after any edit to the SVG.
+
+### There are two links, and there always were
+
+The two links are **not** a frontend connection and an announcement connection
+held by the same peer. They are different protocols, different directions and
+different callers, and before Phase 14 they were held by different containers that shared
+nothing but a plugin id and a manifest file:
+
+| Link | Held before Phase 14 | Protocol | Direction | Count per plugin |
+| --- | --- | --- | --- | --- |
+| Asset serving | `lb-example-plugin` (nginx, `frontend` only) | HTTP `:80`, published as 7111 | browser dials in | 1 listener, 0 NATS |
+| Health probe | the same nginx listener | HTTP `GET /healthz` | registry dials in (BR-AS61) | shares the listener above |
+| Announcement | `lb-example-plugin-announcer` (`backend` only) | NATS request/reply | the plugin dials out | 1 NATS connection |
+
+Phase 14 changed **who holds them, not how many there are**. After the merge a
+plugin still has one HTTP listener and one NATS connection. The counts in both
+halves of the drawing are identical on purpose.
+
+### What the merge does cost
+
+The plugin container must now join **both** Docker networks. The registry's
+BR-AS61 probe dials the plugin over `frontend`, and `nats` lives on `backend`,
+so a process holding both links sits on both. That puts a browser-facing static
+origin in the same network namespace as a NATS credential, which the sidecar
+split kept apart.
+
+The no-proxy rule is what makes that acceptable here. The Go host's route set is
+exactly the asset root plus `/healthz`, asserted as a set rather than as a
+default, and both the signing seed and the credential mount outside the asset
+root. No route can reach `backend` on a browser's behalf. This is recorded as a
+lab trade-off and a production review item: on Kubernetes the announcer becomes
+a real sidecar container in the same pod, running this same package as its
+binary, and the Go host goes back to being optional.
+### Where the plugin's origin comes from (BR-AS71, BR-AS72)
+
+Merging the containers opened the announce path, and that path was already
+carrying a defect. Before Phase 14, `lab-shell/plugins/example-plugin/public/manifest.json` read:
+
+```json
+"url": "http://localhost:7111/remoteEntry.js"
+```
+
+That string is built into the image. It says the plugin knows where it will be
+deployed, which BR-AS15 denies — a plugin is built by its own toolchain, from
+its own lockfile, into its own image, and none of those know the deployment.
+The same image cannot serve staging and production.
+
+**BR-AS71 moves the origin out of the image and into the announcement.** The
+publisher reads it from deployment config (`PLUGIN_PUBLIC_ORIGIN`) and writes it
+into the manifest immediately before signing — the same point at which BR-AS67's
+release counter is injected, for the same reason. The signature is what forces
+the ordering: BR-AS47 puts the URL inside the signed bytes, so a proxy, an
+ingress or the registry cannot rewrite it afterwards without breaking
+attestation. Stamp-then-sign is the only sequence that works, and any other
+sequence fails loudly rather than silently.
+
+**BR-AS72 then says what a stamped URL may look like.** It is either
+same-origin — a path, no scheme, no host — or an absolute origin on the BR-AS45
+allowlist. A path-only URL needs no allowlist entry because the browser resolves
+it against the shell's own document origin, which the shell already trusts. A
+protocol-relative `//host/path` is **refused**: it reads as a path, resolves to
+a foreign host, and would carry a remote past the allowlist check.
+
+Module Federation needs no change for either form beyond resolving a path-only
+entry against the shell document. Every chunk after it loads through a relative
+`import('./assets/…')` resolved against `remoteEntry.js`, so moving the entry to
+a path moves the whole chain with it.
+
+### As-built implementation
+
+- `shared/mferegistry/announcer` owns connection, stamp-then-sign announce,
+  the single state schema, and SIGTERM-only unregister. The retained
+  `cmd/announce-plugin` and the host both call its `Start(ctx, Config)`.
+- `shared/mfe-plugin-host` is the four served fixtures' shared final image. Its
+  route set is exactly `/healthz` plus the asset root; the suite pins no-store
+  health without CORS, named asset CORS, no SPA fallback, traversal containment,
+  and serving failures cancelling without unregistering.
+- Each served fixture still has its own `package.json`, lockfile, `npm run
+  build`, image, credential, signing key and release volume. Its final Docker
+  stage copies only `dist` into `/srv`.
+- `scripts/new-plugin.sh` scaffolds the directory, one Compose service,
+  bootstrap publisher entry, registry origin/health mappings and port-table
+  row. Its golden spec is derived from the migrated `example-plugin` shape.
+
+The shape this points at in production is one hostname with a path prefix per
+plugin:
+
+```
+https://app.example.com/                       ← the shell
+https://app.example.com/plugins/example/…      ← a plugin's assets
+```
+
+Everything is then same-origin, and CORS stops existing — no
+`Access-Control-Allow-Origin`, no `Vary: Origin`, no preflight, and no
+`REGISTRY_ALLOWED_ORIGINS` row per plugin. The lab keeps per-port origins
+because separate ports are what makes the cross-origin rules observable, which
+is the thing the lab exists to demonstrate. Both rules are written so that the
+lab's shape and the production shape are the same rule, not two.
+
 
 ---
 
@@ -603,7 +743,7 @@ sequenceDiagram
     Auth-->>Shell: short-lived lab-shell PLATFORM JWT + NKey seed
     Shell->>Shell: NATS WebSocket connect (unlimited reconnect attempts)
     Note over Shell: NATS credential is not permission-evaluator claims.<br/>The POC evaluator still grants '*'.
-    Shell->>Reg: api._platform.registry.frontend-plugins.read.v1<br/>{heldRevision: null}
+    Shell->>Reg: api._platform.mfe-registry.frontend-plugins.read.v1<br/>{heldRevision: null}
     alt registry unreachable or malformed
         Reg--xShell: error
         Shell-->>U: native frame stays usable; connection notice<br/>after 5000 ms down (BR-AS30)
@@ -621,7 +761,7 @@ sequenceDiagram
         Idx-->>Shell: nav tree, route table,<br/>extension assignments
         Shell-->>U: full chrome + nav rendered<br/>0 remote entry points fetched
     end
-    Shell->>Reg: subscribe notify._platform.registry.frontend-plugins.changed
+    Shell->>Reg: subscribe notify._platform.mfe-registry.frontend-plugins.changed
     Shell->>Reg: conditional catch-up read after subscription flush
     Note over Shell,Reg: Notify is a hint only. Every reconnect reads unconditionally.<br/>No focus/interval polling and no HTTP fallback.
 ```
@@ -1187,7 +1327,7 @@ the source of truth; a single NATS KV entry (`mfe-registry` bucket, key
 `_platform.frontend-plugins.current`) caches the whole serialized document so the shell keeps
 booting through a Postgres outage; the read order is Postgres → KV → a degraded document at
 revision 0. The KV bucket is `mfe-registry` (renamed with the service; a bucket name is a stream
-name, so this was a `down -v` and a reseed, not a migration). The shell reads `api._platform.registry.frontend-plugins.read.v1`,
+name, so this was a `down -v` and a reseed, not a migration). The shell reads `api._platform.mfe-registry.frontend-plugins.read.v1`,
 conditionally with `{heldRevision}` (`null` means unconditional); a matching healthy
 revision answers `unchanged`, never a degraded one. The adapter returns `entries`
 and the shell transport maps them to the existing `plugins` contract. Operator
@@ -1224,8 +1364,8 @@ profile the host did not declare):
 | `seafreight-tenant` | tenant | yes | SeaFreight, inside one tenant |
 
 Admin keeps its existing PLATFORM connection and gains four explicit subjects:
-`api._platform.registry.entries.{curated,upsert,set-enabled}.v1` and
-`api._platform.registry.audit.list.v1`. The shared error envelope retains its
+`api._platform.mfe-registry.entries.{curated,upsert,set-enabled}.v1` and
+`api._platform.mfe-registry.audit.list.v1`. The shared error envelope retains its
 `error`/`conflict` fields; registry-specific code/revision details are additive.
 Both operator panels re-read on connection epochs, including a late initial mint.
 All former registry HTTP routes and proxy rules are retired; **no HTTP boot fallback**.

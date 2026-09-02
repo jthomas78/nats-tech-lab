@@ -8,7 +8,7 @@
   "routePrefix": "example-gone",
   "remote": {
     "kind": "federated",
-    "url": "http://localhost:7111/no-such-remoteEntry.js",
+    "url": "/no-such-remoteEntry.js",
     "name": "example_plugin_missing",
     "module": "plugin"
   },

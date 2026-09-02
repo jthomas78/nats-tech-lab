@@ -1,6 +1,6 @@
 import { createHintedReader } from './hintedReader.js'
 
-export const NOTIFY_SUBJECT = 'notify._platform.registry.frontend-plugins.changed'
+export const NOTIFY_SUBJECT = 'notify._platform.mfe-registry.frontend-plugins.changed'
 
 const revisionNumber = (value) => {
   if (typeof value !== 'number' && !(typeof value === 'string' && /^\d+$/.test(value))) return null

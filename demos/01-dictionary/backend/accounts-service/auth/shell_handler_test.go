@@ -51,7 +51,7 @@ var _ = Describe("BR-AS27 — shell credential HTTP bootstrap", func() {
 		Expect(info.WSUrl).To(Equal("/nats"))
 		Expect(info.Tenant).To(Equal("platform"))
 		Expect(claims.Name).To(Equal("lab-shell"))
-		Expect(claims.Permissions.Pub.Allow).To(ConsistOf("api._platform.registry.frontend-plugins.read.v1", "api._platform.registry.frontend-plugins.health.v1", "_INBOX.>"))
+		Expect(claims.Permissions.Pub.Allow).To(ConsistOf("api._platform.mfe-registry.frontend-plugins.read.v1", "api._platform.mfe-registry.frontend-plugins.health.v1", "_INBOX.>"))
 		Expect(time.Until(time.Unix(claims.Expires, 0))).To(BeNumerically(">", 24*time.Minute))
 		Expect(time.Until(time.Unix(claims.Expires, 0))).To(BeNumerically("<", 26*time.Minute))
 	})

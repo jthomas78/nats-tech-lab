@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
@@ -194,12 +192,6 @@ func (h *harness) setKeyState(publisher, key, state string) error {
 // ------------------------------------------------------------ the sequence
 
 func (h *harness) scenarios() error {
-	manifestPath := filepath.Join(h.dir, "..", "..", "lab-shell", "plugins", subjectPlugin, "public", "manifest.json")
-	manifest, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return fmt.Errorf("reading the plugin's own manifest: %w", err)
-	}
-
 	// ---------------------------------------------------------------- 1
 	h.heading("first boot left an announced entry awaiting an operator")
 	start, err := h.await("the sidecar's announcement is on the record", func(e entryView) bool { return e.Release > 0 })
@@ -321,7 +313,7 @@ func (h *harness) scenarios() error {
 	h.original, h.rotatedK, h.rotated = firstKey, secondKey, true
 	h.note("added %s… and retired %s…", secondKey[:12], firstKey[:12])
 
-	if err := h.spawn("registry-acceptance-rotated", secondSeed+":/etc/plugin/signing.nk:ro"); err != nil {
+	if err := h.spawn("registry-acceptance-rotated", nil, secondSeed+":/etc/plugin/signing.nk:ro"); err != nil {
 		return err
 	}
 	rotated, err := h.await("the new key's announcement is accepted", func(e entryView) bool {
@@ -343,14 +335,11 @@ func (h *harness) scenarios() error {
 
 	// ---------------------------------------------------------------- 6
 	h.heading("the publisher moves the plugin to another origin")
-	altManifest, err := reOrigin(manifest, altOrigin)
-	if err != nil {
-		return err
-	}
-	altPath := filepath.Join(h.scratch, "manifest-alt-origin.json")
-	if err := os.WriteFile(altPath, altManifest, 0o600); err != nil {
-		return err
-	}
+	// The move is a deployment change, not a rebuild. Since BR-AS71 the
+	// plugin's own manifest carries no origin at all, so relocating it means
+	// giving the publisher a different PLUGIN_PUBLIC_ORIGIN and letting it
+	// stamp that in before it signs.
+	altDeployment := []string{"PLUGIN_PUBLIC_ORIGIN=" + altOrigin}
 	h.note("%s → %s, both allowlisted: the requeue turns on the move, not on a refused origin.", homeOrigin, altOrigin)
 	if err := h.kill("registry-acceptance-rotated"); err != nil {
 		return err
@@ -361,9 +350,8 @@ func (h *harness) scenarios() error {
 	if err != nil {
 		return err
 	}
-	if err := h.spawn("registry-acceptance-moved",
-		secondSeed+":/etc/plugin/signing.nk:ro",
-		altPath+":/etc/plugin/manifest.json:ro"); err != nil {
+	if err := h.spawn("registry-acceptance-moved", altDeployment,
+		secondSeed+":/etc/plugin/signing.nk:ro"); err != nil {
 		return err
 	}
 	moved, err := h.await("the moved plugin is queued for review again", func(e entryView) bool {
@@ -444,9 +432,8 @@ func (h *harness) scenarios() error {
 	if err != nil {
 		return err
 	}
-	if err := h.spawn("registry-acceptance-recovered",
-		secondSeed+":/etc/plugin/signing.nk:ro",
-		altPath+":/etc/plugin/manifest.json:ro"); err != nil {
+	if err := h.spawn("registry-acceptance-recovered", altDeployment,
+		secondSeed+":/etc/plugin/signing.nk:ro"); err != nil {
 		return err
 	}
 	reannounced, err := h.await("a fresh, validly signed announcement is accepted", func(e entryView) bool {

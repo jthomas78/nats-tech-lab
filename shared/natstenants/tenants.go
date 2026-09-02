@@ -76,16 +76,11 @@ import (
 var NonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true, "observability": true, "mfe-registry-service": true}
 
 // NonTenantCredsSuffixes are stem suffixes (checked case-insensitively) that
-// mark a whole family of service credentials as never-a-tenant, so a family
-// that grows does not have to grow NonTenantCredsFiles with it.
-//
-// "-announcer" is the per-plugin micro-frontend publisher sidecar (Phase 13c
-// of the app-shell plan): one restricted PLATFORM credential per fixture,
-// five today and one more per plugin added later. Without this every
-// natstenants-based service opened a bogus tenant connection per announcer
-// on the announcer's own grants — exactly the failure BR-D40 describes,
-// arriving five at a time instead of one.
-var NonTenantCredsSuffixes = []string{"-announcer"}
+// mark a whole family of service credentials as never-a-tenant. It is empty
+// today: Phase 14 moved plugin credentials into creds/plugins/, and Discover
+// deliberately does not descend into subdirectories. Location is a stronger
+// family boundary than a holder-name suffix and permits any valid plugin id.
+var NonTenantCredsSuffixes = []string{}
 
 // isNonTenant reports whether a creds stem names a service credential rather
 // than a tenant.

@@ -13,10 +13,12 @@ An occupied URL tombstones in place behind a `beforeEach` guard, the route recor
 registered. Slot-owner withdrawal suspends placements, never blames the contributor. Security
 revocation still outranks everything; a degraded read never ordinary-withdraws. No scope disposal.
 
-Health is decoration: its own subject, own hint, own reply shape, carrying no revision or signed
-bytes. Frontend and backend stay two signals. 5s interval, 2s timeout, 2 failures, 15s freshness;
-ageing happens at READ time on both sides, so there is no timer to leak. `shared/natsready` is a new
-module — every ask runs the real check, because presence is not readiness.
+Health is decoration: its own request/push subjects and one snapshot shape, carrying no catalogue
+revision or signed bytes. Frontend and backend stay two signals. 5s interval, 2s timeout, 2 failures,
+15s freshness. Revised 2026-09-02: the central checker broadcasts every completed observation;
+shells read on startup/reconnect, age/repaint locally, and reconcile at a jittered 45–75s interval
+instead of making one request per browser every 5s. `shared/natsready` runs the real check on every
+ask, because presence is not readiness.
 
 **The lesson worth keeping, from the live run:** all three suites were green while three deployment
 defects sat in the stack — a Dockerfile missing a COPY for two new shared modules, credentials that

@@ -643,6 +643,7 @@ Rule 1 cannot name one JWT after three holders.
 | `acme` / `globex` / `<tenant>` | unchanged | 3 |
 | `browser-<tenant>` | `seafreight-app` | 1 |
 | `admin-app`, `operator-app` | unchanged | 1 — already match their apps |
+| `example-plugin*-announcer` | `example-plugin*` | 1 — **shipped in Phase 14**; the holder is now the plugin process, and files live under `creds/plugins/` |
 
 Two costs make this a deliberate migration rather than a rename pass:
 

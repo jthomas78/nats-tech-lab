@@ -20,6 +20,8 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 // --- test fixtures ---
@@ -149,34 +151,37 @@ func TestDiscoverExcludesNonTenantCredsFiles(t *testing.T) {
 	}
 }
 
-func TestDiscoverExcludesAnnouncerCredsFiles(t *testing.T) {
-	dir := t.TempDir()
-	names := []string{
-		"example-plugin-announcer",
-		"example-plugin-slow-announcer",
-		"example-plugin-unreachable-announcer",
-		"example-plugin-activate-throws-announcer",
-		"example-plugin-incompatible-announcer",
-		"Acme-Announcer",
-		"acme",
-	}
-	for _, name := range names {
-		if err := os.WriteFile(filepath.Join(dir, name+".creds"), []byte("x"), 0o600); err != nil {
-			t.Fatalf("write %s.creds: %v", name, err)
-		}
-	}
-
-	found, err := Discover(dir)
-	if err != nil {
-		t.Fatalf("Discover: %v", err)
-	}
-	if len(found) != 1 {
-		t.Fatalf("Discover found %d tenants, want 1 (acme only): %v", len(found), found)
-	}
-	if _, ok := found["acme"]; !ok {
-		t.Fatalf("Discover did not find acme: %v", found)
-	}
+func TestNatstenantsGinkgo(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "NATS Tenants Business Rules Suite")
 }
+
+var _ = Describe("Tenant credential discovery", func() {
+	Context("BR-D40 — plugin credentials are excluded by directory, never by name", func() {
+		It("does not descend into the plugins credential family directory", func() {
+			dir := GinkgoT().TempDir()
+			Expect(os.WriteFile(filepath.Join(dir, "acme.creds"), []byte("x"), 0o600)).To(Succeed())
+			plugins := filepath.Join(dir, "plugins")
+			Expect(os.Mkdir(plugins, 0o700)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(plugins, "example-plugin.creds"), []byte("x"), 0o600)).To(Succeed())
+
+			found, err := Discover(dir)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(HaveKey("acme"))
+			Expect(found).To(HaveLen(1))
+			Expect(NonTenantCredsSuffixes).To(BeEmpty())
+		})
+
+		It("still treats a top-level plugin-shaped credential as a tenant", func() {
+			dir := GinkgoT().TempDir()
+			Expect(os.WriteFile(filepath.Join(dir, "example-plugin.creds"), []byte("x"), 0o600)).To(Succeed())
+
+			found, err := Discover(dir)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(HaveKey("example-plugin"))
+		})
+	})
+})
 
 func TestDiscoverIsCaseInsensitiveForExclusions(t *testing.T) {
 	dir := t.TempDir()

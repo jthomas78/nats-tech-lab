@@ -1,0 +1,133 @@
+# Build context is the REPO ROOT (see demos/01-dictionary/docker-compose.yml)
+# so the shared UniFi theme preset (@unifi-theme) can be copied in.
+#
+# This image is the containerised form of BR-AS15's claim: the plugin is built
+# by its own toolchain, from its own package.json and its own lockfile, into
+# its own image, and served from its own port. Nothing here imports the shell
+# and nothing here is compiled by it — the two Dockerfiles share only the
+# theme directory, which is a stylesheet, not an API.
+FROM node:24-alpine AS build
+WORKDIR /repo
+COPY shared ./shared
+COPY lab-shell/plugins/acme-widget/package.json lab-shell/plugins/acme-widget/package-lock.json ./lab-shell/plugins/acme-widget/
+COPY lab-shell/plugins/acme-widget/index.html lab-shell/plugins/acme-widget/vite.config.js ./lab-shell/plugins/acme-widget/
+COPY lab-shell/plugins/acme-widget/src ./lab-shell/plugins/acme-widget/src
+COPY lab-shell/plugins/acme-widget/public ./lab-shell/plugins/acme-widget/public
+WORKDIR /repo/lab-shell/plugins/acme-widget
+RUN npm ci && npm run build
+
+FROM mfe-plugin-host
+COPY --from=build /repo/lab-shell/plugins/acme-widget/dist /srv
+
+---
+{
+  "id": "acme-widget",
+  "name": "Acme Widget",
+  "version": "0.1.1",
+  "description": "Scaffolded MFE plugin acme-widget.",
+  "schemaVersion": 1,
+  "shellApiVersion": 1,
+  "routePrefix": "acme-widget",
+  "remote": {
+    "kind": "federated",
+    "url": "/remoteEntry.js",
+    "name": "acme_widget",
+    "module": "plugin"
+  },
+  "contributions": [
+    {
+      "kind": "route",
+      "id": "overview",
+      "path": "/acme-widget",
+      "title": "Acme Widget",
+      "component": "overview"
+    },
+    {
+      "kind": "navigation",
+      "id": "overview-nav",
+      "label": "Acme Widget",
+      "route": "overview",
+      "icon": "pi pi-bolt",
+      "order": 10
+    },
+    {
+      "kind": "extension",
+      "id": "home-panel",
+      "target": "shell/home-main/v1",
+      "component": "home-panel",
+      "order": 10
+    },
+    {
+      "kind": "extension",
+      "id": "home-panel-broken",
+      "target": "shell/home-main/v1",
+      "component": "render-throws",
+      "order": 20
+    },
+    {
+      "kind": "extension",
+      "id": "demo-sidebar",
+      "target": "demo-catalog/details-sidebar/v1",
+      "component": "demo-sidebar",
+      "order": 10
+    },
+    {
+      "kind": "shell-control",
+      "id": "stream-toggle",
+      "region": "shell/topbar-controls/v1",
+      "component": "topbar-control",
+      "routes": [
+        "/acme-widget"
+      ],
+      "order": 10
+    },
+    {
+      "kind": "shell-footer",
+      "id": "version",
+      "component": "footer-item",
+      "order": 10
+    }
+  ]
+}
+
+---
+    build:
+      context: ../..
+      dockerfile: lab-shell/plugins/acme-widget/Dockerfile
+      additional_contexts:
+        mfe-plugin-host: service:mfe-plugin-host
+    container_name: lb-acme-widget
+    ports:
+      - "7116:8080"
+    labels:
+      com.nats-tech-lab.mfe.source: announced
+    networks:
+      - frontend
+      - backend
+    environment:
+      HTTP_ADDR: ":8080"
+      ASSET_ROOT: /srv
+      ASSET_ALLOWED_ORIGIN: http://localhost:7110
+      PLUGIN_PUBLIC_ORIGIN: http://localhost:7116
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_PATH: /etc/nats/creds/plugin.creds
+      NATS_CONNECTION_NAME: acme-widget
+      PUBLISHER_ID: acme-widget
+      PLUGIN_MANIFEST_PATH: /srv/manifest.json
+      PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
+      RELEASE_STATE_PATH: /var/lib/announcer/release.json
+    volumes:
+      - ./nats/creds/plugins/acme-widget.creds:/etc/nats/creds/plugin.creds:ro
+      - ./nats/keys/publisher-acme-widget.nk:/etc/plugin/signing.nk:ro
+      - acme-widget-release:/var/lib/announcer
+    stop_grace_period: 30s
+    restart: unless-stopped
+    depends_on: *plugin_dependencies
+
+
+  # Announcer-only: this fixture has no code and no web server, by design
+  # (see lab-shell/plugins/example-plugin-unreachable/README.md). It is a
+  # manifest pointing at a dead path on example-plugin's port, so the shell's
+  # 404 failure path has something to fail on. It still gets its own
+  # publisher: letting example-plugin's host announce it too would put two
+  # plugins under one publisher, against decision 4.

@@ -7,7 +7,7 @@ import { resolveWsUrl } from '@nats-shared/resolveWsUrl.js'
 import Aura from '@primevue/themes/aura'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
-import { createApp, nextTick, reactive } from 'vue'
+import { createApp, nextTick, reactive, watch } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { createUnifiPreset, enableDarkMode, themeOptions } from '@unifi-theme/preset.js'
@@ -21,7 +21,7 @@ import { createShellConnection } from './shell/connections/shellConnection.js'
 import { createShellDialer } from './shell/connections/shellDialer.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createPluginLoader } from './shell/loader/pluginLoader.js'
-import { createHealthPlane, createHealthTransport } from './shell/registry/healthPlane.js'
+import { createHealthPlane, createHealthTransport, healthReconcileInterval } from './shell/registry/healthPlane.js'
 import { createRegistryTransport } from './shell/registry/registryTransport.js'
 import { createRegistrySession } from './shell/registry/registrySession.js'
 import { createShellRoutes, installShellRoutes } from './shell/routing/shellRoutes.js'
@@ -126,11 +126,9 @@ export async function bootstrap() {
      the catalogue is what the boot depends on, and health is decoration on
      top of whatever the boot produced. */
   const health = reactive({ signals: {} })
-  /* Copy on every read the plane installed. This is what carries a hint to
-     the screen: the plane reads on start, on a hint and after a reconnect,
-     and before this seam existed none of those repainted anything — the
-     ageing interval below was doing it, so a hint could sit up to a whole
-     interval behind the truth. */
+  /* Copy every newer requested or pushed snapshot the plane installed. The
+     value handed to Vue is always read back from the plane so its local
+     freshness rule, rather than a transport payload, decides what is stale. */
   const publishHealth = () => { health.signals = healthPlane.snapshot() }
   const healthPlane = createHealthPlane({
     transport: createHealthTransport({ request: connection.request }),
@@ -155,21 +153,30 @@ export async function bootstrap() {
   app.mount('#app')
   void session.start()
   healthPlane.start()
-  /* Re-read the plane on the same cadence the registry probes on, so a
-     reading that has aged into `stale` is replaced rather than merely
-     labelled. The interval only copies memory into a reactive object; the
-     network read is the plane's own business. */
-  const healthTimer = setInterval(() => {
-    /* Read, then republish regardless of the read's outcome. The read is a
-       floor cadence: a first read that lost the race with the connection
-       coming up would otherwise leave every signal `unknown` with nothing to
-       wake it. The unconditional republish is what lets a KEPT reading age
-       into `stale` on schedule, which no read reports because nothing
-       changed. */
+
+  /* Every connection epoch closes a possible Core NATS notification gap.
+     This includes the first successful connection: the plane starts beside
+     the session, so its boot read may legitimately run before the socket is
+     ready. The epoch-triggered read repairs that race without a fast poll. */
+  let healthEpoch = connection.state.epoch
+  const stopHealthEpoch = watch(() => connection.state.epoch, (epoch) => {
+    if (epoch <= healthEpoch) return
+    healthEpoch = epoch
+    void healthPlane.onReconnect().finally(publishHealth)
+  })
+
+  /* Ageing is a UI concern and makes no network request. A separate slow,
+     per-shell jittered read reconciles a theoretically missed push while the
+     connection looked continuous. Normal five-second updates are the one
+     central broadcast emitted by mfe-registry-service after its probe pass. */
+  const healthAgeTimer = setInterval(publishHealth, 5_000)
+  const healthReconcileTimer = setInterval(() => {
     void healthPlane.refresh().finally(publishHealth)
-  }, 5_000)
+  }, healthReconcileInterval())
   if (import.meta.hot) import.meta.hot.dispose(() => {
-    clearInterval(healthTimer)
+    clearInterval(healthAgeTimer)
+    clearInterval(healthReconcileTimer)
+    stopHealthEpoch()
     healthPlane.stop()
     void session.stop()
   })

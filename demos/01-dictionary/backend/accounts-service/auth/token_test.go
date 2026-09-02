@@ -206,12 +206,12 @@ var _ = Describe("MintAdminToken", func() {
 			// REST. Phase 7b (BR-AS38) adds the trusted-publishers table to
 			// it. Operator-scoped: these are granted here and to no other
 			// credential, and MintShellToken below must never carry them.
-			"api._platform.registry.entries.curated.v1",
-			"api._platform.registry.entries.upsert.v1",
-			"api._platform.registry.entries.set-enabled.v1",
-			"api._platform.registry.audit.list.v1",
-			"api._platform.registry.publishers.list.v1",
-			"api._platform.registry.publishers.write.v1",
+			"api._platform.mfe-registry.entries.curated.v1",
+			"api._platform.mfe-registry.entries.upsert.v1",
+			"api._platform.mfe-registry.entries.set-enabled.v1",
+			"api._platform.mfe-registry.audit.list.v1",
+			"api._platform.mfe-registry.publishers.list.v1",
+			"api._platform.mfe-registry.publishers.write.v1",
 		))
 		Expect(claims.Permissions.Pub.Deny).To(BeEmpty())
 
@@ -285,8 +285,8 @@ var _ = Describe("MintShellToken", func() {
 		// the second (BR-AS65) and is a read like the first: a shell asks,
 		// and nothing it publishes can write an observation.
 		Expect(claims.Permissions.Pub.Allow).To(ConsistOf(
-			"api._platform.registry.frontend-plugins.read.v1",
-			"api._platform.registry.frontend-plugins.health.v1",
+			"api._platform.mfe-registry.frontend-plugins.read.v1",
+			"api._platform.mfe-registry.frontend-plugins.health.v1",
 			"_INBOX.>",
 		))
 		// Two notifications to hear, plus the inbox. Both are subscribe-only
@@ -295,8 +295,8 @@ var _ = Describe("MintShellToken", func() {
 		// makes the notification a hint, and this is what keeps the hint
 		// honest; BR-AS65 says the same of health).
 		Expect(claims.Permissions.Sub.Allow).To(ConsistOf(
-			"notify._platform.registry.frontend-plugins.changed",
-			"notify._platform.registry.frontend-plugins.health",
+			"notify._platform.mfe-registry.frontend-plugins.changed",
+			"notify._platform.mfe-registry.frontend-plugins.health",
 			"_INBOX.>",
 		))
 	})

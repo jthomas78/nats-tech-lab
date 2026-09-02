@@ -257,9 +257,9 @@ var _ = Describe("BR-AS64 — an old snapshot never looks current", func() {
 	})
 
 	It("does not let a duplicate refresh the check time", func() {
-		// The failure this exists to stop: a hint or a re-read redelivering
+		// The failure this exists to stop: a push or a re-read redelivering
 		// the same observation, and the shell treating each arrival as proof
-		// that the target was alive just now (BR-AS65 — a hint is not an
+		// that the target was alive just now (BR-AS65 — a duplicate is not an
 		// observation).
 		held := domain.HealthSignal{State: domain.HealthHealthy, LastCheckAt: t0}
 

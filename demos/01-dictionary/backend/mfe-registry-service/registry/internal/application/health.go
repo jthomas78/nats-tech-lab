@@ -48,12 +48,23 @@ type PluginHealth struct {
 	Backend  domain.HealthSignal `json:"backend"`
 }
 
-// HealthHinter is told that a snapshot moved. It is handed no state on
-// purpose (BR-AS64): a hint means "read the health subject again", and a
-// delivery is proof that a message arrived, never proof that a service was
-// alive.
-type HealthHinter interface {
-	HealthChanged(ctx context.Context)
+// HealthSnapshot is the one browser-facing shape used by both the initial
+// request and the pushed observation stream. It contains health and nothing
+// from the catalogue: no revision, entries, signed bytes or approval state.
+type HealthSnapshot struct {
+	OK      bool                    `json:"ok"`
+	Plugins map[string]PluginHealth `json:"plugins"`
+	// AsOf is milliseconds since the epoch. Millisecond precision lets a
+	// browser reject a duplicate push without refreshing its freshness lease.
+	AsOf int64 `json:"asOf"`
+}
+
+// HealthPublisher publishes completed observations. Core NATS is not durable,
+// so the shell still takes an initial/reconnect snapshot; between those reads
+// this one central publication keeps every browser current without one poll
+// per browser every five seconds (BR-AS64/AS65).
+type HealthPublisher interface {
+	HealthChanged(ctx context.Context, snapshot HealthSnapshot)
 }
 
 type HealthChecker struct {
@@ -63,23 +74,17 @@ type HealthChecker struct {
 	frontend FrontendProber
 	backend  BackendProber
 
-	mu       sync.RWMutex
-	worker   *domain.HealthWorker
-	plugins  map[string][]string // plugin id -> backend service ids, nil when unmapped
-	mapped   map[string]string   // plugin id -> frontend target, "" when unmapped
-	revision int64
+	mu      sync.RWMutex
+	worker  *domain.HealthWorker
+	plugins map[string][]string // plugin id -> backend service ids, nil when unmapped
+	mapped  map[string]string   // plugin id -> frontend target, "" when unmapped
 
-	hint HealthHinter
-	// published is the last snapshot a hint was sent for, flattened to the
-	// facts a shell would notice. Kept so a pass where nothing moved says
-	// nothing: a hint every five seconds would train every shell to ignore
-	// the one that mattered.
-	published map[string]string
+	publisher HealthPublisher
 }
 
-// NewHealthChecker takes the hinter last and optionally: a deployment with no
-// broker still probes and still answers reads, it just tells nobody.
-func NewHealthChecker(catalog HealthCatalog, origins domain.HealthOrigins, targets domain.HealthTargets, frontend FrontendProber, backend BackendProber, hint ...HealthHinter) *HealthChecker {
+// NewHealthChecker takes the publisher last and optionally: a deployment with
+// no broker still probes and still answers reads, it just publishes nothing.
+func NewHealthChecker(catalog HealthCatalog, origins domain.HealthOrigins, targets domain.HealthTargets, frontend FrontendProber, backend BackendProber, publisher ...HealthPublisher) *HealthChecker {
 	c := &HealthChecker{
 		catalog:  catalog,
 		origins:  origins,
@@ -90,8 +95,8 @@ func NewHealthChecker(catalog HealthCatalog, origins domain.HealthOrigins, targe
 		plugins:  map[string][]string{},
 		mapped:   map[string]string{},
 	}
-	if len(hint) > 0 {
-		c.hint = hint[0]
+	if len(publisher) > 0 {
+		c.publisher = publisher[0]
 	}
 	return c
 }
@@ -143,7 +148,7 @@ func (c *HealthChecker) Run(ctx context.Context) {
 
 // Step is one pass, at a time the caller supplies. Exported and clock-free
 // for the same reason the domain worker is (BR-AS63): every decision in a
-// pass — due, threshold, freshness, whether to hint — belongs to a spec that
+// pass — due, threshold, freshness and the served snapshot — belongs to a spec that
 // can state the time, and the only thing left in Run is the ticker.
 func (c *HealthChecker) Step(ctx context.Context, now time.Time) {
 	c.refreshTargets(ctx)
@@ -170,33 +175,20 @@ func (c *HealthChecker) Step(ctx context.Context, now time.Time) {
 	c.announce(ctx, now)
 }
 
-// announce sends at most one hint per pass, and only when a shell would see a
-// different answer than last time. Comparing the SERVED snapshot rather than
-// the raw probes is deliberate: two failures that have not yet crossed the
-// threshold are the same news as none, and a shell asked to re-read for them
-// would learn nothing.
+// announce sends one full snapshot after a completed pass. A transition-only
+// hint is not enough: successful probes advance LastCheckAt even when their
+// state stays healthy, and without that observation a browser would correctly
+// age the last pushed value to stale after fifteen seconds. One broadcast per
+// pass replaces one request per browser per pass.
 func (c *HealthChecker) announce(ctx context.Context, now time.Time) {
-	if c.hint == nil {
+	if c.publisher == nil {
 		return
 	}
-	current := map[string]string{}
-	for id, health := range c.Snapshot(now) {
-		current[id] = health.Frontend.State + "/" + health.Frontend.Cause + "|" + health.Backend.State + "/" + health.Backend.Cause
-	}
-
-	c.mu.Lock()
-	changed := len(current) != len(c.published)
-	for id, state := range current {
-		if c.published[id] != state {
-			changed = true
-		}
-	}
-	c.published = current
-	c.mu.Unlock()
-
-	if changed {
-		c.hint.HealthChanged(ctx)
-	}
+	c.publisher.HealthChanged(ctx, HealthSnapshot{
+		OK:      true,
+		Plugins: c.Snapshot(now),
+		AsOf:    now.UnixMilli(),
+	})
 }
 
 func (c *HealthChecker) run(ctx context.Context, key string, at time.Time) domain.HealthProbe {

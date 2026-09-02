@@ -8,7 +8,7 @@
 
   The other half is honesty about age. A reading the shell fetched once and
   kept is a fact about a moment that has passed, so it ages into `stale` on
-  its own — without a new read, without a hint, and without anything
+  its own — without a new request, without a push, and without anything
   re-rendering to make it happen. Unknown and stale are different words on
   purpose: "we never looked" and "this was true once" send an operator to
   different places.
@@ -20,9 +20,12 @@ import {
   HEALTH_FRESHNESS_MS,
   HEALTH_NOTIFY_SUBJECT,
   HEALTH_READ_SUBJECT,
+  HEALTH_RECONCILE_BASE_MS,
+  HEALTH_RECONCILE_JITTER_MS,
   HEALTH_STATE,
   createHealthPlane,
   createHealthTransport,
+  healthReconcileInterval,
 } from './healthPlane.js'
 
 const signal = (state, extra = {}) => ({ state, ...extra })
@@ -35,9 +38,9 @@ const reply = (plugins, asOf = 1_000) => ({ ok: true, asOf, plugins })
 
 describe('BR-AS65 — the health read is its own subject and its own answer', () => {
   it('names the read subject and the hint, and they are not the catalogue’s', () => {
-    expect(HEALTH_READ_SUBJECT).toBe('api._platform.registry.frontend-plugins.health.v1')
-    expect(HEALTH_NOTIFY_SUBJECT).toBe('notify._platform.registry.frontend-plugins.health')
-    expect(HEALTH_READ_SUBJECT).not.toBe('api._platform.registry.frontend-plugins.read.v1')
+    expect(HEALTH_READ_SUBJECT).toBe('api._platform.mfe-registry.frontend-plugins.health.v1')
+    expect(HEALTH_NOTIFY_SUBJECT).toBe('notify._platform.mfe-registry.frontend-plugins.health')
+    expect(HEALTH_READ_SUBJECT).not.toBe('api._platform.mfe-registry.frontend-plugins.read.v1')
   })
 
   it('asks with no arguments — there is no conditional read of an observation', async () => {
@@ -202,7 +205,7 @@ describe('BR-AS64 — a reading ages, and the shell says so', () => {
         'fleet-ops': { frontend: signal('healthy'), backend: signal('healthy') },
         pricing: { frontend: signal('healthy'), backend: signal('healthy') },
       }))
-      .mockResolvedValue(reply({ pricing: { frontend: signal('healthy'), backend: signal('healthy') } }))
+      .mockResolvedValue(reply({ pricing: { frontend: signal('healthy'), backend: signal('healthy') } }, 2_000))
     const plane = planeWith({ fetchHealth }, clock)
 
     await plane.refresh()
@@ -229,10 +232,30 @@ describe('BR-AS64 — a reading ages, and the shell says so', () => {
 
     expect(plane.signalsFor('fleet-ops').frontend.state).toBe(HEALTH_STATE.HEALTHY)
   })
+
+  it('does not let a duplicate snapshot renew the freshness lease', async () => {
+    let handler = null
+    const clock = { value: 0 }
+    const plane = createHealthPlane({
+      transport: { fetchHealth: vi.fn().mockResolvedValue(reply({
+        'fleet-ops': { frontend: signal('healthy'), backend: signal('healthy') },
+      }, 2_000)) },
+      subscribe: (_subject, fn) => { handler = fn; return { unsubscribe: () => {} } },
+      now: () => clock.value,
+    })
+
+    plane.start()
+    await settle()
+    clock.value = HEALTH_FRESHNESS_MS - 1
+    handler(reply({ 'fleet-ops': { frontend: signal('healthy'), backend: signal('healthy') } }, 2_000))
+    clock.value = HEALTH_FRESHNESS_MS
+
+    expect(plane.signalsFor('fleet-ops').frontend.state).toBe(HEALTH_STATE.STALE)
+  })
 })
 
 describe('BR-AS65 — health never reaches into the catalogue', () => {
-  it('re-reads on a hint, and the hint carries nothing to install', async () => {
+  it('installs a pushed snapshot without making another request', async () => {
     let handler = null
     const fetchHealth = vi.fn().mockResolvedValue(reply({}))
     const plane = createHealthPlane({
@@ -248,9 +271,26 @@ describe('BR-AS65 — health never reaches into the catalogue', () => {
     plane.start()
     await settle()
     const afterStart = fetchHealth.mock.calls.length
-    // Whatever a hint claims to carry is ignored: the read is what is
-    // authoritative, exactly as the catalogue's notification works.
-    handler({ plugins: { 'fleet-ops': { frontend: { state: 'healthy' } } } })
+    handler(reply({ 'fleet-ops': { frontend: signal('healthy'), backend: signal('healthy') } }, 2_000))
+    await settle()
+
+    expect(fetchHealth.mock.calls.length).toBe(afterStart)
+    expect(plane.signalsFor('fleet-ops').frontend.state).toBe(HEALTH_STATE.HEALTHY)
+  })
+
+  it('treats a payload-free legacy notification as a request hint', async () => {
+    let handler = null
+    const fetchHealth = vi.fn().mockResolvedValue(reply({}))
+    const plane = createHealthPlane({
+      transport: { fetchHealth },
+      subscribe: (_subject, fn) => { handler = fn; return { unsubscribe: () => {} } },
+      now: () => 0,
+    })
+
+    plane.start()
+    await settle()
+    const afterStart = fetchHealth.mock.calls.length
+    handler(null)
     await settle()
 
     expect(fetchHealth.mock.calls.length).toBeGreaterThan(afterStart)
@@ -259,8 +299,8 @@ describe('BR-AS65 — health never reaches into the catalogue', () => {
   it('recovers from a first read that lost the race with the connection', async () => {
     // Found live: the shell started the plane in the same tick it started the
     // session, so the first read could be answered by a connection that was
-    // not up yet. The plane otherwise reads on start, on a hint and after a
-    // reconnect — with no hint arriving and no reconnect to speak of, every
+    // not up yet. The plane otherwise reads on start and after a reconnect,
+    // and accepts pushes — with no push arriving and no reconnect to speak of, every
     // signal stayed `unknown` forever with nothing left to wake it. A later
     // refresh has to be enough on its own.
     const fetchHealth = vi.fn()
@@ -295,7 +335,7 @@ describe('BR-AS65 — health never reaches into the catalogue', () => {
     await plane.onReconnect()
     await settle()
 
-    // A gap in the subscription is a gap in the hints, and a hint that never
+    // A gap in the subscription is a gap in pushed observations, and one that never
     // arrived is indistinguishable from nothing happening. Re-read.
     expect(fetchHealth.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
@@ -330,11 +370,9 @@ describe('BR-AS65 — health never reaches into the catalogue', () => {
   })
 })
 
-describe('BR-AS64 — a hint reaches the screen, not just the plane', () => {
-  /* The plane already read on a hint. Nothing told the host, so the host
-     copied the snapshot on its own ageing interval and a hint-driven change
-     sat up to that whole interval behind the truth. The seam is what makes
-     the read and the repaint one event. */
+describe('BR-AS64 — a pushed observation reaches the screen', () => {
+  /* The transport installs first and then tells the host to copy the plane's
+     locally-aged snapshot into reactive state. */
   it('announces a read that installed readings', async () => {
     const onChange = vi.fn()
     const transport = { fetchHealth: vi.fn(async () => reply({ fleet: { frontend: signal(HEALTH_STATE.HEALTHY), backend: signal(HEALTH_STATE.HEALTHY) } })) }
@@ -357,19 +395,22 @@ describe('BR-AS64 — a hint reaches the screen, not just the plane', () => {
     expect(seen.fleet.frontend.state).toBe(HEALTH_STATE.UNAVAILABLE)
   })
 
-  it('carries a hint to the subscriber without waiting for anything else', async () => {
-    let hint = null
+  it('carries a pushed observation to the subscriber without a follow-up read', async () => {
+    let push = null
     const transport = { fetchHealth: vi.fn(async () => reply({ fleet: { frontend: signal(HEALTH_STATE.HEALTHY), backend: signal(HEALTH_STATE.HEALTHY) } })) }
     const onChange = vi.fn()
-    const plane = createHealthPlane({ transport, subscribe: (_subject, handler) => { hint = handler; return { unsubscribe() {} } }, onChange })
+    const plane = createHealthPlane({ transport, subscribe: (_subject, handler) => { push = handler; return { unsubscribe() {} } }, onChange })
     plane.start()
     await settle()
     onChange.mockClear()
+    const afterStart = transport.fetchHealth.mock.calls.length
 
-    hint({})
+    push(reply({ fleet: { frontend: signal(HEALTH_STATE.UNAVAILABLE), backend: signal(HEALTH_STATE.HEALTHY) } }, 2_000))
     await settle()
 
     expect(onChange).toHaveBeenCalled()
+    expect(transport.fetchHealth.mock.calls.length).toBe(afterStart)
+    expect(plane.signalsFor('fleet').frontend.state).toBe(HEALTH_STATE.UNAVAILABLE)
   })
 
   it('says nothing when the read failed — the last reading still stands', async () => {
@@ -390,5 +431,13 @@ describe('BR-AS64 — a hint reaches the screen, not just the plane', () => {
 
     expect(result.ok).toBe(true)
     expect(plane.signalsFor('fleet').frontend.state).toBe(HEALTH_STATE.HEALTHY)
+  })
+})
+
+describe('BR-AS65 — reconciliation is slow and spread across shells', () => {
+  it('jitter bounds the repair read between 45 and 75 seconds', () => {
+    expect(healthReconcileInterval(() => 0)).toBe(HEALTH_RECONCILE_BASE_MS - HEALTH_RECONCILE_JITTER_MS)
+    expect(healthReconcileInterval(() => 0.5)).toBe(HEALTH_RECONCILE_BASE_MS)
+    expect(healthReconcileInterval(() => 1)).toBe(HEALTH_RECONCILE_BASE_MS + HEALTH_RECONCILE_JITTER_MS)
   })
 })

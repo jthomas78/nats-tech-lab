@@ -1,4 +1,4 @@
-package main
+package announcer
 
 import (
 	"encoding/json"
@@ -26,9 +26,9 @@ type releaseState struct {
 	Action        releaseAction `json:"action"`
 }
 
-// releaseStore is the publisher-owned sequence for one plugin. State is
-// persisted before a command is sent, so a timeout or crash retries a number
-// rather than accidentally issuing a newer action.
+// releaseStore is the one publisher-owned sequence used by every announcer
+// entry point. State is installed before a command is sent, so a timeout or
+// crash retries an action rather than inventing a newer one.
 type releaseStore struct {
 	mu       sync.Mutex
 	path     string
@@ -40,9 +40,6 @@ func newReleaseStore(path, pluginID string, recovery int64) *releaseStore {
 	return &releaseStore{path: path, pluginID: pluginID, recovery: recovery}
 }
 
-// PrepareAnnounce returns fresh=true only when no publisher state existed.
-// Callers use that bit to distinguish an ordinary retry NoOp from the
-// dangerous state-loss case where a spent unregister release was reused.
 func (s *releaseStore) PrepareAnnounce() (release int64, fresh bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,13 +53,8 @@ func (s *releaseStore) PrepareAnnounce() (release int64, fresh bool, err error) 
 		if s.recovery > 0 {
 			release = s.recovery
 		}
-		state = releaseState{
-			SchemaVersion: releaseStateSchemaVersion,
-			Plugin:        s.pluginID,
-			Release:       release,
-			Action:        releaseAnnounce,
-		}
-		if err := s.persist(state); err != nil {
+		state = releaseState{SchemaVersion: releaseStateSchemaVersion, Plugin: s.pluginID, Release: release, Action: releaseAnnounce}
+		if err := persistReleaseState(s.path, state); err != nil {
 			return 0, false, err
 		}
 		return release, true, nil
@@ -75,7 +67,7 @@ func (s *releaseStore) PrepareAnnounce() (release int64, fresh bool, err error) 
 	}
 	state.Release++
 	state.Action = releaseAnnounce
-	if err := s.persist(state); err != nil {
+	if err := persistReleaseState(s.path, state); err != nil {
 		return 0, false, err
 	}
 	return state.Release, false, nil
@@ -100,7 +92,7 @@ func (s *releaseStore) PrepareUnregister() (int64, error) {
 	}
 	state.Release++
 	state.Action = releaseUnregister
-	if err := s.persist(state); err != nil {
+	if err := persistReleaseState(s.path, state); err != nil {
 		return 0, err
 	}
 	return state.Release, nil
@@ -127,8 +119,8 @@ func (s *releaseStore) load() (releaseState, bool, error) {
 	return state, true, nil
 }
 
-func (s *releaseStore) persist(state releaseState) error {
-	dir := filepath.Dir(s.path)
+func persistReleaseState(path string, state releaseState) error {
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create release state directory: %w", err)
 	}
@@ -157,7 +149,7 @@ func (s *releaseStore) persist(state releaseState) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close release state: %w", err)
 	}
-	if err := os.Rename(tmpPath, s.path); err != nil {
+	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("install release state: %w", err)
 	}
 	return nil
