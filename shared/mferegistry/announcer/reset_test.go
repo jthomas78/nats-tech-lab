@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -156,12 +157,22 @@ var _ = Describe("BR-AS73 — a publisher's response to a catalogue-reset notice
 		})
 
 		It("ignoring a notice leaves the plugin exactly as it was — not re-announced, not withdrawn", func() {
+			path := filepath.Join(GinkgoT().TempDir(), "release.json")
 			publisher := &recordingPublisher{}
+			releases := newReleaseStore(path, pluginID, 0)
+			spent, _, err := releases.PrepareAnnounce()
+			Expect(err).NotTo(HaveOccurred())
 			w := newResetWatcher(pluginID, nil, quiet)
 			_, ok := w.Notice(notice(mferegistry.ResetNotice{}))
 			Expect(ok).To(BeFalse())
 			Expect(publisher.announcements).To(BeEmpty())
 			Expect(publisher.unregisters).To(BeEmpty())
+			// A dropped notice must be indistinguishable from no notice. If it
+			// spent a release anyway, the next ordinary announce would be a
+			// protocol action caused by a message the publisher ignored.
+			retry, _, err := newReleaseStore(path, pluginID, 0).PrepareAnnounce()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(retry).To(Equal(spent))
 		})
 	})
 

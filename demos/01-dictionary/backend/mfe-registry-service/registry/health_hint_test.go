@@ -14,6 +14,7 @@ package registry_test
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"time"
 
@@ -28,7 +29,7 @@ import (
 
 type stubCatalog struct{ doc domain.Document }
 
-func (s stubCatalog) Curated(context.Context) (domain.Document, error) { return s.doc, nil }
+func (s *stubCatalog) Curated(context.Context) (domain.Document, error) { return s.doc, nil }
 
 type stubProber struct {
 	mu    sync.Mutex
@@ -80,6 +81,7 @@ var _ = Describe("BR-AS64 — the central checker pushes health observations", f
 		publisher *recordingPublisher
 		backend   *stubProber
 		checker   *application.HealthChecker
+		catalog   *stubCatalog
 		clock     time.Time
 	)
 
@@ -89,7 +91,7 @@ var _ = Describe("BR-AS64 — the central checker pushes health observations", f
 		clock = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
 		targets, _ := domain.NewHealthTargets(map[string][]string{"fleet-ops": {}})
-		catalog := stubCatalog{doc: domain.Document{Entries: []domain.Entry{{
+		catalog = &stubCatalog{doc: domain.Document{Revision: 17, Entries: []domain.Entry{{
 			ID: "fleet-ops", Name: "fleet-ops", Enabled: true,
 			Remote: domain.Remote{Kind: "federated", URL: "http://localhost:7110/fleet-ops.js", Module: "./plugin"},
 		}}}}
@@ -154,25 +156,50 @@ var _ = Describe("BR-AS64 — the central checker pushes health observations", f
 		Expect(updates[1].Plugins["fleet-ops"].Frontend.Cause).To(Equal(mferegistry.HealthCauseUnreachable))
 	})
 
-	It("ages a plugin that stops reporting to stale and absent, with no probe anywhere", func() {
-		report(mferegistry.HealthReportHealthy, "")
-		onePass()
-		before := backend.count()
+	Context("BR-AS54 — health silence is an observation, never a withdrawal", func() {
+		It("keeps a plugin never heard from unknown, with its catalogue entry intact", func() {
+			// These are deliberately separate silences. Treating never heard
+			// from as absent invents a heartbeat the registry never received;
+			// treating it as a withdrawal would let a temporary NATS partition
+			// remove a running plugin from every shell.
+			before := catalog.doc
 
-		// Passes until the clock is past the freshness window, with no
-		// further report. Nothing else notices a dead plugin now, so this is
-		// the whole detection mechanism (BR-AS64).
-		for i := 0; i <= int(mferegistry.HealthFrontendFreshness/domain.HealthProbeInterval); i++ {
 			onePass()
-		}
+			signal := publisher.updates()[0].Plugins["fleet-ops"].Frontend
+			Expect(signal.State).To(Equal(domain.HealthUnknown))
+			Expect(signal.LastCheckAt).To(BeZero())
+			Expect(backend.count()).To(Equal(0))
+			Expect(catalog.doc).To(Equal(before))
+		})
 
-		updates := publisher.updates()
-		last := updates[len(updates)-1].Plugins["fleet-ops"].Frontend
-		Expect(last.State).To(Equal(domain.HealthStale))
-		Expect(last.Cause).To(Equal(mferegistry.HealthCauseAbsent))
-		// Nothing was dialled to find that out. A frontend-only plugin has no
-		// backend dependency either, so the probe count must not have moved.
-		Expect(backend.count()).To(Equal(before))
+		It("ages a previously heard plugin to stale and absent through repeated passes without changing the catalogue", func() {
+			before := catalog.doc
+			report(mferegistry.HealthReportHealthy, "")
+
+			// A naive "N strikes and it is out" implementation passes a single
+			// stale-read test. Keep stepping beyond expiry: absence may change
+			// health forever, but it must never gain the authority to edit the
+			// catalogue.
+			for i := 0; i <= int(mferegistry.HealthFrontendFreshness/domain.HealthProbeInterval)+3; i++ {
+				onePass()
+			}
+
+			updates := publisher.updates()
+			last := updates[len(updates)-1].Plugins["fleet-ops"].Frontend
+			Expect(last.State).To(Equal(domain.HealthStale))
+			Expect(last.Cause).To(Equal(mferegistry.HealthCauseAbsent))
+			Expect(backend.count()).To(Equal(0))
+			Expect(catalog.doc).To(Equal(before))
+		})
+
+		It("holds only a catalogue read capability, so a health pass cannot be given a withdrawal method", func() {
+			// This is a structural companion to the snapshots above. A future
+			// health implementation that needs Apply has crossed the boundary
+			// before any state transition can be hidden behind a helper.
+			catalog := reflect.TypeOf((*application.HealthCatalog)(nil)).Elem()
+			Expect(catalog.NumMethod()).To(Equal(1))
+			Expect(catalog.Method(0).Name).To(Equal("Curated"))
+		})
 	})
 
 	It("names a subject a shell may only subscribe to", func() {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 	registryclient "github.com/jthomas78/nats-tech-lab/shared/mferegistry/client"
@@ -143,6 +144,26 @@ var _ = Describe("Resident plugin announcer", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(retry).To(Equal(int64(1)))
 			}
+		})
+
+		It("does not self-withdraw when its health connection is down and reports fall silent", func() {
+			path := filepath.Join(GinkgoT().TempDir(), "release.json")
+			publisher := &recordingPublisher{}
+			r := newResident(path, publisher, slog.Default(), 0)
+			first, _, err := r.releases.PrepareAnnounce()
+			Expect(err).NotTo(HaveOccurred())
+
+			// The reporter has no route to the publisher lifecycle. A NATS
+			// outage makes the registry eventually observe absence; it must not
+			// make the plugin manufacture an authoritative unregister about
+			// itself.
+			reporter := newHealthReporter(pluginID, func(context.Context) string { return "" }, &recordingHealthBus{err: errors.New("NATS disconnected")}, slog.Default())
+			reporter.Step(context.Background(), time.Now())
+			Expect(r.shutdown(context.Background(), exitHealthCheckFailure)).To(Succeed())
+			Expect(publisher.unregisters).To(BeEmpty())
+			retry, _, err := newReleaseStore(path, pluginID, 0).PrepareAnnounce()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(retry).To(Equal(first))
 		})
 
 		It("publishes unregister on SIGTERM and persists the spent release", func() {

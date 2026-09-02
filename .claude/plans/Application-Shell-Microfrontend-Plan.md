@@ -801,9 +801,10 @@ and are carried into the tasks below. The three that would have broken something
       **From the review:** this is a write to the entry row that does not bump the revision, and it
       has not been checked against that row's concurrency control. Read the update path here and pin
       with a spec that a watermark-only write cannot lose a concurrent real announce.
-- [ ] **15f — silence is inert.** Specs proving a plugin that never answers a health ask is unhealthy
-      but still registered, and a plugin that ignores a reset notice is simply not re-announced
-      (decision 9). Neither path may reach unregister. BR-AS54 unchanged.
+- [x] **15f — silence is inert.** *(Done 2026-09-02.)* Specs proving a plugin that stops publishing
+      health becomes stale/absent but stays registered, while a never-heard plugin stays unknown; a plugin
+      that ignores a reset notice is simply not re-announced (decision 9). Neither path may reach unregister.
+      BR-AS54 unchanged.
 - [ ] **15g — docs.** `ARCHITECTURE-APP-SHELL.md` gains the as-built section and loses the claims
       this phase invalidates; `ARCHITECTURE-COMMUNICATIONS.md` gains the two new subjects. The Phase
       14 topology drawing's "after" panel now shows a plugin on two Docker networks and must be

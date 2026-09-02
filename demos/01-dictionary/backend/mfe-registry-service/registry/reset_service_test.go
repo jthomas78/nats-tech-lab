@@ -29,6 +29,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/application"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/nats-io/nats-server/v2/server"
@@ -84,7 +85,7 @@ var _ = Describe("BR-AS73 — stating a catalogue reset", func() {
 		notifier = natsnotify.New(nc, slog.Default())
 	})
 
-	build := func(store *stubStore, cache application.Cache) *application.Service {
+	build := func(store application.Store, cache application.Cache) *application.Service {
 		return application.New(store, cache, allowed, notifier, slog.Default())
 	}
 
@@ -211,6 +212,47 @@ var _ = Describe("BR-AS73 — stating a catalogue reset", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fired).To(BeFalse())
 			silent()
+		})
+	})
+
+	Context("BR-AS54 — a reset notice never edits or withdraws a quiet publisher", func() {
+		It("leaves the real catalogue revision, entry and audit history unchanged until a publisher chooses to re-announce", func() {
+			if pgUnavailable != "" {
+				Skip("Postgres integration fixture unavailable: " + pgUnavailable)
+			}
+			Expect(pgDB.PingContext(ctx)).To(Succeed())
+			_, err := pgDB.ExecContext(ctx, `TRUNCATE registry.entries, registry.audit; UPDATE registry.revision SET revision = 0`)
+			Expect(err).NotTo(HaveOccurred())
+
+			store := postgres.NewStore(pgDB, allowed)
+			entry := federated("quiet-plugin", "http://localhost:7110/remoteEntry.js")
+			entry.Lifecycle = domain.LifecycleDynamic
+			entry.Enabled = true
+			before, err := store.Apply(ctx, domain.Write{Op: domain.OpUpsert, EntryID: entry.ID, Entry: &entry, Actor: domain.SharedAdminActor, IfRevision: domain.NoRevision})
+			Expect(err).NotTo(HaveOccurred())
+			auditBefore, err := store.Audit(ctx, 100)
+			Expect(err).NotTo(HaveOccurred())
+
+			// The cache proves a loss while the real catalogue still retains the
+			// quiet plugin. The reset says that fact aloud; it does not turn the
+			// publisher's lack of a reply into an authority to mutate its row.
+			cache := &resettableCache{stubCache: stubCache{held: domain.Document{
+				SchemaVersion: domain.SchemaVersion, Revision: before.Revision + 1, Entries: before.Entries,
+			}, present: true}}
+			fired, err := build(store, cache).AnnounceCatalogueReset(ctx, "restore", now)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fired).To(BeTrue())
+			Eventually(notices).Should(Receive())
+
+			after, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			auditAfter, err := store.Audit(ctx, 100)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(after).To(Equal(before))
+			Expect(after.Entries).To(HaveLen(1))
+			Expect(after.Entries[0].Enabled).To(BeTrue())
+			Expect(after.Entries[0].Withdrawn).To(BeFalse())
+			Expect(auditAfter).To(Equal(auditBefore))
 		})
 	})
 })
