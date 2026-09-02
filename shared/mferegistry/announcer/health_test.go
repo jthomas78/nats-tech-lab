@@ -332,6 +332,42 @@ var _ = Describe("Publisher lifecycle with frontend health", func() {
 			Expect(publisher.unregisters).To(BeEmpty())
 		})
 
+		// Found live at the Phase 15h gate, not by a spec: demo-catalog's
+		// responder crash-looped on `PLUGIN_MANIFEST_PATH is required`.
+		// Validate() had always exempted a curated publisher; ConfigFromEnv
+		// demanded the four announce-only variables before it had even read
+		// HEALTH_ONLY, so the exemption could never be reached from a
+		// deployment. A spec that only drives Validate() cannot see that,
+		// which is why this one goes through the environment.
+		It("reads a curated publisher's environment without demanding the announce-only variables", func() {
+			GinkgoT().Setenv("NATS_CREDS_PATH", "/creds")
+			GinkgoT().Setenv("PUBLISHER_ID", pluginID)
+			GinkgoT().Setenv("HEALTH_SELF_URL", "http://127.0.0.1:8080/healthz")
+			GinkgoT().Setenv("HEALTH_ONLY", "true")
+
+			cfg, err := ConfigFromEnv()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.HealthOnly).To(BeTrue())
+			Expect(cfg.PublisherID).To(Equal(pluginID))
+			Expect(cfg.ManifestPath).To(BeEmpty())
+			Expect(cfg.SigningSeedPath).To(BeEmpty())
+			Expect(cfg.ReleaseStatePath).To(BeEmpty())
+			Expect(cfg.PublicOrigin).To(BeEmpty())
+		})
+
+		// The exemption is exactly as wide as HEALTH_ONLY and no wider: an
+		// announcing publisher missing a manifest is still a configuration
+		// error, and the same code path decides both.
+		It("still demands them of an announcing publisher", func() {
+			GinkgoT().Setenv("NATS_CREDS_PATH", "/creds")
+			GinkgoT().Setenv("PUBLISHER_ID", pluginID)
+			GinkgoT().Setenv("HEALTH_SELF_URL", "http://127.0.0.1:8080/healthz")
+			GinkgoT().Setenv("HEALTH_ONLY", "")
+
+			_, err := ConfigFromEnv()
+			Expect(err).To(MatchError(ContainSubstring("PLUGIN_MANIFEST_PATH")))
+		})
+
 		It("does not require a signing seed, a manifest or a release sequence, because it never signs anything", func() {
 			cfg := Config{
 				NATSCredsPath:  "/creds",

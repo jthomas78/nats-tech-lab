@@ -117,19 +117,33 @@ func run() error {
 		}
 	}
 
-	nc, err := connect(opt.accountsURL, opt.natsURL)
+	nc, err := connect(opt.accountsURL, opt.natsURL, "/api/auth/adminConnectInfo", "registry-acceptance")
 	if err != nil {
 		return fmt.Errorf("connect as operator: %w", err)
 	}
 	defer nc.Close()
 	h.nc = nc
 
+	shell, err := connect(opt.accountsURL, opt.natsURL, "/api/auth/shellConnectInfo", "registry-acceptance-shell")
+	if err != nil {
+		return fmt.Errorf("connect as shell: %w", err)
+	}
+	defer shell.Close()
+	h.shell = shell
+
 	defer h.cleanup()
 	return h.scenarios()
 }
 
 type harness struct {
-	nc      *nats.Conn
+	nc *nats.Conn
+	// shell is a SECOND credential, and it has to be. Health is read on
+	// api._platform.mfe-registry.frontend-plugins.health.v1, which is the
+	// shell's subject and deliberately not the operator's (BR-AS25/AS27) — an
+	// operator credential is refused there by the server. Reading health the
+	// way a browser reads it is the honest way round anyway: the alternative
+	// would have been to widen a grant so a test could reach it.
+	shell   *nats.Conn
 	dir     string
 	scratch string
 	timeout time.Duration
@@ -219,6 +233,25 @@ func (h *harness) kill(name string) error {
 	return nil
 }
 
+// hardKill is SIGKILL, and it exists so one step can express what `kill`
+// deliberately cannot: a process that vanishes without saying anything. kill
+// above stops with a grace period precisely so the unregister is sent; this
+// one denies it that chance, which is the only way to reach the case BR-AS54
+// is about.
+func (h *harness) hardKill(name string) error {
+	if out, err := exec.Command("docker", "kill", name).CombinedOutput(); err != nil {
+		return fmt.Errorf("kill %s: %w\n%s", name, err, out)
+	}
+	_ = exec.Command("docker", "rm", "-f", name).Run()
+	for i, n := range h.spawned {
+		if n == name {
+			h.spawned = append(h.spawned[:i], h.spawned[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
 func (h *harness) cleanup() {
 	for _, name := range append([]string{}, h.spawned...) {
 		_ = h.kill(name)
@@ -273,11 +306,13 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func connect(accountsURL, natsURL string) (*nats.Conn, error) {
+func connect(accountsURL, natsURL, mint, name string) (*nats.Conn, error) {
 	// Same mint as cmd/seed-publishers: accounts-service owns the trust chain
-	// even though the subjects called are the registry's.
+	// even though the subjects called are the registry's. Which mint decides
+	// which half of the surface the connection can reach, so the caller names
+	// it rather than this function assuming the operator's.
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(accountsURL + "/api/auth/adminConnectInfo")
+	resp, err := client.Get(accountsURL + mint)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +327,7 @@ func connect(accountsURL, natsURL string) (*nats.Conn, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, err
 	}
-	return nats.Connect(natsURL, nats.Name("registry-acceptance"), nats.UserJWTAndSeed(info.JWT, info.Seed), nats.NoReconnect())
+	return nats.Connect(natsURL, nats.Name(name), nats.UserJWTAndSeed(info.JWT, info.Seed), nats.NoReconnect())
 }
 
 func (h *harness) request(subject string, payload any) ([]byte, error) {

@@ -1,7 +1,7 @@
 [
-  {"publisher": "example-plugin", "plugin": "example-plugin", "signingKey": "UAONMJ7QLYSF4HNTBXIYMJX6ZXL7BJPDNIJVKD4ORUU6BGSIUG674KVW"},
-  {"publisher": "example-plugin-slow", "plugin": "example-plugin-slow", "signingKey": "UAYRJGTZGTSPEFCFJIHO7AX7PLGH6BW6R62L4AP5ORGPLGT7ZI5NC2BL"},
-  {"publisher": "example-plugin-unreachable", "plugin": "example-plugin-unreachable", "signingKey": "UCMGWTVE6KRXXPSQ77UFBGS47M23GW56V5UICR6GZJK2QTCU6VJWNOED"},
-  {"publisher": "example-plugin-activate-throws", "plugin": "example-plugin-activate-throws", "signingKey": "UASPBNO266EWCZQEQXKTZNZRDZLDACVJITM6ILRN335L27INBQ5VRIQF"},
-  {"publisher": "example-plugin-incompatible", "plugin": "example-plugin-incompatible", "signingKey": "UAZNYLH77M7O2EOCWIUBDUAWTY3EVXAA6W2MKO33BG2FVHCAVNLFAP6U"}
+  {"publisher": "example-plugin", "plugin": "example-plugin", "signingKey": "UAJIVTUWAIYLAEXPYCIBMBCCCX45NVGMB5ZM66RIH6QO27HORSHBXFT6"},
+  {"publisher": "example-plugin-slow", "plugin": "example-plugin-slow", "signingKey": "UCAC45NJ22EQXPNPXRE6267WWPBE4EA2V4YQE3OUUBN6S67YJXTA7LSU"},
+  {"publisher": "example-plugin-unreachable", "plugin": "example-plugin-unreachable", "signingKey": "UD5R6AVVXPYGZAZKNX5FWTUYVZBQVNBEG4GAUYMIERLBBIKJZ4YRIU5H"},
+  {"publisher": "example-plugin-activate-throws", "plugin": "example-plugin-activate-throws", "signingKey": "UCI75GXO6KYN7QYVMPKOOOYZK53GOLGNSGILIT5B7YDYK2342IEUNCGJ"},
+  {"publisher": "example-plugin-incompatible", "plugin": "example-plugin-incompatible", "signingKey": "UDR7CKDUTTWFCARUY7OESROEZEOAVARAQGNFBHOC7JJLPLZPNJWDSNTO"}
 ]

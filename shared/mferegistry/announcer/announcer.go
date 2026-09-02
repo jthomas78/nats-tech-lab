@@ -84,28 +84,27 @@ func ConfigFromEnv() (Config, error) {
 		Logger:         slog.Default(),
 	}
 	var err error
+	// HEALTH_ONLY is read FIRST, because it decides which of the rest are
+	// required at all. Reading it last — as this did until the Phase 15h gate
+	// — made Validate()'s curated-publisher exemption unreachable from a
+	// deployment: the four announce-only variables were demanded here before
+	// anything knew the publisher never announces. Every read below is a
+	// plain Getenv, and Validate() stays the one place that decides what a
+	// given shape of publisher must have.
+	cfg.HealthOnly = os.Getenv("HEALTH_ONLY") == "true"
 	if cfg.NATSCredsPath, err = requiredEnv("NATS_CREDS_PATH"); err != nil {
-		return Config{}, err
-	}
-	if cfg.ManifestPath, err = requiredEnv("PLUGIN_MANIFEST_PATH"); err != nil {
-		return Config{}, err
-	}
-	if cfg.SigningSeedPath, err = requiredEnv("PUBLISHER_SIGNING_SEED_PATH"); err != nil {
-		return Config{}, err
-	}
-	if cfg.ReleaseStatePath, err = requiredEnv("RELEASE_STATE_PATH"); err != nil {
 		return Config{}, err
 	}
 	if cfg.PublisherID, err = requiredEnv("PUBLISHER_ID"); err != nil {
 		return Config{}, err
 	}
-	if cfg.PublicOrigin, err = requiredEnv("PLUGIN_PUBLIC_ORIGIN"); err != nil {
-		return Config{}, err
-	}
 	if cfg.SelfCheckURL, err = requiredEnv("HEALTH_SELF_URL"); err != nil {
 		return Config{}, err
 	}
-	cfg.HealthOnly = os.Getenv("HEALTH_ONLY") == "true"
+	cfg.ManifestPath = os.Getenv("PLUGIN_MANIFEST_PATH")
+	cfg.SigningSeedPath = os.Getenv("PUBLISHER_SIGNING_SEED_PATH")
+	cfg.ReleaseStatePath = os.Getenv("RELEASE_STATE_PATH")
+	cfg.PublicOrigin = os.Getenv("PLUGIN_PUBLIC_ORIGIN")
 	cfg.ConnectionName = envOr("NATS_CONNECTION_NAME", cfg.PublisherID)
 	if raw := os.Getenv("RELEASE_RECOVERY"); raw != "" {
 		cfg.RecoveryRelease, err = strconv.ParseInt(raw, 10, 64)

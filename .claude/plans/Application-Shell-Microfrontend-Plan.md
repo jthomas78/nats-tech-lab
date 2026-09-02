@@ -814,7 +814,8 @@ and are carried into the tasks below. The three that would have broken something
       "proposed". 15g brings it to as-built the way Phase 14's was — re-stamp the eyebrow, and fix
       any label the implementation moved. The Phase 14 drawing is left alone; it is dated as Phase
       14's state and the new one carries the change.
-- [ ] **15h — the gate.** `cmd/registry-acceptance` green against the running lab. It asserts health
+- [x] **15h — the gate.** *(Done 2026-09-02. Green against the running lab, 11 steps.)*
+      `cmd/registry-acceptance` green against the running lab. It asserts health
       today, so unlike Phase 14 this phase should expect to touch it — and any edit is recorded in
       this entry the way Phase 14's three were.
       **From the review:** step 9's control group changes — `example-plugin-unreachable` now answers
@@ -822,6 +823,42 @@ and are carried into the tasks below. The three that would have broken something
       today it reports "not configured". That leaves the new `absent` cause with no fixture, so
       add a step that stops a running plugin's process and asserts the registry reports
       `absent` — which exercises BR-AS54 (silence never withdraws) on the same step.
+      **Correction to this entry as written:** the binary did *not* assert health today — the claim
+      was wrong, and the health assertions below are new rather than migrated.
+      **Edits to `cmd/registry-acceptance` (four, recorded the way Phase 14's three were):**
+      1. *A second connection.* `harness` gained a `shell *nats.Conn`, and `connect` gained `mint`
+         and `name` parameters so `run()` opens both `/api/auth/adminConnectInfo`
+         (`registry-acceptance`) and `/api/auth/shellConnectInfo` (`registry-acceptance-shell`).
+         `HealthRead` is deliberately the *shell's* subject (BR-AS25/AS27) and the server refuses
+         an operator credential there. Minting the right credential was the fix; widening a grant
+         was not considered.
+      2. *New step 2 — "every plugin reports its own frontend health, curated included."* Placed
+         before `otherEntries()` so the control group's baseline already holds the enablement.
+         Asserts `demo-catalog` (curated, `HEALTH_ONLY`) reports `healthy` and is not
+         `not configured` — that state is gone from the frontend plane — then enables
+         `example-plugin-unreachable` and asserts `unavailable` with cause `unreachable`.
+      3. *New step 11 — "a plugin that goes silent is reported absent — and stays registered."* The
+         `absent` fixture the review said was missing. A new `hardKill` helper (SIGKILL, distinct
+         from the existing graceful `kill` precisely because a grace period lets the unregister
+         through) drops a live publisher, then the step awaits `stale` with cause `absent` and
+         asserts the entry is still registered, spent no release, is not withdrawn, and stays
+         enabled — BR-AS54 end to end.
+      4. *Renumber.* Two inserted steps, so the banner comments now run 1–11.
+      **Two live defects the gate found, both invisible to unit specs:**
+      - *The deployed credentials predated the phase.* Every plugin was logging
+        `Permissions Violation for Publish to "notify._platform.health.frontend.<id>.v1"` and for
+        subscription to `notify._platform.mfe-registry.entries.reset`. The grants were correct in
+        `bootstrap-operator.sh`; the minted JWTs were older than they were, so the whole health
+        plane was dead in Docker while every spec stayed green. Fixed by
+        `./bootstrap-operator.sh --force` + `docker compose down -v && docker compose up --build`.
+        Any future credential-affecting phase needs that wipe as part of its own gate.
+      - *A curated publisher could not start.* `demo-catalog` crash-looped on
+        `PLUGIN_MANIFEST_PATH is required`: `announcer.ConfigFromEnv()` demanded the four
+        announce-only variables *before* reading `HEALTH_ONLY`, which made `Validate()`'s
+        curated-publisher exemption unreachable from any real deployment. Fixed red-first —
+        `HEALTH_ONLY` is now read first and the rest are plain `Getenv`, with `Validate()` left as
+        the one place that decides what a given shape of publisher must have. Two specs added in
+        `shared/mferegistry/announcer/health_test.go` under BR-AS61.
 
 ---
 

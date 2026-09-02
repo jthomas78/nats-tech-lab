@@ -119,6 +119,86 @@ func (h *harness) latestActor() (string, error) {
 	return "", fmt.Errorf("the audit trail holds no write for %q", subjectPlugin)
 }
 
+// ------------------------------------------------------------ health helpers
+
+// healthSignal is one plane's reading, narrowed the same way entryView is.
+type healthSignal struct {
+	State string `json:"state"`
+	Cause string `json:"cause"`
+}
+
+func (h healthSignal) String() string {
+	if h.Cause == "" {
+		return h.State
+	}
+	return h.State + " (" + h.Cause + ")"
+}
+
+type pluginHealth struct {
+	Frontend healthSignal `json:"frontend"`
+	Backend  healthSignal `json:"backend"`
+}
+
+type healthDoc struct {
+	OK      bool                    `json:"ok"`
+	Plugins map[string]pluginHealth `json:"plugins"`
+}
+
+// health reads the plane over the SHELL connection, because that subject is
+// the shell's and no operator credential carries it. Read separately from the
+// catalogue for the reason the two subjects are separate at all (BR-AS65):
+// one is what an operator and a publisher agreed to, the other is what the
+// platform noticed a moment ago.
+func (h *harness) health() (healthDoc, error) {
+	raw, err := json.Marshal(map[string]any{})
+	if err != nil {
+		return healthDoc{}, err
+	}
+	msg, err := h.shell.Request(mferegistry.HealthRead, raw, 10*time.Second)
+	if err != nil {
+		return healthDoc{}, fmt.Errorf("%s: %w", mferegistry.HealthRead, err)
+	}
+	var doc healthDoc
+	if err := json.Unmarshal(msg.Data, &doc); err != nil {
+		return doc, err
+	}
+	if !doc.OK {
+		return doc, fmt.Errorf("the health plane answered not-ok")
+	}
+	return doc, nil
+}
+
+// awaitHealth polls the plane until one plugin's frontend signal satisfies
+// want. The timeout is generous on purpose: a reading has to travel a
+// heartbeat and then age against the freshness window, and both are measured
+// in seconds by design (BR-AS64).
+func (h *harness) awaitHealth(pluginID, desc string, want func(healthSignal) bool) (healthSignal, error) {
+	deadline := time.Now().Add(h.timeout)
+	var last healthSignal
+	seen := false
+	for {
+		doc, err := h.health()
+		if err == nil {
+			entry, present := doc.Plugins[pluginID]
+			if present {
+				last, seen = entry.Frontend, true
+				if want(entry.Frontend) {
+					fmt.Printf("    ok   %s\n", desc)
+					return entry.Frontend, nil
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			fmt.Printf("    FAIL %s\n", desc)
+			if !seen {
+				return last, fmt.Errorf("%s — after %s the plane held no reading for %q at all", desc, h.timeout, pluginID)
+			}
+			return last, fmt.Errorf("%s — after %s the signal was still: %s", desc, h.timeout, last)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // ------------------------------------------------------------ write helpers
 
 // Every write is revision-checked, so each reads first. That is not
@@ -210,12 +290,65 @@ func (h *harness) scenarios() error {
 	release := start.Release
 	h.note("release %d, signed by the publisher's bootstrap key", release)
 
+	// ---------------------------------------------------------------- 2
+	//
+	// Health, before the lifecycle starts moving. Two plugins are read here
+	// and they are the two the old HTTP probe could not both serve: one that
+	// never announces, and one that is genuinely broken.
+	h.heading("every plugin reports its own frontend health, curated included")
+	h.note("Nothing dials a plugin any more. Each one self-GETs its loopback /healthz and")
+	h.note("publishes the verdict on notify._platform.health.frontend.{id}.v1 (Phase 15 decision 14).")
+
+	// demo-catalog is curated: it is preloaded, it has no announcer and it
+	// signs nothing. Before Phase 15 it was the one plugin the registry had
+	// no origin for, and it read `not configured` — a state that said "we
+	// did not look" while sitting next to plugins that had been looked at.
+	// It now answers for itself like everything else, which is what makes
+	// `not configured` a state the frontend plane no longer has.
+	catalog, err := h.awaitHealth("demo-catalog", "the curated plugin reports healthy about itself",
+		func(sig healthSignal) bool { return sig.State == "healthy" })
+	if err != nil {
+		return err
+	}
+	if err := h.check("and it is not 'not configured' — that state is gone from the frontend plane",
+		catalog.State != "not configured", catalog.String()); err != nil {
+		return err
+	}
+
+	// The control group's broken fixture. It has no web server at all: its
+	// HEALTH_SELF_URL points at the discard port, so the self-GET fails, and
+	// after the second consecutive failure it says so itself (BR-AS63). The
+	// difference from before is the whole point of the phase — the platform
+	// is not deducing this, the plugin is reporting it.
+	//
+	// It has to be enabled to be watched, because health follows the
+	// catalogue an operator curated (BR-AS65). Doing it HERE, before the
+	// control group is sampled, is what keeps step 10 honest: the baseline
+	// below already holds this decision, so nothing the sequence does later
+	// can hide inside it.
+	if err := h.setEnabled("example-plugin-unreachable", true); err != nil {
+		return err
+	}
+	broken, err := h.awaitHealth("example-plugin-unreachable", "the broken plugin reports itself unavailable",
+		func(sig healthSignal) bool { return sig.State == "unavailable" })
+	if err != nil {
+		return err
+	}
+	// The cause matters as much as the state. `unreachable` is a plugin
+	// saying its own listener refused it; `absent` is the registry saying it
+	// has heard nothing. Step 10 exercises the second, and the two must not
+	// be spelled the same way.
+	if err := h.check("with cause 'unreachable' — its own listener refused it",
+		broken.Cause == "unreachable", broken.String()); err != nil {
+		return err
+	}
+
 	others, err := h.otherEntries()
 	if err != nil {
 		return err
 	}
 
-	// ---------------------------------------------------------------- 2
+	// ---------------------------------------------------------------- 3
 	h.heading("an operator approves it")
 	if err := h.setEnabled(subjectPlugin, true); err != nil {
 		return err
@@ -231,7 +364,7 @@ func (h *harness) scenarios() error {
 		return err
 	}
 
-	// ---------------------------------------------------------------- 3
+	// ---------------------------------------------------------------- 4
 	h.heading("the publisher withdraws on controlled shutdown")
 	h.note("SIGTERM to %s — an explicit signed unregister.", subjectService)
 	h.note("A crash, a failed health check or a vanished container withdraws NOTHING (BR-AS54):")
@@ -262,7 +395,7 @@ func (h *harness) scenarios() error {
 		return err
 	}
 
-	// ---------------------------------------------------------------- 4
+	// ---------------------------------------------------------------- 5
 	h.heading("the same publisher returns unchanged")
 	if _, err := h.compose("start", subjectService); err != nil {
 		return err
@@ -282,7 +415,7 @@ func (h *harness) scenarios() error {
 	}
 	h.note("releases %d / %d / %d — one monotonic sequence shared by announce and unregister (BR-AS67)", release, release+1, release+2)
 
-	// ---------------------------------------------------------------- 5
+	// ---------------------------------------------------------------- 6
 	h.heading("the publisher rotates its signing key")
 	firstKey, err := h.latestActor()
 	if err != nil {
@@ -333,7 +466,7 @@ func (h *harness) scenarios() error {
 		return err
 	}
 
-	// ---------------------------------------------------------------- 6
+	// ---------------------------------------------------------------- 7
 	h.heading("the publisher moves the plugin to another origin")
 	// The move is a deployment change, not a rebuild. Since BR-AS71 the
 	// plugin's own manifest carries no origin at all, so relocating it means
@@ -375,7 +508,7 @@ func (h *harness) scenarios() error {
 		return err
 	}
 
-	// ---------------------------------------------------------------- 7
+	// ---------------------------------------------------------------- 8
 	h.heading("an operator approves the plugin at its new origin")
 	if err := h.setEnabled(subjectPlugin, true); err != nil {
 		return err
@@ -391,7 +524,7 @@ func (h *harness) scenarios() error {
 		return err
 	}
 
-	// ---------------------------------------------------------------- 8
+	// ---------------------------------------------------------------- 9
 	h.heading("the signing key is revoked, then recovered")
 	if err := h.setKeyState(subjectPlugin, secondKey, mferegistry.KeyRevoked); err != nil {
 		return err
@@ -469,7 +602,7 @@ func (h *harness) scenarios() error {
 		return err
 	}
 
-	// ---------------------------------------------------------------- 9
+	// ---------------------------------------------------------------- 10
 	h.heading("nothing else in the registry moved")
 	after, err := h.otherEntries()
 	if err != nil {
@@ -485,6 +618,57 @@ func (h *harness) scenarios() error {
 			fmt.Sprintf("was [%s] now [%s]", before, now)); err != nil {
 			return err
 		}
+	}
+
+	// ---------------------------------------------------------------- 11
+	//
+	// Last, because it ends with a plugin killed. BR-AS54 is the rule the
+	// whole health plane is built not to break, and this is the only step
+	// that puts it under real load: a plugin that simply stops talking.
+	h.heading("a plugin that goes silent is reported absent — and stays registered")
+	before, err := h.entry(subjectPlugin)
+	if err != nil {
+		return err
+	}
+	// SIGKILL, not SIGTERM. A stop would let the publisher send its signed
+	// unregister, which is step 4's case and a completely different thing.
+	// What is wanted here is the case with no message at all: the process is
+	// gone and nothing was said about it.
+	h.note("SIGKILL — no unregister is sent, so the registry is left with nothing but silence.")
+	if err := h.hardKill("registry-acceptance-recovered"); err != nil {
+		return err
+	}
+	// Absent is the registry's own word, attached when a reading ages out of
+	// the freshness window. No plugin can send it, which is what keeps it
+	// distinguishable from step 2's `unreachable` — a plugin's report about
+	// its own listener.
+	silent, err := h.awaitHealth(subjectPlugin, "the frontend signal ages out to stale",
+		func(sig healthSignal) bool { return sig.State == "stale" })
+	if err != nil {
+		return err
+	}
+	if err := h.check("with cause 'absent' — the registry heard nothing, rather than being told anything",
+		silent.Cause == "absent", silent.String()); err != nil {
+		return err
+	}
+
+	// The point of the step. Everything above is decoration on a catalogue
+	// row, and the row must not have moved.
+	after2, err := h.entry(subjectPlugin)
+	if err != nil {
+		return err
+	}
+	if err := h.check("the entry is still registered (BR-AS54)", after2.ID == subjectPlugin, "gone"); err != nil {
+		return err
+	}
+	if err := h.check("silence spent no release", after2.Release == before.Release, after2.String()); err != nil {
+		return err
+	}
+	if err := h.check("silence did not withdraw it", !after2.Withdrawn, after2.String()); err != nil {
+		return err
+	}
+	if err := h.check("nor did it revoke the operator's approval", after2.Enabled, after2.String()); err != nil {
+		return err
 	}
 	return nil
 }
