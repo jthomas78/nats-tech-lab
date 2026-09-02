@@ -37,9 +37,9 @@ var _ = Describe("Phase 8 persistence", func() {
 		return m
 	}
 	const fixture = `{"schemaVersion":1,"plugins":[
-		{"id":"edited","name":"original","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"}},
-		{"id":"disabled","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"}},
-		{"id":"removed","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"}}
+		{"id":"edited","name":"original","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"},"contributions":[{"kind":"shell-footer","id":"status"}]},
+		{"id":"disabled","name":"Disabled","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"},"contributions":[{"kind":"shell-footer","id":"status"}]},
+		{"id":"removed","name":"Removed","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"},"contributions":[{"kind":"shell-footer","id":"status"}]}
 	]}`
 	Context("BR-AS41 — preload never reverts curation", func() {
 		It("seeds a fresh store once, with one revision and true actor per entry", func() {
@@ -85,7 +85,7 @@ var _ = Describe("Phase 8 persistence", func() {
 			Expect(after).To(Equal(doc))
 		})
 		It("does not overwrite the first occurrence of an id repeated in the file", func() {
-			GinkgoT().Setenv("REGISTRY_PRELOAD_FILE", preloadFile(`{"schemaVersion":1,"plugins":[{"id":"same","name":"first","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"}},{"id":"same","name":"second","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"}}]}`))
+			GinkgoT().Setenv("REGISTRY_PRELOAD_FILE", preloadFile(`{"schemaVersion":1,"plugins":[{"id":"same","name":"first","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"},"contributions":[{"kind":"shell-footer","id":"status"}]},{"id":"same","name":"second","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"},"contributions":[{"kind":"shell-footer","id":"status"}]}]}`))
 			boot()
 			doc, err := store.Current(ctx)
 			Expect(err).NotTo(HaveOccurred())
@@ -95,7 +95,7 @@ var _ = Describe("Phase 8 persistence", func() {
 	})
 	Context("decision 81 — a per-entry refusal cannot prevent startup", func() {
 		It("logs each withheld id and cause, while seeding valid entries even after an Apply refusal", func() {
-			GinkgoT().Setenv("REGISTRY_PRELOAD_FILE", preloadFile(`{"schemaVersion":1,"plugins":[{"id":"off-list","remote":{"kind":"federated","url":"https://refused.example/r.js"}},{"id":"","remote":{"kind":"federated","url":"http://localhost:7110/r.js"}},{"id":"good","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js"}}]}`))
+			GinkgoT().Setenv("REGISTRY_PRELOAD_FILE", preloadFile(`{"schemaVersion":1,"plugins":[{"id":"off-list","name":"fixture","contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"https://refused.example/r.js"}},{"id":"","remote":{"kind":"federated","url":"http://localhost:7110/r.js"}},{"id":"good","enabled":true,"name":"fixture","contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/r.js"}}]}`))
 			var logs bytes.Buffer
 			m, err := registry.Startup(ctx, pgDB, nil, nil, allowed, slog.New(slog.NewTextHandler(&logs, nil)))
 			Expect(err).NotTo(HaveOccurred())

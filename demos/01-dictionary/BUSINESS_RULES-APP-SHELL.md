@@ -1258,6 +1258,32 @@ below add no new ID — they record a decision *not* to grow an existing rule.
   Compose orders the seed strictly before anything that announces
   (`registry-publisher-seed`, `service_completed_successfully`) — without that
   the announcers race it and exit on `not-owned`.
+- **BR-AS69 — The registry refuses a structurally unusable entry.** Added
+  2026-09-02. An upsert — operator curation or a verified publisher's
+  announcement — is refused when the entry could not be placed by any shell:
+  an id or route prefix that is not kebab-case, a contribution of a kind
+  outside the closed five (BR-AS02), a contribution id that is not kebab-case
+  or is declared twice, a route outside the plugin's own prefix segment
+  (BR-AS12), a route with no title, a navigation entry that names a path
+  instead of a local route id, an extension or shell-control whose target or
+  region is not `{owner}/{region}/v{major}`, an extension point owned by
+  another plugin, or an entry that contributes nothing at all. A refusal is an
+  ordinary refused write: nothing is stored, the revision does not move, and
+  the audit row is written (BR-AS23).
+
+  **The split with the shell's own validator is the rule, not an
+  accident.** The registry owns *structure*: naming and shape, which never
+  vary by reader, and which only the registry sees across the whole curated
+  set. The shell owns *compatibility*: `schemaVersion` and `shellApiVersion`
+  are checked in the browser and nowhere else, because one registry serves
+  shells of several vintages across an upgrade and refusing on a version the
+  current shell does not know would refuse an entry that is good for the shell
+  it was published for. So the shell may always reject more than the registry
+  refuses, never less. A rule tightening on the shell side needs no mirror
+  here, which is what stops the two halves becoming two definitions of one
+  contract. Before this rule the registry stored entries every shell rejected
+  as `incompatible`, and the operator who curated one learned nothing until
+  someone opened the Plugins screen.
   - **Test:** `cmd/seed-publishers/main_test.go` — pins the exact op sequence
     for an empty registry and its ordering independence from the file's own
     order; a second run planning zero writes; a `revoked` key left revoked and

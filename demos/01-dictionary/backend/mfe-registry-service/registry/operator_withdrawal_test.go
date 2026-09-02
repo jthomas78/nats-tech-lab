@@ -11,20 +11,20 @@ import (
 )
 
 /*
-	An operator switching a plugin off (BR-AS53, BR-AS54).
+An operator switching a plugin off (BR-AS53, BR-AS54).
 
-	The class decides what the shell is told, and the two answers are
-	genuinely different:
+The class decides what the shell is told, and the two answers are
+genuinely different:
 
-	  * STATIC — the entry leaves the document. The shell keeps running what
-	    it has and offers a reload, because a static plugin's contributions
-	    were never designed to be taken away underneath it.
-	  * DYNAMIC — the entry is served as a withdrawal marker, and the shell
-	    takes it off screen live. That is the whole point of the class.
+  - STATIC — the entry leaves the document. The shell keeps running what
+    it has and offers a reload, because a static plugin's contributions
+    were never designed to be taken away underneath it.
+  - DYNAMIC — the entry is served as a withdrawal marker, and the shell
+    takes it off screen live. That is the whole point of the class.
 
-	The marker is only ever served for an entry an operator had approved. A
-	pending entry has never been on anyone's screen, and naming it to every
-	browser would hand out the ids of plugins nobody has admitted yet.
+The marker is only ever served for an entry an operator had approved. A
+pending entry has never been on anyone's screen, and naming it to every
+browser would hand out the ids of plugins nobody has admitted yet.
 */
 var _ = Describe("BR-AS54 — an operator disable withdraws a dynamic plugin", func() {
 	var (
@@ -46,12 +46,14 @@ var _ = Describe("BR-AS54 — an operator disable withdraws a dynamic plugin", f
 
 	approved := func(id string, lifecycle string) domain.Entry {
 		return domain.Entry{
-			ID:            id,
-			Name:          id,
-			Enabled:       true,
-			Lifecycle:     lifecycle,
-			Remote:        domain.Remote{Kind: "federated", URL: "http://localhost:7110/" + id + ".js", Module: "./plugin"},
-			Contributions: []domain.Contribution{},
+			ID:        id,
+			Name:      id,
+			Enabled:   true,
+			Lifecycle: lifecycle,
+			Remote:    domain.Remote{Kind: "federated", URL: "http://localhost:7110/" + id + ".js", Module: "./plugin"},
+			// An entry that contributes nothing is refused on write (BR-AS69),
+			// so the fixture contributes the least a plugin can.
+			Contributions: []domain.Contribution{{Kind: "shell-footer", ID: "status"}},
 		}
 	}
 

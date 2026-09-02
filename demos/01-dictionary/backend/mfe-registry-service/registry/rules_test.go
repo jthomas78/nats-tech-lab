@@ -22,7 +22,9 @@ func federated(id, url string) domain.Entry {
 		ShellAPIVersion: domain.ShellAPIVersion,
 		Enabled:         true,
 		Remote:          domain.Remote{Kind: domain.RemoteFederated, URL: url, Module: "./plugin"},
-		Contributions:   []domain.Contribution{{Kind: "route", ID: "vessels", Path: "/x/vessels", Title: "Vessels"}},
+		// Namespaced under the entry's own id: a route outside its plugin's
+		// prefix is refused on write (BR-AS12, BR-AS69).
+		Contributions: []domain.Contribution{{Kind: "route", ID: "vessels", Path: "/" + id + "/vessels", Title: "Vessels"}},
 	}
 }
 

@@ -351,7 +351,13 @@ func (w Write) Validate() error {
 		// not invent one, because the shell's behavior is a closed set
 		// (BR-AS52). Checked here rather than at the store so a refusal is
 		// still audited as a refused write.
-		return ValidateLifecycle(w.Entry.Lifecycle)
+		if err := ValidateLifecycle(w.Entry.Lifecycle); err != nil {
+			return err
+		}
+		// Structure, checked on the way in rather than left for every shell
+		// to reject on the way out (see admissible.go for where the line
+		// between the two sits, and why it stays there).
+		return w.Entry.Admissible()
 	default:
 		return fmt.Errorf("%w: %q", ErrUnknownOp, w.Op)
 	}

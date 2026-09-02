@@ -245,8 +245,10 @@ var _ = Describe("BR-AS55 — what an accepted unregister does to the stored ent
 		return domain.Entry{
 			ID: "fleet", Name: "Fleet", Lifecycle: lifecycle, Enabled: enabled,
 			Release: 4,
-			Remote:        domain.Remote{Kind: domain.RemoteFederated, URL: "https://plugins.example.com/fleet.js", Module: "./Fleet"},
-			Contributions: []domain.Contribution{{Kind: "nav", ID: "fleet-nav", Label: "Fleet", Route: "/fleet"}},
+			Remote:  domain.Remote{Kind: domain.RemoteFederated, URL: "https://plugins.example.com/fleet.js", Module: "./Fleet"},
+			// "nav" is not one of the five kinds and a nav entry names a LOCAL
+			// route id, never a path — both refused on write (BR-AS69).
+			Contributions: []domain.Contribution{{Kind: "navigation", ID: "fleet-nav", Label: "Fleet", Route: "fleet"}},
 			Manifest:      &domain.Manifest{Signature: "sig", SigningKey: "UABC"},
 		}
 	}

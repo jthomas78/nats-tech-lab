@@ -113,7 +113,7 @@ var _ = Describe("service announcement transport", func() {
 	// with the release counter advancing the way a publisher's would.
 	announce := func(url string) servicerpc.Response {
 		release++
-		raw := json.RawMessage(`{"id":"plugin","name":"from publisher","release":` + strconv.FormatInt(release, 10) + `,"remote":{"kind":"federated","url":"` + url + `","module":"plugin"}}`)
+		raw := json.RawMessage(`{"id":"plugin","name":"from publisher","release":` + strconv.FormatInt(release, 10) + `,"contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"` + url + `","module":"plugin"}}`)
 		sig, err := kp.Sign(raw)
 		Expect(err).NotTo(HaveOccurred())
 		body, err := json.Marshal(servicerpc.Request{Payload: raw, Signature: base64.StdEncoding.EncodeToString(sig), SigningKey: publicKey})
@@ -151,7 +151,7 @@ var _ = Describe("service announcement transport", func() {
 	Context("BR-AS21 — no self-activation without the publisher trust anchor", func() {
 		It("refuses unsigned and unverifiable payloads before parsing them or writing", func() {
 			mount(domain.NKeyVerifier{})
-			raw := json.RawMessage(`{"id":"plugin","release":1,"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
+			raw := json.RawMessage(`{"id":"plugin","release":1,"name":"fixture","contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
 			// Unsigned, then signed-but-not-by-this-key, then a key nobody
 			// trusts. Three different causes, all refused, none written.
 			Expect(send(raw, "", publicKey).Code).To(Equal("unsigned"))
@@ -181,7 +181,7 @@ var _ = Describe("service announcement transport", func() {
 			// Production no longer refuses everything on principle (7c). It
 			// refuses this because the signature does not check out, and it
 			// accepts the very next call because the trust table says so.
-			raw := json.RawMessage(`{"id":"plugin","release":1,"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
+			raw := json.RawMessage(`{"id":"plugin","release":1,"name":"fixture","contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
 			Expect(send(raw, "bm90LWEtc2lnbmF0dXJl", publicKey).Code).To(Equal("unverified"))
 			Expect(announce("http://localhost:7110/r.js").OK).To(BeTrue())
 			Expect(prod.Stop()).To(Succeed())
@@ -269,7 +269,7 @@ var _ = Describe("service announcement transport", func() {
 	Context("BR-AS46 — ownership is answered before anything else", func() {
 		It("refuses a perfectly signed announcement for a plugin id this publisher does not own", func() {
 			mount(domain.NKeyVerifier{})
-			raw := json.RawMessage(`{"id":"someone-elses","release":1,"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
+			raw := json.RawMessage(`{"id":"someone-elses","release":1,"name":"fixture","contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
 			sig, err := kp.Sign(raw)
 			Expect(err).NotTo(HaveOccurred())
 			out := send(raw, base64.StdEncoding.EncodeToString(sig), publicKey)
@@ -291,14 +291,14 @@ var _ = Describe("service announcement transport", func() {
 
 			// A captured earlier announcement, replayed verbatim. The
 			// signature is genuine — the release is what refuses it.
-			old := json.RawMessage(`{"id":"plugin","name":"from publisher","release":1,"remote":{"kind":"federated","url":"http://localhost:7110/one.js","module":"plugin"}}`)
+			old := json.RawMessage(`{"id":"plugin","name":"from publisher","release":1,"contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/one.js","module":"plugin"}}`)
 			sig, err := kp.Sign(old)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(send(old, base64.StdEncoding.EncodeToString(sig), publicKey).Code).To(Equal("release-backwards"))
 
 			// The same release again is the timed-out-and-retried case: told
 			// yes, and nothing written twice.
-			same := json.RawMessage(`{"id":"plugin","name":"from publisher","release":2,"remote":{"kind":"federated","url":"http://localhost:7110/two.js","module":"plugin"}}`)
+			same := json.RawMessage(`{"id":"plugin","name":"from publisher","release":2,"contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/two.js","module":"plugin"}}`)
 			sig, err = kp.Sign(same)
 			Expect(err).NotTo(HaveOccurred())
 			out := send(same, base64.StdEncoding.EncodeToString(sig), publicKey)

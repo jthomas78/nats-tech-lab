@@ -72,7 +72,7 @@ var _ = Describe("revocation through the store", func() {
 	// announceAs puts one signed, enabled entry in the store under the given
 	// key, the way a real publisher would have.
 	announceAs := func(pair nkeys.KeyPair, signing, id string, release int64) {
-		raw := json.RawMessage(`{"id":"` + id + `","name":"` + id + `","release":` + strconv.FormatInt(release, 10) + `,"remote":{"kind":"federated","url":"http://localhost:7110/` + id + `.js","module":"m"}}`)
+		raw := json.RawMessage(`{"id":"` + id + `","name":"` + id + `","release":` + strconv.FormatInt(release, 10) + `,"contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/` + id + `.js","module":"m"}}`)
 		sig, err := pair.Sign(raw)
 		Expect(err).NotTo(HaveOccurred())
 		body, err := json.Marshal(servicerpc.Request{Payload: raw, Signature: base64.StdEncoding.EncodeToString(sig), SigningKey: signing})
@@ -272,7 +272,7 @@ var _ = Describe("revocation through the store", func() {
 		It("refuses a new announcement on the revoked key even after it is restored to retired", func() {
 			announceAs(kp, key1, "alpha", 1)
 			revoke("alpha-team", key1)
-			raw := json.RawMessage(`{"id":"alpha","release":2,"remote":{"kind":"federated","url":"http://localhost:7110/alpha.js","module":"m"}}`)
+			raw := json.RawMessage(`{"id":"alpha","release":2,"name":"fixture","contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/alpha.js","module":"m"}}`)
 			sig, err := kp.Sign(raw)
 			Expect(err).NotTo(HaveOccurred())
 			body, err := json.Marshal(servicerpc.Request{Payload: raw, Signature: base64.StdEncoding.EncodeToString(sig), SigningKey: key1})

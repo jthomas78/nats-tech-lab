@@ -91,7 +91,7 @@ var _ = Describe("BR-AS54 — the unregister transport", func() {
 
 	announce := func(url string) servicerpc.Response {
 		release++
-		raw := json.RawMessage(`{"id":"plugin","name":"from publisher","release":` + strconv.FormatInt(release, 10) + `,"remote":{"kind":"federated","url":"` + url + `","module":"plugin"}}`)
+		raw := json.RawMessage(`{"id":"plugin","name":"from publisher","release":` + strconv.FormatInt(release, 10) + `,"contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"` + url + `","module":"plugin"}}`)
 		sig, err := kp.Sign(raw)
 		Expect(err).NotTo(HaveOccurred())
 		body, err := json.Marshal(servicerpc.Request{Payload: raw, Signature: base64.StdEncoding.EncodeToString(sig), SigningKey: publicKey})
@@ -198,7 +198,7 @@ var _ = Describe("BR-AS54 — the unregister transport", func() {
 	Context("refusals name what was wrong", func() {
 		It("refuses an announcement replayed on the unregister subject", func() {
 			announce("http://localhost:7110/r.js")
-			raw := json.RawMessage(`{"id":"plugin","name":"from publisher","release":9,"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
+			raw := json.RawMessage(`{"id":"plugin","name":"from publisher","release":9,"contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"plugin"}}`)
 			sig, err := kp.Sign(raw)
 			Expect(err).NotTo(HaveOccurred())
 			out := sendRaw(raw, base64.StdEncoding.EncodeToString(sig), publicKey)

@@ -39,7 +39,7 @@ var _ = Describe("BR-AS27/28/31 — registry request/reply through the composed 
 		hints, err := nc.SubscribeSync(notify.Changed().Name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(nc.Flush()).To(Succeed())
-		body := []byte(`{"ifRevision":0,"entryId":"fleet","entry":{"id":"fleet","enabled":true,"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"./plugin"}}}`)
+		body := []byte(`{"ifRevision":0,"entryId":"fleet","entry":{"id":"fleet","enabled":true,"name":"fixture","contributions":[{"kind":"shell-footer","id":"status"}],"remote":{"kind":"federated","url":"http://localhost:7110/r.js","module":"./plugin"}}}`)
 		msg, err := nc.Request(browserrpc.UpsertSubject, body, time.Second)
 		Expect(err).NotTo(HaveOccurred())
 		var accepted browserrpc.CuratedResponse
