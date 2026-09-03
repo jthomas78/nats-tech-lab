@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed Linebooker V3 Architecture - L2 Technology Selection and Rationale</title>
+<style>
+  :root {
+    --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --border:#2c3138; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --purple:#a78bfa; --amber:#f5b13d;
+    --store:#27c07f; --bad:#f87171;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  @page { size:A3 landscape; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .sheet { width:420mm; height:297mm; padding:8mm; overflow:hidden; background:var(--bg); display:grid; grid-template-rows:30mm minmax(0,1fr) auto 8mm; gap:3mm; page-break-after:always; }
+  .sheet:last-child { page-break-after:auto; }
+  .head { border-bottom:1px solid var(--stroke); padding-bottom:3mm; }
+  .eyebrow { color:var(--cyan); font:650 9px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; margin-bottom:2mm; }
+  .eyebrow .doc-title { text-transform:none; letter-spacing:.04em; }
+  .head-row { display:flex; align-items:baseline; justify-content:space-between; gap:8mm; }
+  h1 { margin:0; font-size:27px; line-height:1.1; letter-spacing:-.025em; font-weight:680; }
+  .stamp { color:var(--amber); font:700 8.5px var(--mono); letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; border:1px solid var(--amber); border-radius:3px; padding:1.2mm 2mm; }
+  .head p { margin:2mm 0 0; max-width:1220px; color:var(--muted); font-size:11.5px; line-height:1.42; }
+  .head p b { color:var(--text); font-weight:650; }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; min-height:0; }
+
+  figure { margin:0; min-width:0; min-height:0; background:#0a0c0e; border:1px solid var(--border); display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+  .fig-body { min-height:0; padding:3mm; overflow:hidden; }
+  figcaption { border-top:1px solid var(--border); padding:2.2mm 3mm; color:var(--muted); font-size:8.8px; line-height:1.34; }
+  figcaption b { color:var(--text); font-weight:650; }
+
+  /* Card catalogue. An inventory view with no relationships, so no connectors
+     are drawn and the legend explains colour and acronyms only. */
+  .cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); grid-auto-rows:1fr; gap:1.7mm; height:100%; }
+  .card { border:1px solid #3a424c; border-left-width:3px; background:var(--panel); padding:1.9mm 2.2mm; display:flex; flex-direction:column; gap:.7mm; min-height:0; overflow:hidden; }
+  .card.blue { border-left-color:var(--blue); } .card.purple { border-left-color:var(--purple); }
+  .card.cyan { border-left-color:var(--cyan); } .card.green { border-left-color:var(--green); }
+  .card.amber { border-left-color:var(--amber); } .card.grey { border-left-color:#5b646f; }
+  .card-top { display:flex; align-items:flex-start; justify-content:space-between; gap:1.6mm; }
+  .card h3 { margin:0; font-size:10.4px; line-height:1.15; font-weight:680; letter-spacing:-.01em; }
+  .chip { border-radius:2px; padding:.7mm 1.1mm; font:700 6.4px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
+  .chip.chosen { background:rgba(39,192,127,.16); color:#4fd6a0; border:1px solid #27c07f; }
+  .chip.proposed { background:rgba(245,177,61,.14); color:#e7ae52; border:1px solid #9a7b1e; }
+  .chip.open { background:rgba(90,100,111,.2); color:#a4acb6; border:1px solid #5b646f; }
+  .chip.none { background:rgba(90,100,111,.2); color:#a4acb6; border:1px solid #5b646f; }
+  .chip.lab { background:rgba(59,139,255,.14); color:#7fb2ff; border:1px solid #3b8bff; }
+  .realises { margin:0; color:var(--muted); font:7.9px/1.24 var(--mono); }
+  .card dl { margin:0; display:grid; grid-template-columns:14.5mm 1fr; gap:.65mm 1.5mm; }
+  .card dt { color:var(--dim); font:650 6.7px/1.28 var(--mono); letter-spacing:.05em; text-transform:uppercase; }
+  .card dd { margin:0; color:var(--muted); font-size:7.5px; line-height:1.26; }
+  .card dd b { color:var(--text); font-weight:650; }
+  .gap { color:#e7ae52; font-weight:650; }
+
+  .notes { min-height:0; padding:2mm 2mm 0 3mm; border-left:1px solid var(--stroke); background:var(--panel2); display:flex; flex-direction:column; gap:1.8mm; }
+  .note { display:grid; grid-template-columns:19mm 1fr; gap:2mm; align-items:start; }
+  .tag { border:1px solid #46505b; color:var(--muted); border-radius:3px; padding:1.1mm 1.3mm; font:650 7px/1 var(--mono); letter-spacing:.07em; text-align:center; }
+  .note p { margin:0; color:var(--muted); font-size:8.35px; line-height:1.29; }
+  .note b { color:var(--text); font-weight:650; }
+
+  .legend { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; border-top:1px solid var(--stroke); padding-top:2.2mm; }
+  .legend h2 { margin:0 0 1.4mm; color:var(--cyan); font:650 8px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .key-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.9mm 3mm; }
+  .key-item { display:grid; grid-template-columns:20mm 1fr; gap:1.8mm; align-items:center; color:var(--muted); font-size:7.6px; line-height:1.22; }
+  .key-item b { color:var(--text); font-weight:650; }
+  .sw { display:block; height:3.1mm; border-radius:1px; background:var(--panel); border:1px solid #3a424c; border-left-width:3px; }
+  .sw-blue { border-left-color:var(--blue); } .sw-purple { border-left-color:var(--purple); }
+  .sw-cyan { border-left-color:var(--cyan); } .sw-green { border-left-color:var(--green); }
+  .sw-chip { display:flex; align-items:center; justify-content:flex-start; height:3.1mm; min-width:0; }
+  .abbr { margin:0; padding:0; list-style:none; columns:2; column-gap:3mm; color:var(--muted); font-size:7.4px; line-height:1.28; }
+  .abbr li { break-inside:avoid; }
+  .abbr b { color:var(--text); font:650 7.4px var(--mono); }
+
+  .foot { border-top:1px solid var(--border); padding-top:2mm; display:flex; justify-content:space-between; gap:8mm; color:var(--dim); font-size:7.8px; line-height:1.25; }
+  .brand { color:var(--amber); text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; font-weight:700; }
+</style>
+</head>
+<body>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L2-02 &middot; <span class="doc-title">Technology Selection and Rationale</span> &middot; Sheet 1 of 2</div>
+    <div class="head-row">
+      <h1>Technology Selection and Rationale</h1>
+      <span class="stamp">Directional &middot; as at 3 September 2026</span>
+    </div>
+    <p><b>Directional. First-pass selections for V3, not settled decisions.</b> This view answers which technologies the platform uses and why: the problem each one solves, the features actually relied on, and what was rejected. It deliberately draws no relationships &mdash; <b>LB-V3-L2-01</b> owns how the platform is constructed. The argument for each selection lives in its ADR; where no V3 ADR exists the card says so, and that gap is a to-do rather than a defect.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <div class="cards">
+        <article class="card blue">
+          <div class="card-top">
+            <h3>Vue 3 + PrimeVue</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Experience channel - role-shaped workspaces</p>
+          <dl>
+            <dt>Solves</dt><dd>Several role-shaped workspaces must look and behave as one product without one design system per team.</dd>
+            <dt>Relies on</dt><dd>Composition API, Pinia stores as client-side read models, PrimeVue v4 theming preset, vue-i18n</dd>
+            <dt>Instead of</dt><dd>React plus a component library; a hand-rolled design system</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>App Shell + MFE; Operator + tenant admin; Driver mobile</dd>
+          </dl>
+        </article>
+        <article class="card blue">
+          <div class="card-top">
+            <h3>Module Federation</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Runtime composition of micro-frontends</p>
+          <dl>
+            <dt>Solves</dt><dd>A team must ship a workspace feature without rebuilding or redeploying the shell.</dd>
+            <dt>Relies on</dt><dd>Runtime remote loading, shared dependency singletons, per-remote versioning</dd>
+            <dt>Instead of</dt><dd>Build-time monorepo bundling; iframes</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>App Shell + MFE; Web delivery (shell + MFE registry)</dd>
+          </dl>
+        </article>
+        <article class="card blue">
+          <div class="card-top">
+            <h3>WorkOS / enterprise IdP</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Identity federation - authentication only</p>
+          <dl>
+            <dt>Solves</dt><dd>Enterprise customers bring their own single sign-on, and Linebooker must not hold their passwords.</dd>
+            <dt>Relies on</dt><dd>SSO and directory sync, OIDC and SAML connections, hosted login</dd>
+            <dt>Instead of</dt><dd>Self-hosted Keycloak; bespoke SSO per tenant</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; commercial selection outstanding</dd>
+            <dt>Used by</dt><dd>Identity federation; Identity + policy broker</dd>
+          </dl>
+        </article>
+        <article class="card blue">
+          <div class="card-top">
+            <h3>OpenFGA</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Relationship authorisation - who may act on what</p>
+          <dl>
+            <dt>Solves</dt><dd>Authority is relational, not a role name: a user may act on one organisation, one depot or one load, and V2 could not express that.</dd>
+            <dt>Relies on</dt><dd>Zanzibar-style relationship tuples, an authorisation model per tenant, batch check and list-objects queries</dd>
+            <dt>Instead of</dt><dd>Role enums in the database; CASL rules duplicated in the frontend; per-service bespoke checks</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; self-hosted or hosted not decided</dd>
+            <dt>Used by</dt><dd>Identity + policy broker; every domain service</dd>
+          </dl>
+        </article>
+        <article class="card purple">
+          <div class="card-top">
+            <h3>Go</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Domain service implementation language</p>
+          <dl>
+            <dt>Solves</dt><dd>Services must start fast and run cheaply as many replicas in every cell.</dd>
+            <dt>Relies on</dt><dd>Static binaries, first-class NATS and Temporal SDKs, goroutine concurrency, hexagonal layout</dd>
+            <dt>Instead of</dt><dd>Java with Spring; Node.js</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>Every tile in the domain service plane; service replicas per cell</dd>
+          </dl>
+        </article>
+        <article class="card cyan">
+          <div class="card-top">
+            <h3>NATS Core</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Service-to-service messaging</p>
+          <dl>
+            <dt>Solves</dt><dd>Services must call each other and announce change without point-to-point HTTP wiring or a service mesh.</dd>
+            <dt>Relies on</dt><dd>Subject taxonomy, request/reply, queue groups, accounts as hard isolation boundaries</dd>
+            <dt>Instead of</dt><dd>gRPC with a service mesh; REST between services</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>NATS Core + JetStream; NATS provisioning; NATS logical HA per cell</dd>
+          </dl>
+        </article>
+        <article class="card cyan">
+          <div class="card-top">
+            <h3>NATS JetStream</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Durable fact and event history</p>
+          <dl>
+            <dt>Solves</dt><dd>Some state must be reconstructable and auditable, not only current.</dd>
+            <dt>Relies on</dt><dd>LimitsPolicy retention so history can be replayed, durable consumers, one domain per cell</dd>
+            <dt>Instead of</dt><dd>Kafka; an outbox table in every service database</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>NATS Core + JetStream; JetStream ZA, AU and BW</dd>
+          </dl>
+        </article>
+        <article class="card cyan">
+          <div class="card-top">
+            <h3>NATS KV</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Derived read model and fast lookup</p>
+          <dl>
+            <dt>Solves</dt><dd>Hot reads must not reach Postgres, and clients need to watch a value for change.</dd>
+            <dt>Relies on</dt><dd>Watch, context-scoped keys, write-through from the handler that also writes Postgres</dd>
+            <dt>Instead of</dt><dd>Redis; caches held inside each service process</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>Projections + NATS KV</dd>
+          </dl>
+        </article>
+        <article class="card cyan">
+          <div class="card-top">
+            <h3>Temporal</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Long-running process coordination</p>
+          <dl>
+            <dt>Solves</dt><dd>Tender expiry, execution, proof, claims and settlement run for days and span many services.</dd>
+            <dt>Relies on</dt><dd>Durable timers, automatic retry, workflow state as truth, deterministic replay</dd>
+            <dt>Instead of</dt><dd>Saga logic written into each service; cron with an outbox</dd>
+            <dt>Decision</dt><dd>ADR-047, lab scope only; <span class="gap">no V3 ADR yet</span> for V3</dd>
+            <dt>Used by</dt><dd>Temporal workflows; Temporal runtime per cell</dd>
+          </dl>
+        </article>
+        <article class="card cyan">
+          <div class="card-top">
+            <h3>PostgreSQL</h3><span class="chip chosen">Chosen</span>
+          </div>
+          <p class="realises">Transactional source of truth</p>
+          <dl>
+            <dt>Solves</dt><dd>Business rules need ACID transactions and a queryable current state owned by one service.</dd>
+            <dt>Relies on</dt><dd>ACID transactions, one database and one role per service, JSONB, shared instance by default</dd>
+            <dt>Instead of</dt><dd>A dedicated instance per service; one shared schema for all services</dd>
+            <dt>Decision</dt><dd>ADR-052 and <b>ADR-053</b>; ADR-053 is V3 scope</dd>
+            <dt>Used by</dt><dd>Service-owned Postgres; Service data per cell</dd>
+          </dl>
+        </article>
+        <article class="card cyan">
+          <div class="card-top">
+            <h3>S3-compatible object storage</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Evidence document repository</p>
+          <dl>
+            <dt>Solves</dt><dd>Proof of delivery, licences and certificates are large files that must not travel through messaging.</dd>
+            <dt>Relies on</dt><dd>The S3 API contract, presigned URLs, a bucket per cell, lifecycle rules</dd>
+            <dt>Instead of</dt><dd>NATS Object Store as the default; document blobs held in Postgres</dd>
+            <dt>Decision</dt><dd>ADR-048 chose NATS Object Store for the lab; V3 differs and has <span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>Document store adapter; Evidence store per cell</dd>
+          </dl>
+        </article>
+        <article class="card green">
+          <div class="card-top">
+            <h3>OpenTelemetry / OTLP</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Telemetry contract for logs, metrics and traces</p>
+          <dl>
+            <dt>Solves</dt><dd>Cells run independently, so telemetry must be collected the same way everywhere and stay in region.</dd>
+            <dt>Relies on</dt><dd>The OTLP wire format, vendor-neutral SDKs, masking at the collector</dd>
+            <dt>Instead of</dt><dd>A vendor agent embedded in every service</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>Observe + audit; Resident operations per cell</dd>
+          </dl>
+        </article>
+        <article class="card green">
+          <div class="card-top">
+            <h3>ULID</h3><span class="chip lab">Proven in lab</span>
+          </div>
+          <p class="realises">Entity identity format</p>
+          <dl>
+            <dt>Solves</dt><dd>Identifiers appear in NATS subjects and KV keys, so they must be subject-safe and time-sortable.</dd>
+            <dt>Relies on</dt><dd>26 Crockford base32 characters, lexicographic time ordering, minted in application code</dd>
+            <dt>Instead of</dt><dd>UUIDv4; identifiers generated by the database</dd>
+            <dt>Decision</dt><dd>ADR-051, lab scope only; <span class="gap">no V3 ADR yet</span> for V3</dd>
+            <dt>Used by</dt><dd>organizations-service identity; every subject and KV key token</dd>
+          </dl>
+        </article>         <article class="card cyan">
+          <div class="card-top">
+            <h3>Container platform</h3><span class="chip open">Open</span>
+          </div>
+          <p class="realises">Where services actually run</p>
+          <dl>
+            <dt>Solves</dt><dd>Services must be packaged and scheduled the same way in every region cell, with room to run a sovereign cell separately.</dd>
+            <dt>Relies on</dt><dd>Nothing yet; the lab runs Docker Compose on one host</dd>
+            <dt>Instead of</dt><dd>V2 ran the API directly on Compute Engine virtual machines with no orchestrator</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; Kubernetes, a managed container runtime and plain VMs are all still open</dd>
+            <dt>Used by</dt><dd>Every deployed element in LB-V3-L2-01 sheet 2</dd>
+          </dl>
+        </article>
+        <article class="card cyan">
+          <div class="card-top">
+            <h3>Cloud provider</h3><span class="chip open">Open</span>
+          </div>
+          <p class="realises">The infrastructure the cells sit on</p>
+          <dl>
+            <dt>Solves</dt><dd>Regional cells and data residency rules must be satisfied by real regions in a real provider.</dd>
+            <dt>Relies on</dt><dd>Nothing yet; only the S3 and OTLP API contracts are assumed portable</dd>
+            <dt>Instead of</dt><dd>V2 is wholly on Google Cloud in one project</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; a deliberate open decision, not an oversight</dd>
+            <dt>Used by</dt><dd>Every regional cell; object storage; managed data services</dd>
+          </dl>
+        </article>
+        <article class="card green">
+          <div class="card-top">
+            <h3>Build and release pipeline</h3><span class="chip open">Open</span>
+          </div>
+          <p class="realises">How code reaches a cell</p>
+          <dl>
+            <dt>Solves</dt><dd>Independently deployed micro-frontends and services need independent, repeatable release paths.</dd>
+            <dt>Relies on</dt><dd>Nothing yet; the lab builds with Vite and Go toolchains directly</dd>
+            <dt>Instead of</dt><dd>V2 uses Google Cloud Build with fifteen pipelines, plus GitHub Actions for notifications</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span></dd>
+            <dt>Used by</dt><dd>App Shell + MFE registry; every service</dd>
+          </dl>
+        </article>
+       </div>
+      </div>
+      <figcaption><b>How to read a card.</b> The left edge colours the plane the technology serves, using the same colour meanings as LB-V3-L2-01. The chip states the selection, not the document: <b>Chosen</b> is accepted for V3 with an ADR of record, <b>Proposed</b> is a directional position with no V3 ADR yet, and <b>Proven in lab</b> was exercised in the Dictionary POC but is not yet accepted for V3. <b>Used by</b> names the LB-V3-L2-01 elements that depend on the selection. No cloud vendor is listed: object storage is an API contract here, not a product choice.</figcaption>
+    </figure>
+
+    <aside class="notes" aria-label="Technology selection notes">
+      <div class="note"><span class="tag">SCOPE</span><p><b>This is an inventory, not a topology.</b> It answers what and why. LB-V3-L2-01 answers how the parts fit together; the two sit at L2 because they ask different questions.</p></div>
+      <div class="note"><span class="tag">STATUS</span><p><b>One decision is accepted for V3.</b> Only ADR-053 is V3-scoped. Thirteen of the sixteen cards carry no V3 ADR at all, and two cite a lab-scoped ADR that does not accept the technology for V3.</p></div>
+      <div class="note"><span class="tag">ADR</span><p><b>The ADR is the record, not this sheet.</b> Each card gives one line of reasoning and a pointer. Do not restate an argument here; it will drift and the diagram will win.</p></div>
+      <div class="note"><span class="tag">LAB</span><p><b>Proven in lab is not chosen.</b> The Dictionary POC exercised NATS, JetStream, KV, Temporal, Go and the frontend stack at demo scale, under one operator, with no regulated data.</p></div>
+      <div class="note"><span class="tag">GAP</span><p><b>Read the amber text as a work list.</b> Each &quot;no V3 ADR yet&quot; marks a selection the platform already leans on without a written decision behind it.</p></div>
+      <div class="note"><span class="tag">STORES</span><p><b>Four stores, four jobs.</b> Postgres is transactional truth, JetStream is durable fact history, KV is a derived read model, and object storage holds evidence documents. They are not interchangeable.</p></div>
+      <div class="note"><span class="tag">VENDOR</span><p><b>No cloud vendor is selected.</b> S3-compatible names an API contract that several vendors implement. Compute, network and managed-service vendors remain open decisions.</p></div>
+      <div class="note"><span class="tag">DIVERGE</span><p><b>Two lab decisions do not carry into V3 as written.</b> ADR-048 chose NATS Object Store for lab documents; V3 proposes an S3-compatible repository instead. ADR-051 is scoped to one lab service.</p></div>
+      <div class="note"><span class="tag">DERIVED</span><p><b>Versions, sizing and configuration are out of scope.</b> Pinned versions, high-availability topology, runbooks, subjects and schemas are L3 and L4 decisions.</p></div>
+      <div class="note"><span class="tag">REVIEW</span><p><b>A directional document expires.</b> Re-date it whenever a card changes. A position with no date cannot be trusted a year from now.</p></div>
+    </aside>
+  </div>
+
+  <section class="legend" aria-label="Legend and acronym key">
+    <div>
+      <h2>Key</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-blue"></span><span><b>Blue edge</b> &mdash; experience and entry plane</span></div>
+        <div class="key-item"><span class="sw sw-purple"></span><span><b>Purple edge</b> &mdash; domain service plane</span></div>
+        <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan edge</b> &mdash; platform foundations</span></div>
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green edge</b> &mdash; cross-cutting platform concern</span></div>
+        <div class="key-item"><span class="sw-chip"><span class="chip chosen">Chosen</span></span><span>Accepted for V3, with an ADR of record</span></div>
+        <div class="key-item"><span class="sw-chip"><span class="chip proposed">Proposed</span></span><span>Directional position; no V3 ADR yet</span></div>
+        <div class="key-item"><span class="sw-chip"><span class="chip lab">Proven in lab</span></span><span>Exercised in the Dictionary POC; not yet accepted for V3</span></div>
+        <div class="key-item"><span class="sw-chip"><span class="gap" style="font:650 7.4px var(--mono);white-space:nowrap">no V3 ADR yet</span></span><span>A selection with no written V3 decision behind it</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:650 6.8px var(--mono);color:#737c87;letter-spacing:.05em">USED BY</span></span><span>The LB-V3-L2-01 elements that depend on this selection</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:8.1px var(--mono);color:#b7bcc2">realises</span></span><span>The role the technology fills, stated before the product</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:650 7px var(--mono);color:#b7bcc2">no lines</span></span><span>An inventory view; relationships are drawn in LB-V3-L2-01</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:700 7px var(--mono);color:#f5b13d">DIRECTIONAL</span></span><span>A first-pass position, dated on the sheet, not a settled decision</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Acronyms</h2>
+      <ul class="abbr">
+        <li><b>ACID</b> Atomic, consistent, isolated, durable</li>
+        <li><b>ADR</b> Architecture decision record</li>
+        <li><b>API</b> Application programming interface</li>
+        <li><b>HA</b> High availability</li>
+        <li><b>IdP</b> Identity provider</li>
+        <li><b>JSONB</b> PostgreSQL binary JSON column type</li>
+        <li><b>KV</b> Key/value store (NATS KV)</li>
+        <li><b>MFE</b> Micro-frontend</li>
+        <li><b>NATS</b> The messaging system; a product name, not an abbreviation</li>
+        <li><b>OIDC</b> OpenID Connect</li>
+        <li><b>OTLP</b> OpenTelemetry protocol</li>
+        <li><b>POC</b> Proof of concept</li>
+        <li><b>S3</b> The object-storage API; S3-compatible means any vendor implementing it</li>
+        <li><b>SAML</b> Security Assertion Markup Language</li>
+        <li><b>SDK</b> Software development kit</li>
+        <li><b>SSO</b> Single sign-on</li>
+        <li><b>ULID</b> Universally unique lexicographically sortable identifier</li>
+        <li><b>UUID</b> Universally unique identifier</li>
+        <li><b>ZA / AU / BW</b> South Africa / Australia / Botswana (ISO country codes)</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="foot"><span>Traceability: L2-02-001 to L2-02-026 in the maintained L2-02 requirements register. Directional first-pass selections stated as at 3 September 2026; every card marked Proposed or Proven in lab remains subject to a V3 architecture decision record.</span><span class="brand">LB-V3-L2-02 &middot; 1/2 &middot; Platform selections</span></footer>
+</section>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L2-02 &middot; <span class="doc-title">Technology Selection and Rationale</span> &middot; Sheet 2 of 2</div>
+    <div class="head-row">
+      <h1>External Services and Integrations</h1>
+      <span class="stamp">Directional &middot; as at 3 September 2026</span>
+    </div>
+    <p><b>Directional. Third-party services the platform depends on, carried forward from V2 unless stated.</b> Sheet 1 covers technologies Linebooker builds on; this sheet covers services Linebooker buys or integrates with, where the vendor owns the roadmap and the outage. Every card here is inherited operational reality, not a fresh V3 selection &mdash; none has been re-tendered, and the final card records what is deliberately not carried forward.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <div class="cards">
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Acumatica</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Accounting and finance system of record</p>
+          <dl>
+            <dt>Solves</dt><dd>Invoices, debtors and customer master data live in a finance system Linebooker does not own.</dd>
+            <dt>Relies on</dt><dd>REST contract API, OAuth token exchange, customer and vendor entity sync</dd>
+            <dt>Instead of</dt><dd>Building invoicing inside the platform; the live Google Sheet V2 still reads debtors from</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>, replacement not assessed</dd>
+            <dt>Used by</dt><dd>Financial architecture; billing and settlement</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>monday.com</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Commercial pipeline and account boards</p>
+          <dl>
+            <dt>Solves</dt><dd>Sales and account teams work customers and transporters outside the operational platform.</dd>
+            <dt>Relies on</dt><dd>Board and item API, item identifiers stored against transporters</dd>
+            <dt>Instead of</dt><dd>A customer-relationship module inside Linebooker</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>, a candidate to retire</dd>
+            <dt>Used by</dt><dd>Operator workspace; participant onboarding</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Meta WhatsApp Cloud API</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Conversational channel to drivers and transporters</p>
+          <dl>
+            <dt>Solves</dt><dd>Transporters and drivers work from a phone and will not install or log in to a portal for every update.</dd>
+            <dt>Relies on</dt><dd>Cloud API graph endpoints, message templates, inbound webhooks</dd>
+            <dt>Instead of</dt><dd>Native mobile push alone; SMS for every interaction</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>, load-bearing in V2</dd>
+            <dt>Used by</dt><dd>Driver mobile; notification fan-out</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>SendGrid</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Transactional email delivery</p>
+          <dl>
+            <dt>Solves</dt><dd>The platform must send templated, deliverable email at volume and prove it was sent.</dd>
+            <dt>Relies on</dt><dd>Template API, event webhooks, domain authentication</dd>
+            <dt>Instead of</dt><dd>Self-hosted SMTP; the Spring mail fallback V2 still carries</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>, vendor-swappable</dd>
+            <dt>Used by</dt><dd>Notification fan-out; document distribution</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Twilio Verify</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Second factor over SMS and voice</p>
+          <dl>
+            <dt>Solves</dt><dd>Users without an enterprise identity provider still need a second factor.</dd>
+            <dt>Relies on</dt><dd>Verify service, one-time passcode issue and check</dd>
+            <dt>Instead of</dt><dd>Rolling one-time passcodes in-house; authenticator app only</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; overlaps WorkOS multi-factor, one should go</dd>
+            <dt>Used by</dt><dd>Identity federation; Identity + policy broker</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Peach Payments</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Card acceptance in South Africa</p>
+          <dl>
+            <dt>Solves</dt><dd>Customers must pay by card without card data touching Linebooker systems.</dd>
+            <dt>Relies on</dt><dd>Hosted checkout, entity identifiers per brand, status callbacks</dd>
+            <dt>Instead of</dt><dd>Holding card data; a global-only processor with no local acquiring</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; region-specific, not portable to AU</dd>
+            <dt>Used by</dt><dd>Financial architecture; payment capture</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Ozow</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Instant bank transfer in South Africa</p>
+          <dl>
+            <dt>Solves</dt><dd>Many South African customers pay by electronic funds transfer, not card.</dd>
+            <dt>Relies on</dt><dd>Payment request API, transaction status polling</dd>
+            <dt>Instead of</dt><dd>Manual proof-of-payment reconciliation</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; region-specific, not portable to AU</dd>
+            <dt>Used by</dt><dd>Financial architecture; payment capture</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Telematics broker</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">One tracking contract over many vendors</p>
+          <dl>
+            <dt>Solves</dt><dd>Around thirty-eight telematics vendors each expose a different feed, and a transporter may use any of them.</dd>
+            <dt>Relies on</dt><dd>Per-transporter vendor credentials, normalised position and event stream</dd>
+            <dt>Instead of</dt><dd>A direct integration per vendor inside each domain service</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span> as Linetracker; V3 shape not designed</dd>
+            <dt>Used by</dt><dd>Tracking and visibility; load execution</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Google Maps Platform</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Geocoding, distance and routing</p>
+          <dl>
+            <dt>Solves</dt><dd>Addresses must resolve to coordinates and legs must be priced and timed by real road distance.</dd>
+            <dt>Relies on</dt><dd>Geocoding, distance matrix and directions APIs</dd>
+            <dt>Instead of</dt><dd>Open routing engines self-hosted; straight-line distance</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; cost scales with volume</dd>
+            <dt>Used by</dt><dd>Pricing; route planning; operating areas</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>MapLibre GL + MapTiler</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Map rendering in the browser</p>
+          <dl>
+            <dt>Solves</dt><dd>Operators need interactive maps of operating areas and live positions without a per-view licence cost.</dd>
+            <dt>Relies on</dt><dd>Vector tile serving, self-hosted boundary tiles, open rendering library</dd>
+            <dt>Instead of</dt><dd>Rendering every map through the Google Maps JavaScript API</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; splits map cost from map data</dd>
+            <dt>Used by</dt><dd>Operator workspace; operating areas</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Google Document AI</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Extraction from scanned evidence</p>
+          <dl>
+            <dt>Solves</dt><dd>Proof of delivery arrives as a photograph or scan and must become structured data.</dd>
+            <dt>Relies on</dt><dd>A trained processor, batch and online extraction</dd>
+            <dt>Instead of</dt><dd>Manual capture; a generic optical character reader with no document model</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; the strongest single cloud lock-in</dd>
+            <dt>Used by</dt><dd>Evidence store; proof of delivery workflow</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>BigQuery + Looker Studio</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Analytics warehouse and reporting</p>
+          <dl>
+            <dt>Solves</dt><dd>Operational stores must not serve analytics, and customers ask for their own reports.</dd>
+            <dt>Relies on</dt><dd>Warehouse dataset, signed embedded reports</dd>
+            <dt>Instead of</dt><dd>Reporting straight off the transactional database</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; a projection target, never a source of truth</dd>
+            <dt>Used by</dt><dd>Financial architecture; customer reporting</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Customer file drops</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Contracted file exchange with large shippers</p>
+          <dl>
+            <dt>Solves</dt><dd>Some enterprise customers accept documents only over their own secure file transfer endpoint.</dd>
+            <dt>Relies on</dt><dd>Secure file transfer client, per-customer credentials and folder rules</dd>
+            <dt>Instead of</dt><dd>Email attachments; asking the customer to use the portal</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span> as a standalone middleware service</dd>
+            <dt>Used by</dt><dd>External integration; document distribution</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>Voucher rewards</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Driver and transporter incentives</p>
+          <dl>
+            <dt>Solves</dt><dd>Drivers earn rewards that must be redeemed for something they actually want.</dd>
+            <dt>Relies on</dt><dd>Retailer voucher denominations and redemption</dd>
+            <dt>Instead of</dt><dd>Cash incentives; a points scheme with no redemption path</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; single retailer, region-specific</dd>
+            <dt>Used by</dt><dd>Driver mobile; rewards</dd>
+          </dl>
+        </article>
+        <article class="card amber">
+          <div class="card-top">
+            <h3>reCAPTCHA</h3><span class="chip proposed">Proposed</span>
+          </div>
+          <p class="realises">Bot protection on public forms</p>
+          <dl>
+            <dt>Solves</dt><dd>Public sign-up and enquiry forms are scripted against.</dd>
+            <dt>Relies on</dt><dd>Server-side token verification</dd>
+            <dt>Instead of</dt><dd>Rate limiting alone</dd>
+            <dt>Decision</dt><dd><span class="gap">no V3 ADR yet</span>; <span class="gap">carried from V2</span>; a candidate to fold into the edge</dd>
+            <dt>Used by</dt><dd>Public web entry; participant onboarding</dd>
+          </dl>
+        </article>
+        <article class="card grey">
+          <div class="card-top">
+            <h3>Not carried into V3</h3><span class="chip none">Not carried</span>
+          </div>
+          <p class="realises">V2 technologies deliberately left behind</p>
+          <dl>
+            <dt>Solves</dt><dd>A rewrite is the moment to stop paying for scaffolding no one uses.</dd>
+            <dt>Relies on</dt><dd>Nothing; listed so the omission is visible rather than accidental</dd>
+            <dt>Instead of</dt><dd>JHipster scaffolding, Spring Boot 2.1, MySQL, RabbitMQ, Redis cache, Elasticsearch, Logstash, Dropwizard metrics, React 17 + Redux + Material UI, CASL, jOOQ, Liquibase</dd>
+            <dt>Decision</dt><dd>Directional: each of these has a V3 replacement on sheet 1 or is simply dropped</dd>
+            <dt>Used by</dt><dd>Nothing; this card exists to close the inventory</dd>
+          </dl>
+        </article>
+        </div>
+      </div>
+      <figcaption><b>How to read a card.</b> The amber left edge marks an external or separately governed service &mdash; the same colour meaning as LB-V3-L2-01. <b>Carried from V2</b> means the dependency exists in the running platform today and has not been reassessed for V3; it is a statement of fact, not an endorsement. <b>Used by</b> names the LB-V3-L2-01 elements that would depend on the service.</figcaption>
+    </figure>
+
+    <aside class="notes" aria-label="External service notes">
+      <div class="note"><span class="tag">SCOPE</span><p><b>Bought, not built.</b> Sheet 1 lists what the platform is constructed from. This sheet lists services outside the trust and release boundary, where an outage is somebody else&#39;s incident.</p></div>
+      <div class="note"><span class="tag">SOURCE</span><p><b>Every card was read out of the V2 codebase.</b> This is an observed inventory of the running platform, not a wish list. Absence from this sheet means absence from V2.</p></div>
+      <div class="note"><span class="tag">STATUS</span><p><b>No card here is chosen for V3.</b> Carrying a vendor forward by default is itself a decision; it has simply not been written down yet.</p></div>
+      <div class="note"><span class="tag">REGION</span><p><b>Four services are South Africa only.</b> Card payments, bank transfer, the voucher retailer and most telematics vendors do not extend to an Australian cell. Each needs a regional equivalent or a deliberate gap.</p></div>
+      <div class="note"><span class="tag">LOCK-IN</span><p><b>Document extraction is the deepest lock-in.</b> A trained processor is not portable between vendors. Payments, email and messaging are comparatively swappable.</p></div>
+      <div class="note"><span class="tag">OVERLAP</span><p><b>Two services do the same job.</b> The identity provider and the verification service both offer a second factor. Keeping both is a cost and a support burden.</p></div>
+      <div class="note"><span class="tag">CONTRACT</span><p><b>Integrate against a contract, never a vendor.</b> Each of these belongs behind an adapter owned by one service, so a vendor change is one adapter, not a migration.</p></div>
+      <div class="note"><span class="tag">DROPPED</span><p><b>The last card is the honest half.</b> An inventory that lists only what is kept hides the size of the change. What is dropped is a decision that needs a record too.</p></div>
+      <div class="note"><span class="tag">SECRETS</span><p><b>Every service on this sheet holds a credential.</b> V3 must source them from a secret store; this sheet does not name endpoints, keys or account identifiers.</p></div>
+      <div class="note"><span class="tag">NEXT</span><p><b>L3-04 External Integration owns the detail.</b> Adapter shape, retry and idempotency rules, and per-vendor contracts belong there, not on this sheet.</p></div>
+    </aside>
+  </div>
+
+  <section class="legend" aria-label="Legend and acronym key for sheet 2">
+    <div>
+      <h2>Key</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber edge</b> &mdash; external or separately governed service</span></div>
+        <div class="key-item"><span class="sw" style="border-color:#5b646f"></span><span><b>Grey edge</b> &mdash; not a selection; a record of what is dropped</span></div>
+        <div class="key-item"><span class="sw-chip"><span class="chip proposed">Proposed</span></span><span>Directional position; no V3 ADR yet</span></div>
+        <div class="key-item"><span class="sw-chip"><span class="chip none">Not carried</span></span><span>Present in V2 and deliberately left behind</span></div>
+        <div class="key-item"><span class="sw-chip"><span class="gap" style="font:650 7.4px var(--mono);white-space:nowrap">carried from V2</span></span><span>Runs in the platform today; not reassessed for V3</span></div>
+        <div class="key-item"><span class="sw-chip"><span class="gap" style="font:650 7.4px var(--mono);white-space:nowrap">no V3 ADR yet</span></span><span>A dependency with no written V3 decision behind it</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:650 6.8px var(--mono);color:#737c87;letter-spacing:.05em">USED BY</span></span><span>The LB-V3-L2-01 elements that depend on the service</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:8.1px var(--mono);color:#b7bcc2">realises</span></span><span>The role the service fills, stated before the vendor</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:650 7px var(--mono);color:#b7bcc2">no lines</span></span><span>An inventory view; relationships are drawn in LB-V3-L2-01</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:700 7px var(--mono);color:#f5b13d">DIRECTIONAL</span></span><span>A first-pass position, dated on the sheet, not a settled decision</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:650 7px var(--mono);color:#b7bcc2">no vendors</span></span><span>No endpoint, key or account identifier appears on this sheet</span></div>
+        <div class="key-item"><span class="sw-chip"><span style="font:650 7px var(--mono);color:#b7bcc2">V2</span></span><span>The Linebooker platform running in production today</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Acronyms</h2>
+      <ul class="abbr">
+        <li><b>ADR</b> Architecture decision record</li>
+        <li><b>API</b> Application programming interface</li>
+        <li><b>AU</b> Australia (ISO country code)</li>
+        <li><b>BI</b> Business intelligence</li>
+        <li><b>CRM</b> Customer relationship management</li>
+        <li><b>EFT</b> Electronic funds transfer</li>
+        <li><b>ERP</b> Enterprise resource planning</li>
+        <li><b>IdP</b> Identity provider</li>
+        <li><b>OAuth</b> The delegated authorisation standard</li>
+        <li><b>OCR</b> Optical character recognition</li>
+        <li><b>POD</b> Proof of delivery</li>
+        <li><b>REST</b> The HTTP resource API style</li>
+        <li><b>SFTP</b> Secure file transfer protocol</li>
+        <li><b>SMS</b> Short message service</li>
+        <li><b>V2 / V3</b> The current and proposed Linebooker platform versions</li>
+        <li><b>ZA</b> South Africa (ISO country code)</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="foot"><span>Traceability: L2-02-019 to L2-02-026 in the maintained L2-02 requirements register. External dependencies observed in the V2 codebase and stated as at 3 September 2026; each remains subject to a V3 architecture decision record.</span><span class="brand">LB-V3-L2-02 &middot; 2/2 &middot; External services</span></footer>
+</section>
+
+</body>
+</html>

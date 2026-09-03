@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed Linebooker V3 Architecture - L2 Logical and Technical Architecture</title>
+<style>
+  :root {
+    --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --border:#2c3138; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --purple:#a78bfa; --amber:#f5b13d;
+    --store:#27c07f; --bad:#f87171;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  @page { size:A3 landscape; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .sheet { width:420mm; height:297mm; padding:8mm; overflow:hidden; background:var(--bg); display:grid; grid-template-rows:30mm minmax(0,1fr) auto 8mm; gap:3mm; page-break-after:always; }
+  .sheet:last-child { page-break-after:auto; }
+  .head { border-bottom:1px solid var(--stroke); padding-bottom:3mm; }
+  .eyebrow { color:var(--cyan); font:650 9px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; margin-bottom:2mm; }
+  .eyebrow .doc-title { text-transform:none; letter-spacing:.04em; }
+  h1 { margin:0; font-size:27px; line-height:1.1; letter-spacing:-.025em; font-weight:680; }
+  .head p { margin:2mm 0 0; max-width:1220px; color:var(--muted); font-size:11.5px; line-height:1.42; }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; min-height:0; }
+  figure { margin:0; min-width:0; min-height:0; background:#0a0c0e; border:1px solid var(--border); display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+  .fig-body { min-height:0; padding:3mm 3mm 1mm; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  figure svg { display:block; width:100%; height:auto; max-height:100%; }
+  figcaption { border-top:1px solid var(--border); padding:2.2mm 3mm; color:var(--muted); font-size:8.8px; line-height:1.34; }
+  figcaption b { color:var(--text); font-weight:650; }
+  figcaption code, .note code { font:8px var(--mono); background:rgba(255,255,255,.06); border-radius:3px; padding:0 3px; }
+  .notes { min-height:0; padding:2mm 2mm 0 3mm; border-left:1px solid var(--stroke); background:var(--panel2); display:flex; flex-direction:column; gap:1.8mm; }
+  .note { display:grid; grid-template-columns:19mm 1fr; gap:2mm; align-items:start; }
+  .tag { border:1px solid #46505b; color:var(--muted); border-radius:3px; padding:1.1mm 1.3mm; font:650 7px/1 var(--mono); letter-spacing:.07em; text-align:center; }
+  .note p { margin:0; color:var(--muted); font-size:8.35px; line-height:1.29; }
+  .note b { color:var(--text); font-weight:650; }
+
+  /* Legend and acronym key - required on every sheet by the authority's
+     Visual and notation standard ("Every sheet must carry"). */
+  .legend { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; border-top:1px solid var(--stroke); padding-top:2.2mm; }
+  .legend h2 { margin:0 0 1.4mm; color:var(--cyan); font:650 8px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .key-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.9mm 3mm; }
+  .key-item { display:grid; grid-template-columns:9mm 1fr; gap:1.6mm; align-items:center; color:var(--muted); font-size:7.6px; line-height:1.22; }
+  .key-item b { color:var(--text); font-weight:650; }
+  .sw { display:block; height:3.1mm; border-radius:1px; background:rgba(255,255,255,.012); border:1.1px solid var(--stroke); }
+  .sw-blue { border-color:var(--blue); } .sw-purple { border-color:var(--purple); }
+  .sw-green { border-color:var(--green); } .sw-cyan { border-color:var(--cyan); }
+  .sw-amber { border-color:var(--amber); }
+  .sw-tile { background:var(--panel); border:1.1px solid #3a424c; }
+  .sw-policy { background:#201b12; border:1.1px solid var(--amber); }
+  .ln { display:block; height:0; border-top-width:1.4px; border-top-style:solid; }
+  .ln-sync { border-top-color:var(--blue); }
+  .ln-event { border-top-color:var(--amber); border-top-style:dashed; }
+  .ln-place { border-top-color:var(--green); }
+  .ln-rep { border-top-color:var(--cyan); border-top-style:dotted; border-top-width:1.6px; }
+  .ln-blocked { border-top-color:var(--bad); border-top-style:dashed; }
+  .sw-svg { display:block; width:9mm; height:3.4mm; }
+  .abbr { margin:0; padding:0; list-style:none; columns:2; column-gap:3mm; color:var(--muted); font-size:7.4px; line-height:1.28; }
+  .abbr li { break-inside:avoid; }
+  .abbr b { color:var(--text); font:650 7.4px var(--mono); }
+  .foot { border-top:1px solid var(--border); padding-top:2mm; display:flex; justify-content:space-between; gap:8mm; color:var(--dim); font-size:7.8px; line-height:1.25; }
+  .brand { color:var(--amber); text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; font-weight:700; }
+
+  svg .group { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.1; }
+  svg .group.blue { stroke:var(--blue); } svg .group.purple { stroke:var(--purple); }
+  svg .group.green { stroke:var(--green); } svg .group.cyan { stroke:var(--cyan); }
+  svg .group.amber { stroke:var(--amber); }
+  svg .tile { fill:var(--panel); stroke:#3a424c; stroke-width:1.1; }
+  svg .tile2 { fill:var(--panel2); stroke:#3a424c; stroke-width:1.1; }
+  svg .policy { fill:#201b12; stroke:var(--amber); stroke-width:1.1; }
+  svg .group-title { font:650 10px var(--sans); letter-spacing:.105em; text-transform:uppercase; }
+  svg .title { fill:var(--text); font:650 10.8px var(--sans); }
+  svg .sub { fill:var(--muted); font:8.9px var(--sans); }
+  svg .mini { fill:var(--dim); font:8.4px var(--mono); }
+  svg .glyph { fill:#0d0f11; font:800 10.5px var(--sans); text-anchor:middle; }
+  /* Knockout halo so a label stays legible where an edge passes behind it. */
+  svg .edge-label { fill:var(--muted); font:8px var(--mono); paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .group-title { paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .sync { fill:none; stroke:var(--blue); stroke-width:1.35; }
+  svg .event { fill:none; stroke:var(--amber); stroke-width:1.35; stroke-dasharray:5 4; }
+  svg .place { fill:none; stroke:var(--green); stroke-width:1.35; }
+  svg .rep { fill:none; stroke:var(--cyan); stroke-width:1.3; stroke-dasharray:2 4; }
+  svg .blocked { fill:none; stroke:var(--bad); stroke-width:1.3; stroke-dasharray:4 4; }
+  svg .rule { stroke:#2a3038; stroke-width:1; }
+</style>
+</head>
+<body>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L2-01 &middot; <span class="doc-title">Logical and Technical Architecture</span> &middot; Sheet 1 of 2</div>
+    <h1>Logical Architecture and Service Model</h1>
+    <p>This view explains how role-aware channels, integration contracts, the control plane, logistics services and platform foundations collaborate. It preserves the L1 business boundaries while exposing service ownership, NATS messaging, Temporal coordination and distinct data responsibilities.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+      <svg viewBox="0 0 1160 870" role="img" aria-label="Level 2 logical architecture for the proposed Linebooker V3 logistics SaaS. At the top, role-aware web and mobile channels, external systems and a NATS trust hierarchy feed an application and integration boundary. A control plane manages tenants, organisations, identity membership, NATS accounts and credentials, reference data, configuration, entitlements, billing, administration, observability and audit. Tenant-aware logistics services implement marketplace tendering, loads trips routes, fleet tracking, documents compliance, disputes acceptance, billing and settlement. NATS Core and JetStream carry commands and durable domain facts, Temporal coordinates long-running workflows, service-owned PostgreSQL stores transactional truth, projections and NATS KV support reads, and a vendor-neutral adapter writes evidence to S3-compatible object storage. Security, residency and immutable audit apply across every layer.">
+        <defs>
+          <marker id="l2a-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+          <marker id="l2a-amber" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+          <marker id="l2a-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+        </defs>
+
+        <rect class="group blue" x="20" y="42" width="500" height="126" rx="12"/>
+        <text class="group-title" x="36" y="34" fill="#3b8bff">Experience channels - role and organisation context</text>
+        <rect class="tile" x="40" y="68" width="220" height="38" rx="8"/><rect x="52" y="75" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="64" y="91">S</text><text class="title" x="86" y="84">App Shell + MFE</text><text class="sub" x="86" y="99">shipper + transporter workspaces</text>
+        <rect class="tile" x="280" y="68" width="220" height="38" rx="8"/><rect x="292" y="75" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="304" y="91">O</text><text class="title" x="326" y="84">Operator + tenant admin</text><text class="sub" x="326" y="99">control tower, finance, policy</text>
+        <rect class="tile" x="40" y="116" width="220" height="36" rx="8"/><rect x="52" y="122" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="64" y="138">M</text><text class="title" x="86" y="132">Driver mobile</text><text class="sub" x="86" y="147">tasks, tracking + evidence</text>
+        <rect class="tile" x="280" y="116" width="220" height="36" rx="8"/><rect x="292" y="122" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="304" y="138">A</text><text class="title" x="326" y="132">Partner API consumers</text><text class="sub" x="326" y="147">integrations + report extraction</text>
+
+        <rect class="group amber" x="545" y="42" width="275" height="126" rx="12"/>
+        <text class="group-title" x="561" y="34" fill="#f5b13d">External dependencies - contracts</text>
+        <rect class="tile" x="565" y="68" width="235" height="38" rx="8"/><rect x="577" y="75" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="589" y="91">I</text><text class="title" x="611" y="84">Identity federation</text><text class="sub" x="611" y="99">WorkOS + enterprise IdPs</text>
+        <rect class="tile" x="565" y="112" width="235" height="46" rx="8"/><rect x="577" y="123" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="589" y="139">E</text><text class="title" x="611" y="127">Operational + enterprise</text><text class="sub" x="611" y="142">telematics, ERP, maps + payments</text><text class="mini" x="611" y="154">notifications + regulatory</text>
+
+        <rect class="group green" x="845" y="42" width="295" height="126" rx="12"/>
+        <text class="group-title" x="861" y="34" fill="#34d399">NATS trust - operator to credentials</text>
+        <rect class="tile" x="865" y="68" width="120" height="38" rx="8"/><rect x="875" y="75" width="22" height="22" rx="7" fill="#34d399"/><text class="glyph" x="886" y="90">O</text><text class="title" x="905" y="84">Operator</text><text class="sub" x="905" y="99">trust root</text>
+        <rect class="tile" x="1000" y="68" width="120" height="38" rx="8"/><rect x="1010" y="75" width="22" height="22" rx="7" fill="#34d399"/><text class="glyph" x="1021" y="90">T</text><text class="title" x="1040" y="84">Tenant account</text><text class="sub" x="1040" y="99">one per market</text>
+        <rect class="tile" x="865" y="116" width="115" height="36" rx="8"/><rect x="875" y="122" width="22" height="22" rx="7" fill="#34d399"/><text class="glyph" x="886" y="137">R</text><text class="title" x="905" y="132">Org roles</text><text class="sub" x="905" y="147">RBAC + ABAC</text>
+        <rect class="tile" x="990" y="116" width="130" height="36" rx="8"/><rect x="1000" y="122" width="22" height="22" rx="7" fill="#34d399"/><text class="glyph" x="1011" y="137">C</text><text class="title" x="1030" y="132">Short-lived creds</text><text class="sub" x="1030" y="147">users + workloads</text>
+
+        <path class="sync" d="M270 168 V180 H520 V199" marker-end="url(#l2a-blue)"/><text class="edge-label" x="282" y="176">authenticated requests</text>
+        <path class="event" d="M683 168 V199" marker-end="url(#l2a-amber)"/><text class="edge-label" x="695" y="180">contracted APIs + events</text>
+        <path class="place" d="M993 168 V214 H360 V225" marker-end="url(#l2a-green)"/><text class="edge-label" x="820" y="207">signed tenant + org context</text>
+
+        <rect class="group blue" x="20" y="202" width="1120" height="105" rx="12"/>
+        <text class="group-title" x="36" y="194" fill="#3b8bff">Application and integration boundary - policy-enforced ingress</text>
+        <rect class="tile" x="40" y="228" width="200" height="58" rx="8"/><rect x="54" y="244" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="66" y="260">E</text><text class="title" x="88" y="248">Regional edge + WAF</text><text class="sub" x="88" y="264">TLS, routing, rate limits</text><text class="mini" x="54" y="279">country endpoint policy</text>
+        <rect class="tile" x="260" y="228" width="200" height="58" rx="8"/><rect x="274" y="244" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="286" y="260">I</text><text class="title" x="308" y="248">Identity + policy broker</text><text class="sub" x="308" y="264">membership, RBAC + ABAC</text><text class="mini" x="274" y="279">tenant + org context</text>
+        <rect class="tile" x="480" y="228" width="200" height="58" rx="8"/><rect x="494" y="244" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="506" y="260">B</text><text class="title" x="528" y="248">BFF + API facade</text><text class="sub" x="528" y="264">role-shaped commands + reads</text><text class="mini" x="494" y="279">no direct database access</text>
+        <rect class="tile" x="700" y="228" width="200" height="58" rx="8"/><rect x="714" y="244" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="726" y="260">R</text><text class="title" x="748" y="248">Reporting + data API</text><text class="sub" x="748" y="264">scoped extracts + async export</text><text class="mini" x="714" y="279">masking + audit</text>
+        <rect class="tile" x="920" y="228" width="200" height="58" rx="8"/><rect x="934" y="244" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="946" y="260">A</text><text class="title" x="968" y="248">Integration adapters</text><text class="sub" x="968" y="264">webhooks, polling + events</text><text class="mini" x="934" y="279">anti-corruption boundary</text>
+
+        <path class="place" d="M580 307 V338" marker-end="url(#l2a-green)"/><text class="edge-label" x="592" y="328">policy and lifecycle management</text>
+
+        <rect class="group green" x="20" y="341" width="1120" height="112" rx="12"/>
+        <text class="group-title" x="36" y="333" fill="#34d399">Control plane - Linebooker Tech platform authority</text>
+        <rect class="tile" x="40" y="367" width="166" height="66" rx="8"/><rect x="52" y="384" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="64" y="400">T</text><text class="title" x="86" y="388">Tenant + organisation</text><text class="sub" x="86" y="404">lifecycle + membership</text><text class="mini" x="52" y="424">authority boundaries</text>
+        <rect class="tile" x="222" y="367" width="166" height="66" rx="8"/><rect x="234" y="384" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="246" y="400">I</text><text class="title" x="268" y="388">Identity + membership</text><text class="sub" x="268" y="404">roles + policy attributes</text><text class="mini" x="234" y="424">Linebooker authorization</text>
+        <rect class="tile" x="404" y="367" width="166" height="66" rx="8"/><rect x="416" y="384" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="428" y="400">N</text><text class="title" x="450" y="388">NATS provisioning</text><text class="sub" x="450" y="404">accounts + credentials</text><text class="mini" x="416" y="424">claims + placement</text>
+        <rect class="tile" x="586" y="367" width="166" height="66" rx="8"/><rect x="598" y="384" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="610" y="400">R</text><text class="title" x="632" y="388">Reference + config</text><text class="sub" x="632" y="404">country + market policy</text><text class="mini" x="598" y="424">currency defaults</text>
+        <rect class="tile" x="768" y="367" width="166" height="66" rx="8"/><rect x="780" y="384" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="792" y="400">E</text><text class="title" x="814" y="388">Entitlements + admin</text><text class="sub" x="814" y="404">plans, billing + support</text><text class="mini" x="780" y="424">operator controls</text>
+        <rect class="tile" x="950" y="367" width="170" height="66" rx="8"/><rect x="962" y="384" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="974" y="400">O</text><text class="title" x="996" y="388">Observe + audit</text><text class="sub" x="996" y="404">health + immutable record</text><text class="mini" x="962" y="424">masked regional telemetry</text>
+
+        <path class="sync" d="M580 453 V486" marker-end="url(#l2a-blue)"/><text class="edge-label" x="592" y="476">tenant-aware commands and queries</text>
+
+        <rect class="group purple" x="20" y="489" width="1120" height="124" rx="12"/>
+        <text class="group-title" x="36" y="481" fill="#a78bfa">Domain service plane - independently deployable business owners</text>
+        <rect class="tile" x="40" y="515" width="166" height="78" rx="8"/><rect x="52" y="535" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="64" y="551">M</text><text class="title" x="86" y="539">Marketplace + tender</text><text class="sub" x="86" y="555">demand, bids, awards</text><text class="mini" x="52" y="580">owns tender state</text>
+        <rect class="tile" x="222" y="515" width="166" height="78" rx="8"/><rect x="234" y="535" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="246" y="551">L</text><text class="title" x="268" y="539">Loads + trips + routes</text><text class="sub" x="268" y="555">allocation + execution</text><text class="mini" x="234" y="580">owns movement state</text>
+        <rect class="tile" x="404" y="515" width="166" height="78" rx="8"/><rect x="416" y="535" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="428" y="551">F</text><text class="title" x="450" y="539">Fleet + tracking</text><text class="sub" x="450" y="555">assets, drivers, ETA</text><text class="mini" x="416" y="580">owns capacity + position</text>
+        <rect class="tile" x="586" y="515" width="166" height="78" rx="8"/><rect x="598" y="535" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="610" y="551">D</text><text class="title" x="632" y="539">Documents</text><text class="sub" x="632" y="555">evidence + compliance</text><text class="mini" x="598" y="580">owns metadata + policy</text>
+        <rect class="tile" x="768" y="515" width="166" height="78" rx="8"/><rect x="780" y="535" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="792" y="551">D</text><text class="title" x="814" y="539">Disputes + acceptance</text><text class="sub" x="814" y="555">proof gates + exceptions</text><text class="mini" x="780" y="580">owns dispute state</text>
+        <rect class="tile" x="950" y="515" width="170" height="78" rx="8"/><rect x="962" y="535" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="974" y="551">B</text><text class="title" x="996" y="539">Billing + settlement</text><text class="sub" x="996" y="555">rating, invoice, payment</text><text class="mini" x="962" y="580">owns commercial state</text>
+
+        <path class="event" d="M580 613 V625 H1128 V646" marker-end="url(#l2a-amber)"/><text class="edge-label" x="592" y="620">commands, events, workflow tasks and owned writes</text>
+
+        <rect class="group cyan" x="20" y="649" width="1120" height="192" rx="12"/>
+        <text class="group-title" x="36" y="641" fill="#2fd4e8">Platform foundations - messaging, workflow and distinct data responsibilities</text>
+        <rect class="tile" x="40" y="675" width="200" height="72" rx="8"/><rect x="54" y="694" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="66" y="710">N</text><text class="title" x="88" y="698">NATS Core + JetStream</text><text class="sub" x="88" y="714">RPC, commands + durable facts</text><text class="mini" x="54" y="735">tenant account boundary</text>
+        <rect class="tile" x="260" y="675" width="200" height="72" rx="8"/><rect x="274" y="694" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="286" y="710">W</text><text class="title" x="308" y="698">Temporal workflows</text><text class="sub" x="308" y="714">long-running coordination</text><text class="mini" x="274" y="735">services retain business rules</text>
+        <rect class="tile" x="480" y="675" width="200" height="72" rx="8"/><rect x="494" y="694" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="506" y="710">P</text><text class="title" x="528" y="698">Service-owned Postgres</text><text class="sub" x="528" y="714">transactional source of truth</text><text class="mini" x="494" y="735">database per service owner</text>
+        <rect class="tile" x="700" y="675" width="200" height="72" rx="8"/><rect x="714" y="694" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="726" y="710">Q</text><text class="title" x="748" y="698">Projections + NATS KV</text><text class="sub" x="748" y="714">read models + fast lookup</text><text class="mini" x="714" y="735">derived, rebuildable state</text>
+        <rect class="tile" x="920" y="675" width="200" height="72" rx="8"/><rect x="934" y="694" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="946" y="710">S</text><text class="title" x="968" y="698">Document store adapter</text><text class="sub" x="968" y="714">S3-compatible evidence store</text><text class="mini" x="934" y="735">large files outside NATS</text>
+
+        <rect class="policy" x="150" y="765" width="860" height="56" rx="8"/><rect x="166" y="781" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="178" y="797">S</text><text class="title" x="202" y="784">Security, residency + immutable audit</text><text class="sub" x="202" y="801">tenant separation &middot; RBAC/ABAC &middot; TLS &middot; encryption at rest &middot; masked logs &middot; country policy</text><text class="mini" x="202" y="815">durable business history without requiring universal event-sourced reconstruction</text>
+      </svg>
+      </div>
+      <figcaption><b>Logical construction.</b> The control plane establishes authority and policy; domain services own business behavior and transactional state; NATS distributes commands and facts; Temporal coordinates processes; storage types have distinct responsibilities. This is a logical ownership model, not a claim that every tile maps one-to-one to a deployable or database.</figcaption>
+    </figure>
+
+    <aside class="notes" aria-label="Logical architecture notes">
+      <div class="note"><span class="tag">SCOPE</span><p><b>L2 explains construction.</b> Subjects, schemas, workflow steps, permission claims and runtime sizing remain in L3/L4.</p></div>
+      <div class="note"><span class="tag">AUTH</span><p><b>Authentication and authorization are separate.</b> WorkOS or an enterprise IdP proves identity; Linebooker resolves tenant, organisation, role and attributes.</p></div>
+      <div class="note"><span class="tag">TENANT</span><p><b>A tenant is a marketplace authority.</b> Its NATS account is a hard messaging boundary; organisations and memberships live inside that authority.</p></div>
+      <div class="note"><span class="tag">CONTROL</span><p><b>The control plane manages shared authority.</b> It provisions tenants, identities, claims, policy, reference data, entitlements and operational oversight.</p></div>
+      <div class="note"><span class="tag">SERVICES</span><p><b>Services align to business ownership.</b> Replicas may scale independently, but each service owns its rules, transactional state and published contracts.</p></div>
+      <div class="note"><span class="tag">NATS</span><p><b>NATS is communication and durable fact history.</b> Core supports live request/reply; JetStream retains selected commands and events.</p></div>
+      <div class="note"><span class="tag">TEMPORAL</span><p><b>Temporal coordinates long-lived work.</b> Tender expiry, execution, proof, claims and settlement span services without moving domain ownership into workflows.</p></div>
+      <div class="note"><span class="tag">DATA</span><p><b>Stores are not interchangeable.</b> PostgreSQL is transactional truth by default; JetStream is event history; KV/projections are derived reads; Temporal stores workflow state.</p></div>
+      <div class="note"><span class="tag">DOCS</span><p><b>Evidence uses an adapter.</b> POD, licences and other large documents go to an S3-compatible repository selected per deployment, not NATS Object Store by default.</p></div>
+      <div class="note"><span class="tag">AUDIT</span><p><b>Immutable audit is broader than event sourcing.</b> Business facts and security/administrative actions are retained tamper-evidently; event-sourced reconstruction is selective.</p></div>
+    </aside>
+  </div>
+
+
+  <section class="legend" aria-label="Legend and acronym key for sheet 1">
+    <div>
+      <h2>Key &middot; sheet 1</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-blue"></span><span><b>Blue boundary</b> &mdash; edge and entry: channels, ingress</span></div>
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; authority: trust chain, control plane</span></div>
+        <div class="key-item"><span class="sw sw-purple"></span><span><b>Purple boundary</b> &mdash; domain service plane</span></div>
+        <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan boundary</b> &mdash; platform foundations</span></div>
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; external or separately governed</span></div>
+        <div class="key-item"><span class="sw sw-tile"></span><span><b>Tile</b> &mdash; a logical element Linebooker owns</span></div>
+        <div class="key-item"><span class="sw sw-policy"></span><span><b>Amber-filled tile</b> &mdash; policy or trust artefact</span></div>
+        <div class="key-item"><span class="ln ln-sync"></span><span><b>Solid blue line</b> &mdash; synchronous request/reply (HTTPS, NATS RPC)</span></div>
+        <div class="key-item"><span class="ln ln-event"></span><span><b>Dashed amber line</b> &mdash; asynchronous event or contracted feed</span></div>
+        <div class="key-item"><span class="ln ln-place"></span><span><b>Solid green line</b> &mdash; authority, policy or credential issuance</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="24" y2="6" stroke="#3b8bff" stroke-width="1.4"/><path d="M24 2.4 L31 6 L24 9.6 Z" fill="#3b8bff"/></svg><span><b>Arrowhead</b> &mdash; every line is one-way; it points at the receiver</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="9" x2="33" y2="9" stroke="#3b8bff" stroke-width="1.4"/><text x="17" y="5.4" text-anchor="middle" fill="#b7bcc2" font-family="ui-monospace,Menlo,monospace" font-size="5">label</text></svg><span><b>Line label</b> &mdash; what crosses the line, read in the drawn direction</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Acronyms</h2>
+      <ul class="abbr">
+        <li><b>ABAC</b> Attribute-based access control</li>
+        <li><b>API</b> Application programming interface</li>
+        <li><b>BFF</b> Backend for frontend</li>
+        <li><b>ERP</b> Enterprise resource planning</li>
+        <li><b>ETA</b> Estimated time of arrival</li>
+        <li><b>IdP</b> Identity provider</li>
+        <li><b>KV</b> Key/value store (NATS KV)</li>
+        <li><b>MFE</b> Micro-frontend</li>
+        <li><b>NATS</b> The messaging system; a product name, not an abbreviation</li>
+        <li><b>POD</b> Proof of delivery (not a Kubernetes pod)</li>
+        <li><b>RBAC</b> Role-based access control</li>
+        <li><b>RPC</b> Remote procedure call</li>
+        <li><b>S3</b> The object-storage API; S3-compatible means any vendor implementing it</li>
+        <li><b>TLS</b> Transport Layer Security</li>
+        <li><b>WAF</b> Web application firewall</li>
+        <li><b>WorkOS</b> A commercial identity provider, used as an example</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="foot"><span>Traceability: L2-001 to L2-014, L2-021 and L2-024 in the maintained L2 requirements register. Proposed target architecture; implementation choices remain subject to architecture review.</span><span class="brand">LB-V3-L2-01 &middot; 1/2 &middot; Logical model</span></footer>
+</section>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L2-01 &middot; <span class="doc-title">Logical and Technical Architecture</span> &middot; Sheet 2 of 2</div>
+    <h1>Regional Deployment Model</h1>
+    <p>This view applies the logical platform to three initial placement cells. South Africa and Australia may exchange explicitly approved NATS subject classes through gateways; Botswana is a sovereign in-country cell whose regulated business data, transit, operations and recovery do not cross the national boundary.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+      <svg viewBox="0 0 1160 870" role="img" aria-label="Level 2 regional deployment model for the proposed Linebooker V3 logistics SaaS. The primary trust and policy authority runs in the South Africa control plane and contains the NATS operator signing hierarchy, tenant placement policy, country and currency configuration, and non-regulated service catalogue. Policy-aware routing selects a South Africa shared cell, an Australia shared cell or a Botswana sovereign cell. Each cell has regional ingress, local App Shell and MFE delivery, service replicas, a logical three-node NATS high-availability minimum, a region-local JetStream domain, a cell-resident Temporal runtime, service-owned PostgreSQL databases, a document storage adapter with S3-compatible object storage, and resident observability, audit, keys, backups and recovery. South Africa and Australia may use NATS gateways only for approved accounts and subjects, with no cross-region JetStream replication by default. Botswana's border prohibits every regulated cross-border gateway path and its Temporal runtime is self-hosted in-country; only approved signed policy and configuration enters its country-local control-plane slice.">
+        <defs>
+          <marker id="l2b-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+          <marker id="l2b-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+          <marker id="l2b-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker>
+        </defs>
+
+        <rect class="group green" x="20" y="42" width="1120" height="112" rx="12"/>
+        <text class="group-title" x="36" y="34" fill="#34d399">Platform trust + policy authority - primary South Africa control plane; no regulated payloads</text>
+        <rect class="tile" x="40" y="68" width="250" height="66" rx="8"/><rect x="54" y="85" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="66" y="101">N</text><text class="title" x="88" y="89">NATS operator + signing hierarchy</text><text class="sub" x="88" y="105">JWT account claims + scoped keys</text><text class="mini" x="54" y="125">signing authority hosted in South Africa</text>
+        <rect class="tile" x="310" y="68" width="250" height="66" rx="8"/><rect x="324" y="85" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="336" y="101">T</text><text class="title" x="358" y="89">Tenant placement policy</text><text class="sub" x="358" y="105">permitted cells + subject classes</text><text class="mini" x="324" y="125">account is not a region</text>
+        <rect class="tile" x="580" y="68" width="250" height="66" rx="8"/><rect x="594" y="85" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="606" y="101">C</text><text class="title" x="628" y="89">Country + commercial policy</text><text class="sub" x="628" y="105">residency, currency, tax + retention</text><text class="mini" x="594" y="125">legal owner + contract decide</text>
+        <rect class="tile" x="850" y="68" width="270" height="66" rx="8"/><rect x="864" y="85" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="876" y="101">S</text><text class="title" x="898" y="89">Service + schema catalogue</text><text class="sub" x="898" y="105">versions, health + deployment metadata</text><text class="mini" x="864" y="125">no tenant business records</text>
+
+        <path class="place" d="M580 154 V181" marker-end="url(#l2b-green)"/><text class="edge-label" x="592" y="173">signed policy, claims and placement intent</text>
+
+        <rect class="group blue" x="20" y="184" width="1120" height="76" rx="12"/>
+        <text class="group-title" x="36" y="176" fill="#3b8bff">Traffic placement - country endpoints and policy-aware routing</text>
+        <rect class="tile" x="60" y="210" width="1040" height="32" rx="8"/><rect x="74" y="215" width="22" height="22" rx="7" fill="#3b8bff"/><text class="glyph" x="85" y="230">R</text><text class="title" x="108" y="224">Resolve tenant + country policy before selecting ingress</text><text class="sub" x="465" y="224">Botswana traffic terminates in-country; clients do not choose residency by location alone</text>
+
+        <path class="sync" d="M200 260 V270 H370 V291" marker-end="url(#l2b-blue)"/><path class="sync" d="M580 260 V270 H750 V291" marker-end="url(#l2b-blue)"/><path class="sync" d="M960 260 V270 H1130 V291" marker-end="url(#l2b-blue)"/>
+
+        <rect class="group cyan" x="20" y="294" width="360" height="524" rx="12"/>
+        <text class="group-title" x="36" y="286" fill="#2fd4e8">South Africa shared cell - Cape Town</text>
+        <rect class="tile" x="40" y="320" width="150" height="42" rx="8"/><rect x="52" y="329" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="64" y="345">I</text><text class="title" x="84" y="337">Regional ingress</text><text class="sub" x="84" y="353">WAF + API edge</text>
+        <rect class="tile" x="210" y="320" width="150" height="42" rx="8"/><rect x="222" y="329" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="234" y="345">W</text><text class="title" x="254" y="337">Web delivery</text><text class="sub" x="254" y="353">shell + MFE registry</text>
+        <rect class="tile" x="40" y="377" width="320" height="62" rx="8"/><rect x="52" y="395" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="64" y="411">S</text><text class="title" x="86" y="399">Service replicas</text><text class="sub" x="86" y="415">control, domain, integration + workflow workers</text><text class="mini" x="52" y="431">independent scale + rollout</text>
+        <rect class="tile" x="40" y="454" width="320" height="70" rx="8"/><rect x="52" y="472" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="64" y="488">N</text><text class="title" x="86" y="476">NATS logical HA - 3 nodes</text><text class="sub" x="86" y="492">tenant accounts + local claim resolver</text><text class="mini" x="52" y="514">minimum topology; sizing deferred</text>
+        <rect class="tile" x="40" y="539" width="150" height="62" rx="8"/><rect x="52" y="556" width="22" height="22" rx="7" fill="#2fd4e8"/><text class="glyph" x="63" y="571">J</text><text class="title" x="82" y="559">JetStream ZA</text><text class="sub" x="82" y="575">region-local domain</text><text class="mini" x="52" y="592">no default mirror</text>
+        <rect class="tile" x="210" y="539" width="150" height="62" rx="8"/><rect x="222" y="556" width="22" height="22" rx="7" fill="#f5b13d"/><text class="glyph" x="233" y="571">W</text><text class="title" x="252" y="559">Temporal runtime</text><text class="sub" x="252" y="575">workers + persistence</text><text class="mini" x="222" y="592">cell-resident</text>
+        <rect class="tile" x="40" y="616" width="150" height="62" rx="8"/><rect x="52" y="633" width="22" height="22" rx="7" fill="#27c07f"/><text class="glyph" x="63" y="648">P</text><text class="title" x="82" y="636">Service data</text><text class="sub" x="82" y="652">Postgres per owner</text><text class="mini" x="52" y="669">local backups</text>
+        <rect class="tile" x="210" y="616" width="150" height="62" rx="8"/><rect x="222" y="633" width="22" height="22" rx="7" fill="#27c07f"/><text class="glyph" x="233" y="648">S</text><text class="title" x="252" y="636">Evidence store</text><text class="sub" x="252" y="652">adapter + object data</text><text class="mini" x="222" y="669">regional repository</text>
+        <rect class="tile" x="40" y="693" width="320" height="56" rx="8"/><rect x="52" y="708" width="22" height="22" rx="7" fill="#34d399"/><text class="glyph" x="63" y="723">O</text><text class="title" x="82" y="711">Resident operations</text><text class="sub" x="82" y="727">masked logs, metrics, traces, audit + keys</text><text class="mini" x="52" y="742">backup + recovery follow placement policy</text>
+        <rect class="policy" x="40" y="764" width="320" height="34" rx="8"/><text class="title" x="54" y="778">Shared-region policy</text><text class="sub" x="54" y="793">ZAR default &middot; approved tenant accounts</text>
+
+        <rect class="group cyan" x="400" y="294" width="360" height="524" rx="12"/>
+        <text class="group-title" x="416" y="286" fill="#2fd4e8">Australia shared cell - Sydney</text>
+        <rect class="tile" x="420" y="320" width="150" height="42" rx="8"/><rect x="432" y="329" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="444" y="345">I</text><text class="title" x="464" y="337">Regional ingress</text><text class="sub" x="464" y="353">WAF + API edge</text>
+        <rect class="tile" x="590" y="320" width="150" height="42" rx="8"/><rect x="602" y="329" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="614" y="345">W</text><text class="title" x="634" y="337">Web delivery</text><text class="sub" x="634" y="353">shell + MFE registry</text>
+        <rect class="tile" x="420" y="377" width="320" height="62" rx="8"/><rect x="432" y="395" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="444" y="411">S</text><text class="title" x="466" y="399">Service replicas</text><text class="sub" x="466" y="415">control, domain, integration + workflow workers</text><text class="mini" x="432" y="431">independent scale + rollout</text>
+        <rect class="tile" x="420" y="454" width="320" height="70" rx="8"/><rect x="432" y="472" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="444" y="488">N</text><text class="title" x="466" y="476">NATS logical HA - 3 nodes</text><text class="sub" x="466" y="492">tenant accounts + local claim resolver</text><text class="mini" x="432" y="514">minimum topology; sizing deferred</text>
+        <rect class="tile" x="420" y="539" width="150" height="62" rx="8"/><rect x="432" y="556" width="22" height="22" rx="7" fill="#2fd4e8"/><text class="glyph" x="443" y="571">J</text><text class="title" x="462" y="559">JetStream AU</text><text class="sub" x="462" y="575">region-local domain</text><text class="mini" x="432" y="592">no default mirror</text>
+        <rect class="tile" x="590" y="539" width="150" height="62" rx="8"/><rect x="602" y="556" width="22" height="22" rx="7" fill="#f5b13d"/><text class="glyph" x="613" y="571">W</text><text class="title" x="632" y="559">Temporal runtime</text><text class="sub" x="632" y="575">workers + persistence</text><text class="mini" x="602" y="592">cell-resident</text>
+        <rect class="tile" x="420" y="616" width="150" height="62" rx="8"/><rect x="432" y="633" width="22" height="22" rx="7" fill="#27c07f"/><text class="glyph" x="443" y="648">P</text><text class="title" x="462" y="636">Service data</text><text class="sub" x="462" y="652">Postgres per owner</text><text class="mini" x="432" y="669">local backups</text>
+        <rect class="tile" x="590" y="616" width="150" height="62" rx="8"/><rect x="602" y="633" width="22" height="22" rx="7" fill="#27c07f"/><text class="glyph" x="613" y="648">S</text><text class="title" x="632" y="636">Evidence store</text><text class="sub" x="632" y="652">adapter + object data</text><text class="mini" x="602" y="669">regional repository</text>
+        <rect class="tile" x="420" y="693" width="320" height="56" rx="8"/><rect x="432" y="708" width="22" height="22" rx="7" fill="#34d399"/><text class="glyph" x="443" y="723">O</text><text class="title" x="462" y="711">Resident operations</text><text class="sub" x="462" y="727">masked logs, metrics, traces, audit + keys</text><text class="mini" x="432" y="742">backup + recovery follow placement policy</text>
+        <rect class="policy" x="420" y="764" width="320" height="34" rx="8"/><text class="title" x="434" y="778">Shared-region policy</text><text class="sub" x="434" y="793">AUD default &middot; approved tenant accounts</text>
+
+        <rect class="group amber" x="780" y="294" width="360" height="524" rx="12"/>
+        <text class="group-title" x="796" y="286" fill="#f5b13d">Botswana sovereign cell - in-country runtime</text>
+        <rect class="tile" x="800" y="320" width="150" height="42" rx="8"/><rect x="812" y="329" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="824" y="345">I</text><text class="title" x="844" y="337">Country ingress</text><text class="sub" x="844" y="353">TLS stays local</text>
+        <rect class="tile" x="970" y="320" width="150" height="42" rx="8"/><rect x="982" y="329" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="994" y="345">W</text><text class="title" x="1014" y="337">Web delivery BW</text><text class="sub" x="1014" y="353">shell + MFE registry</text>
+        <rect class="tile" x="800" y="377" width="320" height="62" rx="8"/><rect x="812" y="395" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="824" y="411">S</text><text class="title" x="846" y="399">In-country service replicas</text><text class="sub" x="846" y="415">control slice, domain, integration + workers</text><text class="mini" x="812" y="431">no regulated remote execution</text>
+        <rect class="tile" x="800" y="454" width="320" height="70" rx="8"/><rect x="812" y="472" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="824" y="488">N</text><text class="title" x="846" y="476">Isolated NATS logical HA - 3 nodes</text><text class="sub" x="846" y="492">sovereign accounts + local claim resolver</text><text class="mini" x="812" y="514">minimum topology; no regulated gateway</text>
+        <rect class="tile" x="800" y="539" width="150" height="62" rx="8"/><rect x="812" y="556" width="22" height="22" rx="7" fill="#f5b13d"/><text class="glyph" x="823" y="571">J</text><text class="title" x="842" y="559">JetStream BW</text><text class="sub" x="842" y="575">country-local domain</text><text class="mini" x="812" y="592">no external mirror</text>
+        <rect class="tile" x="970" y="539" width="150" height="62" rx="8"/><rect x="982" y="556" width="22" height="22" rx="7" fill="#f5b13d"/><text class="glyph" x="993" y="571">W</text><text class="title" x="1012" y="559">Temporal BW</text><text class="sub" x="1012" y="575">workers + persistence</text><text class="mini" x="982" y="592">self-hosted in-country</text>
+        <rect class="tile" x="800" y="616" width="150" height="62" rx="8"/><rect x="812" y="633" width="22" height="22" rx="7" fill="#27c07f"/><text class="glyph" x="823" y="648">P</text><text class="title" x="842" y="636">Service data BW</text><text class="sub" x="842" y="652">Postgres per owner</text><text class="mini" x="812" y="669">in-country backups</text>
+        <rect class="tile" x="970" y="616" width="150" height="62" rx="8"/><rect x="982" y="633" width="22" height="22" rx="7" fill="#27c07f"/><text class="glyph" x="993" y="648">S</text><text class="title" x="1012" y="636">Evidence BW</text><text class="sub" x="1012" y="652">adapter + object data</text><text class="mini" x="982" y="669">country repository</text>
+        <rect class="tile" x="800" y="693" width="320" height="56" rx="8"/><rect x="812" y="708" width="22" height="22" rx="7" fill="#f5b13d"/><text class="glyph" x="823" y="723">O</text><text class="title" x="842" y="711">Resident security + operations</text><text class="sub" x="842" y="727">masked logs, audit, keys, backup + recovery</text><text class="mini" x="812" y="742">operated without data leaving Botswana</text>
+        <rect class="policy" x="800" y="764" width="320" height="34" rx="8"/><text class="title" x="814" y="778">Sovereign country policy</text><text class="sub" x="814" y="793">BWP default &middot; storage + transit stay local</text>
+
+        <path class="rep" d="M360 489 H420" marker-start="url(#l2b-cyan)" marker-end="url(#l2b-cyan)"/><text class="edge-label" x="286" y="448">NATS gateway: approved accounts + subjects only</text>
+        <path class="blocked" d="M780 300 V812"/><text class="edge-label" x="790" y="309" fill="#f87171">NO CROSS-BORDER REGULATED GATEWAY</text>
+
+        <rect x="20" y="838" width="1120" height="1" fill="#2a3038"/>
+      </svg>
+      </div>
+      <figcaption><b>Proposed initial topology.</b> Use three NATS nodes per cell as the logical high-availability minimum and one local JetStream domain; capacity remains an L3/L4 decision. Permit gateway routing only between shared cells and explicitly approved tenant accounts and subjects; do not mirror JetStream across regions by default. Botswana's sovereign border rejects every regulated cross-border gateway path.</figcaption>
+    </figure>
+
+    <aside class="notes" aria-label="Regional deployment notes">
+      <div class="note"><span class="tag">TOPOLOGY</span><p><b>Start with independent regional clusters.</b> Gateways are an explicit policy exception for shared cells, not an assumed global mesh.</p></div>
+      <div class="note"><span class="tag">NATS</span><p><b>The trust authority has a home.</b> Operator signing keys and the primary catalogue run in South Africa; each cell uses local resolvers and short-lived credentials.</p></div>
+      <div class="note"><span class="tag">TENANT</span><p><b>Account and region are separate axes.</b> One tenant account may exist only in its approved cells; organisation roles do not create new NATS accounts.</p></div>
+      <div class="note"><span class="tag">JS</span><p><b>JetStream is local by default.</b> Streams, KV and selected durable facts remain in their assigned domain unless an approved design adds replication.</p></div>
+      <div class="note"><span class="tag">BOTSWANA</span><p><b>The sovereign boundary includes transit.</b> Compute, NATS traffic, workflow state, databases, documents, telemetry, keys, backups and recovery stay in Botswana.</p></div>
+      <div class="note"><span class="tag">CONTROL</span><p><b>Botswana requires a local control-plane slice.</b> Only signed policy, claims and non-sensitive deployment metadata may enter, subject to legal approval.</p></div>
+      <div class="note"><span class="tag">SERVICES</span><p><b>Cells repeat the same logical service model.</b> Web assets, the MFE registry, replicas, workers and adapters are served inside the placement boundary.</p></div>
+      <div class="note"><span class="tag">TEMPORAL</span><p><b>Workflow hosting follows placement.</b> The runtime, workers and persistence are cell-resident; Botswana is self-hosted in-country.</p></div>
+      <div class="note"><span class="tag">STORAGE</span><p><b>Every stateful technology follows placement.</b> Service databases and evidence repositories are independently backed up and recovered inside the permitted geography.</p></div>
+      <div class="note"><span class="tag">SECURITY</span><p><b>Controls apply at every ingress and hop.</b> TLS, encryption at rest, RBAC/ABAC, short-lived credentials, masking and immutable audit are cell-local obligations.</p></div>
+      <div class="note"><span class="tag">VALIDATE</span><p><b>This is a proposed compliance posture.</b> Botswana legal, cloud availability, network, support and recovery constraints still require formal validation.</p></div>
+    </aside>
+  </div>
+
+
+  <section class="legend" aria-label="Legend and acronym key for sheet 2">
+    <div>
+      <h2>Key &middot; sheet 2</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; trust and policy authority</span></div>
+        <div class="key-item"><span class="sw sw-blue"></span><span><b>Blue boundary</b> &mdash; edge and entry: country endpoints, routing</span></div>
+        <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan boundary</b> &mdash; shared deployment cell</span></div>
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; sovereign cell; restricted by law</span></div>
+        <div class="key-item"><span class="sw sw-tile"></span><span><b>Tile</b> &mdash; a deployed element with a stated home</span></div>
+        <div class="key-item"><span class="sw sw-policy"></span><span><b>Amber-filled tile</b> &mdash; policy or trust artefact</span></div>
+        <div class="key-item"><span class="ln ln-sync"></span><span><b>Solid blue line</b> &mdash; synchronous request/reply (HTTPS, NATS RPC)</span></div>
+        <div class="key-item"><span class="ln ln-place"></span><span><b>Solid green line</b> &mdash; signed policy, claims and placement intent</span></div>
+        <div class="key-item"><span class="ln ln-rep"></span><span><b>Dotted cyan line</b> &mdash; NATS gateway; approved accounts and subjects only</span></div>
+        <div class="key-item"><span class="ln ln-blocked"></span><span><b>Dashed red line</b> &mdash; prohibited path; drawn to show it is barred</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><rect x="1" y="1" width="32" height="10" fill="none" stroke="#2fd4e8" stroke-width="1.1"/><rect x="4.5" y="3.5" width="11" height="5" fill="#1a1e23" stroke="#3a424c" stroke-width="1"/><rect x="18.5" y="3.5" width="11" height="5" fill="#1a1e23" stroke="#3a424c" stroke-width="1"/></svg><span><b>Nesting</b> &mdash; an element inside a cell runs in that cell</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="24" y2="6" stroke="#3b8bff" stroke-width="1.4"/><path d="M24 2.4 L31 6 L24 9.6 Z" fill="#3b8bff"/></svg><span><b>Arrowhead</b> &mdash; every line is one-way; it points at the receiver</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Acronyms</h2>
+      <ul class="abbr">
+        <li><b>ABAC</b> Attribute-based access control</li>
+        <li><b>API</b> Application programming interface</li>
+        <li><b>AU</b> Australia (ISO country code)</li>
+        <li><b>AUD</b> Australian dollar (ISO currency code)</li>
+        <li><b>BW</b> Botswana (ISO country code)</li>
+        <li><b>BWP</b> Botswana pula (ISO currency code)</li>
+        <li><b>HA</b> High availability</li>
+        <li><b>JS</b> JetStream, the NATS persistence layer (not JavaScript)</li>
+        <li><b>JWT</b> JSON Web Token</li>
+        <li><b>KV</b> Key/value store (NATS KV)</li>
+        <li><b>MFE</b> Micro-frontend</li>
+        <li><b>NATS</b> The messaging system; a product name, not an abbreviation</li>
+        <li><b>RBAC</b> Role-based access control</li>
+        <li><b>RPO</b> Recovery point objective: tolerated data loss</li>
+        <li><b>RTO</b> Recovery time objective: tolerated downtime</li>
+        <li><b>S3</b> The object-storage API; S3-compatible means any vendor implementing it</li>
+        <li><b>TLS</b> Transport Layer Security</li>
+        <li><b>WAF</b> Web application firewall</li>
+        <li><b>ZA</b> South Africa (ISO country code)</li>
+        <li><b>ZAR</b> South African rand (ISO currency code)</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="foot"><span>Traceability: L2-015 to L2-020, L2-022, L2-023 and L2-025 to L2-028 in the maintained L2 requirements register. Proposed target topology; gateway allowlists, failure modes, RPO/RTO and country controls are derived L3/L4 decisions.</span><span class="brand">LB-V3-L2-01 &middot; 2/2 &middot; Regional model</span></footer>
+</section>
+
+</body>
+</html>

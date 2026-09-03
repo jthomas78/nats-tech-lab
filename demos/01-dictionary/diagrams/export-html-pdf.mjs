@@ -1,5 +1,6 @@
-// Renders a self-contained, print-styled HTML page (A4 @page rules) to PDF via
-// headless Chrome. Companion to export-html-png.mjs, which screenshots instead.
+// Renders a self-contained, print-styled HTML page to PDF via headless Chrome.
+// The HTML's @page rule is authoritative (including A3 landscape pages) because
+// preferCSSPageSize is enabled. Companion to export-html-png.mjs.
 //
 //   node export-html-pdf.mjs <input.html> <output.pdf>
 import path from 'node:path'
