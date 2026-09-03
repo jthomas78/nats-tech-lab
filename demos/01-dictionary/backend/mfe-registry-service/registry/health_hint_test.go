@@ -90,13 +90,15 @@ var _ = Describe("BR-AS64 — the central checker pushes health observations", f
 		backend = &stubProber{ok: true}
 		clock = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
-		targets, _ := domain.NewHealthTargets(map[string][]string{"fleet-ops": {}})
+		// Declared as frontend-only, which is the entry's way of saying what
+		// the deployment map used to say with an empty list (BR-AS62).
 		catalog = &stubCatalog{doc: domain.Document{Revision: 17, Entries: []domain.Entry{{
 			ID: "fleet-ops", Name: "fleet-ops", Enabled: true,
-			Remote: domain.Remote{Kind: "federated", URL: "http://localhost:7110/fleet-ops.js", Module: "./plugin"},
+			Remote:          domain.Remote{Kind: "federated", URL: "http://localhost:7110/fleet-ops.js", Module: "./plugin"},
+			BackendServices: []string{},
 		}}}}
 
-		checker = application.NewHealthChecker(catalog, targets, backend, publisher)
+		checker = application.NewHealthChecker(catalog, backend, publisher)
 	})
 
 	// The clock is the spec's, not the machine's (BR-AS63). Each pass is one

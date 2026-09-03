@@ -46,7 +46,13 @@
           "order": -100
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "backendServices": [
+        "refdata-service"
+      ],
+      "approvedBackendServices": [
+        "refdata-service"
+      ]
     }
   ]
 }

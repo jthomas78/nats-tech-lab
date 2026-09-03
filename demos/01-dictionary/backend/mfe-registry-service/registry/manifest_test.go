@@ -66,6 +66,15 @@ var _ = Describe("BR-AS37/BR-AS50 — the signed manifest is stored and served a
 			Expect(e.Attested()).To(BeTrue())
 		})
 
+		It("still attests after an operator approves a backend service", func() {
+			// Approving is curation, so it is outside the signed bytes: an
+			// operator answering a plugin's health declaration must not make
+			// the plugin read as tampered with (BR-AS62, BR-AS70).
+			e := signedEntry()
+			e.ApprovedBackendServices = []string{"pricing-service"}
+			Expect(e.Attested()).To(BeTrue())
+		})
+
 		It("stops attesting when signed content is edited", func() {
 			e := signedEntry()
 			e.Remote.URL = "http://localhost:7999/remoteEntry.js"

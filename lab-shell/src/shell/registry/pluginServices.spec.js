@@ -68,8 +68,13 @@ const expected = {
 describe('BR-AS03 / decisions 87, 93–95 — independently built plugin services', () => {
   it.each([...packages, 'demo-catalog'])('%s serves its own manifest and owns its build inputs', (name) => {
     const entry = entryOf(name)
-    const { enabled: _enabled, ...expected } = entry
+    /* `enabled` and `approvedBackendServices` are the operator's, so they
+       appear in the seed file and never in the bytes a plugin signs: a plugin
+       declares what it depends on, and only an operator says whether the
+       registry may probe it (BR-AS62, BR-AS70). */
+    const { enabled: _enabled, approvedBackendServices: _approved, ...expected } = entry
     expect(manifest(name)).toEqual(expected)
+    expect(Array.isArray(manifest(name).backendServices)).toBe(true)
     const preview = JSON.parse(read(name, 'package.json')).scripts.preview
     const port = preview.match(/--port (\d+)/)?.[1]
     if (port) {
@@ -100,6 +105,17 @@ describe('BR-AS03 / decisions 87, 93–95 — independently built plugin service
       const views = readdirSync(resolve(root, 'plugins', name, 'src/views')).filter((f) => f.endsWith('.vue'))
       expect(views).toHaveLength(name === 'example-plugin' ? 6 : 1)
     }
+  })
+  it('makes every plugin state its backend dependencies rather than leave them unsaid', () => {
+    /* The old deployment map's failure mode: a plugin nobody remembered to add
+       read `not configured` forever, and that was indistinguishable from a
+       plugin nobody had got round to. Declaring is now the plugin's own job,
+       so an empty list is a real answer and a missing one is a bug here. */
+    for (const name of [...packages, 'example-plugin-unreachable', 'demo-catalog']) {
+      expect(Array.isArray(manifest(name).backendServices)).toBe(true)
+    }
+    expect(manifest('demo-catalog').backendServices).toEqual(['refdata-service'])
+    expect(manifest('example-plugin').backendServices).toEqual([])
   })
   it('has only one operator seed file', () => {
     expect(existsSync(resolve(root, 'plugins/example-plugin/registry.dev.json'))).toBe(false)

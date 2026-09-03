@@ -130,6 +130,14 @@ func DecideAnnounce(existing *Entry, incoming Entry) (AnnounceOutcome, Entry) {
 	if existing == nil {
 		return AnnounceInserted, incoming
 	}
+	// The operator's answer about backend health survives its publisher
+	// restating the manifest, narrowed to what the manifest still declares
+	// (BR-AS62). Done once, before the branches, so it is also true of the
+	// entry the convergence comparison sees: an approval that only some
+	// branches carried would make an unchanged re-announce look like a
+	// change, and an approval no branch carried would be revoked by every
+	// heartbeat.
+	incoming.ApprovedBackendServices = carryApproval(*existing, incoming)
 	if existing.Lifecycle == LifecycleStatic {
 		return AnnounceIgnored, *existing
 	}

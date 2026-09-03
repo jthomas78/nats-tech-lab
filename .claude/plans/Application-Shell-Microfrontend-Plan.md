@@ -874,6 +874,67 @@ and are carried into the tasks below. The three that would have broken something
         the one place that decides what a given shape of publisher must have. Two specs added in
         `shared/mferegistry/announcer/health_test.go` under BR-AS61.
 
+### Phase 15i — Done 2026-09-02 — The backend health target moves out of the deployment and onto the entry
+
+Raised by the user on 2026-09-02, looking at the plugins table: *"Backend target maps for dynamic
+plugins should be localized, i.e. defined in the plugin itself. It should not be baked in. Ideally
+this should be the same for static mfe plugins too."* Supersedes **decision 12** of Phase 5d (the
+deployment-owned map), which stays in the archive as the record of what was replaced.
+
+#### Design decisions
+
+1. **The plugin declares, the operator approves.** The manifest names the backend service ids the
+   plugin depends on; the catalogue entry carries the operator's approval; only the approved list is
+   probed. Chosen over "the manifest is authoritative because it is signed" — a signature proves who
+   said a thing, not that they may say it. The threat the old map defended against is unchanged: the
+   registry's grant is `rpc._platform.health.*.ready.v1`, one token wide across every service, so a
+   publisher naming its own target could point the registry at a service it does not own and read
+   the answer back through the health decoration. The approval is the gate, and it is the only gate.
+2. **Static and dynamic work the same way**, per the user's "ideally the same for static too": both
+   are catalogue entries, and the preload file may carry an approval because the preload file *is*
+   the operator speaking.
+3. **The declaration is publisher-asserted; the approval is platform-owned** (BR-AS70). So
+   `backendServices` is inside the signed bytes and `approvedBackendServices` is in
+   `CuratedFields()`, cleared by `WithoutCuration()` and refused by `ParseManifest`. Approving a
+   plugin cannot un-attest it.
+4. **An approval is a subset of what is still declared.** A publisher that drops a service from its
+   manifest drops the probe with it, and a stored approval can always be read back as "an operator
+   saw this plugin ask for this".
+5. **A re-announce carries the approval across**, narrowed by rule 4, applied once before the branch
+   cascade in `DecideAnnounce` so the convergence comparison sees the same value on both sides.
+   Without it every heartbeat would silently revoke what an operator granted.
+6. **The approval is a lifted column** (`approved_backend_services JSONB`, nullable), because a
+   signed row is rebuilt from its manifest bytes on every read. NULL means unanswered and `[]` means
+   answered-with-nothing; the two are different answers and the nil/empty distinction survives the
+   whole round trip.
+7. **`not configured` covers "never declared" and "declared, not yet approved".** The shell's health
+   vocabulary is closed and adding a seventh state for one screen is not worth it. The Admin UI says
+   `awaiting approval` instead, because the actionable wording belongs where the action is.
+8. **No new subject and no new grant.** Approving rides the `upsert` the panel already makes.
+
+#### As built
+
+- Domain: `internal/domain/backendservices.go` (new) — `MaxBackendServices`,
+  `ValidateBackendServices`, `EffectiveBackendServices`, `carryApproval`; `Entry` gains the two
+  fields; `Admissible()` checks the declaration where the rest of the entry's shape is checked.
+- Deleted: `domain.HealthTargets` / `NewHealthTargets` / `Dependencies`, `registry.ParseHealthTargets`,
+  and the `REGISTRY_HEALTH_TARGETS` env var and its map in `docker-compose.yml`. Tombstone comments
+  left at each site.
+- Store: the new column in `migrate.go`, read in `currentDoc`, written in `apply`.
+- Fixtures: every `lab-shell/plugins/*/public/manifest.json` declares `backendServices` (`[]` for the
+  frontend-only ones, `["refdata-service"]` for `demo-catalog`), and `registry.json` carries
+  `demo-catalog`'s approval. The old map had silently forgotten `example-plugin-unreachable`, which
+  is the failure mode this phase removes.
+- Admin UI: a `Backend` column, and one checkbox per declared service in the edit drawer.
+- Specs: `registry/health_backend_test.go` (rewritten), `curation_test.go`, `manifest_test.go`,
+  `preload_test.go`, `store_integration_test.go`, `lab-shell/.../pluginServices.spec.js`,
+  `admin/.../FrontendPluginsPanel.spec.js`. All green.
+- Docs: BR-AS62 rewritten in `BUSINESS_RULES-APP-SHELL.md` with its matrix row;
+  `ARCHITECTURE-APP-SHELL.md` § health.
+- **Not done here:** no acceptance-gate run. `cmd/registry-acceptance` is unaffected by the change
+  (it asserts frontend health), but the compose fixtures moved, so the next lab bring-up is the
+  first end-to-end proof.
+
 ---
 
 ---

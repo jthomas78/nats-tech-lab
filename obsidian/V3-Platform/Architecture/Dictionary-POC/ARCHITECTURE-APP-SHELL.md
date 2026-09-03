@@ -364,8 +364,13 @@ still does not prove a browser can load JavaScript assets. Phase 8c manifest dri
 and preload-only, and is now the registry's **only** outbound HTTP capability; health covers both
 lifecycle classes regardless of source.
 
-Deployment configuration maps plugin IDs to backend service IDs, never manifest-supplied targets.
-Absent mapping means not configured; an explicit empty list means frontend-only/not applicable.
+A plugin **declares** the backend service ids its health reflects, in its signed manifest, and an
+operator **approves** them on the catalogue entry; only the approved list is ever dialled (BR-AS62,
+rewritten 2026-09-02, replacing the `REGISTRY_HEALTH_TARGETS` deployment map). The declaration is a
+request, not a grant — the registry's readiness grant is one token wide across every service, so the
+operator's approval is the gate, and a signature does not move it. Never declared, or declared and
+not yet approved, both mean not configured — nothing is probed on a declaration alone; an explicit
+empty declaration, or an approval of none, means frontend-only/not applicable.
 **Both of those are backend-plane states only.** Nothing is configured on the frontend plane any
 more, so `not configured` is unreachable there: every enabled plugin either reports about itself or
 is `absent`. Keep

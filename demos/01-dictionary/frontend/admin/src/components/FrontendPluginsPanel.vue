@@ -188,6 +188,42 @@ function addEntry() {
   }
 }
 
+/* What the health plane will do with this entry, said in the operator's own
+   terms (BR-AS62). A plugin DECLARES the backend services it depends on, in
+   its signed manifest; only what an operator approved here is ever dialled.
+   The middle answer is the one this column exists for — a plugin that asked
+   and has not been answered reads `awaiting approval`, not `not configured`,
+   because the registry knows perfectly well what it was asked. */
+function backendSummary(entry) {
+  const declared = entry.backendServices
+  const approved = entry.approvedBackendServices
+  if (!Array.isArray(declared)) return { tone: 'lab-dim', label: 'not declared', note: '' }
+  if (!declared.length) return { tone: 'lab-muted', label: 'frontend-only', note: '' }
+  if (!Array.isArray(approved)) {
+    return { tone: 'warn', label: 'awaiting approval', note: declared.join(', ') }
+  }
+  const live = declared.filter((id) => approved.includes(id))
+  if (!live.length) return { tone: 'lab-muted', label: 'approved: none', note: declared.join(', ') }
+  return { tone: 'ok', label: `approved ${live.length}/${declared.length}`, note: live.join(', ') }
+}
+
+/* Approving is a per-service decision, so the drawer offers one checkbox per
+   DECLARED service and nothing else. There is no free-text box on purpose: an
+   operator cannot approve a service the plugin never asked for, which is the
+   same subset rule the domain enforces — the UI just makes it unreachable
+   rather than refused. */
+function approvalOf(id) {
+  return Array.isArray(draft.value?.approvedBackendServices)
+    && draft.value.approvedBackendServices.includes(id)
+}
+
+function toggleApproval(id, on) {
+  const current = Array.isArray(draft.value.approvedBackendServices)
+    ? draft.value.approvedBackendServices.filter((s) => s !== id)
+    : []
+  draft.value.approvedBackendServices = on ? [...current, id] : current
+}
+
 function edit(entry) {
   originRefusal.value = ''
   draft.value = JSON.parse(JSON.stringify(entry))
@@ -289,15 +325,16 @@ watch(usePlatformConnection().epoch, load)
       <table v-if="!loading" class="tbl">
         <thead>
           <tr>
-            <th style="width: 20%">Plugin</th>
+            <th style="width: 18%">Plugin</th>
             <th style="width: 6%">Version</th>
             <th style="width: 6%">Shell API</th>
-            <th style="width: 11%">Route prefix</th>
-            <th style="width: 11%">Contributions</th>
-            <th style="width: 8%">Withdrawal</th>
-            <th style="width: 9%">Source</th>
-            <th style="width: 15%">State</th>
-            <th style="width: 13%">Manifest</th>
+            <th style="width: 10%">Route prefix</th>
+            <th style="width: 10%">Contributions</th>
+            <th style="width: 10%">Backend</th>
+            <th style="width: 7%">Withdrawal</th>
+            <th style="width: 8%">Source</th>
+            <th style="width: 13%">State</th>
+            <th style="width: 11%">Manifest</th>
             <th></th>
           </tr>
         </thead>
@@ -314,6 +351,16 @@ watch(usePlatformConnection().epoch, load)
             <td class="mono">{{ e.routePrefix }}</td>
             <td :class="contributionSummary(e) ? 'lab-muted' : 'lab-dim'">
               {{ contributionSummary(e) || '— none —' }}
+            </td>
+            <td>
+              <span
+                class="mono"
+                :class="backendSummary(e).tone"
+                data-testid="entry-backend"
+              >{{ backendSummary(e).label }}</span>
+              <span v-if="backendSummary(e).note" class="id mono" data-testid="entry-backend-services">
+                {{ backendSummary(e).note }}
+              </span>
             </td>
             <td>
               <!-- Deliberately not a pill. The State column next to it is a
@@ -503,6 +550,34 @@ watch(usePlatformConnection().epoch, load)
           <input v-model="draft.remote.url" class="inp mono" data-testid="entry-url" />
         </label>
 
+        <!-- The one thing in this drawer that is a grant rather than a
+             correction. The list is the plugin's, the ticks are yours: the
+             registry dials a service's readiness subject only for a service
+             that is both declared here and ticked (BR-AS62). -->
+        <div v-if="Array.isArray(draft.backendServices) && draft.backendServices.length" class="field">
+          <span class="lbl">
+            Backend services
+            <span class="lab-muted">— declared by the plugin; tick what the registry may probe</span>
+          </span>
+          <label
+            v-for="service in draft.backendServices"
+            :key="service"
+            class="approval"
+          >
+            <input
+              type="checkbox"
+              :checked="approvalOf(service)"
+              :data-testid="`approve-${service}`"
+              @change="toggleApproval(service, $event.target.checked)"
+            />
+            <span class="mono">{{ service }}</span>
+          </label>
+        </div>
+        <p v-else-if="Array.isArray(draft.backendServices)" class="lab-muted">
+          This plugin declares no backend services — its health decoration reads
+          <span class="mono">not applicable</span>, which is an answer and not a gap.
+        </p>
+
         <p class="lab-muted">
           Contributions come from the plugin's own manifest and are never edited here —
           curation decides whether a plugin is served, not what it does.
@@ -634,6 +709,13 @@ watch(usePlatformConnection().epoch, load)
 .bad {
   color: var(--err);
   font-style: normal;
+}
+.approval {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  font-size: 12px;
 }
 .note {
   margin: 0.625rem 0 0;

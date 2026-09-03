@@ -28,5 +28,6 @@
       "icon": "pi pi-hourglass",
       "order": 20
     }
-  ]
+  ],
+  "backendServices": []
 }

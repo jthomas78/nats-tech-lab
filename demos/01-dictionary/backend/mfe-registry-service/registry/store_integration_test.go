@@ -360,4 +360,50 @@ var _ = Describe("the registry store", func() {
 			Expect(entries).To(HaveLen(2))
 		})
 	})
+
+	Context("BR-AS62 — the operator's backend approval is stored beside the entry", func() {
+		// The approval is platform-owned, and a signed row is rebuilt from the
+		// manifest bytes on every read, so it cannot live in the entry body. It
+		// has a column of its own, like lifecycle and withdrawn — and the
+		// column is nullable because "no operator has answered" is a different
+		// answer from "answered, probe nothing".
+		roundTrip := func(declared, approved []string) domain.Entry {
+			e := federated("example-plugin", "http://localhost:7110/remoteEntry.js")
+			e.BackendServices = declared
+			e.ApprovedBackendServices = approved
+			_, err := store.Apply(ctx, domain.Write{
+				Op: domain.OpUpsert, EntryID: e.ID, Actor: domain.SharedAdminActor,
+				Entry: &e, IfRevision: domain.NoRevision,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			doc, err := postgres.NewStore(pgDB, allowed).Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Entries).To(HaveLen(1))
+			return doc.Entries[0]
+		}
+
+		It("reads back an unanswered entry as unanswered, not as an empty answer", func() {
+			got := roundTrip([]string{"pricing-service"}, nil)
+
+			Expect(got.BackendServices).To(Equal([]string{"pricing-service"}))
+			Expect(got.ApprovedBackendServices).To(BeNil())
+			Expect(got.EffectiveBackendServices()).To(BeNil(), "nothing is probed on a declaration alone")
+		})
+
+		It("keeps an approval of nothing distinct from no approval", func() {
+			got := roundTrip([]string{"pricing-service"}, []string{})
+
+			Expect(got.ApprovedBackendServices).NotTo(BeNil())
+			Expect(got.ApprovedBackendServices).To(BeEmpty())
+			Expect(got.EffectiveBackendServices()).To(Equal([]string{}))
+		})
+
+		It("keeps the approved list itself", func() {
+			got := roundTrip([]string{"pricing-service", "shipping-service"}, []string{"pricing-service"})
+
+			Expect(got.ApprovedBackendServices).To(Equal([]string{"pricing-service"}))
+			Expect(got.EffectiveBackendServices()).To(Equal([]string{"pricing-service"}))
+		})
+	})
 })

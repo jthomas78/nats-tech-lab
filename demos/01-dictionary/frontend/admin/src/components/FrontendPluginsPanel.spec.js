@@ -614,4 +614,94 @@ describe('BR-AS52 — the withdrawal class an operator can see and set', () => {
     expect(options).toEqual(['static', 'dynamic'])
     w.unmount()
   })
+
+  describe('BR-AS62 — the operator approves what the health plane may probe', () => {
+    // The declaration is the plugin's and the approval is the operator's, so
+    // this column has to keep three answers apart: never asked, asked and not
+    // yet answered, answered. The middle one is why the column exists — it was
+    // indistinguishable from "not configured" while the target map lived in
+    // the deployment.
+    const withServices = (declared, approved) => {
+      const d = doc()
+      d.plugins[0].backendServices = declared
+      if (approved !== undefined) d.plugins[0].approvedBackendServices = approved
+      getRegistryEntries.mockResolvedValue(d)
+      return d
+    }
+
+    it('says a plugin that asked and was not answered is awaiting approval', async () => {
+      withServices(['refdata-service'])
+      const w = mountPanel()
+      await flushPromises()
+      const row = w.findAll('[data-testid="entry-row"]')[0]
+      expect(row.get('[data-testid="entry-backend"]').text()).toBe('awaiting approval')
+      expect(row.get('[data-testid="entry-backend-services"]').text()).toBe('refdata-service')
+      w.unmount()
+    })
+
+    it('says a plugin that declared nothing is frontend-only, which is an answer', async () => {
+      withServices([])
+      const w = mountPanel()
+      await flushPromises()
+      expect(w.findAll('[data-testid="entry-row"]')[0].get('[data-testid="entry-backend"]').text())
+        .toBe('frontend-only')
+      w.unmount()
+    })
+
+    it('names what was approved, and out of how many were asked for', async () => {
+      withServices(['refdata-service', 'pricing-service'], ['refdata-service'])
+      const w = mountPanel()
+      await flushPromises()
+      const row = w.findAll('[data-testid="entry-row"]')[0]
+      expect(row.get('[data-testid="entry-backend"]').text()).toBe('approved 1/2')
+      expect(row.get('[data-testid="entry-backend-services"]').text()).toBe('refdata-service')
+      w.unmount()
+    })
+
+    it('offers a checkbox for each declared service and none for anything else', async () => {
+      withServices(['refdata-service', 'pricing-service'], ['refdata-service'])
+      const w = mountPanel()
+      await flushPromises()
+      await w.findAll('[data-testid="edit-entry"]')[0].trigger('click')
+      expect(w.get('[data-testid="approve-refdata-service"]').element.checked).toBe(true)
+      expect(w.get('[data-testid="approve-pricing-service"]').element.checked).toBe(false)
+      expect(w.find('[data-testid="approve-shipping-service"]').exists()).toBe(false)
+      w.unmount()
+    })
+
+    it('sends the approval on the ordinary entry write, against the revision on screen', async () => {
+      // No new subject and no new grant: approving rides the upsert the panel
+      // already makes, which is what keeps this an editing decision rather
+      // than a second write path with its own rules.
+      withServices(['refdata-service', 'pricing-service'], [])
+      upsertRegistryEntry.mockResolvedValue({ ...doc(), revision: 51 })
+      const w = mountPanel()
+      await flushPromises()
+      await w.findAll('[data-testid="edit-entry"]')[0].trigger('click')
+      await w.get('[data-testid="approve-pricing-service"]').setValue(true)
+      await w.get('[data-testid="entry-save"]').trigger('click')
+      await flushPromises()
+
+      const [entry, rev] = upsertRegistryEntry.mock.calls[0]
+      expect(rev).toBe(50)
+      expect(entry.approvedBackendServices).toEqual(['pricing-service'])
+      expect(entry.backendServices).toEqual(['refdata-service', 'pricing-service'],
+        'the declaration is the plugin\'s and is never edited here')
+      w.unmount()
+    })
+
+    it('withdraws an approval by unticking it', async () => {
+      withServices(['refdata-service'], ['refdata-service'])
+      upsertRegistryEntry.mockResolvedValue({ ...doc(), revision: 51 })
+      const w = mountPanel()
+      await flushPromises()
+      await w.findAll('[data-testid="edit-entry"]')[0].trigger('click')
+      await w.get('[data-testid="approve-refdata-service"]').setValue(false)
+      await w.get('[data-testid="entry-save"]').trigger('click')
+      await flushPromises()
+
+      expect(upsertRegistryEntry.mock.calls[0][0].approvedBackendServices).toEqual([])
+      w.unmount()
+    })
+  })
 })

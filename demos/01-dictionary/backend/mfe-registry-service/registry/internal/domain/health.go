@@ -2,7 +2,6 @@ package domain
 
 import (
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -249,50 +248,13 @@ func staleAfter(s HealthSignal, now time.Time) HealthSignal {
 // really does fetch a manifest (BR-AS45), and the two were separate types
 // precisely so one could be retired without the other.
 
-// HealthTargets is the deployment's map from a plugin to the backend services
-// it depends on (Q6). Configuration, never manifest data: a publisher who
-// could name its own probe targets could point the registry at a service it
-// does not own and read the answer back out of the decoration (BR-AS62).
-//
-// nil and empty mean different things all the way through, which is why this
-// hands back a nil slice for one and an empty slice for the other rather than
-// a length: an unmapped plugin was never judged, and a plugin mapped to no
-// services was judged to be frontend-only.
-type HealthTargets struct {
-	byPlugin map[string][]string
-}
+// HealthTargets is gone too. It answered "which backend services may the
+// registry dial for this plugin", out of a deployment map, and the answer now
+// comes from the entry itself: the plugin declares in its signed manifest and
+// an operator approves at curation. See backendservices.go for why the split
+// is a declaration and an approval rather than one list.
 
-func NewHealthTargets(mappings map[string][]string) (HealthTargets, []string) {
-	out := HealthTargets{byPlugin: map[string][]string{}}
-	warnings := []string{}
-	for pluginID, services := range mappings {
-		kept := []string{}
-		for _, id := range services {
-			id = strings.TrimSpace(id)
-			if !subjectSafe(id) {
-				warnings = append(warnings, "ignored health target: service id is not subject-safe")
-				continue
-			}
-			kept = append(kept, id)
-		}
-		sort.Strings(kept)
-		out.byPlugin[strings.TrimSpace(pluginID)] = kept
-	}
-	sort.Strings(warnings)
-	return out, warnings
-}
-
-// Dependencies is nil for a plugin nobody mapped and an empty slice for one
-// mapped to no services.
-func (t HealthTargets) Dependencies(pluginID string) []string {
-	services, ok := t.byPlugin[pluginID]
-	if !ok {
-		return nil
-	}
-	return append([]string{}, services...)
-}
-
-// subjectSafe keeps a configured id inside one subject token. A dot would
+// subjectSafe keeps a service id inside one subject token. A dot would
 // split the token and change which subject is dialled; a wildcard would widen
 // it past the one service the grant is for (CLAUDE.md, subject-safe IDs).
 func subjectSafe(id string) bool {

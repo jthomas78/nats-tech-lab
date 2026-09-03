@@ -57,7 +57,7 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 			return domain.Document{}, err
 		}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, withheld, withdrawn, release, entry, manifest, signature, signing_key FROM registry.entries ORDER BY id`)
+	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, withheld, withdrawn, release, approved_backend_services, entry, manifest, signature, signing_key FROM registry.entries ORDER BY id`)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -68,8 +68,8 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 		var id, lifecycle, manifest, signature, signingKey string
 		var enabled, withheld, withdrawn bool
 		var release int64
-		var raw []byte
-		if err := rows.Scan(&id, &enabled, &lifecycle, &withheld, &withdrawn, &release, &raw, &manifest, &signature, &signingKey); err != nil {
+		var raw, approved []byte
+		if err := rows.Scan(&id, &enabled, &lifecycle, &withheld, &withdrawn, &release, &approved, &raw, &manifest, &signature, &signingKey); err != nil {
 			return domain.Document{}, err
 		}
 		e, err := entryOf(id, raw, manifest, signature, signingKey)
@@ -87,6 +87,18 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 		// the manifest is all there is to go on.
 		if release > 0 {
 			e.Release = release
+		}
+		// SQL NULL is "no operator has answered", which is the same nil the
+		// domain reads as not configured — so a row predating the column and
+		// a row nobody has curated for health say the same true thing. An
+		// empty array is a real answer and survives as one.
+		e.ApprovedBackendServices = nil
+		if approved != nil {
+			var list []string
+			if err := json.Unmarshal(approved, &list); err != nil {
+				return domain.Document{}, fmt.Errorf("registry: entry %q has an unreadable backend approval: %w", id, err)
+			}
+			e.ApprovedBackendServices = list
 		}
 		doc.Entries = append(doc.Entries, e)
 	}
@@ -185,6 +197,16 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 		// JSON. currentDoc overlays the column even on legacy JSON bodies.
 		entry := *w.Entry
 		entry.Lifecycle = ""
+		// Lifted to its own column for the same reason as lifecycle, and
+		// stripped from the projection so the two cannot disagree.
+		var approved []byte
+		if w.Entry.ApprovedBackendServices != nil {
+			approved, err = json.Marshal(w.Entry.ApprovedBackendServices)
+			if err != nil {
+				return domain.Document{}, err
+			}
+		}
+		entry.ApprovedBackendServices = nil
 		// The manifest goes to its own column, so it is not also embedded in
 		// the projection where JSONB would quietly rewrite it.
 		var manifest, signature, signingKey string
@@ -199,9 +221,9 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 			return domain.Document{}, err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO registry.entries (id, enabled, entry, lifecycle, manifest, signature, signing_key, withdrawn, release) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			 ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, entry = EXCLUDED.entry, lifecycle = EXCLUDED.lifecycle, manifest = EXCLUDED.manifest, signature = EXCLUDED.signature, signing_key = EXCLUDED.signing_key, withdrawn = EXCLUDED.withdrawn, release = EXCLUDED.release, updated_at = now()`,
-			w.EntryID, w.Entry.Enabled, body, w.Entry.Lifecycle, manifest, signature, signingKey, w.Entry.Withdrawn, w.Entry.Release); err != nil {
+			`INSERT INTO registry.entries (id, enabled, entry, lifecycle, manifest, signature, signing_key, withdrawn, release, approved_backend_services) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			 ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, entry = EXCLUDED.entry, lifecycle = EXCLUDED.lifecycle, manifest = EXCLUDED.manifest, signature = EXCLUDED.signature, signing_key = EXCLUDED.signing_key, withdrawn = EXCLUDED.withdrawn, release = EXCLUDED.release, approved_backend_services = EXCLUDED.approved_backend_services, updated_at = now()`,
+			w.EntryID, w.Entry.Enabled, body, w.Entry.Lifecycle, manifest, signature, signingKey, w.Entry.Withdrawn, w.Entry.Release, approved); err != nil {
 			return domain.Document{}, err
 		}
 	case domain.OpSetEnabled:

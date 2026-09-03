@@ -42,5 +42,8 @@
       "icon": "pi pi-th-large",
       "order": -100
     }
+  ],
+  "backendServices": [
+    "refdata-service"
   ]
 }

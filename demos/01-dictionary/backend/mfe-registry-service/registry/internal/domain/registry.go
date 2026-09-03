@@ -182,6 +182,35 @@ type Entry struct {
 	Remote          Remote           `json:"remote"`
 	ExtensionPoints []ExtensionPoint `json:"extensionPoints,omitempty"`
 	Contributions   []Contribution   `json:"contributions"`
+	// BackendServices is what this plugin says it cannot work without: the
+	// backend service ids whose readiness its health decoration reflects
+	// (BR-AS62). Publisher-asserted and inside the signed bytes, because it
+	// is the plugin describing itself and it travels with the plugin rather
+	// than with a deployment that has to be told about it separately.
+	//
+	// It is a REQUEST and never a grant. Nothing is probed on the strength of
+	// this field alone — ApprovedBackendServices below is what the health
+	// plane reads — because a publisher that could name its own probe target
+	// could point the registry at a service it does not own and read the
+	// answer back through the decoration.
+	//
+	// nil and empty mean different things and both are meaningful, which is
+	// why there is no omitempty here: absent is "this plugin never said" and
+	// an explicit [] is "this plugin says it is frontend-only". A tag that
+	// dropped the empty array on the way to the projection column would turn
+	// the second answer back into the first on the next read.
+	BackendServices []string `json:"backendServices"`
+	// ApprovedBackendServices is the operator's answer to that request, and
+	// the only list the health plane probes (BR-AS62). Platform-owned, like
+	// Enabled: a payload asserting it is refused, and it is kept out of the
+	// signed content so approving a plugin cannot un-attest it.
+	//
+	// It is always a subset of BackendServices — Admissible refuses a
+	// superset, and an announcement that narrows the declaration narrows the
+	// approval with it, so an approval can never outlive the declaration it
+	// was given for. nil is "not answered yet", which reads as not
+	// configured; an explicit [] is "answered: probe nothing".
+	ApprovedBackendServices []string `json:"approvedBackendServices"`
 }
 
 // Document is what a reader gets: the whole curated set at one revision.

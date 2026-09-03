@@ -27,6 +27,9 @@ import (
 var publisherAsserted = []string{
 	"id", "name", "description", "version", "schemaVersion", "shellApiVersion",
 	"routePrefix", "release", "manifest", "remote", "extensionPoints", "contributions",
+	// A plugin says what it depends on; it does not say whether the platform
+	// may ask (BR-AS62). The approval is on the other list, in CuratedFields.
+	"backendServices",
 }
 
 func jsonFieldNames(v any) []string {

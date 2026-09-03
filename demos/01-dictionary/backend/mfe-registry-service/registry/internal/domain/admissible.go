@@ -125,6 +125,13 @@ func (e Entry) Admissible() error {
 		}
 		seen[c.ID] = struct{}{}
 	}
+
+	// The health declaration is structure like any other: it is spelled into
+	// a subject, so it is checked where the rest of the entry's shape is
+	// checked rather than on the way past the health plane (BR-AS62).
+	if err := e.ValidateBackendServices(); err != nil {
+		return err
+	}
 	return nil
 }
 

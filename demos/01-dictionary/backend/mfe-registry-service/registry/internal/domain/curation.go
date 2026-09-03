@@ -30,7 +30,7 @@ package domain
 // Release is deliberately NOT here. It is self-asserted and signed — a
 // publisher cannot move it without the key, which is the whole of BR-AS47.
 func CuratedFields() []string {
-	return []string{"enabled", "lifecycle", "withheld", "withdrawn", "announcedAt", "lastAnnouncedAt"}
+	return []string{"enabled", "lifecycle", "withheld", "withdrawn", "announcedAt", "lastAnnouncedAt", "approvedBackendServices"}
 }
 
 // WithoutCuration returns the entry with every platform-owned fact cleared,
@@ -43,5 +43,8 @@ func (e Entry) WithoutCuration() Entry {
 	e.Withdrawn = false
 	e.AnnouncedAt = ""
 	e.LastAnnouncedAt = ""
+	// The approval, not the declaration. BackendServices stays: a plugin may
+	// say what it depends on, and that statement is signed.
+	e.ApprovedBackendServices = nil
 	return e
 }

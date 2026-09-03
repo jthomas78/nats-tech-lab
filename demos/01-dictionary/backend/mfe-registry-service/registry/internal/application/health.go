@@ -74,7 +74,6 @@ type HealthPublisher interface {
 
 type HealthChecker struct {
 	catalog HealthCatalog
-	targets domain.HealthTargets
 	backend BackendProber
 
 	mu      sync.RWMutex
@@ -87,10 +86,14 @@ type HealthChecker struct {
 
 // NewHealthChecker takes the publisher last and optionally: a deployment with
 // no broker still probes and still answers reads, it just publishes nothing.
-func NewHealthChecker(catalog HealthCatalog, targets domain.HealthTargets, backend BackendProber, publisher ...HealthPublisher) *HealthChecker {
+//
+// There is no target map argument any more. What to probe is a property of
+// each catalogue entry — declared by the plugin, approved by an operator
+// (BR-AS62) — so it is re-read from the catalogue on every pass along with
+// which plugins exist at all, and a deployment has nothing to be told.
+func NewHealthChecker(catalog HealthCatalog, backend BackendProber, publisher ...HealthPublisher) *HealthChecker {
 	c := &HealthChecker{
 		catalog: catalog,
-		targets: targets,
 		backend: backend,
 		worker:  domain.NewHealthWorker(nil),
 		inbox:   domain.NewHealthInbox(),
@@ -230,7 +233,7 @@ func (c *HealthChecker) refreshTargets(ctx context.Context) {
 		if entry.Withheld || !entry.Enabled {
 			continue
 		}
-		services := c.targets.Dependencies(entry.ID)
+		services := entry.EffectiveBackendServices()
 		plugins[entry.ID] = services
 		for _, service := range services {
 			keys = append(keys, backendKey(service))

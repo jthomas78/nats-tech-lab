@@ -104,20 +104,14 @@ func ParseFetchOrigins(raw string, allowed domain.Allowlist) (domain.FetchOrigin
 // check (BR-AS45), which really does fetch, and the two were always read
 // separately.
 
-// ParseHealthTargets reads REGISTRY_HEALTH_TARGETS, a JSON object mapping a
-// plugin id to the backend service ids it depends on. An absent plugin is not
-// configured; a plugin mapped to an empty list is frontend-only. Both are
-// states, not health (BR-AS62).
-func ParseHealthTargets(raw string) (domain.HealthTargets, []string) {
-	mappings := map[string][]string{}
-	if strings.TrimSpace(raw) != "" {
-		if err := json.Unmarshal([]byte(raw), &mappings); err != nil || mappings == nil {
-			targets, _ := domain.NewHealthTargets(nil)
-			return targets, []string{"ignored health targets: expected a JSON object of plugin ids to service ids"}
-		}
-	}
-	return domain.NewHealthTargets(mappings)
-}
+// REGISTRY_HEALTH_TARGETS is gone as well (BR-AS62, rewritten). It mapped a
+// plugin id to the backend service ids it depended on, and it was
+// configuration for one reason — a publisher naming its own probe target
+// could point the registry at a service it does not own. The gate stays; it
+// moved. A plugin now DECLARES its dependencies in its signed manifest and an
+// operator APPROVES them at curation, so the answer travels with the plugin
+// and the authority stays with the operator. Nothing here reads an
+// environment variable for it: see domain/backendservices.go.
 
 // Startup migrates the registry schema and wires the module.
 //
@@ -180,19 +174,15 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 	if len(fetchOrigins) > 0 {
 		origins = fetchOrigins[0]
 	}
-	healthTargets, targetWarnings := ParseHealthTargets(os.Getenv("REGISTRY_HEALTH_TARGETS"))
-	for _, w := range targetWarnings {
-		log.Warn("registry health: " + w)
-	}
-	// What is still deployment-owned is the BACKEND service ids: they come
-	// from configuration and never from a manifest, so no publisher can point
-	// the registry at a service it does not own (BR-AS62/AS65). The frontend
-	// side is not configured at all any more — there is nothing to point.
+	// Neither side of the health plane is deployment-configured now. A plugin
+	// reports its own frontend health on a subject derived from its id, and
+	// the backend services it may be probed against are the ones an operator
+	// approved on its catalogue entry (BR-AS62/AS65).
 	var health *application.HealthChecker
 	if nc != nil {
-		health = application.NewHealthChecker(m.Service, healthTargets, healthnats.New(nc), healthPublisher{notifier: notifier})
+		health = application.NewHealthChecker(m.Service, healthnats.New(nc), healthPublisher{notifier: notifier})
 	} else {
-		health = application.NewHealthChecker(m.Service, healthTargets, healthnats.New(nil))
+		health = application.NewHealthChecker(m.Service, healthnats.New(nil))
 	}
 
 	m.driftHTTP = manifesthttp.New()

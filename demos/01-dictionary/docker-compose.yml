@@ -453,18 +453,21 @@ services:
       # where. The two were separate settings precisely so one could be
       # retired without the other.
       #
-      # Backend: plugin id -> the services it cannot work without. An id
-      # missing here is "not configured"; an id mapped to [] is a
-      # frontend-only plugin, which is "not applicable" — a different fact,
-      # and the shell shows it as one. Only refdata-service answers the
-      # readiness question today (see shared/natsready), so it is the only
-      # service named.
-      REGISTRY_HEALTH_TARGETS: >-
-        {"demo-catalog":["refdata-service"],
-         "example-plugin":[],
-         "example-plugin-slow":[],
-         "example-plugin-activate-throws":[],
-         "example-plugin-incompatible":[]}
+      # Backend: REGISTRY_HEALTH_TARGETS is gone too, and for a different
+      # reason than the frontend map above. That one was retired because
+      # nothing dials a plugin any more. This one still describes a real
+      # outbound probe — it just described it in the wrong place. It mapped a
+      # plugin id to the services it depends on, which is a fact about the
+      # PLUGIN, kept in the DEPLOYMENT: shipping a plugin meant editing this
+      # file, and forgetting was silent (an unlisted plugin read "not
+      # configured" forever, indistinguishable from one nobody had reviewed —
+      # which is exactly what happened to example-plugin-unreachable).
+      #
+      # A plugin now declares `backendServices` in its own signed manifest and
+      # an operator approves it in the Admin UI; only the approved list is
+      # ever dialled, so a publisher still cannot point the registry at a
+      # service it does not own (BR-AS62). See
+      # registry/internal/domain/backendservices.go.
       REGISTRY_PRELOAD_FILE: /etc/registry/registry.json
     ports:
       - "7206:8080"

@@ -28,5 +28,6 @@
       "icon": "pi pi-exclamation-triangle",
       "order": 40
     }
-  ]
+  ],
+  "backendServices": []
 }

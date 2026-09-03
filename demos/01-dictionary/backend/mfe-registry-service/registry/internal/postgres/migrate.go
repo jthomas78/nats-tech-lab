@@ -71,6 +71,17 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// from there would let the stale announcement back in (BR-AS47).
 		// Zero means "never stated"; the read falls back to the manifest.
 		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS release BIGINT NOT NULL DEFAULT 0`,
+		// The operator's answer to a plugin's declared backend dependencies
+		// (BR-AS62). Lifted like lifecycle and withheld, and for the same
+		// reason those are: a signed row is rebuilt from its manifest bytes
+		// on every read, and an operator-owned fact kept only in the
+		// projection would be thrown away by that rebuild.
+		//
+		// JSONB and NULLABLE, because three answers have to survive a round
+		// trip: NULL is "no operator has answered", `[]` is "answered, probe
+		// nothing", and an array is the list to dial. A NOT NULL default of
+		// `[]` would turn every existing row into an answer nobody gave.
+		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS approved_backend_services JSONB`,
 
 		// The revision is a single row, not a sequence: it must be readable,
 		// lockable and comparable inside the same transaction as the write

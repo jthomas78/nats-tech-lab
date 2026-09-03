@@ -128,6 +128,17 @@ var _ = Describe("Preload seeding", func() {
 			Expect(errors.Is(err, domain.ErrSelfAssertedField)).To(BeTrue())
 		})
 
+		It("permits a backend approval, which is the operator's answer in the operator's own file", func() {
+			// Same reasoning as enabled: the preload file IS the operator
+			// speaking, so it may carry the approval a manifest may not
+			// (BR-AS62). A static entry is curated the same way a dynamic one
+			// is, which is the point of moving the map here.
+			file, err := domain.ParsePreload([]byte(`{"schemaVersion":1,"plugins":[{"id":"a","backendServices":["pricing-service"],"approvedBackendServices":["pricing-service"]}]}`))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(file.Plugins[0].BackendServices).To(Equal([]string{"pricing-service"}))
+			Expect(file.Plugins[0].ApprovedBackendServices).To(Equal([]string{"pricing-service"}))
+		})
+
 		It("permits enabled, which is the operator's field to set in their own file", func() {
 			file, err := domain.ParsePreload([]byte(`{"schemaVersion":1,"plugins":[{"id":"a","enabled":true}]}`))
 			Expect(err).ToNot(HaveOccurred())

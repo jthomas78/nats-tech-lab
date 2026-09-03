@@ -28,5 +28,6 @@
       "icon": "pi pi-times-circle",
       "order": 30
     }
-  ]
+  ],
+  "backendServices": []
 }

@@ -16,6 +16,7 @@ package registry_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
@@ -23,7 +24,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/healthnats"
 	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
@@ -129,57 +129,189 @@ var _ = Describe("BR-AS62 — backend readiness is asked for, never assumed", fu
 		})
 	})
 
-	Context("the deployment mapping", func() {
-		parsed := func(raw string) domain.HealthTargets {
-			targets, warnings := registry.ParseHealthTargets(raw)
-			Expect(warnings).To(BeEmpty())
-			return targets
+	Context("what a plugin may be probed against", func() {
+		// BR-AS62, rewritten. The map that used to live in the deployment is
+		// gone; a plugin DECLARES its dependencies in the signed manifest and
+		// an operator APPROVES them on the catalogue entry. The property the
+		// old map bought is the one asserted here: a declaration on its own
+		// dials nothing.
+		entry := func(declared, approved []string) domain.Entry {
+			return domain.Entry{
+				ID:                      "fleet-ops",
+				BackendServices:         declared,
+				ApprovedBackendServices: approved,
+			}
 		}
 
-		It("resolves the service IDs the deployment configured", func() {
-			targets := parsed(`{"fleet-ops":["shipping-service","pricing-service"]}`)
+		It("probes nothing on a declaration alone", func() {
+			// The whole of the threat model in one spec. A publisher may ask
+			// for any service it likes; until an operator says yes, the
+			// registry dials none of them and the decoration says so.
+			e := entry([]string{"shipping-service", "pricing-service"}, nil)
 
-			Expect(targets.Dependencies("fleet-ops")).To(Equal([]string{"pricing-service", "shipping-service"}))
+			Expect(e.EffectiveBackendServices()).To(BeNil())
+			Expect(domain.SummarizeBackend(signalsFor(e)).State).
+				To(Equal(domain.HealthNotConfigured))
 		})
 
-		It("tells absent from empty, because they are different answers", func() {
-			targets := parsed(`{"fleet-ops":[]}`)
+		It("probes exactly what the operator approved", func() {
+			e := entry([]string{"shipping-service", "pricing-service"}, []string{"pricing-service"})
 
-			Expect(targets.Dependencies("fleet-ops")).To(Equal([]string{}), "an empty list is frontend-only")
-			Expect(targets.Dependencies("pricing")).To(BeNil(), "an unmapped plugin was never judged")
+			Expect(e.EffectiveBackendServices()).To(Equal([]string{"pricing-service"}))
 		})
 
-		It("summarizes an unmapped plugin as not configured and an empty one as not applicable", func() {
-			targets := parsed(`{"fleet-ops":[]}`)
+		It("tells never-declared from declared-as-none, because they are different answers", func() {
+			Expect(entry(nil, nil).EffectiveBackendServices()).To(BeNil(),
+				"a plugin that never said is not configured")
+			Expect(entry([]string{}, nil).EffectiveBackendServices()).To(Equal([]string{}),
+				"a plugin saying it is frontend-only has been answered")
+		})
 
-			Expect(domain.SummarizeBackend(nil).State).To(Equal(domain.HealthNotConfigured))
-			Expect(domain.SummarizeBackend(signalsFor(targets, "fleet-ops")).State).
+		It("summarizes an unanswered plugin as not configured and a frontend-only one as not applicable", func() {
+			Expect(domain.SummarizeBackend(signalsFor(entry(nil, nil))).State).
+				To(Equal(domain.HealthNotConfigured))
+			Expect(domain.SummarizeBackend(signalsFor(entry([]string{}, nil))).State).
 				To(Equal(domain.HealthNotApplicable))
 		})
 
-		It("ignores a malformed configuration rather than guessing at it", func() {
-			targets, warnings := registry.ParseHealthTargets(`not json`)
+		It("narrows an approval to what is still declared", func() {
+			// A publisher that quietly stops declaring a service must not keep
+			// the probe it was granted for it.
+			e := entry([]string{"pricing-service"}, []string{"pricing-service", "shipping-service"})
 
-			Expect(warnings).ToNot(BeEmpty())
-			Expect(targets.Dependencies("fleet-ops")).To(BeNil())
+			Expect(e.EffectiveBackendServices()).To(Equal([]string{"pricing-service"}))
 		})
 
-		It("drops a service ID that is not subject-safe", func() {
-			// A dot would split the token and change which subject is dialled;
-			// a wildcard would widen it. Either would let configuration reach
-			// somewhere it did not mean to (CLAUDE.md, subject-safe IDs).
-			targets, warnings := registry.ParseHealthTargets(`{"fleet-ops":["a.b","x>","ok-service"]}`)
+		It("reads an operator approving nothing as an answer, not as silence", func() {
+			e := entry([]string{"shipping-service"}, []string{})
 
-			Expect(warnings).To(HaveLen(2))
-			Expect(targets.Dependencies("fleet-ops")).To(Equal([]string{"ok-service"}))
+			Expect(e.EffectiveBackendServices()).To(Equal([]string{}))
+			Expect(domain.SummarizeBackend(signalsFor(e)).State).
+				To(Equal(domain.HealthNotApplicable))
+		})
+	})
+
+	Context("what a declaration may say", func() {
+		admissible := func(declared, approved []string) error {
+			return domain.Entry{
+				ID:                      "fleet-ops",
+				Name:                    "Fleet Ops",
+				Contributions:           []domain.Contribution{{Kind: "route", ID: "fleet-ops-home", Path: "/fleet-ops", Component: "Home", Title: "Home"}},
+				BackendServices:         declared,
+				ApprovedBackendServices: approved,
+			}.Admissible()
+		}
+
+		It("accepts a plain declaration and its approval", func() {
+			Expect(admissible([]string{"pricing-service"}, []string{"pricing-service"})).To(Succeed())
+		})
+
+		It("refuses a service id that is not subject-safe", func() {
+			// A dot would split the token and change which subject is dialled;
+			// a wildcard would widen it past the one service the grant is for.
+			Expect(admissible([]string{"a.b"}, nil)).To(MatchError(domain.ErrEntryNotAdmissible))
+			Expect(admissible([]string{"x>"}, nil)).To(MatchError(domain.ErrEntryNotAdmissible))
+			Expect(admissible([]string{"*"}, nil)).To(MatchError(domain.ErrEntryNotAdmissible))
+			Expect(admissible([]string{""}, nil)).To(MatchError(domain.ErrEntryNotAdmissible))
+		})
+
+		It("refuses the same service twice", func() {
+			Expect(admissible([]string{"pricing-service", "pricing-service"}, nil)).
+				To(MatchError(domain.ErrEntryNotAdmissible))
+		})
+
+		It("refuses an approval of a service the plugin never declared", func() {
+			// The subset rule is what lets a stored approval be read back as
+			// "an operator saw this plugin ask for this".
+			Expect(admissible([]string{"pricing-service"}, []string{"shipping-service"})).
+				To(MatchError(domain.ErrEntryNotAdmissible))
+		})
+
+		It("caps how many services one plugin may ask about", func() {
+			many := make([]string, domain.MaxBackendServices+1)
+			for i := range many {
+				many[i] = fmt.Sprintf("service-%d", i)
+			}
+			Expect(admissible(many, nil)).To(MatchError(domain.ErrEntryNotAdmissible))
+		})
+
+		It("refuses a manifest that asserts its own approval", func() {
+			// The declaration is the plugin's to make and the approval is not.
+			_, err := domain.ParseManifest([]byte(`{"id":"fleet-ops","name":"Fleet Ops","approvedBackendServices":["pricing-service"]}`))
+
+			Expect(err).To(MatchError(domain.ErrSelfAssertedField))
+		})
+
+		It("lets a manifest declare, because that is the plugin describing itself", func() {
+			e, err := domain.ParseManifest([]byte(`{"id":"fleet-ops","name":"Fleet Ops","backendServices":["pricing-service"]}`))
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(e.BackendServices).To(Equal([]string{"pricing-service"}))
+		})
+	})
+
+	Context("an approval across a re-announcement", func() {
+		// A manifest cannot carry an approval, so every re-announce arrives
+		// without one. Without carry-over each heartbeat would silently revoke
+		// what an operator granted.
+		enabled := func(declared, approved []string) domain.Entry {
+			return domain.Entry{
+				ID:                      "fleet-ops",
+				Name:                    "Fleet Ops",
+				Enabled:                 true,
+				Lifecycle:               domain.LifecycleDynamic,
+				Remote:                  domain.Remote{URL: "http://localhost:7111/remoteEntry.js"},
+				Contributions:           []domain.Contribution{{Kind: "route", ID: "fleet-ops-home", Path: "/fleet-ops", Component: "Home", Title: "Home"}},
+				BackendServices:         declared,
+				ApprovedBackendServices: approved,
+			}
+		}
+
+		It("survives an ordinary re-announce", func() {
+			existing := enabled([]string{"pricing-service"}, []string{"pricing-service"})
+			incoming := enabled([]string{"pricing-service"}, nil)
+
+			outcome, stored := domain.DecideAnnounce(&existing, incoming)
+
+			Expect(outcome).To(Equal(domain.AnnounceConverged))
+			Expect(stored.ApprovedBackendServices).To(Equal([]string{"pricing-service"}))
+		})
+
+		It("is narrowed when the publisher stops declaring the service", func() {
+			existing := enabled([]string{"pricing-service"}, []string{"pricing-service"})
+			incoming := enabled([]string{"shipping-service"}, nil)
+
+			_, stored := domain.DecideAnnounce(&existing, incoming)
+
+			Expect(stored.ApprovedBackendServices).To(BeEmpty())
+			Expect(stored.EffectiveBackendServices()).To(BeEmpty())
+		})
+
+		It("gives a newly declared service nothing until an operator answers", func() {
+			existing := enabled([]string{"pricing-service"}, []string{"pricing-service"})
+			incoming := enabled([]string{"pricing-service", "shipping-service"}, nil)
+
+			_, stored := domain.DecideAnnounce(&existing, incoming)
+
+			Expect(stored.EffectiveBackendServices()).To(Equal([]string{"pricing-service"}))
+		})
+
+		It("gives an unknown plugin no approval at all", func() {
+			outcome, stored := domain.DecideAnnounce(nil, enabled([]string{"pricing-service"}, nil))
+
+			Expect(outcome).To(Equal(domain.AnnounceInserted))
+			Expect(stored.ApprovedBackendServices).To(BeNil())
+			Expect(stored.EffectiveBackendServices()).To(BeNil())
 		})
 	})
 })
 
-// signalsFor is what the worker will hand SummarizeBackend: one signal per
-// configured dependency, and a nil slice when nothing was configured.
-func signalsFor(targets domain.HealthTargets, pluginID string) []domain.HealthSignal {
-	ids := targets.Dependencies(pluginID)
+// signalsFor is what the worker hands SummarizeBackend: one signal per service
+// the entry is effectively probed against, and a nil slice when nobody has
+// answered for the plugin at all. The nil is the point — it is how "not
+// configured" stays distinguishable from "nothing to ask".
+func signalsFor(e domain.Entry) []domain.HealthSignal {
+	ids := e.EffectiveBackendServices()
 	if ids == nil {
 		return nil
 	}
