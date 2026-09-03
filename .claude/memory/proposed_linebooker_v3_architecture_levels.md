@@ -7,7 +7,9 @@ This is reference context from an architecture discussion, not authorization to 
 Read
 `obsidian/V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-Architecture-Authority.md`
 for the canonical hierarchy and catalogue, then use
-`.claude/skills/linebooker-architecture-documenter/SKILL.md` to execute changes.
+`.claude/skills/architecture-draughtsman/SKILL.md` to execute drawing changes,
+or `.claude/skills/architecture-document-writer/SKILL.md` to execute written
+docs-site changes.
 
 ## Governance
 

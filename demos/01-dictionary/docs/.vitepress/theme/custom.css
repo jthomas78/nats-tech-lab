@@ -58,3 +58,72 @@
 .decision-callout > :last-child {
   margin-bottom: 0;
 }
+
+/* Proposed Linebooker V3 architecture figure frame.
+ *
+ * The drawn editions of that series are authored on the UniFi dark canvas
+ * (#131416), so a bare <img> reads as a black hole on the site's light theme.
+ * The frame is therefore dark in BOTH themes on purpose: it presents the
+ * diagram as a deliberately framed figure rather than an image that failed to
+ * pick up the page background. Governed by
+ * Proposed-Linebooker-V3-Architecture-Authority.md; do not fork per page. */
+.v3-figure {
+  /* An L1/L2 sheet carries ~1600px of drawn detail, which is unreadable in
+   * VitePress's default 688px prose column. A written edition therefore sets
+   * `aside: false` in its frontmatter: VitePress then drops the on-page table
+   * of contents and widens the content column to ~1040px, which is enough.
+   * Do NOT bleed the figure outside the column to gain more - the layout's
+   * side slack is asymmetric when a sidebar is present and the figure clips.
+   * The full-resolution PNG link in the caption covers finer detail. */
+  margin: 20px 0;
+  padding: 12px;
+  border: 1px solid #2c3138;
+  border-radius: 6px;
+  background: #131416;
+}
+
+.v3-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 3px;
+}
+
+/* The image links to itself so a reader can open the full-resolution export. */
+.v3-figure a.v3-figure-zoom {
+  display: block;
+  text-decoration: none;
+}
+
+.v3-figure figcaption {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #b7bcc2;
+}
+
+.v3-figure figcaption a {
+  color: #3a95ff;
+  text-decoration: none;
+}
+
+.v3-figure figcaption a:hover {
+  text-decoration: underline;
+}
+
+/* Identity header at the top of a written edition: stable ID, level, parent. */
+.v3-meta {
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  border: 1px solid var(--vp-c-border);
+  border-left: 3px solid var(--lab-accent);
+  border-radius: 4px;
+  background: var(--vp-c-bg-alt);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--vp-c-text-2);
+}
+
+.v3-meta code {
+  font-size: 12px;
+}

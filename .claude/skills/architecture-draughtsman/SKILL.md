@@ -1,14 +1,22 @@
 ---
-name: linebooker-architecture-documenter
-description: Create, revise, catalogue, or review Proposed Linebooker V3 architecture documents across L0-L4, including stable diagram IDs, level-appropriate scope, the graphical L0 atlas, and matching HTML/PDF outputs. Use for Linebooker architecture-document work; do not use for unrelated repository diagrams or application implementation.
+name: architecture-draughtsman
+description: Draw, revise, catalogue, or review the diagram editions of Proposed Linebooker V3 architecture documents across L0-L4 - the editable HTML drawing and its print PDF - including stable diagram IDs, level-appropriate scope and the graphical L0 atlas. Use when the deliverable is a Linebooker V3 architecture drawing or its catalogue. Do not use to write the prose explanation of an existing diagram (that is architecture-document-writer), nor for unrelated repository diagrams or application implementation.
 ---
 
-# Linebooker Architecture Documenter
+# Architecture Draughtsman
 
 Maintain the Proposed Linebooker V3 architecture as one navigable document set.
 The central authority governs document scope and catalogue consistency. This
 skill executes that authority. The repository's `html-diagram-drawer` skill
 governs drawing mechanics and visual quality.
+
+This skill owns the **drawn** edition (editable HTML) and the **print** edition
+(PDF) of a document. The **written** edition — the prose page on the docs site
+that explains a drawing — belongs to `architecture-document-writer`. One stable
+ID is one architectural question with up to three editions of the same document,
+sharing one requirements register. When a drawing here changes, its written
+edition must be reconciled in the same change, or the completion report must say
+explicitly that it is now behind and why.
 
 ## Operating mode
 
@@ -128,7 +136,10 @@ Before assigning `AVAILABLE`, verify all of the following:
   title shown in L0. This is the minimum machine-checkable parity test.
 - Every rendered page is visually inspected for clipping, overlaps, legibility,
   background color, connector direction, and unintended blank pages.
-- `git diff --check` passes. Temporary PNGs are not committed.
+- `git diff --check` passes. Temporary PNGs are not committed. The published
+  figure under `demos/01-dictionary/docs/public/v3-architecture/` is the one
+  exception — it is a committed derived output, re-exported by
+  `architecture-document-writer` when a written edition exists.
 
 ## Catalogue synchronization
 

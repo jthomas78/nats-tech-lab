@@ -172,9 +172,18 @@ after any front matter change.
   `obsidian/V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-Architecture-Authority.md`.
   It is the central operational authority for the L0-L4 hierarchy, catalogue,
   IDs, statuses, scope, traceability and branching rules. Then follow
-  `.claude/skills/linebooker-architecture-documenter/SKILL.md` for the execution,
+  `.claude/skills/architecture-draughtsman/SKILL.md` for the execution,
   rendering and validation workflow. Do not redefine those rules here or in
   memory; the architecture discussion is background only.
+- **One stable ID, up to three editions of one document.** The drawn (editable
+  HTML) and print (PDF) editions belong to `architecture-draughtsman`; the
+  written edition — a prose page in the docs site's own `/v3-architecture/`
+  section, port 7106 — belongs to
+  `.claude/skills/architecture-document-writer/SKILL.md`. They share one primary
+  question and one requirements register. The written edition is optional and
+  gates no catalogue status, and it never describes architecture its drawing does
+  not show. The rest of that docs site documents what the lab **built**; this
+  series is a **proposal** and stays in its own section for that reason.
 
 ## Commands
 

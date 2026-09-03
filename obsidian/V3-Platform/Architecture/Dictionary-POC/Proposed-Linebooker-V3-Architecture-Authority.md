@@ -22,7 +22,7 @@ When sources disagree, use this order:
    session memory.
 
 `CLAUDE.md` routes agents to this document. The
-`linebooker-architecture-documenter` skill implements the workflow and must not
+`architecture-draughtsman` skill implements the workflow and must not
 redefine this authority. The `html-diagram-drawer` skill governs drawing
 mechanics and visual quality.
 
@@ -102,6 +102,12 @@ document repository.
 - Use `LB-V3-L<level>-<two-digit sequence>` identifiers.
 - Reuse IDs already reserved in this catalogue. Never renumber an existing
   document to close a gap.
+- A stable ID names one architectural question, not one file. It may have up to
+  three editions of that same document: the **drawn** edition (editable HTML),
+  the **print** edition (PDF) and the **written** edition (a docs-site page).
+  All editions of an ID share one requirements register and one primary
+  question. A written edition never introduces scope its drawn edition does not
+  carry; that is a new question and therefore a new ID at the proper level.
 - Document status describes artefact readiness, not whether every architectural
   decision inside the document has received business, legal or regulatory
   approval.
@@ -113,6 +119,11 @@ document repository.
     and title, and have passed the required validation.
   - `SUPERSEDED`: retained for traceability and linked to its replacement.
 - Do not use `CURRENT` as a status.
+- The written edition is optional and does not gate any status. An `AVAILABLE`
+  document is one whose drawn and print editions pass validation, whether or not
+  a written edition exists yet. A written edition may exist only for an ID whose
+  drawn edition is at least `DRAFT`, because the prose explains the drawing
+  rather than replacing it.
 
 ## Canonical catalogue
 
@@ -171,7 +182,7 @@ document repository.
 ## Visual and notation standard
 
 This standard is binding on every L0-L4 document. The
-`linebooker-architecture-documenter` and `html-diagram-drawer` skills execute it
+`architecture-draughtsman` and `html-diagram-drawer` skills execute it
 and must not re-decide it. Several rules below are adapted from the C4 model's
 notation guidance; the concepts are adopted, the C4 visual notation is not.
 
@@ -278,11 +289,14 @@ rules above are the specification.
    this catalogue.
 4. Add the planned node to L0 without implying that a reviewable artefact exists.
 5. Establish or update the requirements register.
-6. Create the editable HTML and distributable PDF using the architecture
-   documenter skill.
+6. Create the editable HTML and distributable PDF using the
+   `architecture-draughtsman` skill.
 7. Validate scope, SVG layout, A3 page geometry, page count, visual rendering and
    exact ID/title parity.
 8. Change the catalogue and L0 status to `AVAILABLE` only after all checks pass.
+8a. Optionally add the written edition with the `architecture-document-writer`
+   skill, once the drawn edition is at least `DRAFT`. This step never changes the
+   document's status.
 9. When replacing a document, retain the old ID as `SUPERSEDED` and record the
    replacement ID; do not overwrite its historical identity.
 
@@ -292,10 +306,51 @@ rules above are the specification.
   `demos/01-dictionary/diagrams/proposed-linebooker-v3-l<level>-<lowercase-kebab-title>.html`
 - Final PDF:
   `output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf`
+- Written edition (Markdown page on the docs site):
+  `demos/01-dictionary/docs/v3-architecture/l<level>-<lowercase-kebab-title>.md`
+- Published diagram image for that page:
+  `demos/01-dictionary/docs/public/v3-architecture/<lowercase-stable-id>.png`
 - `output/pdf/` is the committed deliverable location for this series.
 - PDFs in the Obsidian architecture directory are historical or separately
   governed references unless this authority explicitly registers them.
-- The HTML and PDF must display the exact stable ID and document title.
+- Every edition must display the exact stable ID and document title.
+
+### Written edition on the docs site
+
+- The docs site is the VitePress app at `demos/01-dictionary/docs/`, served on
+  port 7106. Its existing content documents the **built** Dictionary POC. The
+  Proposed Linebooker V3 series is a separate scope and lives under its own
+  `/v3-architecture/` section with its own nav entry and sidebar, so a reader
+  cannot mistake a proposal for a built system.
+- A written page opens with the stable ID, the document title, the level, the
+  primary question and the parent ID, then the figure, then the prose.
+- The figure is the synced PNG above, wrapped in the theme's dark figure frame
+  so it reads correctly in both the site's light and dark modes. Under the
+  figure, link both the full-resolution PNG and the print edition in
+  `output/pdf/`.
+- A written page must set `aside: false` in its frontmatter. That widens the
+  content column from 688px to about 1040px, which is what makes an L1/L2 sheet
+  legible in the page. Widening the figure further with a bleed or negative
+  margin is not permitted - the layout's side slack is asymmetric when a sidebar
+  is present and the figure clips.
+- Regenerate the PNG from the drawn edition with the series' standard geometry:
+
+  ```bash
+  node demos/01-dictionary/diagrams/export-html-png.mjs \
+    demos/01-dictionary/diagrams/<html-file>.html \
+    demos/01-dictionary/docs/public/v3-architecture/<lowercase-stable-id>.png \
+    1600 --clip=".sheet"
+  ```
+
+- The PNG is a build output committed for the site to serve. It is derived, never
+  hand-edited. A drawn edition with several sheets exports one PNG per sheet,
+  suffixed `-sheet<n>`, and the page shows each with its own caption.
+- Registering a written page also means adding its sidebar entry in
+  `demos/01-dictionary/docs/.vitepress/config.mts`. A page not reachable from the
+  sidebar is not published.
+- The docs site is also containerised and published on host port 7106 by
+  `demos/01-dictionary/docker-compose.yml`; a new page reaches that path only
+  after the docs image is rebuilt.
 
 ### Paper size
 
@@ -323,6 +378,11 @@ authorized creation or revision:
 - update the requirements register and document in the same change;
 - synchronize L0 whenever catalogue hierarchy, title or status changes;
 - regenerate L0 only when its visible catalogue changes;
+- when a drawn edition changes, re-export its published PNG and reconcile its
+  written edition in the same change, or state explicitly in the completion
+  report that the written edition is now behind and why;
+- never edit a written edition to describe architecture its drawn edition does
+  not show; change the drawing first;
 - preserve historical V2/V3 artefacts unless the user explicitly requests their
   migration or removal; and
 - record remaining legal, regulatory, financial or business-owner assumptions in
@@ -331,12 +391,21 @@ authorized creation or revision:
 ## Supporting sources
 
 - [Background and rationale](../../../../proposed-linebooker-v3-architecture-discussion.md)
-- [Execution workflow](../../../../.claude/skills/linebooker-architecture-documenter/SKILL.md)
+- [Execution workflow - drawn and print editions](../../../../.claude/skills/architecture-draughtsman/SKILL.md)
+- [Execution workflow - written edition](../../../../.claude/skills/architecture-document-writer/SKILL.md)
 - [Drawing workflow](../../../../.claude/skills/html-diagram-drawer/SKILL.md)
 - [Graphical catalogue - LB-V3-L0-01](../../../../demos/01-dictionary/diagrams/proposed-linebooker-v3-l0-architecture-atlas.html)
 
 ## Change history
 
+- 2026-09-03 - Defined the written edition. A stable ID may now carry up to
+  three editions of one document - drawn HTML, print PDF and a written page in
+  the docs site's own `/v3-architecture/` section on port 7106 - sharing one
+  requirements register and one primary question. Added the Markdown and
+  published-PNG paths, the derived-image rule, the sidebar publication rule, and
+  the reconciliation duty when a drawing changes. The written edition is
+  optional and gates no status. Renamed the executing skill to
+  `architecture-draughtsman` and registered `architecture-document-writer`.
 - 2026-09-03 - Extended `LB-V3-L2-02` to two sheets: sheet 1 platform
   selections, sheet 2 external services and integrations read out of the V2
   codebase. Established that an inherited dependency is marked as inherited
