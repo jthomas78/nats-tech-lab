@@ -596,7 +596,7 @@ rationale, the 29 design decisions, or checklist detail).
       zone — closing the gap between our single `CoverageCents` and V2's
       per-goods-type cover map, and introducing the `FOR_REVIEW` document
       state. Covers BR-TP64–BR-TP72 and amends BR-TP11 and BR-TP38.
-      Provenance per [ADR-050](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-050-git-certificate-change-log-provenance.md)
+      Provenance per [ADR-050](../../obsidian/V3-Platform/Architecture/ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md)
       (Option A, scoped to `GOODS_IN_TRANSIT`). Delivered in three
       sub-phases:
 - [x] **39a** — domain: goods types on `ComplianceDocument`, per-goods-type
@@ -695,7 +695,7 @@ rationale, the six design decisions, or checklist detail).
       Replaced UUID entity identity with ULID: 26 Crockford-base32
       characters, minted by the service in `organizations/internal/identity`,
       time-sortable. Full argument in
-      [ADR-051](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-051-ulid-entity-identity.md);
+      [ADR-051](../../obsidian/V3-Platform/Architecture/ADR/ADR-051-lab-organizations-ulid-entity-identity.md);
       rule text in `BUSINESS_RULES-ORGANIZATIONS.md` BR-TP73.
 - [x] ULID chosen over UUIDv7 (36 chars for the same 128 bits) and NUID
       (sorts by insertion order within one process lifetime only, so a restart
@@ -822,7 +822,7 @@ together.
 > are Phase 39's 10–13 and 16, 18, 19, 20 — archived with that phase in
 > [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md), no longer above —
 > plus
-> [ADR-050](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-050-git-certificate-change-log-provenance.md);
+> [ADR-050](../../obsidian/V3-Platform/Architecture/ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md);
 > this phase builds them, it does not re-decide them.
 
 #### Goal
@@ -1148,7 +1148,7 @@ rationale, the design decisions, or the verification log).
       object). Host ports 5433–5437 released; organizations' legacy
       `trading_partner` database/role renamed `organizations`; vestigial
       `pgcrypto` extension dropped. Design record:
-      [ADR-052](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-052-one-postgres-instance-database-per-service.md).
+      [ADR-052](../../obsidian/V3-Platform/Architecture/ADR/ADR-052-lab-data-one-postgres-instance-database-per-service.md).
 
 ---
 

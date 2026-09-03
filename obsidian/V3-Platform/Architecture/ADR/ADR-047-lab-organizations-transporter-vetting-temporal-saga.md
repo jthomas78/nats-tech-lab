@@ -1,13 +1,25 @@
+---
+adr: 47
+title: Temporal Saga Design for TransporterProfile Vetting
+status: Accepted
+date: 2026-08-20
+scope: lab
+context: organizations
+decision: Vetting runs as a Temporal workflow with a two-branch parallel saga. Activities publish the domain events. Compensation is forward-only.
+why: A multi-day, human-in-the-loop approval with real compensation needs durable timers, signals and saga support. That is what Temporal is for.
+related: [46, 48, 49, 50]
+---
+
 # ADR-047: Temporal Saga Design for `TransporterProfile` Vetting
 
 **Status:** Accepted, with required amendments (see Punch List) — **further amended 2026-08-22, see "Amendment"**
 **Date:** 2026-08-20
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) §§ "Temporal — role and workflow design," "Lifecycle," "Cross-aggregate invariant / saga," "CRUD vs. event sourcing"; [ADR-046](ADR-046-transporter-aggregate-split.md) (the aggregate-boundary decision this sits on top of)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) §§ "Temporal — role and workflow design," "Lifecycle," "Cross-aggregate invariant / saga," "CRUD vs. event sourcing"; [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (the aggregate-boundary decision this sits on top of)
 
 ## Amendment (2026-08-22, Phase 39 design gate)
 
-[ADR-050](ADR-050-git-certificate-change-log-provenance.md) inverts who
+[ADR-050](ADR-050-lab-organizations-git-certificate-change-log-provenance.md) inverts who
 produces document events, for the `GOODS_IN_TRANSIT` type.
 
 **As built.** The workflow is the producer: a review command writes its

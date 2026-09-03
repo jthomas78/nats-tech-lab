@@ -1,9 +1,21 @@
+---
+adr: 48
+title: Document Blob Storage: NATS Object Store
+status: Accepted
+date: 2026-08-20
+scope: lab
+context: organizations
+decision: Compliance document bytes go in a NATS Object Store bucket per tenant account, not S3, MinIO or GCS.
+why: The lab evaluates NATS patterns and tenant isolation already comes from the NATS account. The cost is real limits on size and durability, and the ADR records them.
+related: [46, 47, 50]
+---
+
 # ADR-048: Document Blob Storage — NATS Object Store
 
 **Status:** Accepted, with required amendments (see Punch List)
 **Date:** 2026-08-20
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) §§ "Document storage — NATS Object Store," "Data sections" (Documents, GIT Certificate, Tracking Credentials); [ADR-046](ADR-046-transporter-aggregate-split.md); [ADR-047](ADR-047-transporter-vetting-temporal-saga.md) (compensation must be forward-only — the same constraint reappears here at the blob layer); [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) (tenant account resource limits)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) §§ "Document storage — NATS Object Store," "Data sections" (Documents, GIT Certificate, Tracking Credentials); [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md); [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) (compensation must be forward-only — the same constraint reappears here at the blob layer); [ARCHITECTURE-ACCOUNTS.md](../Dictionary-POC/ARCHITECTURE-ACCOUNTS.md) (tenant account resource limits)
 
 ## Context
 

@@ -1,9 +1,21 @@
+---
+adr: 46
+title: Transporter Aggregate Boundary: Shared Identity, Separate Vetting
+status: Accepted
+date: 2026-08-20
+scope: lab
+context: organizations
+decision: Organization stays the single identity aggregate for Shipper and Transporter. Vetting state lives in a new event-sourced TransporterProfile aggregate.
+why: Identity is current-state CRUD. Vetting has a lifecycle that must replay and audit. One aggregate would force both onto one persistence model.
+related: [47, 48, 49, 50, 51]
+---
+
 # ADR-046: Transporter Aggregate Boundary — Shared Identity, Separate Vetting
 
 **Status:** Accepted — **amended 2026-08-22 for GIT document placement, see "Amendment"**
 **Date:** 2026-08-20 (revised same day — see "Revision History")
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) § "Decision," [BUSINESS_RULES-ORGANIZATIONS.md](../../../../demos/01-dictionary/BUSINESS_RULES-ORGANIZATIONS.md) (BR-TP01–BR-TP17, Phase 26)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) § "Decision," [BUSINESS_RULES-ORGANIZATIONS.md](../../../../demos/01-dictionary/BUSINESS_RULES-ORGANIZATIONS.md) (BR-TP01–BR-TP17, Phase 26)
 
 ## Revision History
 
@@ -23,14 +35,14 @@ below, unedited, for anyone checking why it was on the table at all.
 later reviews each found a required change to that package, by completely
 independent routes:
 
-- [ADR-049](ADR-049-cross-aggregate-concurrency.md) finding 5b: Company
+- [ADR-049](ADR-049-lab-organizations-cross-aggregate-concurrency.md) finding 5b: Company
   Information is not editable today *at all* — no `partner-update` command,
   no repository update method, and `registerRequest` accepts only
   `{Name, Type}`, so `company_name`/`registration_no`/`vat_registration_no`
   are columns nothing ever writes. Making that data section work needs a new
   domain method, repository method, command, and `api.*` handler, plus a
   `version` column.
-- [ADR-048](ADR-048-document-storage-nats-object-store.md) finding 2c:
+- [ADR-048](ADR-048-lab-organizations-document-storage-nats-object-store.md) finding 2c:
   `compliance_documents`' primary key is `(organization_id, type)` — one
   document per type — but GIT status is specified as the worst across
   `GOODS_IN_TRANSIT` documents, plural. Multi-document derivation needs a
@@ -50,7 +62,7 @@ silent edit, consistent with this ADR's own Revision History convention.
 This ADR placed compliance documents on the **CRUD side** of the split:
 plain Postgres rows hanging off `Organization`, with `TransporterProfile`
 holding only the review *status* of each
-(`DocumentReviews map[reference]status`). [ADR-050](ADR-050-git-certificate-change-log-provenance.md)
+(`DocumentReviews map[reference]status`). [ADR-050](ADR-050-lab-organizations-git-certificate-change-log-provenance.md)
 reverses that **for the `GOODS_IN_TRANSIT` type only**.
 
 **What changes.** GIT document mutations become commands on

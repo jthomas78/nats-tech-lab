@@ -1,9 +1,23 @@
+---
+adr: 52
+title: One Postgres Instance, One Database and One Role per Service
+status: Accepted
+date: 2026-09-03
+scope: lab
+context: data
+decision: The six lab services share one Postgres container. Each owns one database and one role. CONNECT is revoked from PUBLIC and granted to the owner only.
+why: Seven containers bought process isolation nothing needed. Per-role CONNECT privileges keep the real guarantee: a service cannot read another service's tables.
+related: [53]
+applies: [53]
+---
+
 # ADR-052: One Postgres Instance, One Database and One Role per Service
 
 **Status:** **Accepted 2026-09-03** — implemented and live-verified as Phase 53 (`Main-POC-Plan.md`).
 **Date:** 2026-09-03
 **Deciders:** Jeremy (repo owner)
-**Related:** [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) (tenancy is the NATS account boundary); [ARCHITECTURE-DICTIONARY.md](ARCHITECTURE-DICTIONARY.md) § "Database Schema"; [ARCHITECTURE.md](ARCHITECTURE.md) § "Reference Data Service"; `.claude/plans/Dictionary-Service-Plan.md` Q1 (the 2026-07-27 database-per-service decision this ADR revises); `.claude/memory/refdata_database_per_service.md`, `.claude/memory/tenant_service_separation_decision.md`; `CLAUDE.md` § "Docker Host Port Allocation"
+**Governed by:** [ADR-053](ADR-053-v3-data-shared-postgres-by-default.md) — the Proposed Linebooker V3 platform principle ("share PostgreSQL infrastructure by default, isolate databases logically, separate only on a demonstrated requirement"). This ADR is that principle applied to the lab compose stack.
+**Related:** [ARCHITECTURE-ACCOUNTS.md](../Dictionary-POC/ARCHITECTURE-ACCOUNTS.md) (tenancy is the NATS account boundary); [ARCHITECTURE-DICTIONARY.md](../Dictionary-POC/ARCHITECTURE-DICTIONARY.md) § "Database Schema"; [ARCHITECTURE.md](../Dictionary-POC/ARCHITECTURE.md) § "Reference Data Service"; `.claude/plans/Dictionary-Service-Plan.md` Q1 (the 2026-07-27 database-per-service decision this ADR revises); `.claude/memory/refdata_database_per_service.md`, `.claude/memory/tenant_service_separation_decision.md`; `CLAUDE.md` § "Docker Host Port Allocation"
 
 ## Context
 
@@ -78,6 +92,10 @@ Inside the shared instance:
 6. **Temporal stays separate.** Its `auto-setup` image wants
    `CREATE DATABASE` at boot and is third-party infrastructure, not one of
    our bounded contexts. Folding it in is a possible later step, not this one.
+7. **Every role carries a `CONNECTION LIMIT`** (25 in the lab). ADR-053
+   asks for "appropriate connection limits" so one service cannot exhaust
+   the shared instance's connection slots. Added 2026-09-03 when ADR-053 was
+   filed.
 
 ## Options Considered
 
@@ -148,9 +166,13 @@ anyway.
   `pg-mfe-registry-data`, `pg-pricing-data`, `pg-trading-partner-data`)
   become one. Existing dev data is not migrated — the repo already treats
   reseed as the standard reset path.
-- **Revisit when:** a service needs Postgres tuning the others must not see
-  (separate instance again), or the lab adds a load-testing phase (Phase 104)
-  that wants per-service IO isolation, or Temporal is folded in (Option 3).
+- **Revisit when:** any of ADR-053's "Scaling Strategy" criteria is met for
+  one service — sustained share of CPU, memory, IOPS or connections;
+  noisy-neighbour effects on other services; different availability or
+  recovery targets; a different Postgres version or extension set; or a
+  load-testing phase (Phase 104) that wants per-service IO isolation. Then
+  that one database moves to its own instance and the rest stay shared.
+  Temporal folding in (Option 3) is the other trigger.
 - **Docs to change:** `ARCHITECTURE.md` § refdata/accounts "own Postgres
   instance" wording, `ARCHITECTURE-DICTIONARY.md` § "Database Schema",
   `demos/01-dictionary/README.md` port table and credential prose,
@@ -167,3 +189,4 @@ Tracked as **Phase 53** in `.claude/plans/Main-POC-Plan.md`.
 3. [x] Six `cmd/main.go` fallback defaults → `localhost:5432/<db>`; fix the organizations default (`organization` vs compose's `trading_partner`).
 4. [x] Verification: from each service's role, `\c` into another service's database must fail; all six services healthy after `down -v && up --build`.
 5. [x] Docs and memory listed under Consequences.
+6. [x] `CONNECTION LIMIT 25` on every role in `init.sql`, applied live with `ALTER ROLE`, per ADR-053 (2026-09-03).

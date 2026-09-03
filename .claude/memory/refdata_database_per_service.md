@@ -23,4 +23,4 @@ per-service role gives the same guarantee. See [[tenant_service_separation_decis
 `DATABASE_URL` at `postgres:5432/<db>`, `depends_on: postgres`; never a new Postgres container.
 Adding to `init.sql` needs `docker compose down -v` (it runs only on an empty volume). Integration
 tests are unaffected (own containers or `*_TEST_DATABASE_URL`). ADR:
-`obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-052-one-postgres-instance-database-per-service.md`.
+`obsidian/V3-Platform/Architecture/ADR/ADR-052-lab-data-one-postgres-instance-database-per-service.md`.

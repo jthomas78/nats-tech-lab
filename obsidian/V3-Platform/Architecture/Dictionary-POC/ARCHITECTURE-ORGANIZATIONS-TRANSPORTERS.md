@@ -116,7 +116,7 @@ cannot be redacted the way a row can be updated, so a secret written onto the
 stream would be permanently worse than V2's plaintext columns. Payloads live
 in the encrypted KV bucket (§ 4).
 
-> **Phase 39 (approved 2026-08-22, [ADR-050](ADR-050-git-certificate-change-log-provenance.md)) changes this event model for `GOODS_IN_TRANSIT` documents only.**
+> **Phase 39 (approved 2026-08-22, [ADR-050](../ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md)) changes this event model for `GOODS_IN_TRANSIT` documents only.**
 > Four changes, all landing in sub-phase 39a:
 >
 > - **Five new tokens**, on the same subject and arity:
@@ -145,7 +145,7 @@ in the encrypted KV bucket (§ 4).
 > now deliberately held only status, gates and two maps. The aggregate the
 > saga replays gets materially bigger; that cost was accepted in preference to
 > a second aggregate whose approval would need either two events or new
-> machinery to reach the saga. **Amends [ADR-046](ADR-046-transporter-aggregate-split.md).**
+> machinery to reach the saga. **Amends [ADR-046](../ADR/ADR-046-lab-organizations-transporter-aggregate-split.md).**
 
 **State** (`State` struct): `context`, `id`, `status`, `attemptNumber`,
 `fleetAvailabilityGate`, `gitVerified`, `documentReviews` (document ID →
@@ -281,7 +281,7 @@ caught only by the index would already be on the log permanently.
   (BR-TP68).
 
 > **Phase 39 makes `GOODS_IN_TRANSIT` a projection, not a system of record**
-> ([ADR-050](ADR-050-git-certificate-change-log-provenance.md), Option A
+> ([ADR-050](../ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md), Option A
 > scoped to that one type). `compliance_documents` keeps both roles for a
 > while: authoritative for the other four types, projection-written for GIT.
 > That is transitional and deliberate — a separate `git_certificates` table
@@ -373,10 +373,10 @@ the old Reference column, and the name is read-only once registered.
 ## 9. Approved — Phase 39: GIT Certificates
 
 **Status: APPROVED — design gate closed 2026-08-22.** Provenance decided in
-[ADR-050](ADR-050-git-certificate-change-log-provenance.md) (Option A, scoped
+[ADR-050](../ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md) (Option A, scoped
 to `GOODS_IN_TRANSIT`), which amends
-[ADR-046](ADR-046-transporter-aggregate-split.md) and
-[ADR-047](ADR-047-transporter-vetting-temporal-saga.md). Rules confirmed as
+[ADR-046](../ADR/ADR-046-lab-organizations-transporter-aggregate-split.md) and
+[ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md). Rules confirmed as
 BR-TP64–BR-TP72. **§ 9.4 and § 9.5 moved out to Phase 46** — neither is on the
 critical path to this screen, and 9.5's CSV cannot be written before 39a's
 events exist. Plan entry:
@@ -488,7 +488,7 @@ progress, and a full-region dashed drop target.
 > critical path to the screen Phase 39 exists to build, and its CSV cannot be
 > written before 39a's events exist. The **provenance** question it depends on
 > *was* settled in Phase 39, because 39a builds the write path — see
-> [ADR-050](ADR-050-git-certificate-change-log-provenance.md) and § 3's
+> [ADR-050](../ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md) and § 3's
 > Phase 39 note. What follows is the design as agreed, with three amendments
 > marked.
 

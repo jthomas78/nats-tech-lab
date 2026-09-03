@@ -6598,7 +6598,7 @@ Full design lives in
 [ARCHITECTURE-ORGANIZATIONS.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md)
 — not duplicated here. Summary of the decisions it records:
 
-- **Shared identity, separate vetting aggregate** ([ADR-046](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-046-transporter-aggregate-split.md),
+- **Shared identity, separate vetting aggregate** ([ADR-046](../../obsidian/V3-Platform/Architecture/ADR/ADR-046-lab-organizations-transporter-aggregate-split.md),
   revised same-day from an initial "fully separate aggregate" recommendation):
   `Organization` (Phase 26) stays the **single identity aggregate for
   both Shipper and Transporter**, completely unchanged —
@@ -6637,7 +6637,7 @@ Full design lives in
   compose stack.
 - **Durability test is explicit**: kill the Temporal worker mid-workflow,
   restart, confirm resumption without re-asking already-satisfied signals.
-- **Temporal/saga design reviewed in [ADR-047](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-047-transporter-vetting-temporal-saga.md)
+- **Temporal/saga design reviewed in [ADR-047](../../obsidian/V3-Platform/Architecture/ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md)
   — four required amendments for 38b, not optional hardening:** (1) every
   JetStream publish the workflow triggers must be an Activity with
   `Nats-Msg-Id` dedup keyed on `organizationID`+event+step-counter (never
@@ -6668,7 +6668,7 @@ Full design lives in
   `{context}`-prefixed naming convention as KV), not S3/MinIO or V2's real
   choice (Google Cloud Storage) — tenant isolation comes free from the NATS
   account boundary, and it adds a second pattern comparison point.
-  Reviewed in [ADR-048](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-048-document-storage-nats-object-store.md),
+  Reviewed in [ADR-048](../../obsidian/V3-Platform/Architecture/ADR/ADR-048-lab-organizations-document-storage-nats-object-store.md),
   which affirms the choice but **rejects the "avoids a new infra dependency"
   rationale as incomplete**: Object Store bytes share the tenant's 1 GiB
   JetStream disk quota and 10-stream cap with the event log itself, so
@@ -6688,7 +6688,7 @@ Full design lives in
   `Organization`'s own identity-field edits (Company Information) need a
   plain `version`-column optimistic lock instead, since that aggregate has
   no event stream to guard against. Reviewed in
-  [ADR-049](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-049-cross-aggregate-concurrency.md),
+  [ADR-049](../../obsidian/V3-Platform/Architecture/ADR/ADR-049-lab-organizations-cross-aggregate-concurrency.md),
   which affirms the split but corrects both halves: (1) the per-subject
   guard is **close to a no-op for `TransporterProfile`** — its event types
   are concurrent by design and land on different subjects, unlike Ship's
@@ -6777,7 +6777,7 @@ Full design lives in
       `CreateTransporterProfile`/`EnsureTransporterProfile`, and the
       cross-aggregate `Activate` guard at the command-handling boundary,
       reading the Postgres projection (not KV) per ADR-049 finding 3. Per
-      [ADR-046](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-046-transporter-aggregate-split.md),
+      [ADR-046](../../obsidian/V3-Platform/Architecture/ADR/ADR-046-lab-organizations-transporter-aggregate-split.md),
       `PartnerTypeTransporter` needs no change, no retirement — its broader
       "zero changes to `organizations`" claim is corrected (not
       retracted) by ADR-048/049's two additive changes, tracked separately
@@ -6797,7 +6797,7 @@ Full design lives in
       — this is what earns the word "invariant" for the cross-aggregate
       gate, and subsumes the separate revocation-consumer option since one
       check catches both a saga compensation and time-derived `EXPIRED`.
-      **Must satisfy [ADR-047](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-047-transporter-vetting-temporal-saga.md)'s
+      **Must satisfy [ADR-047](../../obsidian/V3-Platform/Architecture/ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md)'s
       four required amendments** (publish-dedup Activities, explicitly-named
       compensating events, verified `WorkflowIDReusePolicy`, explicit
       Activity timeouts) before this sub-phase is considered done — these
@@ -6900,7 +6900,7 @@ Full design lives in
       document ID (the object name's `{documentID}` token), and completes
       38d-i's Documents tab by wiring real upload/download to the controls
       38d-i deliberately left inert. **Must satisfy
-      [ADR-048](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-048-document-storage-nats-object-store.md)'s
+      [ADR-048](../../obsidian/V3-Platform/Architecture/ADR/ADR-048-lab-organizations-document-storage-nats-object-store.md)'s
       four remaining required amendments** — explicit bucket/file size
       limits + stream budget check, UUID-based object names (no user
       filenames), blob-then-event write order, and a dedicated HTTP
@@ -7725,7 +7725,7 @@ complete in one pass; nothing else about it was better.
 > https://claude.ai/code/artifact/792f1401-eb47-4f6d-831e-83d3c3ebd8b4
 > Reference system: Linebooker V2's `GitCertificates.js` row editor,
 > `TransporterDocumentEntityServiceImpl`, and `calculateGitValidity`.
-> **Provenance decision:** [ADR-050](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-050-git-certificate-change-log-provenance.md)
+> **Provenance decision:** [ADR-050](../../obsidian/V3-Platform/Architecture/ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md)
 > — Option A, scoped to `GOODS_IN_TRANSIT`.
 
 #### Goal
@@ -8293,7 +8293,7 @@ here" — is retired.
 >
 > **Kept as its own phase rather than folded into Phase 40** — the alternative
 > the user raised, and declined for a reason: this is a repo-wide identity
-> decision with its own ADR ([ADR-051](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-051-ulid-entity-identity.md)),
+> decision with its own ADR ([ADR-051](../../obsidian/V3-Platform/Architecture/ADR/ADR-051-lab-organizations-ulid-entity-identity.md)),
 > its own rule (BR-TP73) and its own scope call (`organizations-service` only,
 > `shipping-service` and `accounts-service` consciously excluded). Folding it
 > into a document-lifecycle phase would bury all three and leave Phase 40's
@@ -8308,7 +8308,7 @@ the ID's length in subject tokens and URLs, and by a rejected proposal to
 make it `<Country-Code>-<Company-Registration-Number>` instead.
 
 Full argument in
-[ADR-051](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-051-ulid-entity-identity.md).
+[ADR-051](../../obsidian/V3-Platform/Architecture/ADR/ADR-051-lab-organizations-ulid-entity-identity.md).
 Rule text in `BUSINESS_RULES-ORGANIZATIONS.md` BR-TP73.
 
 #### Design decisions
@@ -10303,7 +10303,7 @@ bugs, and changing which one runs first is a real test of both.**
 ### Phase 53 — DONE (approved and implemented 2026-09-03) — One Postgres Instance: Database-per-Service, Role-per-Service
 
 > Design record:
-> [ADR-052](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-052-one-postgres-instance-database-per-service.md).
+> [ADR-052](../../obsidian/V3-Platform/Architecture/ADR/ADR-052-lab-data-one-postgres-instance-database-per-service.md).
 > This phase builds it; it does not re-decide it. Design decisions approved
 > 2026-09-03; implemented and live-verified the same day (see "Verification").
 
@@ -10797,10 +10797,10 @@ Cross-reference sweep (same commit):
       46a–46e relettered to 38a–38e throughout the moved section.
 - [x] `grep -rln "Phase 46"` outside this document — four hits, all design
       docs for this same phase (`ARCHITECTURE-ORGANIZATIONS.md`,
-      `ADR-046-transporter-aggregate-split.md`,
-      `ADR-047-transporter-vetting-temporal-saga.md`,
-      `ADR-048-document-storage-nats-object-store.md`,
-      `ADR-049-cross-aggregate-concurrency.md`) — updated to "Phase 38" in
+      `../../obsidian/V3-Platform/Architecture/ADR/ADR-046-lab-organizations-transporter-aggregate-split.md`,
+      `../../obsidian/V3-Platform/Architecture/ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md`,
+      `../../obsidian/V3-Platform/Architecture/ADR/ADR-048-lab-organizations-document-storage-nats-object-store.md`,
+      `../../obsidian/V3-Platform/Architecture/ADR/ADR-049-lab-organizations-cross-aggregate-concurrency.md`) — updated to "Phase 38" in
       the same pass. **ADR file numbers themselves are unchanged** (ADR-046
       through ADR-049 are a separate numbering series from POC plan phases;
       the coincidence that "046" matched the old phase number is exactly

@@ -77,7 +77,7 @@ Two decisions taken during 38b's implementation **supersede** the design
 prose further down this document. They were forced by gaps found while
 turning ADR-047/ADR-049 into specs, and both are additive corrections — the
 aggregate-split decision in
-[ADR-046](ADR-046-transporter-aggregate-split.md) is unaffected.
+[ADR-046](../ADR/ADR-046-lab-organizations-transporter-aggregate-split.md) is unaffected.
 
 ### 1. `FleetAvailabilityGate` is aggregate state; `AvailableForAssignment` is computed
 
@@ -218,13 +218,13 @@ the stack).
 
 ## Decision: shared `Organization` identity + a separate, event-sourced `TransporterProfile` aggregate
 
-**Revised 2026-08-20, via [ADR-046](ADR-046-transporter-aggregate-split.md).**
+**Revised 2026-08-20, via [ADR-046](../ADR/ADR-046-lab-organizations-transporter-aggregate-split.md).**
 Two earlier passes of this doc are superseded here, kept below for honest
 history rather than silently rewritten:
 
 1. First pass: reuse `Organization`'s existing `Type` discriminator —
    rejected (would grow `if Type == TRANSPORTER` branching indefinitely).
-2. Second pass ([ADR-046](ADR-046-transporter-aggregate-split.md)'s initial
+2. Second pass ([ADR-046](../ADR/ADR-046-lab-organizations-transporter-aggregate-split.md)'s initial
    recommendation): a fully separate `Transporter` aggregate duplicating
    identity fields (name, registrationNo, VAT no.) alongside its
    Transporter-specific data. Accepted initially, then **explicitly
@@ -307,7 +307,7 @@ if the POC's findings warrant it.
 **Migration note:** unchanged from the prior draft — no production data is
 at stake; existing demo/seed data is dropped and reseeded under this shape.
 
-**Correction (2026-08-20, via [ADR-046](ADR-046-transporter-aggregate-split.md)'s
+**Correction (2026-08-20, via [ADR-046](../ADR/ADR-046-lab-organizations-transporter-aggregate-split.md)'s
 own Correction note):** "no changes to `organizations`" above is **not
 accurate as originally stated**, on two independently-found, additive
 counts, both now resolved elsewhere in this doc: a new `partner-update`
@@ -326,7 +326,7 @@ quietly left standing.
 **Every ID this service mints is a ULID** — 26 Crockford-base32 characters,
 a 48-bit millisecond timestamp followed by 80 bits of monotonic entropy,
 minted by the service in `internal/identity` and never by Postgres. Full
-reasoning in [ADR-051](ADR-051-ulid-entity-identity.md); rule text and
+reasoning in [ADR-051](../ADR/ADR-051-lab-organizations-ulid-entity-identity.md); rule text and
 enforcement points in `BUSINESS_RULES-ORGANIZATIONS.md` BR-TP73. What
 matters when reading this service's code:
 
@@ -454,7 +454,7 @@ platform (frontend reactivity, future cross-service consumers) integrates
 the same way it already does with `shipping-service` — nothing downstream
 needs to know Temporal exists.
 
-**Reviewed in [ADR-047](ADR-047-transporter-vetting-temporal-saga.md) —
+**Reviewed in [ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) —
 required amendment, not optional hardening:** every JetStream publish this
 workflow triggers must happen inside a Temporal Activity (never inline in
 workflow code — a hard Temporal determinism requirement on top of the
@@ -549,7 +549,7 @@ happy path.
 > `HandleGitStatusDrop`, which revokes availability *and* suspends the
 > partner in one idempotent command.
 
-**Compensation is a new event, never a rewrite ([ADR-047](ADR-047-transporter-vetting-temporal-saga.md)):**
+**Compensation is a new event, never a rewrite ([ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md)):**
 in an event-sourced aggregate, "documents go back to `PendingReview`" can
 only be correct as a **new**, explicitly-named event —
 `DocumentApprovalReverted` (projected as "current status reads
@@ -567,7 +567,7 @@ implementation time) with three configurable outcomes for testing:
 immediate pass, immediate fail, and hang-past-timeout — the last one is
 what exercises the workflow's timeout → compensation path, not just the
 explicit-rejection path. **Required, not a tuning nicety
-([ADR-047](ADR-047-transporter-vetting-temporal-saga.md)):** the Temporal
+([ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md)):** the Temporal
 Go SDK requires an Activity to declare `StartToCloseTimeout` or
 `ScheduleToCloseTimeout` — omitting both is a startup-time configuration
 error. Given real GIT verification could take far longer than a test run
@@ -579,7 +579,7 @@ production-scale placeholder — not left to whatever the SDK would otherwise
 require you to guess at.
 
 **Workflow ID reuse on `Resubmit`, needs explicit verification
-([ADR-047](ADR-047-transporter-vetting-temporal-saga.md)):** starting a
+([ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md)):** starting a
 fresh `TransporterVettingWorkflow` under the *same* workflow ID after a
 prior run reached `Rejected` (terminal) depends on an explicit
 `WorkflowIDReusePolicy` at start time — this repo's own Phase 101 already
@@ -591,7 +591,7 @@ assumption. A test that drives a workflow to `Rejected` and confirms
 of 38b, not an afterthought.
 
 **Versioning — accepted POC-scope gap, not a silent omission
-([ADR-047](ADR-047-transporter-vetting-temporal-saga.md)):** real vetting
+([ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md)):** real vetting
 could span days, and this workflow's code will likely change across 38b's
 own iteration; Temporal's determinism rules mean changing workflow code
 while instances are in flight needs `GetVersion`-style patching, which is
@@ -698,7 +698,7 @@ deliberately dropped or changed.
 | **Tracking Credentials** | Base `TrackingCredentialsEntity` (providerName, `trackingProvider` enum of 35 vendors) + **one satellite table per provider** storing the actual secret as **plain columns** — e.g. `CarTrackTrackingCredentialsEntity.apiKey`, `WebfleetTrackingCredentialsEntity.password` — confirmed **no encryption anywhere** in the codebase (no `@Convert`/`AttributeConverter` found). `credentialType` enum: `API_KEY`\|`USERNAME_PASSWORD`\|`METADATA_ONLY`. | One `TrackingCredential` child record: `provider` (enum, small representative POC list), `credentialType` (same 3-value enum as V2 — a genuinely useful part to keep), and a `credentialsConfigured bool`. **Confirmed divergence from V2**: the actual secret payload is written to a NATS KV bucket (`organizations-secrets`, at-rest encryption enabled) keyed `{context}.transporter.{id}.trackingcreds`, via a command that never publishes the secret onto the JetStream event stream — an event-sourced aggregate's log is meant to be replayed/audited, so baking raw credentials into it would be *worse* than V2's already-bad plaintext-column approach, since an event log can't easily redact history the way a row can be updated. |
 | **Fleet** | `FleetAssetEntity`: type (`TRAILER`\|`HORSE`\|`RIGID`\|...), trailerType, registrationNo, vinNo, make, model, year, ownership (`OWNED`\|`SUBCONTRACTED`), status, trackingStatus, trackingCredentialsEntity link. Notable: `isOwner()` requires ownership=`OWNED` **and** a linked tracking credential **and** trackingStatus=`LIVE`, all three at once. | registrationNo (globally unique), VIN, make, model, vehicleTypeCode (validated live against refdata-service, BR-TP14), ownership (`OWNED`\|`SUBCONTRACTED`, kept — it's cheap and directly informs the saga), `availableForAssignment bool`. **Design call, inspired by V2's `isOwner()`:** `availableForAssignment` is computed the same multi-condition way — true only when ownership is resolved, tracking credentials are configured, *and* the saga's activation gate has passed — not a single hand-set flag. |
 | **Operating Areas** | **Two models; only one is real** (corrected 2026-08-20 — see "V2 database verification" above). The `GeoAreaEntity` polygon/GIS model (hierarchical `COUNTRY`\|`REGION`\|`MUNICIPALITY`\|`CUSTOM` levels, JTS polygon geometry, joined via `TransporterOperatingAreaEntity` which denormalizes level + countryCode "for query performance" — V2's own code comment) exists in the schema and holds **zero rows**, as does its join table; the MapLibre GL + vector-tile frontend renders a model with no data in it. What V2 **actually runs** is a flat two-level list: `region_entity(id, name, country_id)` → `country_entity(id, name)`, joined many-to-many via `transporter_profile_entity_region` — **48,041 live assignments** over 217 regions and 57 countries, with no geometry, no level column and no depth below Region. `LinebookerTownRegion.xlsx` confirmed not wired into any code; `town_entity`'s 1,373 rows aren't wired into operating areas either. | **Country → Region matches what V2 runs — it is not a reduction of it.** This row previously called the two-level design "a reduced-depth version of V2's real hierarchical/polygon model"; the row counts disprove that, and the POC design needs no simplification defence. Keep **Leaflet + OpenStreetMap** over a small hand-authored GeoJSON. Join row stays `TransporterOperatingArea(transporterId, regionCode, level)` — `level` is kept even though V2's *live* join has no such column, because V2's flat list demonstrably needs one (Botswana's regions mix districts with cities, and a country-name catch-all row absorbs "nationwide" transporters; see "Operating Areas — region seed" below). Region list owned by refdata-service, **seeded from V2's real corpus** rather than invented. **One deliberate improvement on V2:** V2 has no locale dimension on region or country, so translations became *duplicate rows* — `Wes-Kaap`/`Vrystaat`/`IGauteng` sit beside `Western Cape`/`Free State`/`Gauteng` with their own ids and their own assignments, and South Africa has 11+ country rows (`Suid-Afrika`, `Sudáfrica`, `Afrique du Sud`, `ZA`, …). refdata-service already resolves locale as its own dimension, so the seed collapses these into canonical rows with locale-keyed labels. |
-| **GIT Certificate** | **Confirmed derived, not stored:** `TransporterProfileEntity.gitStatus`'s getter ignores its own column and instead computes the "worst" status across the transporter's `GOODS_IN_TRANSIT`-typed documents (enum `GitStatusType`: `PENDING`\|`ACTIVE`\|`EXPIRED`\|`REJECTED`\|`NONE` — **5 values**, one more than the screenshot's visible 4). `gitCoverage` **is** a real stored `Long` directly on the profile — separate from any one document's own coverage field. Admin override: `hideGitRequiredForAllocation`. | No new fields beyond one addition below — reuses the existing `ComplianceDocument` type `GOODS_IN_TRANSIT`. `GitStatus` is **derived** exactly as V2 does it (worst-of-documents, same 5-value enum — corrected from this doc's earlier 4-value assumption); `GitCoverage` is a separate stored field on the `TransporterProfile` aggregate root, not per-document. `hideGitRequiredForAllocation` carried into Admin Settings below, since it directly gates this phase's saga. **Requires a `organizations` schema change** ([ADR-048](ADR-048-document-storage-nats-object-store.md) finding 2c, resolved in "Document storage" below): `compliance_documents`' PK `(organization_id, type)` allows only one `GOODS_IN_TRANSIT` document at a time, which cannot represent a renewal existing alongside an expiring certificate — the true worst-of-documents case this row's own V2 fidelity requires. The PK gains a service-minted document ID; superseding a document becomes an explicit transition, not a silent upsert. Also **maintained, not just checked once at activation**, via the Temporal cron workflow in "Cross-aggregate invariant / saga" below — `EXPIRED` arrives from the passage of time alone, with no event to hang a one-time guard on. |
+| **GIT Certificate** | **Confirmed derived, not stored:** `TransporterProfileEntity.gitStatus`'s getter ignores its own column and instead computes the "worst" status across the transporter's `GOODS_IN_TRANSIT`-typed documents (enum `GitStatusType`: `PENDING`\|`ACTIVE`\|`EXPIRED`\|`REJECTED`\|`NONE` — **5 values**, one more than the screenshot's visible 4). `gitCoverage` **is** a real stored `Long` directly on the profile — separate from any one document's own coverage field. Admin override: `hideGitRequiredForAllocation`. | No new fields beyond one addition below — reuses the existing `ComplianceDocument` type `GOODS_IN_TRANSIT`. `GitStatus` is **derived** exactly as V2 does it (worst-of-documents, same 5-value enum — corrected from this doc's earlier 4-value assumption); `GitCoverage` is a separate stored field on the `TransporterProfile` aggregate root, not per-document. `hideGitRequiredForAllocation` carried into Admin Settings below, since it directly gates this phase's saga. **Requires a `organizations` schema change** ([ADR-048](../ADR/ADR-048-lab-organizations-document-storage-nats-object-store.md) finding 2c, resolved in "Document storage" below): `compliance_documents`' PK `(organization_id, type)` allows only one `GOODS_IN_TRANSIT` document at a time, which cannot represent a renewal existing alongside an expiring certificate — the true worst-of-documents case this row's own V2 fidelity requires. The PK gains a service-minted document ID; superseding a document becomes an explicit transition, not a silent upsert. Also **maintained, not just checked once at activation**, via the Temporal cron workflow in "Cross-aggregate invariant / saga" below — `EXPIRED` arrives from the passage of time alone, with no event to hang a one-time guard on. |
 | **Documents** | `TransporterDocumentEntity` → `DocumentEntity` (contentType, documentName, storedFileName, documentLocation, documentSize, uploadDate). Blobs stored in **Google Cloud Storage** (`GoogleCloudStorageServiceImpl`) — not Firebase (the Firebase Admin SDK config present in the repo isn't consumed by document upload anywhere found), not S3. | Metadata field names aligned to V2's for closer fidelity (documentName, contentType, documentSize, uploadDate). **Storage backend intentionally differs from V2**: NATS Object Store, not GCS — this is a NATS-pattern evaluation lab, not a GCS-integration exercise; the decision in "Document storage" below stands unchanged. |
 | **Rate Sheets** | `RateSheetEntity` is owned by `CustomerProfileEntity`, not Transporter; per-lane entries (`RateSheetVersionEntryEntity`) reference a `customerRouteEntity` (the lane), `vehicleTypeEntities`, a diesel-escalation sub-model, and a `FeeScaleEntity` link. **From the Transporter's side, V2's UI is read-only** — transporters view rates customers set for them; they don't author their own flat rate table. | **Resolved: stub/placeholder tab only for this phase.** The earlier "structured data capture, Transporter-owned" answer assumed a shape V2 doesn't actually have — a faithful version needs Customer + Route, both out of scope here. This phase adds the UI tab (empty state, "available once Customer/Route exist") but no persistence or domain model — matching V2's real ownership rather than building a Transporter-owned table that has no analog in the system being replicated. Revisit with real fidelity if/when a Customer phase lands. |
 | **Admin Settings** | `businessVisibility` enum + specific-customer visibility list; Load Access flags (`biddingAllowed`/`allocatedAllowed`/`allocatedBiddingAllowed`, feature-flagged tender variants); `hideGitRequiredForAllocation`; `underProbation`; `businessCommentEntities` — an append-only, timestamped, per-user comment log (not a single notes field). | marketplace-visibility toggle (matches V2's `businessVisibility`), Load Access flags carried as **informational/no-op fields for now** (mirrors BR-TP04's existing "no enforcement consumer yet" pattern — the future marketplace/tender consumer is still the same deferred item), `hideGitRequiredForAllocation` (real gate on this phase's saga). **Notes: reuse the existing `audit_events` table/pattern from Phase 26** instead of a new free-text notes field — V2's own comment log is structurally the same "timestamped per-actor entry," and this repo already has that pattern built. **Dropped:** "preferred payment terms" (this doc's earlier guess — not found anywhere in V2). |
@@ -799,7 +799,7 @@ not inherit V2's encoding damage.
 account boundary that already isolates every stream and KV bucket, and
 because it's itself a pattern worth documenting/comparing for the eventual
 pattern-cards doc. Reviewed in
-[ADR-048](ADR-048-document-storage-nats-object-store.md), which **affirms
+[ADR-048](../ADR/ADR-048-lab-organizations-document-storage-nats-object-store.md), which **affirms
 the choice but rejects the original rationale**: "avoids a new infra
 dependency purely for file bytes" framed this as cost-free, and it isn't.
 The honest framing is *deliberately accepting a shared failure domain with
@@ -846,7 +846,7 @@ lab nothing, which is why the decision stands.
   two failure modes aren't symmetric. Publish-then-upload leaves a dangling
   reference in an **immutable** log — unrecoverable in kind, since an event
   can only be compensated, not retracted (see
-  [ADR-047](ADR-047-transporter-vetting-temporal-saga.md)'s same constraint
+  [ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md)'s same constraint
   one layer up). Upload-then-publish leaves at worst an orphan blob:
   invisible to every reader, garbage-collectable by name. This composes
   with ADR-047's `Nats-Msg-Id` dedup only because the object name above is
@@ -926,7 +926,7 @@ with genuinely separate bounded contexts, worth reporting on separately
 from (1) in the eventual pattern-cards doc.
 
 **Deliberately called a *gate*, not an *invariant*
-([ADR-049](ADR-049-cross-aggregate-concurrency.md) finding 2).** As designed
+([ADR-049](../ADR/ADR-049-lab-organizations-cross-aggregate-concurrency.md) finding 2).** As designed
 this is a **precondition checked once**, at activation, and nothing
 re-checks it afterwards. That gap has real teeth here because of a decision
 made elsewhere in this same design: `GitStatus` is **derived, and one of its
@@ -978,7 +978,7 @@ subsumes (b) rather than needing it as a separate mechanism.**
   or `Reactivate`d off this reason and re-vetted — bounding it to a finite
   lifetime rather than running forever per transporter, which keeps it
   inside the same "acceptable POC scope" versioning-risk envelope
-  [ADR-047](ADR-047-transporter-vetting-temporal-saga.md) already accepted
+  [ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) already accepted
   for the main vetting workflow.
 
 This makes the word "invariant" earned: the constraint is now actively
@@ -992,7 +992,7 @@ tests — a stronger pattern-cards result than (a) or (b) alone.
 **This now splits by aggregate, and needs two different mechanisms — a
 consequence of the shared-identity decision the earlier single-aggregate
 answer didn't need to consider.** Reviewed in
-[ADR-049](ADR-049-cross-aggregate-concurrency.md), which affirms the
+[ADR-049](../ADR/ADR-049-lab-organizations-cross-aggregate-concurrency.md), which affirms the
 two-mechanism split (it's the correct consequence of ADR-046) but corrects
 the sizing of both halves substantially.
 
@@ -1103,7 +1103,7 @@ the sizing of both halves substantially.
   explicitly. Strictly-correct would mean hydrating the profile's event
   stream at guard time — disproportionate here, but a recorded choice rather
   than a default. Distinct from
-  [ADR-047](ADR-047-transporter-vetting-temporal-saga.md) finding 5, which
+  [ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) finding 5, which
   confirmed the guard reads the read model *rather than Temporal*; this is
   about which layer of the read model.
 
@@ -1131,7 +1131,7 @@ not as a second, competing status field.
   showing current position, driven by the same `evt.*`/KV read model the
   rest of the frontend already watches (no direct Temporal dependency in
   the browser — confirmed sound in
-  [ADR-047](ADR-047-transporter-vetting-temporal-saga.md): every status
+  [ADR-047](../ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md): every status
   reference in this design goes through the read model, never Temporal's
   own workflow Query API, avoiding a hard runtime dependency on Temporal
   just to read status).
@@ -1302,7 +1302,7 @@ What's left:
    this repo's usual single-phase scope and should not be attempted as one
    undifferentiated block of work.
 3. **`Organization` optimistic-lock scope — RESOLVED 2026-08-20.**
-   Reframed by [ADR-049](ADR-049-cross-aggregate-concurrency.md) finding 7
+   Reframed by [ADR-049](../ADR/ADR-049-lab-organizations-cross-aggregate-concurrency.md) finding 7
    from "38a or a follow-up?" to "where does the `partner-update` command
    land?", since the lock is inseparable from a command that did not exist
    at all (see "Concurrency").
@@ -1362,7 +1362,7 @@ What's left:
    it. One piece of new schema serves both.
 7. **ADR-046's "zero changes to `organizations`" — corrected, not
    retracted.** Both changes found by items 3 and 6 above are recorded as a
-   Correction note in [ADR-046](ADR-046-transporter-aggregate-split.md) and
+   Correction note in [ADR-046](../ADR/ADR-046-lab-organizations-transporter-aggregate-split.md) and
    in this doc's "Decision" section. The decision still holds and is still
    better than Option A on this axis — additive changes to a tested
    aggregate beat Option A's *subtractive* "retire

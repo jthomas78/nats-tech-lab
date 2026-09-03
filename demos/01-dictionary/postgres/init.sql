@@ -7,15 +7,16 @@
 -- from PUBLIC and granted back to the owning role only, so a service role
 -- cannot reach another service's tables even by accident.
 --
--- Passwords equal role names — lab convention, matching the old per-instance
+-- Every role has CONNECTION LIMIT 25 (ADR-053 asks for per-service limits on
+-- a shared instance). Passwords equal role names — lab convention, matching the old per-instance
 -- POSTGRES_PASSWORD values.
 
-CREATE ROLE dict         LOGIN PASSWORD 'dict';
-CREATE ROLE refdata      LOGIN PASSWORD 'refdata';
-CREATE ROLE accounts     LOGIN PASSWORD 'accounts';
-CREATE ROLE mfe_registry LOGIN PASSWORD 'mfe_registry';
-CREATE ROLE pricing      LOGIN PASSWORD 'pricing';
-CREATE ROLE organizations LOGIN PASSWORD 'organizations';
+CREATE ROLE dict         LOGIN PASSWORD 'dict' CONNECTION LIMIT 25;
+CREATE ROLE refdata      LOGIN PASSWORD 'refdata' CONNECTION LIMIT 25;
+CREATE ROLE accounts     LOGIN PASSWORD 'accounts' CONNECTION LIMIT 25;
+CREATE ROLE mfe_registry LOGIN PASSWORD 'mfe_registry' CONNECTION LIMIT 25;
+CREATE ROLE pricing      LOGIN PASSWORD 'pricing' CONNECTION LIMIT 25;
+CREATE ROLE organizations LOGIN PASSWORD 'organizations' CONNECTION LIMIT 25;
 
 CREATE DATABASE dictionary    OWNER dict;
 CREATE DATABASE refdata       OWNER refdata;

@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Architecture Decision Records - Cards</title>
+<style>
+  :root{
+    --bg:#0d0f11; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{background:var(--bg);color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px;line-height:20px;}
+  .page{width:210mm;height:297mm;overflow:hidden;padding:14mm 13mm 10mm;
+    display:flex;flex-direction:column;page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);}
+  .page:last-child{page-break-after:auto}
+  .eyebrow-pill{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);width:fit-content}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:42px;line-height:50px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px}
+  .cover-sub{color:var(--tx2);font-size:14.5px;line-height:23px;max-width:88%;margin-top:16px}
+  table.toc{width:100%;border-collapse:collapse;margin-top:22px;font-size:11.5px;line-height:17px}
+  table.toc th{text-align:left;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);
+    border-bottom:1px solid var(--line2);padding:0 8px 7px 0}
+  table.toc td{border-bottom:1px solid var(--line);padding:7px 8px 7px 0;vertical-align:top}
+  table.toc td.n{font-family:var(--mono);font-weight:700;white-space:nowrap}
+  table.toc td.d{color:var(--tx3);white-space:nowrap;font-family:var(--mono);font-size:10.5px}
+  .tag{display:inline-block;border:1px solid var(--line2);border-radius:3px;padding:0 5px;margin-right:4px;
+    font:650 9px/15px var(--mono);letter-spacing:.06em;color:var(--tx2);text-transform:uppercase}
+  .legend{margin-top:auto;border-top:1px solid var(--line);padding-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:11px;color:var(--tx2)}
+  .legend .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:8px;vertical-align:middle}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:14px}
+
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:9px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{margin-top:14px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:14px 20px 16px;
+    display:grid;grid-template-columns:64px 1fr;gap:4px 14px;}
+  .num{font-size:29px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:33px;grid-row:span 3;font-family:var(--mono)}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:23px;line-height:29px;letter-spacing:-.01em;font-weight:700;margin:1px 0 8px}
+  .meta{display:flex;gap:12px;align-items:center;font-size:10.5px;color:var(--tx3);font-family:var(--mono);flex-wrap:wrap}
+  .badge{color:var(--c);border:1px solid var(--c);border-radius:999px;padding:1px 9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:9.5px}
+  .decision{margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    padding:14px 18px;display:grid;grid-template-columns:74px 1fr;gap:14px;align-items:start;}
+  .decision .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fam);padding-top:3px}
+  .decision p{font-size:14px;line-height:22px}
+  .decision.why .lbl{color:var(--amber)} .decision.why p{color:var(--tx2)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px 15px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:8px}
+  ul{list-style:none} li{font-size:12px;line-height:18px;color:var(--tx2);padding:2px 0} li b{color:var(--tx);font-family:var(--mono);font-size:11px;margin-right:6px}
+  li.dim{color:var(--tx3)}
+  .cfoot{margin-top:auto;border-top:1px solid var(--line);padding-top:10px;display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.08em;color:var(--tx3);text-transform:uppercase}
+  .brand{color:var(--amber);font-weight:700}
+</style>
+</head>
+<body>
+  <section class="page">
+    <div class="eyebrow-pill"><span class="dot"></span>Architecture Decision Records · 8 decisions</div>
+    <h1 class="cover">ADR <span class="hl">Cards</span></h1>
+    <p class="cover-sub">One card per decision. Each card shows the number, scope, context, status, the decision in one breath, and why it was taken. Generated from the ADR front matter; the full record is the linked file under <code>obsidian/V3-Platform/Architecture/ADR/</code>.</p>
+    <table class="toc">
+      <thead><tr><th>ADR</th><th>Scope · Context</th><th>Title</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody><tr><td class="n" style="color:var(--cyan)">ADR-046</td><td><span class="tag">lab</span><span class="tag">organizations</span></td><td>Transporter Aggregate Boundary: Shared Identity, Separate Vetting</td><td style="color:var(--green)">Accepted</td><td class="d">2026-08-20</td></tr>
+<tr><td class="n" style="color:var(--cyan)">ADR-047</td><td><span class="tag">lab</span><span class="tag">organizations</span></td><td>Temporal Saga Design for TransporterProfile Vetting</td><td style="color:var(--green)">Accepted</td><td class="d">2026-08-20</td></tr>
+<tr><td class="n" style="color:var(--cyan)">ADR-048</td><td><span class="tag">lab</span><span class="tag">organizations</span></td><td>Document Blob Storage: NATS Object Store</td><td style="color:var(--green)">Accepted</td><td class="d">2026-08-20</td></tr>
+<tr><td class="n" style="color:var(--cyan)">ADR-049</td><td><span class="tag">lab</span><span class="tag">organizations</span></td><td>Cross-Aggregate Concurrency: Two Mechanisms, One Guard</td><td style="color:var(--green)">Accepted</td><td class="d">2026-08-20</td></tr>
+<tr><td class="n" style="color:var(--cyan)">ADR-050</td><td><span class="tag">lab</span><span class="tag">organizations</span></td><td>GIT Certificate Change Log Needs a Provenance Source</td><td style="color:var(--green)">Accepted</td><td class="d">2026-08-22</td></tr>
+<tr><td class="n" style="color:var(--cyan)">ADR-051</td><td><span class="tag">lab</span><span class="tag">organizations</span></td><td>Entity Identity Is a ULID, Not a UUID</td><td style="color:var(--green)">Accepted</td><td class="d">2026-08-24</td></tr>
+<tr><td class="n" style="color:var(--cyan)">ADR-052</td><td><span class="tag">lab</span><span class="tag">data</span></td><td>One Postgres Instance, One Database and One Role per Service</td><td style="color:var(--green)">Accepted</td><td class="d">2026-09-03</td></tr>
+<tr><td class="n" style="color:var(--purple)">ADR-053</td><td><span class="tag">v3</span><span class="tag">data</span></td><td>Use Shared PostgreSQL Instances by Default</td><td style="color:var(--green)">Accepted</td><td class="d">2026-09-03</td></tr></tbody>
+    </table>
+    <div class="legend">
+      <div><span class="sw" style="background:var(--cyan)"></span>lab — Tech Lab / Dictionary POC decision, implemented in this repo</div>
+      <div><span class="sw" style="background:var(--purple)"></span>v3 — Proposed Linebooker V3 platform principle</div>
+      <div><span class="sw" style="background:var(--green)"></span>Accepted</div>
+      <div><span class="sw" style="background:var(--amber)"></span>Proposed</div>
+    </div>
+    <div class="cover-meta"><span>LINEBOOKER · ARCHITECTURE DECISION RECORDS</span><span>GENERATED 2026-09-03</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--cyan)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Tech Lab · Dictionary POC</span></div>
+    <div class="titleblock">
+      <div class="num">046</div>
+      <div class="fam-lbl">lab · organizations</div>
+      <h2>Transporter Aggregate Boundary: Shared Identity, Separate Vetting</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-08-20</span>
+        <span class="file">ADR-046-lab-organizations-transporter-aggregate-split.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>Organization stays the single identity aggregate for Shipper and Transporter. Vetting state lives in a new event-sourced TransporterProfile aggregate.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>Identity is current-state CRUD. Vetting has a lifecycle that must replay and audit. One aggregate would force both onto one persistence model.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>related ADR-047, ADR-048, ADR-049, ADR-050, ADR-051</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-047</b> Temporal Saga Design for TransporterProfile Vetting</li><li><b>ADR-048</b> Document Blob Storage: NATS Object Store</li><li><b>ADR-049</b> Cross-Aggregate Concurrency: Two Mechanisms, One Guard</li><li><b>ADR-050</b> GIT Certificate Change Log Needs a Provenance Source</li><li><b>ADR-051</b> Entity Identity Is a ULID, Not a UUID</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-046 · card 2 of 9</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--cyan)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Tech Lab · Dictionary POC</span></div>
+    <div class="titleblock">
+      <div class="num">047</div>
+      <div class="fam-lbl">lab · organizations</div>
+      <h2>Temporal Saga Design for TransporterProfile Vetting</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-08-20</span>
+        <span class="file">ADR-047-lab-organizations-transporter-vetting-temporal-saga.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>Vetting runs as a Temporal workflow with a two-branch parallel saga. Activities publish the domain events. Compensation is forward-only.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>A multi-day, human-in-the-loop approval with real compensation needs durable timers, signals and saga support. That is what Temporal is for.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>related ADR-046, ADR-048, ADR-049, ADR-050</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-048</b> Document Blob Storage: NATS Object Store</li><li><b>ADR-049</b> Cross-Aggregate Concurrency: Two Mechanisms, One Guard</li><li><b>ADR-050</b> GIT Certificate Change Log Needs a Provenance Source</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-047 · card 3 of 9</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--cyan)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Tech Lab · Dictionary POC</span></div>
+    <div class="titleblock">
+      <div class="num">048</div>
+      <div class="fam-lbl">lab · organizations</div>
+      <h2>Document Blob Storage: NATS Object Store</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-08-20</span>
+        <span class="file">ADR-048-lab-organizations-document-storage-nats-object-store.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>Compliance document bytes go in a NATS Object Store bucket per tenant account, not S3, MinIO or GCS.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>The lab evaluates NATS patterns and tenant isolation already comes from the NATS account. The cost is real limits on size and durability, and the ADR records them.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>related ADR-046, ADR-047, ADR-050</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-047</b> Temporal Saga Design for TransporterProfile Vetting</li><li><b>ADR-050</b> GIT Certificate Change Log Needs a Provenance Source</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-048 · card 4 of 9</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--cyan)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Tech Lab · Dictionary POC</span></div>
+    <div class="titleblock">
+      <div class="num">049</div>
+      <div class="fam-lbl">lab · organizations</div>
+      <h2>Cross-Aggregate Concurrency: Two Mechanisms, One Guard</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-08-20</span>
+        <span class="file">ADR-049-lab-organizations-cross-aggregate-concurrency.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>Organization uses optimistic row versioning. TransporterProfile uses per-subject expected-sequence on the TRANSPORTER stream. One guard sits across both.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>The two aggregates persist differently, so no single mechanism covers both. The cross-aggregate invariant is a one-time gate, not a running constraint.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>related ADR-046, ADR-047, ADR-051</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-047</b> Temporal Saga Design for TransporterProfile Vetting</li><li><b>ADR-051</b> Entity Identity Is a ULID, Not a UUID</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-049 · card 5 of 9</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--cyan)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Tech Lab · Dictionary POC</span></div>
+    <div class="titleblock">
+      <div class="num">050</div>
+      <div class="fam-lbl">lab · organizations</div>
+      <h2>GIT Certificate Change Log Needs a Provenance Source</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-08-22</span>
+        <span class="file">ADR-050-lab-organizations-git-certificate-change-log-provenance.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>The GOODS_IN_TRANSIT document is event-sourced onto the TRANSPORTER stream. Its Postgres row becomes a projection. The other four document types stay CRUD.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>A change log needs an event history that did not exist. Only the GIT certificate has a business need for one, so only it pays the event-sourcing cost.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>related ADR-046, ADR-047, ADR-048</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-047</b> Temporal Saga Design for TransporterProfile Vetting</li><li><b>ADR-048</b> Document Blob Storage: NATS Object Store</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-050 · card 6 of 9</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--cyan)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Tech Lab · Dictionary POC</span></div>
+    <div class="titleblock">
+      <div class="num">051</div>
+      <div class="fam-lbl">lab · organizations</div>
+      <h2>Entity Identity Is a ULID, Not a UUID</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-08-24</span>
+        <span class="file">ADR-051-lab-organizations-ulid-entity-identity.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>organizations-service mints 26-character ULIDs in Go. ID columns are TEXT with no default. shipping-service and accounts-service stay on UUID.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>IDs sit in NATS subject tokens and KV keys, so they must be subject-safe and immutable. ULIDs sort by time and never contain a dot.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>related ADR-046, ADR-049</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-049</b> Cross-Aggregate Concurrency: Two Mechanisms, One Guard</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-051 · card 7 of 9</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--cyan)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Tech Lab · Dictionary POC</span></div>
+    <div class="titleblock">
+      <div class="num">052</div>
+      <div class="fam-lbl">lab · data</div>
+      <h2>One Postgres Instance, One Database and One Role per Service</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-09-03</span>
+        <span class="file">ADR-052-lab-data-one-postgres-instance-database-per-service.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>The six lab services share one Postgres container. Each owns one database and one role. CONNECT is revoked from PUBLIC and granted to the owner only.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>Seven containers bought process isolation nothing needed. Per-role CONNECT privileges keep the real guarantee: a service cannot read another service's tables.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>applies ADR-053</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-053</b> Use Shared PostgreSQL Instances by Default</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-052 · card 8 of 9</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--purple)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Proposed Linebooker V3</span></div>
+    <div class="titleblock">
+      <div class="num">053</div>
+      <div class="fam-lbl">v3 · data</div>
+      <h2>Use Shared PostgreSQL Instances by Default</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-09-03</span>
+        <span class="file">ADR-053-v3-data-shared-postgres-by-default.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>Share PostgreSQL infrastructure by default within a region. Give every service its own logically isolated database, credentials and migrations. Move a database to dedicated infrastructure only on a demonstrated requirement.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>Dedicated instances per database cost more, fragment capacity and multiply operational work. Logical isolation by database, role and privileges keeps service ownership strong without that cost.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>applied by ADR-052</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-052</b> One Postgres Instance, One Database and One Role per Service</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-053 · card 9 of 9</span></div>
+  </section>
+</body>
+</html>

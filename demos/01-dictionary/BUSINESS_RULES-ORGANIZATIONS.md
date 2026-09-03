@@ -847,7 +847,7 @@ These rules are what make the vetting lifecycle observable.
 deliberately inert Upload control. Everything before this sub-phase treated a
 document as metadata only: `reference` was an opaque external locator and no
 bytes existed anywhere. Reviewed in
-[ADR-048](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-048-document-storage-nats-object-store.md),
+[ADR-048](../../obsidian/V3-Platform/Architecture/ADR/ADR-048-lab-organizations-document-storage-nats-object-store.md),
 whose four remaining amendments these rules discharge.
 
 - **BR-TP40 (a dedicated byte ingress):** Document bytes move over **two HTTP
@@ -1423,7 +1423,7 @@ not connected" since before the tenant fix.
 
 **Confirmed 2026-08-22** at the Phase 39 design gate (see
 `.claude/plans/Main-POC-Plan.md` Phase 39 decisions 1–24 and
-[ADR-050](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-050-git-certificate-change-log-provenance.md)).
+[ADR-050](../../obsidian/V3-Platform/Architecture/ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md)).
 Each rule below is one Ginkgo `Context`, specs before code. Scope is the
 `GOODS_IN_TRANSIT` document type only; the other four types are unchanged by
 this phase.
@@ -1576,7 +1576,7 @@ this phase.
 **Confirmed 2026-08-24.** Scoped to `organizations-service`;
 `shipping-service` and `accounts-service` keep UUIDs by decision, not by
 oversight (see
-[ADR-051](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-051-ulid-entity-identity.md)
+[ADR-051](../../obsidian/V3-Platform/Architecture/ADR/ADR-051-lab-organizations-ulid-entity-identity.md)
 § "Scope and what was deliberately left alone").
 
 - **BR-TP73 (the rule):** Every entity identifier this service mints is a

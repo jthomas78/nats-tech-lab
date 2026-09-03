@@ -1,9 +1,21 @@
+---
+adr: 50
+title: GIT Certificate Change Log Needs a Provenance Source
+status: Accepted
+date: 2026-08-22
+scope: lab
+context: organizations
+decision: The GOODS_IN_TRANSIT document is event-sourced onto the TRANSPORTER stream. Its Postgres row becomes a projection. The other four document types stay CRUD.
+why: A change log needs an event history that did not exist. Only the GIT certificate has a business need for one, so only it pays the event-sourcing cost.
+related: [46, 47, 48]
+---
+
 # ADR-050: The GIT Certificate Change Log Needs a Provenance Source That Does Not Yet Exist
 
-**Status:** **Accepted 2026-08-22** — Option A, scoped to `GOODS_IN_TRANSIT`. Decided at the Phase 39 design gate; all action items below are closed. Amends [ADR-046](ADR-046-transporter-aggregate-split.md) and [ADR-047](ADR-047-transporter-vetting-temporal-saga.md).
+**Status:** **Accepted 2026-08-22** — Option A, scoped to `GOODS_IN_TRANSIT`. Decided at the Phase 39 design gate; all action items below are closed. Amends [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) and [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md).
 **Date:** 2026-08-21
 **Deciders:** Jeremy (repo owner) — Phase 39 design review
-**Related:** [Main-POC-Plan.md](../../../../.claude/plans/Main-POC-Plan.md) Phase 39 (decisions 11, 12, 13); [ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md](ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md) §§ 3, 5, 9.5; [ADR-047](ADR-047-transporter-vetting-temporal-saga.md) (the saga whose signal is the only current producer of document events); [ADR-046](ADR-046-transporter-aggregate-split.md) (the aggregate split that put documents on the CRUD side); `CLAUDE.md` § "Event sourcing vs plain CRUD"
+**Related:** [Main-POC-Plan.md](../../../../.claude/plans/Main-POC-Plan.md) Phase 39 (decisions 11, 12, 13); [ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md) §§ 3, 5, 9.5; [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) (the saga whose signal is the only current producer of document events); [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (the aggregate split that put documents on the CRUD side); `CLAUDE.md` § "Event sourcing vs plain CRUD"
 
 ## Context
 
