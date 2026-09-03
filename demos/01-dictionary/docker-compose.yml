@@ -35,141 +35,35 @@ services:
       - ./nats/nats.conf:/etc/nats/nats.conf:ro
       - ./nats/operator.jwt:/etc/nats/operator.jwt:ro
 
+  # One Postgres instance for all six owned services (Phase 53, ADR-052).
+  # Database-per-service and role-per-service: postgres/init.sql creates
+  # one role and one database per service and revokes CONNECT on each
+  # database from everyone but its owner, so the "no shared datastore
+  # between services" guarantee the old six instances stood for is now
+  # enforced by credentials rather than by process boundary. Tenancy is
+  # unaffected — tenant = NATS account, never a Postgres object.
+  # Temporal keeps its own instance below (third-party auto-setup image).
   postgres:
     image: postgres:16-alpine
-    container_name: lb-shipping-postgres
+    container_name: lb-postgres
     environment:
-      POSTGRES_USER: dict
-      POSTGRES_PASSWORD: dict
-      POSTGRES_DB: dictionary
+      # Superuser for the instance only; no service connects as it.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
     ports:
       - "5432:5432"
     networks:
       - backend
     volumes:
       - pg-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dict -d dictionary"]
-      interval: 2s
-      timeout: 2s
-      retries: 15
-
-  # refdata-service's own Postgres instance — deliberately separate from
-  # `postgres` above (not just a private schema on it) so refdata-service has
-  # no shared infrastructure with shipping-service beyond NATS, matching the
-  # database-per-service isolation level (BR-D28 already made backend-to-
-  # backend *calls* NATS-only; this closes the remaining shared-datastore gap
-  # — see Dictionary-Service-Plan.md Q1).
-  refdata-postgres:
-    image: postgres:16-alpine
-    container_name: lb-refdata-postgres
-    environment:
-      POSTGRES_USER: refdata
-      POSTGRES_PASSWORD: refdata
-      POSTGRES_DB: refdata
-    ports:
-      - "5433:5432"
-    networks:
-      - backend
-    volumes:
-      - pg-refdata-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U refdata -d refdata"]
-      interval: 2s
-      timeout: 2s
-      retries: 15
-
-  # accounts-service's own Postgres instance (Phase 14b) — same
-  # database-per-service isolation as refdata-postgres above; stores account
-  # metadata (name, public key, JetStream limits), never NATS credentials'
-  # private seeds for the three pre-existing accounts (those are seeded
-  # read-only from nats/resolver/*.jwt at startup, see cmd/main.go).
-  accounts-postgres:
-    image: postgres:16-alpine
-    container_name: lb-accounts-postgres
-    environment:
-      POSTGRES_USER: accounts
-      POSTGRES_PASSWORD: accounts
-      POSTGRES_DB: accounts
-    ports:
-      - "5434:5432"
-    networks:
-      - backend
-    volumes:
-      - pg-accounts-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U accounts -d accounts"]
-      interval: 2s
-      timeout: 2s
-      retries: 15
-
-  # mfe-registry-service's own Postgres instance — same
-  # database-per-service isolation as accounts-postgres. The registry left
-  # accounts-service with its schema intact precisely because it shared no
-  # table and no foreign key with accounts (decision 39); giving it its own
-  # instance is what makes that true at the infrastructure layer too.
-  mfe-registry-postgres:
-    image: postgres:16-alpine
-    container_name: lb-mfe-registry-postgres
-    environment:
-      POSTGRES_USER: mfe_registry
-      POSTGRES_PASSWORD: mfe_registry
-      POSTGRES_DB: mfe_registry
-    ports:
-      - "5437:5432"
-    networks:
-      - backend
-    volumes:
-      - pg-mfe-registry-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mfe_registry -d mfe_registry"]
-      interval: 2s
-      timeout: 2s
-      retries: 15
-
-  # pricing-service's own Postgres instance (Phase 25) — same
-  # database-per-service isolation as refdata-postgres/accounts-postgres.
-  # This domain is write-adjacent in the source system it was ported from
-  # (unlike refdata-service's read-only boundary), so it gets the same
-  # isolated datastore rigor rather than a shared schema.
-  pricing-postgres:
-    image: postgres:16-alpine
-    container_name: lb-pricing-postgres
-    environment:
-      POSTGRES_USER: pricing
-      POSTGRES_PASSWORD: pricing
-      POSTGRES_DB: pricing
-    ports:
-      - "5435:5432"
-    networks:
-      - backend
-    volumes:
-      - pg-pricing-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pricing -d pricing"]
-      interval: 2s
-      timeout: 2s
-      retries: 15
-
-  # organizations-service's own Postgres instance (Phase 26) — same
-  # database-per-service isolation as refdata-postgres/accounts-postgres/
-  # pricing-postgres.
-  organizations-postgres:
-    image: postgres:16-alpine
-    container_name: lb-organizations-postgres
-    # Legacy DB/role names are deliberately retained to preserve the existing dev volume.
-    environment:
-      POSTGRES_USER: trading_partner
-      POSTGRES_PASSWORD: trading_partner
-      POSTGRES_DB: trading_partner
-    ports:
-      - "5436:5432"
-    networks:
-      - backend
-    volumes:
-      - pg-trading-partner-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trading_partner -d trading_partner"]
+      # Over TCP on purpose: the image's init-phase server listens on the
+      # unix socket only, so a socket-based pg_isready would pass before
+      # init.sql has run. Logging in as the last role init.sql creates
+      # proves the whole script finished.
+      test: ["CMD-SHELL", "PGPASSWORD=organizations psql -h 127.0.0.1 -U organizations -d organizations -qtAc 'select 1'"]
       interval: 2s
       timeout: 2s
       retries: 15
@@ -263,11 +157,11 @@ services:
       - backend
       - frontend
     environment:
-      # Own Postgres instance (`refdata-postgres`, not `postgres`) — no
-      # datastore of any kind is shared with `shipping-service` (Phase 11,
-      # Dictionary-Service-Plan.md; isolation tightened per the Q1 follow-up
-      # decision to go database-per-service rather than schema-per-service).
-      DATABASE_URL: postgres://refdata:refdata@refdata-postgres:5432/refdata?sslmode=disable
+      # Own database and own role on the shared instance (Phase 53,
+      # ADR-052) — no table is shared with `shipping-service`, and the
+      # `refdata` role cannot CONNECT to any other service's database (Phase 11,
+      # Dictionary-Service-Plan.md Q1).
+      DATABASE_URL: postgres://refdata:refdata@postgres:5432/refdata?sslmode=disable
       # Same NATS server as `shipping-service` — used only for the KV cache
       # (refdata-{context}) and the bounded REFDATA change-event stream,
       # never as this service's source of truth (Q6).
@@ -290,7 +184,7 @@ services:
     depends_on:
       nats:
         condition: service_started
-      refdata-postgres:
+      postgres:
         condition: service_healthy
 
   # Phase 14b — mints/revokes NATS accounts at runtime via decentralized
@@ -306,7 +200,7 @@ services:
   # the Sea Freight Flow browser can connect directly to NATS over WebSocket
   # (api.*/notify.* only, see auth/token.go) instead of REST + SSE for every
   # read and write. That package used to be its own service reading
-  # accounts-postgres read-only as a cross-service coupling
+  # accounts-service's Postgres read-only as a cross-service coupling
   # (Main-POC-Plan.md Phase 15c's "known POC trade-offs"); it now reads the
   # same Store this service already owns, in-process — see
   # BUSINESS_RULES-ACCOUNTS.md's merge note.
@@ -322,7 +216,7 @@ services:
       - backend
       - frontend
     environment:
-      DATABASE_URL: postgres://accounts:accounts@accounts-postgres:5432/accounts?sslmode=disable
+      DATABASE_URL: postgres://accounts:accounts@postgres:5432/accounts?sslmode=disable
       NATS_URL: nats://nats:4222
       # $SYS.REQ.CLAIMS.* (mint/revoke) is only reachable authenticated as
       # the SYS account.
@@ -389,7 +283,7 @@ services:
     depends_on:
       nats:
         condition: service_started
-      accounts-postgres:
+      postgres:
         condition: service_healthy
       refdata-service:
         condition: service_started
@@ -412,7 +306,7 @@ services:
       - backend
       - frontend
     environment:
-      DATABASE_URL: postgres://mfe_registry:mfe_registry@mfe-registry-postgres:5432/mfe_registry?sslmode=disable
+      DATABASE_URL: postgres://mfe_registry:mfe_registry@postgres:5432/mfe_registry?sslmode=disable
       NATS_URL: nats://nats:4222
       # PLATFORM: the registry's subjects are all _platform-context, and core
       # NATS never crosses an account boundary — a connection on any other
@@ -477,7 +371,7 @@ services:
     depends_on:
       nats:
         condition: service_started
-      mfe-registry-postgres:
+      postgres:
         condition: service_healthy
 
   # App-shell Phase 13d — publisher trust seeding, as a one-shot.
@@ -543,7 +437,7 @@ services:
       - backend
       - frontend
     environment:
-      DATABASE_URL: postgres://pricing:pricing@pricing-postgres:5432/pricing?sslmode=disable
+      DATABASE_URL: postgres://pricing:pricing@postgres:5432/pricing?sslmode=disable
       HTTP_ADDR: ":8080"
       # Phase 25f — api.* adapter: one NATS connection per known tenant,
       # discovered from NATS_CREDS_DIR, same shared directory
@@ -558,7 +452,7 @@ services:
     depends_on:
       nats:
         condition: service_started
-      pricing-postgres:
+      postgres:
         condition: service_healthy
 
   # Phase 26 — Shipper/Transporter registration, ported from Linebooker
@@ -584,7 +478,7 @@ services:
       - backend
       - frontend
     environment:
-      DATABASE_URL: postgres://trading_partner:trading_partner@organizations-postgres:5432/trading_partner?sslmode=disable
+      DATABASE_URL: postgres://organizations:organizations@postgres:5432/organizations?sslmode=disable
       HTTP_ADDR: ":8080"
       NATS_URL: nats://nats:4222
       NATS_CREDS_DIR: /etc/nats/creds
@@ -614,7 +508,7 @@ services:
     depends_on:
       nats:
         condition: service_started
-      organizations-postgres:
+      postgres:
         condition: service_healthy
       temporal:
         condition: service_started
@@ -1158,11 +1052,6 @@ volumes:
   nats-data:
   nats-logs:
   pg-data:
-  pg-refdata-data:
-  pg-accounts-data:
-  pg-mfe-registry-data:
-  pg-pricing-data:
-  pg-trading-partner-data:
   temporal-postgres-data:
   nui-data:
   nats-tower-data:

@@ -33,7 +33,7 @@ and [nats_sys_claims_subjects.md](../../../../.claude/memory/nats_sys_claims_sub
 | Concern | Owner | Notes |
 |---------|-------|-------|
 | Identity & authentication | WorkOS | Email, password/SSO, MFA, email verification |
-| Domain attributes | App DB (accounts-postgres) | Tenant association, role, permissions, preferences |
+| Domain attributes | App DB (the `accounts` Postgres database) | Tenant association, role, permissions, preferences |
 | NATS credentials | Derived artifact | Minted from app DB + tenant's account signing key; never authoritative |
 
 ---
@@ -514,7 +514,7 @@ Operator (lab-operator)
 | Artifact | What it is | Who holds it | Sensitivity |
 |----------|-----------|--------------|-------------|
 | Operator signing key (`.nk`) | Ed25519 seed that signs account JWTs | `accounts-service` (read-only mount) | Highest — controls all accounts |
-| Account signing key seed | Ed25519 seed that signs user JWTs for one account | `accounts-postgres` (`signing_key_seed` column) | High — controls one tenant's users |
+| Account signing key seed | Ed25519 seed that signs user JWTs for one account | `accounts` Postgres database (`signing_key_seed` column) | High — controls one tenant's users |
 | Account JWT | Signed claims (public key, JetStream limits, name) | NATS resolver (`$SYS.REQ.CLAIMS.UPDATE`) | Medium — public key + config, no secrets |
 | User JWT | Signed claims (account association, permissions) | `.creds` file on disk / short-lived in browser | Medium — grants access but expires |
 | User NKey seed | Ed25519 private key for the user identity | `.creds` file (server-side only — BR-UA05) | High — paired with the JWT for auth |
@@ -1410,7 +1410,7 @@ BR-AC11. Closes gap #3 from the 2026-08-03 accounts architecture review:
 tenant lifecycle changes had no trace beyond `accounts.updated_at` — no
 actor, no event log — in tension with BR-AC03's own regulatory-retention
 rationale for disallowing hard deletes. Every create/suspend/reactivate now
-writes an immutable row to `accounts.audit_events` (same Postgres instance
+writes an immutable row to `accounts.audit_events` (same Postgres database
 and schema as `accounts.accounts`, own table) after its state change
 succeeds, and best-effort on any failure once a real side effect has been
 attempted.

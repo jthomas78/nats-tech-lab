@@ -28,6 +28,9 @@
 > (`refdata-postgres` in `docker-compose.yml`, port `5433`, own `refdata` role/database) rather
 > than a private schema on `shipping-service`'s `postgres` instance — NATS is now the only
 > infrastructure the two services share.
+> **Revised 2026-09-03 (Phase 53, ADR-052):** back to one Postgres *instance*, but the
+> isolation is kept as database-per-service + role-per-service — `refdata` is its own database
+> whose `CONNECT` privilege only the `refdata` role holds. Same guarantee, six fewer containers.
 >    Investigation found the generic `{type}` REST endpoints already serve `country` with zero
 >    new code (`country` is already seeded and localized); the only real options were a thin
 >    tests-only deliverable or a much larger real-domain-field change. User chose to drop it

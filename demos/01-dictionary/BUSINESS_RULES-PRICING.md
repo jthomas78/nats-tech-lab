@@ -13,7 +13,7 @@ by querying the latest **published** version, not by reconstructing history
 `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md`). Unlike
 refdata-service's read-only boundary (BR-D28), this domain is
 **write-adjacent** — a fee calculation sits on the load-accept path in the
-source system — so it is its own service with its own Postgres, not a merge
+source system — so it is its own service with its own Postgres database, not a merge
 into refdata-service.
 
 **Scope so far:** all three source aggregates now have a domain model —
@@ -53,7 +53,8 @@ decided against:
   constraint above) is still unimplemented — nothing gates on it yet, since
   there is no Load aggregate to gate.
 - **Service wiring (Phase 25d, IMPLEMENTED)** — Postgres schema (own
-  `pricing` schema, own `pricing-postgres` container, port 5435), REST API
+  `pricing` schema in its own `pricing` database/role on the shared `postgres` instance —
+  a separate `pricing-postgres` container on 5435 until Phase 53 / ADR-052), REST API
   (`GET/POST/PUT` under `/api/pricing/{context}/...`), `cmd/main.go`, and a
   `pricing-service` docker-compose entry (port 7203) now exist and were
   verified end to end against a live Postgres — register → draft → add

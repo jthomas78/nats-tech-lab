@@ -47,7 +47,7 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	databaseURL := envOr("DATABASE_URL", "postgres://accounts:accounts@localhost:5434/accounts?sslmode=disable")
+	databaseURL := envOr("DATABASE_URL", "postgres://accounts:accounts@localhost:5432/accounts?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	natsCredsPath := envOr("NATS_CREDS_PATH", "")                  // sys.creds — $SYS.REQ.CLAIMS.* is only reachable authenticated as SYS
 	natsPlatformCredsPath := envOr("NATS_PLATFORM_CREDS_PATH", "") // platform.creds — Phase 16h: publishes notify.accounts.account.created for shipping-service's PLATFORM-account subscriber (BR-030); optional, publish is skipped if unset

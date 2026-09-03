@@ -42,7 +42,7 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	databaseURL := envOr("DATABASE_URL", "postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable")
+	databaseURL := envOr("DATABASE_URL", "postgres://refdata:refdata@localhost:5432/refdata?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	// Phase 14a — operator mode: refdata-service is cross-tenant (BR-D08),
 	// so it always connects as PLATFORM, never a per-tenant account. Empty

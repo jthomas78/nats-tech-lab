@@ -296,7 +296,7 @@ explicitly, not hand-waved:
 `TransporterProfile` lands as a sibling domain package inside the (still
 named, until the rename sub-phase) `organizations-service` — its own
 `internal/domain`, `internal/postgres`, `internal/temporal`, own Postgres
-tables in the same `trading_partner` Postgres database (or a new
+tables in the same `organizations` Postgres database (named `trading_partner` until Phase 53; or a new
 `transporterprofile` schema in it — confirm at implementation time), and
 its own JetStream stream — not a new container/port/compose entry. Kept
 from the prior draft unchanged: this is a design call made to keep this

@@ -34,7 +34,7 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	databaseURL := envOr("DATABASE_URL", "postgres://pricing:pricing@localhost:5435/pricing?sslmode=disable")
+	databaseURL := envOr("DATABASE_URL", "postgres://pricing:pricing@localhost:5432/pricing?sslmode=disable")
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	credsDir := envOr("NATS_CREDS_DIR", "")

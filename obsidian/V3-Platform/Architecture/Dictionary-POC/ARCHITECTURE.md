@@ -393,9 +393,9 @@ filters that result. The Admin NATS connection stays in PLATFORM throughout.
 
 Phase 11, [Dictionary-Service-Plan.md](../../../../.claude/plans/Dictionary-Service-Plan.md) — a
 **separate Go service and container**, not a module in the shipping backend's monolith. It runs
-against its own Postgres instance (`refdata-postgres` in `docker-compose.yml`, own `refdata`
-role/database — tightened 2026-07-27 from a shared instance with a private schema to a fully
-separate database server); it does not touch the `SHIPPING` stream, KV buckets, or Postgres
+against its own Postgres database and role (`refdata`/`refdata` on the shared `postgres`
+instance — ADR-052; 2026-07-27 to 2026-09-03 this was a fully separate database server);
+it does not touch the `SHIPPING` stream, KV buckets, or Postgres
 instance the shipping backend uses. NATS is the only infrastructure shared between the two
 services.
 
@@ -880,13 +880,15 @@ directory for `*.creds` files, excluding `platform.creds` and `sys.creds`
 
 ### Docker Compose topology (Phase 14)
 
-The docker-compose stack added `accounts-service` and `accounts-postgres` in Phase 14b.
+The docker-compose stack added `accounts-service` and its Postgres in Phase 14b (its own
+instance then; since Phase 53 / ADR-052 the `accounts` database and role on the shared
+`postgres` instance).
 See the [docker-compose network topology](images/docker-compose-network.png) diagram for
 the full picture, or `demos/01-dictionary/docker-compose.yml` for the source.
 
 Key additions:
-- **accounts-postgres** (host port 5434) — third database-per-service instance, separate
-  from shipping-service's and refdata-service's Postgres
+- **accounts database** (`accounts` role, on `postgres`, host port 5432) — database-per-service,
+  no table or credential shared with shipping-service or refdata-service
 - **accounts-service** (host port 7202) — bridges frontend and backend networks (like
   shipping-service and refdata-service); mounts `sys.creds` (SYS account), the operator
   signing key, the resolver directory (read-only, for seeding), and the shared creds

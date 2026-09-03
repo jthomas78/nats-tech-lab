@@ -10298,6 +10298,107 @@ bugs, and changing which one runs first is a real test of both.**
   it only if a re-measurement shows the bounded table is still too big to
   ship whole.
 
+## Phase 53 — Completed (archived 2026-09-03)
+
+### Phase 53 — DONE (approved and implemented 2026-09-03) — One Postgres Instance: Database-per-Service, Role-per-Service
+
+> Design record:
+> [ADR-052](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-052-one-postgres-instance-database-per-service.md).
+> This phase builds it; it does not re-decide it. Design decisions approved
+> 2026-09-03; implemented and live-verified the same day (see "Verification").
+
+#### Goal
+
+Reduce the seven `postgres:16-alpine` containers in
+`demos/01-dictionary/docker-compose.yml` to two: one shared instance for the
+six owned services, one for Temporal. Keep the guarantee the old shape
+existed for — a service cannot read another service's tables — and make it
+enforced by credentials rather than by process boundary.
+
+#### Design decisions
+
+1. **Tenancy is untouched.** Tenant = NATS account (Phase 16). No Postgres
+   table, schema, or role is per-tenant today and none becomes so. This
+   phase moves the *service-to-service* isolation axis only.
+2. **One database per service, not one schema per service.** Databases:
+   `dictionary`, `refdata`, `accounts`, `mfe_registry`, `pricing`,
+   `organizations`. Each service keeps its existing schema inside its own
+   database, so no migration code changes. Shipping stays in `public` of
+   `dictionary`.
+3. **One role per service, owner of its database only.** Init SQL revokes
+   `CONNECT` on every database from `PUBLIC` and grants it back to the
+   owner. Passwords stay equal to the role name (lab convention).
+4. **Init via `/docker-entrypoint-initdb.d/`**, one SQL file checked into
+   `demos/01-dictionary/postgres/init.sql`. Runs once on an empty volume.
+   Services still run their own idempotent migrations at startup.
+5. **One host port, `5432`.** Release 5433–5437. Operators select by
+   database name + role.
+6. **Organizations naming:** the database and role become `organizations`
+   (drops the legacy `trading_partner` physical names, which were kept only
+   to preserve a dev volume this phase deletes anyway). Fix the mismatched
+   `cmd/main.go` default at the same time.
+7. **Drop the vestigial `CREATE EXTENSION IF NOT EXISTS pgcrypto`** in
+   `organizations/internal/postgres/migrate.go` (ADR-051 replaced
+   `gen_random_uuid()` with service-minted ULIDs). If any query still needs
+   it, keep the line — `pgcrypto` is a trusted extension a database owner
+   may install.
+8. **Temporal stays on `temporal-postgres`.** Folding it in is ADR-052
+   Option 3, deferred.
+9. **Data reset, not migration.** `docker compose down -v` + reseed. Six
+   `pg-*` volumes collapse to one `pg-data`.
+10. **Integration tests are out of scope.** They already use throwaway
+    containers or `*_TEST_DATABASE_URL`; none touch compose.
+
+#### Business rules
+
+None. This is an infrastructure change; no domain rule is added or
+removed. The one enforceable invariant — "a service role cannot connect to
+another service's database" — is verified in 53c, not encoded as a BR.
+
+#### Sub-phases
+
+- [x] **53a — Init SQL + compose.** Add `postgres/init.sql` (6 roles, 6
+      databases, `CONNECT` revoke/grant). Replace six `*-postgres` services
+      with one `postgres` (`container_name: lb-postgres`, health check
+      `pg_isready`). Rewrite six `DATABASE_URL`s to `postgres:5432/<db>` and
+      six `depends_on` entries. Remove five volumes.
+- [x] **53b — Go defaults.** Six `cmd/main.go` fallback strings →
+      `localhost:5432/<db>` with the matching role. Organizations →
+      `organizations:organizations@localhost:5432/organizations`.
+      Decision 7 (pgcrypto line).
+- [x] **53c — Verify.** `docker compose down -v && docker compose up
+      --build`: all six services healthy, seed data present in the UIs.
+      Negative check per role, e.g.
+      `psql -U refdata -d dictionary` must be refused. Record the command
+      and its output in the phase.
+- [x] **53d — Docs and memory.** `README.md` port table + credential
+      prose (one block, six rows); compose comments; `ARCHITECTURE.md`,
+      `ARCHITECTURE-DICTIONARY.md` "own Postgres instance" wording;
+      `organizations/internal/postgres/migrate.go` header comment;
+      `Dictionary-Service-Plan.md` Q1 note; `refdata-service/README.md`;
+      memory `refdata_database_per_service.md` (rewrite, link ADR-052);
+      ADR-052 status → Accepted.
+
+#### Verification (2026-09-03, `docker compose down -v && docker compose up --build -d`)
+
+- `docker compose ps`: 2 Postgres containers (`lb-postgres`, `lb-temporal-postgres`), both
+  healthy; all six services up, no Postgres/migration errors in their logs.
+- `pg_database`: six databases, each owned by its own role.
+- Positive: each role sees exactly its own schema (`dict`→`public`, `refdata`→`refdata`,
+  `accounts`→`accounts`, `mfe_registry`→`registry`, `pricing`→`pricing`,
+  `organizations`→`organizations`).
+- Negative (six pairs, e.g. `PGPASSWORD=refdata psql -h 127.0.0.1 -U refdata -d dictionary`):
+  every cross-database connect refused with `User does not have CONNECT privilege`.
+- Seed data present: 7 refdata types / 284 items, 6 ports, 4 accounts, 6 registry entries;
+  10 pricing tables and 7 organizations tables created.
+- `pg_extension` in `organizations`: `plpgsql` only — the pgcrypto drop (decision 7) is safe.
+- `ORGANIZATIONS_TEST_DATABASE_URL=...@localhost:5432/organizations go test
+  ./organizations/internal/postgres/`: 30/30 specs pass against the live shared instance.
+- Five orphaned volumes (`poc_pg-{accounts,mfe-registry,pricing,refdata,trading-partner}-data`)
+  removed with `docker volume rm`.
+
+---
+
 ## Renumbering history
 
 Every renumbering log, moved out of the live plan on 2026-08-21 (it had

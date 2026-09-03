@@ -3,10 +3,10 @@
 A standalone Go service providing shared reference/master data — currencies,
 countries, Incoterms, units of measure, hazard classes, and shipping-domain
 enums like `ship-status` — with per-locale labels, typed cross-references,
-and a versioned NATS-KV read cache in front of its own Postgres instance
-(`refdata-postgres` in `docker-compose.yml` — a separate database server from
-the one `shipping-service` uses, not just a private schema on a shared one).
-NATS is the only infrastructure this service shares with `shipping-service`.
+and a versioned NATS-KV read cache in front of its own Postgres database
+(`refdata`, owned by the `refdata` role, on the shared `postgres` instance in
+`docker-compose.yml` — no other service's role can `CONNECT` to it; ADR-052).
+No table is shared with `shipping-service`.
 
 It is plain Postgres CRUD, not event-sourced: nothing here ever needs to
 replay a lookup value's history, only its current value. NATS JetStream/KV
@@ -57,13 +57,13 @@ couple of strings (whatever was seeded when the container last started)
 and silently leaves the rest in English.
 
 **Standalone, outside Docker** (useful for hot-reload during development).
-Requires its own Postgres (`refdata-postgres`, port `5433` — not the
-`postgres` container `shipping-service` uses) and NATS already running — the
-easiest way is via compose:
+Requires Postgres (the shared `postgres` container, port `5432`, database
+`refdata`, role `refdata`) and NATS already running — the easiest way is via
+compose:
 
 ```bash
 cd demos/01-dictionary
-docker compose up nats refdata-postgres
+docker compose up nats postgres
 ```
 
 Then, in a separate terminal:
@@ -71,7 +71,7 @@ Then, in a separate terminal:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable" \
+DATABASE_URL="postgres://refdata:refdata@localhost:5432/refdata?sslmode=disable" \
 go run ./cmd
 ```
 
@@ -82,7 +82,7 @@ give refdata-service a different port:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable" \
+DATABASE_URL="postgres://refdata:refdata@localhost:5432/refdata?sslmode=disable" \
 HTTP_ADDR=:8081 \
 go run ./cmd
 ```
@@ -102,7 +102,7 @@ layer backfills and that consumers like the shipping backend's
 
 ```bash
 cd demos/01-dictionary
-docker compose exec refdata-postgres psql -U refdata -d refdata
+docker compose exec postgres psql -U refdata -d refdata
 
 # then, inside psql:
 SELECT * FROM refdata.dictionary_types;
@@ -115,7 +115,7 @@ SELECT * FROM refdata.dictionary_set_versions;
 Or one-shot, without an interactive session:
 
 ```bash
-docker compose exec refdata-postgres psql -U refdata -d refdata -c \
+docker compose exec postgres psql -U refdata -d refdata -c \
   "SELECT code, locale, label FROM refdata.dictionary_localizations WHERE type_key='ship-status' ORDER BY code, locale;"
 ```
 

@@ -53,7 +53,7 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	databaseURL := envOr("DATABASE_URL", "postgres://mfe_registry:mfe_registry@localhost:5437/mfe_registry?sslmode=disable")
+	databaseURL := envOr("DATABASE_URL", "postgres://mfe_registry:mfe_registry@localhost:5432/mfe_registry?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	// PLATFORM account: the registry's subjects are all _platform-context,
 	// and core NATS never crosses an account boundary — a connection on any

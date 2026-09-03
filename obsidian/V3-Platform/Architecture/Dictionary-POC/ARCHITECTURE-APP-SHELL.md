@@ -1399,8 +1399,8 @@ separation is the *only* thing that makes BR-AS03 a measurement rather than an a
 
 **Curation is service state** (Phase 2a; NATS transport in Phase 4). It lives in the
 `registry` module, its own bounded context sharing no table and no foreign key with `accounts` —
-which is why extracting it into **`mfe-registry-service`** (2026-08-31: its own Postgres instance on
-5437, its own PLATFORM credential `mfe-registry-service.creds`, and 7206 serving `/healthz` and
+which is why extracting it into **`mfe-registry-service`** (2026-08-31: its own Postgres database and role
+`mfe_registry` — a separate instance on 5437 until Phase 53 / ADR-052 — its own PLATFORM credential `mfe-registry-service.creds`, and 7206 serving `/healthz` and
 nothing else) was a deployment change rather than an untangling. Postgres (`registry.entries`, `registry.revision`, `registry.audit`) is
 the source of truth; a single NATS KV entry (`mfe-registry` bucket, key
 `_platform.frontend-plugins.current`) caches the whole serialized document so the shell keeps

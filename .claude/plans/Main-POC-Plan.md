@@ -1132,6 +1132,27 @@ was visible to a test written against the old default.
 ---
 
 
+### Phase 53 — Completed (archived 2026-09-03)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need the original
+rationale, the design decisions, or the verification log).
+
+- [x] Phase 53 (IMPLEMENTED 2026-09-03) — **seven Postgres containers became
+      two.** One `postgres` instance for the six owned services, one for
+      Temporal. Isolation kept as database-per-service + role-per-service:
+      `demos/01-dictionary/postgres/init.sql` creates a role and a database
+      per service and revokes `CONNECT` from every other role — verified live
+      (six cross-database connects refused, each role sees only its own
+      schema). Tenancy untouched (tenant = NATS account, never a Postgres
+      object). Host ports 5433–5437 released; organizations' legacy
+      `trading_partner` database/role renamed `organizations`; vestigial
+      `pgcrypto` extension dropped. Design record:
+      [ADR-052](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-052-one-postgres-instance-database-per-service.md).
+
+---
+
+
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase

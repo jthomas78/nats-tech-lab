@@ -379,8 +379,10 @@ on PLATFORM, and a tenant connection cannot address them at all.
 > the boundary holds: the ordinary connections genuinely cannot see across it.
 
 Postgres is isolated more strongly still, and by a second mechanism: since the
-database-per-service split, `refdata` is not a schema in the shared Postgres
-but its **own Postgres instance** (`lb-refdata-postgres`, host port 5433). The
+database-per-service split, `refdata` is not a schema in shipping's database
+but its **own database, owned by its own role**, on the shared `postgres`
+instance (Phase 53 / ADR-052 — `CONNECT` is revoked from every other role;
+2026-07-27 to 2026-09-03 it was a separate instance on host port 5433). The
 shipping backend has no credential for it and no network path to its data that
 isn't `rpc.*`.
 
@@ -521,10 +523,10 @@ localizations are.
 
 ## Database Schema
 
-Own Postgres schema (`refdata`) on its own Postgres *instance* — `refdata-postgres` in
-`docker-compose.yml`, a fully separate database server from the `postgres` container the shipping
-backend uses (tightened 2026-07-27; previously the same physical database, `dictionary`, with only
-schema-level separation). No shared tables, no shared instance — `CREATE SCHEMA IF NOT EXISTS
+Own Postgres schema (`refdata`) in its own *database* (`refdata`, owned by the `refdata` role) on
+the shared `postgres` instance (ADR-052, 2026-09-03; before that a separate instance from
+2026-07-27, and before that the same physical database, `dictionary`, with only schema-level
+separation). No shared tables, no shared credential — `CREATE SCHEMA IF NOT EXISTS
 refdata` (`internal/postgres/migrate.go`) runs against a database refdata-service exclusively owns.
 Postgres is the sole source of truth; NATS JetStream/KV are cache and change-notification only, and
 now the only infrastructure this service shares with the shipping backend at all (see

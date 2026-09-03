@@ -46,8 +46,8 @@ so it is not "fixed" back later by someone reading it as an inconsistency.
 trail), 26b (compliance documents), and 26c (Transporter fleet assets),
 26d (Postgres/REST/tenant-NATS wiring), and 26e (Admin UI) — all
 live-verified against the real composed stack, including in-browser.
-A separate service, separate legacy-named Postgres database
-(`trading_partner`) with its application schema at `organizations`, no datastore shared with `shipping-service`,
+A separate service, its own Postgres database and role (`organizations`,
+renamed from the legacy `trading_partner` in Phase 53 / ADR-052) with its application schema at `organizations`, no table shared with `shipping-service`,
 `refdata-service`, `accounts-service`, or `pricing-service` — see
 `tenant_service_separation_decision.md`. Plain Postgres CRUD (not
 event-sourced) — see `ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" and
@@ -260,7 +260,7 @@ repository adapters (`internal/postgres/`), application layer
 (`internal/application/commands/`), REST API
 (`internal/rest/handlers.go`), `internal/tenants` (per-tenant NATS
 connections) + `internal/refdataclient` (BR-TP14's `rpc.*` client),
-`cmd/main.go`, Dockerfile, docker-compose entry (5436/7204), nginx route.
+`cmd/main.go`, Dockerfile, docker-compose entry (7204; Postgres on the shared instance since Phase 53), nginx route.
 BR-TP14 is now implemented end-to-end: live-verified against a real
 `refdata-service` — a bogus `vehicleTypeCode` rejected, a real one
 (`TAUTLINER`, from the `vehicle-type` corpus seeded via

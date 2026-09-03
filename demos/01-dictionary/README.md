@@ -149,41 +149,36 @@ re-export the whole retained hour on the next start instead.
 | NATS monitor          | http://localhost:8222                                       |
 | NATS WebSocket (direct)   | ws://localhost:9222                                     |
 | NATS WebSocket (via a frontend) | http://localhost:7100/nats (also :7101, :7102, :7110) |
-| Postgres (shipping-service) | localhost:5432                                         |
-| Postgres (refdata-service)  | localhost:5433                                         |
-| Postgres (accounts-service) | localhost:5434                                         |
-| Postgres (pricing-service)  | localhost:5435                                         |
-| Postgres (organizations-service) | localhost:5436                                  |
-| Postgres (mfe-registry-service)  | localhost:5437                                  |
+| Postgres (one instance, one database + role per service — ADR-052) | localhost:5432 |
 | Temporal gRPC        | localhost:7233                                               |
 | Temporal UI          | http://localhost:8233                                        |
 | Jaeger UI (opt-in, `--profile otlp`) | http://localhost:16686                           |
 | Jaeger OTLP/HTTP receiver (opt-in)   | http://localhost:4318                            |
 
-**Postgres credentials (shipping-service):** host `localhost`, port `5432`, user `dict`, password `dict`, database `dictionary`
+**Postgres credentials.** One instance (`lb-postgres`, host `localhost`, port `5432`). Each service has its own database and its own role, and a role can `CONNECT` only to its own database (Phase 53, ADR-052 — created once by `postgres/init.sql`). Password equals the role name.
 
-**Postgres credentials (refdata-service):** host `localhost`, port `5433`, user `refdata`, password `refdata`, database `refdata` — its own instance, not a schema on the one above (see `backend/refdata-service/README.md`).
+| Service | Role | Database |
+|---|---|---|
+| shipping-service | `dict` | `dictionary` |
+| refdata-service | `refdata` | `refdata` |
+| accounts-service | `accounts` | `accounts` |
+| pricing-service | `pricing` | `pricing` |
+| mfe-registry-service | `mfe_registry` | `mfe_registry` |
+| organizations-service | `organizations` | `organizations` |
 
-**Postgres credentials (accounts-service):** host `localhost`, port `5434`, user `accounts`, password `accounts`, database `accounts` — its own instance. Browser NATS credential minting (Phase 15c, folded into this service as its `auth` package in Phase 19 — see `backend/accounts-service/auth/`) reads the same instance in-process, no longer a separate service.
-
-**Postgres credentials (pricing-service):** host `localhost`, port `5435`, user `pricing`, password `pricing`, database `pricing` — its own instance (Phase 25).
-
-**Postgres credentials (mfe-registry-service):** host `localhost`, port `5437`, user `mfe_registry`, password `mfe_registry`, database `mfe_registry` — its own instance. The curated micro-frontend registry, split out of accounts-service; its schema shared no table with accounts, which is what made the move a deployment change.
-
-**Postgres credentials (organizations-service):** host `localhost`, port `5436`, user `trading_partner`, password `trading_partner`, database `trading_partner` — legacy physical names deliberately retained to preserve the existing `pg-trading-partner-data` dev volume (Phase 26).
+Browser NATS credential minting (Phase 15c, folded into accounts-service as its `auth` package in Phase 19 — see `backend/accounts-service/auth/`) reads the `accounts` database in-process, not as a separate service. The mfe-registry schema shared no table with accounts, which is what made its split a deployment change. The organizations database dropped its legacy `trading_partner` name in Phase 53.
 
 ## Dev mode (outside Docker)
 
 Useful for backend hot-reload, or for Vue DevTools (the Docker build serves a
 production bundle, which DevTools can't inspect). Requires four terminals.
 
-**1. NATS + Postgres only** (still via Docker — no need to run these natively). `postgres` backs
-`shipping-service`; `refdata-postgres` is refdata-service's own separate instance (add it too if
-you're also running refdata-service in step 5):
+**1. NATS + Postgres only** (still via Docker — no need to run these natively). The one
+`postgres` container holds every service's database, including refdata-service's for step 5:
 
 ```bash
 cd demos/01-dictionary
-docker compose up nats postgres refdata-postgres
+docker compose up nats postgres
 ```
 
 **2. Backend** — the code defaults to the *standard* ports (`localhost:4222`,
@@ -226,7 +221,7 @@ instead when both are up at once:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable" \
+DATABASE_URL="postgres://refdata:refdata@localhost:5432/refdata?sslmode=disable" \
 HTTP_ADDR=:8081 \
 go run ./cmd/main.go
 ```
@@ -306,11 +301,11 @@ statement about Go code, it is a statement about the database.
 They **skip silently** when `ORGANIZATIONS_TEST_DATABASE_URL` is unset:
 
 ```bash
-docker compose up -d organizations-postgres
+docker compose up -d postgres
 ```
 
 ```bash
-ORGANIZATIONS_TEST_DATABASE_URL="postgres://trading_partner:trading_partner@localhost:5436/trading_partner?sslmode=disable" ginkgo ./...
+ORGANIZATIONS_TEST_DATABASE_URL="postgres://organizations:organizations@localhost:5432/organizations?sslmode=disable" ginkgo ./...
 ```
 
 Confirm the run reports `7/7 specs` for the `Organizations Postgres Suite`
@@ -322,7 +317,7 @@ apply any pending schema change to whatever database you point them at.
 To run everything that is normally gated off, set both variables:
 
 ```bash
-ORGANIZATIONS_TEST_DATABASE_URL="postgres://trading_partner:trading_partner@localhost:5436/trading_partner?sslmode=disable" TEMPORAL_TEST_ADDRESS=localhost:7233 ginkgo ./...
+ORGANIZATIONS_TEST_DATABASE_URL="postgres://organizations:organizations@localhost:5432/organizations?sslmode=disable" TEMPORAL_TEST_ADDRESS=localhost:7233 ginkgo ./...
 ```
 
 All business rules must have a passing test. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for the full rule inventory.

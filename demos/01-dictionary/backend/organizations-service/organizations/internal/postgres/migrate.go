@@ -6,12 +6,13 @@ import (
 )
 
 // Migrate creates the organizations schema and its tables if they don't
-// already exist. Own schema, own tables, own Postgres instance — no
-// datastore of any kind is shared with shipping-service, refdata-service,
-// accounts-service, or pricing-service (see tenant_service_separation_decision.md).
+// already exist. Own schema, own tables, own database and own role on the
+// shared Postgres instance (ADR-052) — no table is shared with
+// shipping-service, refdata-service, accounts-service, or pricing-service,
+// and this service's role cannot CONNECT to their databases
+// (see tenant_service_separation_decision.md).
 func Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
-		`CREATE EXTENSION IF NOT EXISTS pgcrypto`,
 		`CREATE SCHEMA IF NOT EXISTS organizations`,
 
 		// Organization (BR-TP01-BR-TP05). ID is server-generated — name is

@@ -1,32 +1,26 @@
 ---
 name: refdata-database-per-service
-description: refdata-service now runs on its own Postgres instance (refdata-postgres, port 5433), not a schema on shipping-service's shared postgres — agreed decision and how it was implemented
+description: All six owned services share ONE Postgres instance (lb-postgres, port 5432) since Phase 53 / ADR-052, each with its own database + role; the 2026-07-27 one-instance-per-service layout is retired
 metadata:
   type: project
 ---
 
-**Decision (agreed and implemented 2026-07-27):** `refdata-service` moved from schema-per-service
-(private `refdata` schema on the same Postgres instance/database — `dictionary` — as
-`shipping-service`) to full **database-per-service**: a separate `refdata-postgres` container in
-`docker-compose.yml` (port `5433`, role/database `refdata`/`refdata`). NATS is now the only
-infrastructure shared between `shipping-service` and `refdata-service`.
+**Decision (2026-09-03, Phase 53, ADR-052):** one `postgres` container for the six owned
+services (`shipping`, `refdata`, `accounts`, `mfe-registry`, `pricing`, `organizations`).
+Isolation is **database-per-service + role-per-service**: `demos/01-dictionary/postgres/init.sql`
+creates one role and one database per service and revokes `CONNECT` from everyone but the owner.
+Temporal keeps its own `temporal-postgres`. Host ports 5433–5437 are gone; everything is on
+`localhost:5432`, selected by database + role (password = role name). Organizations' legacy
+`trading_partner` database/role became `organizations` in the same change.
 
-**Why:** followed a design discussion (see [[tenant_service_separation_decision]]) about what
-"isolated service" means for refdata-service, since it's a data-plane concern with no direct
-service-to-service coupling already (backend-to-backend calls are NATS-only per BR-D28). Researched
-the standard microservices database-isolation spectrum (private-tables / schema-per-service /
-database-per-service — microservices.io) and found the remaining gap was that both services used
-the *same Postgres credentials*, so schema separation wasn't actually enforced by access control.
-User chose the strongest tier (option 2: separate DB server) specifically to make refdata-service
-provably independent, since demonstrating the service boundary is the point of this being a
-separate service at all (`Dictionary-Service-Plan.md` Q1).
+**History:** 2026-07-27 moved refdata to its own Postgres *instance* (then accounts, pricing,
+organizations, mfe-registry copied that) because refdata and shipping had shared one credential.
+The Phase 53 survey found the docs' "own instance" wording was isolation-as-demonstration —
+tenancy was never in Postgres (tenant = NATS account, [[phase16_tenancy_taxonomy]]), so a
+per-service role gives the same guarantee. See [[tenant_service_separation_decision]].
 
-**How to apply:** if extending refdata-service's infra or writing new run instructions, use
-`refdata-postgres` / port `5433` / user+db `refdata`, not `postgres` / `5432` / `dict`. Files
-touched by this change (check these stay in sync on any related edit): `docker-compose.yml`,
-`backend/refdata-service/cmd/main.go` (DATABASE_URL fallback default),
-`backend/refdata-service/README.md`, `demos/01-dictionary/README.md`,
-`.claude/plans/Dictionary-Service-Plan.md` (Q1), and the two obsidian architecture docs
-(`ARCHITECTURE.md` § "Reference Data Service", `ARCHITECTURE-DICTIONARY.md` § "Database Schema").
-The `corpus_repository_integration_test.go` integration test was unaffected — it already spins up
-its own throwaway Postgres container via `docker run`, independent of compose.
+**How to apply:** new service → add a role + database + REVOKE/GRANT block to `init.sql`, point
+`DATABASE_URL` at `postgres:5432/<db>`, `depends_on: postgres`; never a new Postgres container.
+Adding to `init.sql` needs `docker compose down -v` (it runs only on an empty volume). Integration
+tests are unaffected (own containers or `*_TEST_DATABASE_URL`). ADR:
+`obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-052-one-postgres-instance-database-per-service.md`.

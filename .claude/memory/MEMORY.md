@@ -35,7 +35,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [nats_scoped_signing_keys](nats_scoped_signing_keys.md) — server enforces the key's permission template, discards user JWT's own
 - [nats_tower_operator_mode_tradeoff](nats_tower_operator_mode_tradeoff.md) — server is operator mode; Tower→sys.creds via its UI not done
 - [connz_limit_is_page_size_not_capacity](connz_limit_is_page_size_not_capacity.md) — `/connz` limit 1024 is page size; ceiling is `/varz` max_connections
-- [refdata_database_per_service](refdata_database_per_service.md) — refdata-service on its own Postgres (port 5433)
+- [refdata_database_per_service](refdata_database_per_service.md) — ONE Postgres instance for all services (ADR-052); db+role per service, port 5432 only
 - [refdata_cross_tenant_stream_import](refdata_cross_tenant_stream_import.md) — open bug: tenants import `evt.*.refdata.*.changed` unbounded, see each other's metadata
 - [v3_tenancy_axes_decision](v3_tenancy_axes_decision.md) — tenant = marketplace-operating business, not region; 5 axes
 - [phase16_tenancy_taxonomy](phase16_tenancy_taxonomy.md) — 13-point record; 16a–16f DONE; gap: refdata reads don't track own tenant
@@ -46,7 +46,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [aws_console_as_shell_app](aws_console_as_shell_app.md) — AWS Console as app-shell mental model; documented MFE discovery pattern + where our contribution points go further
 
 ## Linebooker / V3 domain modelling
-- [proposed_linebooker_v3_architecture_levels](proposed_linebooker_v3_architecture_levels.md) — reference discussion: proposed L1-L4 diagram hierarchy, participant/external-system taxonomy, and retirement of old V2/V3 diagram labels; not implementation authorization
+- [proposed_linebooker_v3_architecture_levels](proposed_linebooker_v3_architecture_levels.md) — current L0-L2 inventory and proposed topology context; canonical hierarchy/catalogue lives in the architecture authority file
 - [linebooker_platform_vs_tenant_service_split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth platform; Marketplace/Payments tenant-scoped
 - [linebooker_platform_marketplace_tenant_diagram](linebooker_platform_marketplace_tenant_diagram.md) — Marketplace under PLATFORM; Trips per-tenant; 2 UIs per tenant
 - [linebooker_refdata_layering_model](linebooker_refdata_layering_model.md) — platform/tenant/org 3-layer; flags snapshot-onto-history gap
