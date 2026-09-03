@@ -172,19 +172,32 @@ read as a set.
    with its own caption. The PNG is a derived build output, committed so the site
    can serve it — never hand-edit it.
 
-2. Write the page at
+2. Publish the print edition alongside it, so the caption's PDF link resolves.
+   The exporter writes the print edition to the repository root
+   `output/pdf/<long title>.pdf`, which the docs site does not serve. Copy it to
+   the same public directory under the lowercase stable ID:
+
+   ```bash
+   cp "output/pdf/<exported print edition>.pdf" \
+      demos/01-dictionary/docs/public/v3-architecture/<lowercase-stable-id>.pdf
+   ```
+
+   Re-copy it whenever the print edition is re-exported. Do not link the
+   repository path from the page — it is not a URL and the reader gets nothing.
+
+3. Write the page at
    `demos/01-dictionary/docs/v3-architecture/l<level>-<lowercase-kebab-title>.md`.
 
-3. Reference the image by its site-absolute path — `/v3-architecture/<id>.png`,
+4. Reference the image by its site-absolute path — `/v3-architecture/<id>.png`,
    not a relative path into `public/`. VitePress serves `public/` at the site root.
 
-4. Add the sidebar entry in `demos/01-dictionary/docs/.vitepress/config.mts`. The
+5. Add the sidebar entry in `demos/01-dictionary/docs/.vitepress/config.mts`. The
    V3 series has its own nav item and its own sidebar array, separate from the
    lab's `architectureSidebar`, and its sidebar is registered for the
    `/v3-architecture/` path. Order entries by level, then by ID. **A page not
    reachable from the sidebar is not published.**
 
-5. Use the theme's existing presentation classes — `v3-figure`, `v3-figure-zoom`,
+6. Use the theme's existing presentation classes — `v3-figure`, `v3-figure-zoom`,
    `v3-meta`, and the `decision` container for a governing decision. The
    `v3-figure` frame is deliberately dark in **both** themes, because the drawn
    editions are authored on the UniFi dark canvas and a bare image reads as a

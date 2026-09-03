@@ -47,18 +47,37 @@ HTML or PDF so the diagram remains traceable to an explicit requirement.
 | L1-D04 | L3 Financial Architecture | Currency selection, tax, rating, invoicing, creditors, debtors, payments, reconciliation and settlement. |
 | L1-D05 | L3 Security and Residency | Data classification, country rules, encryption, masking, cross-border exceptions, retention, backup and recovery. |
 
+## Confirmed by the business owner
+
+Confirmed 2026-09-03. Each answer matches what the L1 sheet already draws, so
+none of them required a change to the drawing.
+
+- **Linebooker and Linebooker Tech are two organisational arms of one business**,
+  not separate legal entities. Linebooker operates the marketplace; Linebooker
+  Tech provides and operates the SaaS platform. L1 therefore draws no legal
+  boundary between them. Which arm contracts, invoices and owns data for
+  residency purposes is a responsibility split, deferred to L1-D03.
+- **Brokers and agents are not active L1 participants.** They remain a future
+  derived participant type. The sheet correctly shows shipper and transporter
+  organisations only. Adding one later brings its own visibility rules (whether a
+  broker may see a transporter's price), which would belong to L1-D03 and the
+  external integration view, not to L1.
+- **External consumers extract data through request APIs and webhooks only.**
+  Bulk and asynchronous export is not an L1 requirement. The single governed
+  `External data APIs` channel on the sheet is complete as drawn. The permitted
+  data products themselves stay deferred to L1-D02.
+
 ## Open confirmations
 
-- Confirm whether Linebooker and Linebooker Tech are separate legal entities,
-  brands, divisions or operating organisations; L1 currently models them as two
-  organisational arms with different responsibilities.
-- Confirm whether brokers/agents are active L1 participants or a future derived
-  participant type.
-- Confirm which reporting data products external consumers may extract and
-  whether bulk/asynchronous exports are required in addition to request APIs.
+None outstanding.
 
 ## Change log
 
+- 2026-09-03 - Business owner confirmed all three open confirmations. Linebooker
+  and Linebooker Tech are two arms of one business, not separate legal entities;
+  brokers/agents stay a future derived participant type; external extraction is
+  request APIs and webhooks only, with no bulk/asynchronous export at L1. All
+  three match the sheet as drawn, so the drawn edition is unchanged.
 - 2026-09-03 - Added the explicit L1 security, residency and immutable audit
   platform block. The wording promises an auditable business history without
   claiming that every domain reconstructs state through event sourcing.

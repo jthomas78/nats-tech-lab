@@ -29,6 +29,23 @@ const architectureSidebar: DefaultTheme.SidebarItem[] = [
   },
 ]
 
+// Proposed Linebooker V3 architecture series. Kept in its own sidebar, separate
+// from `architectureSidebar`, because the rest of this site documents what the
+// lab BUILT and this series is a PROPOSAL. Governed by
+// Proposed-Linebooker-V3-Architecture-Authority.md. Order entries by level, then
+// by stable ID.
+const v3ArchitectureSidebar: DefaultTheme.SidebarItem[] = [
+  {
+    text: 'Proposed Linebooker V3',
+    items: [
+      {
+        text: 'L1 System and Platform Overview',
+        link: '/v3-architecture/l1-system-platform-overview',
+      },
+    ],
+  },
+]
+
 export default defineConfig({
   title: 'Dictionary POC Docs',
   description: 'NATS Tech Lab — Dictionary POC architecture & reference docs',
@@ -37,10 +54,12 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/' },
       { text: 'Architecture', link: '/architecture/' },
+      { text: 'Proposed V3', link: '/v3-architecture/l1-system-platform-overview' },
     ],
     sidebar: {
       '/architecture/': architectureSidebar,
       '/nats/': architectureSidebar,
+      '/v3-architecture/': v3ArchitectureSidebar,
     },
     socialLinks: [],
     search: { provider: 'local' },
