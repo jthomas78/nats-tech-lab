@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed Linebooker V3 Architecture - L1 System and Platform Overview</title>
+<style>
+  :root {
+    --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --border:#2c3138; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --purple:#a78bfa; --amber:#f5b13d;
+    --store:#27c07f; --bad:#f87171;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  @page { size:A3 landscape; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .sheet {
+    width:420mm; height:297mm; padding:8mm; overflow:hidden; background:var(--bg);
+    display:grid; grid-template-rows:30mm minmax(0,1fr) 8mm; gap:3mm;
+  }
+  .head { border-bottom:1px solid var(--stroke); padding-bottom:3mm; }
+  .eyebrow { color:var(--cyan); font:650 9px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; margin-bottom:2mm; }
+  h1 { margin:0; font-size:27px; line-height:1.1; letter-spacing:-.025em; font-weight:680; }
+  .head p { margin:2mm 0 0; max-width:1220px; color:var(--muted); font-size:11.5px; line-height:1.42; }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; min-height:0; }
+  figure { margin:0; min-width:0; min-height:0; background:#0a0c0e; border:1px solid var(--border); display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+  .fig-body { min-height:0; padding:3mm 3mm 1mm; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  figure svg { display:block; width:100%; height:auto; max-height:100%; }
+  figcaption { border-top:1px solid var(--border); padding:2.2mm 3mm; color:var(--muted); font-size:9px; line-height:1.35; }
+  figcaption b { color:var(--text); font-weight:650; }
+  figcaption code { font:8.5px var(--mono); background:rgba(255,255,255,.06); border-radius:3px; padding:0 3px; }
+  .notes { min-height:0; padding-left:3mm; border-left:1px solid var(--stroke); background:var(--panel2); display:flex; flex-direction:column; gap:1.5mm; padding-top:2mm; padding-right:2mm; }
+  .note { display:grid; grid-template-columns:19mm 1fr; gap:2mm; align-items:start; }
+  .tag { min-width:0; border:1px solid #46505b; color:var(--muted); border-radius:3px; padding:1.1mm 1.3mm; font:650 7px/1 var(--mono); letter-spacing:.07em; text-align:center; }
+  .note p { margin:0; color:var(--muted); font-size:8.4px; line-height:1.3; }
+  .note b { color:var(--text); font-weight:650; }
+  .foot { border-top:1px solid var(--border); padding-top:2mm; display:flex; justify-content:space-between; gap:8mm; color:var(--dim); font-size:7.8px; line-height:1.25; }
+  .brand { color:var(--amber); text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; font-weight:700; }
+
+  svg .group { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.1; }
+  svg .group.blue { stroke:var(--blue); } svg .group.purple { stroke:var(--purple); }
+  svg .group.green { stroke:var(--green); } svg .group.cyan { stroke:var(--cyan); }
+  svg .group.amber { stroke:var(--amber); }
+  svg .tile { fill:var(--panel); stroke:#3a424c; stroke-width:1.1; }
+  svg .tile2 { fill:var(--panel2); stroke:#3a424c; stroke-width:1.1; }
+  svg .group-title { font:650 10px var(--sans); letter-spacing:.11em; text-transform:uppercase; }
+  svg .title { fill:var(--text); font:650 11.3px var(--sans); }
+  svg .sub { fill:var(--muted); font:9.2px var(--sans); }
+  svg .mini { fill:var(--dim); font:8.2px var(--mono); }
+  svg .glyph { fill:#0d0f11; font:800 11px var(--sans); text-anchor:middle; }
+  svg .edge-label { fill:var(--muted); font:8.2px var(--mono); paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
+  svg .flow { fill:none; stroke:var(--blue); stroke-width:1.35; }
+  svg .event { fill:none; stroke:var(--amber); stroke-width:1.35; stroke-dasharray:5 4; }
+  svg .place { fill:none; stroke:var(--green); stroke-width:1.35; }
+  svg .rule { stroke:#2a3038; stroke-width:1; }
+  svg .legend { fill:var(--dim); font:7.8px var(--sans); }
+</style>
+</head>
+<body>
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L1-01 &middot; Level 1</div>
+    <h1>System and Platform Overview</h1>
+    <p>This stakeholder view distinguishes the Linebooker product business from Linebooker Tech, shows internal departments and marketplace participants, identifies governed integration and reporting channels, and explains how country policy shapes placement. Service internals, NATS accounts, workflows and deployment mechanics remain for L2 and derived L3 views.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+      <svg viewBox="0 0 1160 870" role="img" aria-label="Level 1 system and platform overview for the proposed Linebooker V3 trucking logistics platform. Three groups across the top distinguish human actors, business participant organisations and external systems. Human actors include Linebooker Finance creditors and debtors teams, Linebooker Controllers for logistics control and follow-up, Linebooker Tech platform administrators and SRE, shipper users, transporter users and drivers. Business participants distinguish Linebooker as the product and marketplace-operating business from Linebooker Tech as the technology arm providing the SaaS platform, alongside shipper and transporter organisations. External systems include WorkOS or enterprise identity, fleet and telematics providers, ERP and finance systems, maps, payment, notification and regulatory services. These connect to role-specific Linebooker applications and governed external data APIs for reporting extracts. Major capabilities cover marketplace tendering, loads, trips, routes, fleet, tracking, documents, compliance, claims, billing and settlement. Platform foundations include identity, NATS messaging, Temporal workflows, service-owned data, S3-compatible evidence storage, observability and audit. A dedicated security, residency and immutable audit block highlights tenant separation, RBAC and ABAC, encryption, masked logs and country policy without asserting that every domain is event-sourced. A bottom AWS-style placement band shows a shared Cape Town cell, a Botswana sovereign in-country cell and a shared Sydney cell, with ZAR, BWP and AUD as market policy defaults rather than user-location choices.">
+        <defs>
+          <marker id="l1-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+          <marker id="l1-amber" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+          <marker id="l1-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+        </defs>
+
+        <rect class="group blue" x="20" y="45" width="350" height="175" rx="12"/>
+        <text class="group-title" x="36" y="37" fill="#3b8bff">Human actors - people who use Linebooker</text>
+        <rect class="tile" x="40" y="70" width="145" height="42" rx="8"/><rect x="52" y="79" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="64" y="95">C</text><text class="title" x="86" y="90">Finance</text><text class="sub" x="86" y="105">creditors team</text>
+        <rect class="tile" x="205" y="70" width="145" height="42" rx="8"/><rect x="217" y="79" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="229" y="95">D</text><text class="title" x="251" y="90">Finance</text><text class="sub" x="251" y="105">debtors team</text>
+        <rect class="tile" x="40" y="122" width="145" height="42" rx="8"/><rect x="52" y="131" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="64" y="147">C</text><text class="title" x="86" y="142">Controllers</text><text class="sub" x="86" y="157">logistics + follow-up</text>
+        <rect class="tile" x="205" y="122" width="145" height="42" rx="8"/><rect x="217" y="131" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="229" y="147">T</text><text class="title" x="251" y="142">Linebooker Tech</text><text class="sub" x="251" y="157">platform admins + SRE</text>
+        <rect class="tile" x="40" y="174" width="145" height="34" rx="8"/><rect x="52" y="179" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="64" y="195">S</text><text class="title" x="86" y="190">Shipper users</text><text class="sub" x="86" y="203">procure + approve</text>
+        <rect class="tile" x="205" y="174" width="145" height="34" rx="8"/><rect x="217" y="179" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="229" y="195">T</text><text class="title" x="251" y="190">Transporter team</text><text class="sub" x="251" y="203">dispatch + drivers</text>
+
+        <rect class="group purple" x="405" y="45" width="350" height="175" rx="12"/>
+        <text class="group-title" x="421" y="37" fill="#a78bfa">Business participants - organisations in the market</text>
+        <rect class="tile" x="425" y="70" width="145" height="58" rx="8"/><rect x="437" y="86" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="449" y="102">L</text><text class="title" x="471" y="94">Linebooker</text><text class="sub" x="471" y="111">product business</text><text class="mini" x="437" y="121">market + tenant authority</text>
+        <rect class="tile" x="590" y="70" width="145" height="58" rx="8"/><rect x="602" y="86" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="614" y="102">T</text><text class="title" x="636" y="94">Linebooker Tech</text><text class="sub" x="636" y="111">technology arm</text><text class="mini" x="602" y="121">provides + operates SaaS</text>
+        <rect class="tile" x="425" y="142" width="145" height="58" rx="8"/><rect x="437" y="158" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="449" y="174">S</text><text class="title" x="471" y="166">Shipper orgs</text><text class="sub" x="471" y="183">publish demand</text><text class="mini" x="437" y="193">own commercial data</text>
+        <rect class="tile" x="590" y="142" width="145" height="58" rx="8"/><rect x="602" y="158" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="614" y="174">T</text><text class="title" x="636" y="166">Transporter orgs</text><text class="sub" x="636" y="183">offer capacity</text><text class="mini" x="602" y="193">fleet + fulfilment</text>
+
+        <rect class="group amber" x="790" y="45" width="350" height="175" rx="12"/>
+        <text class="group-title" x="806" y="37" fill="#f5b13d">External systems - contracted dependencies</text>
+        <rect class="tile" x="810" y="70" width="310" height="42" rx="8"/><rect x="822" y="79" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="834" y="95">I</text><text class="title" x="856" y="91">Identity dependency</text><text class="sub" x="856" y="105">WorkOS + enterprise identity provider</text>
+        <rect class="tile" x="810" y="122" width="310" height="42" rx="8"/><rect x="822" y="131" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="834" y="147">F</text><text class="title" x="856" y="143">Operational integrations</text><text class="sub" x="856" y="157">fleet, GPS, telematics, maps + routing</text>
+        <rect class="tile" x="810" y="174" width="310" height="34" rx="8"/><rect x="822" y="179" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="834" y="195">E</text><text class="title" x="856" y="190">Enterprise + utility systems</text><text class="sub" x="856" y="203">ERP, finance, banks, payments, notify + regulatory</text>
+
+        <path class="flow" d="M195 220 V258" marker-end="url(#l1-blue)"/><text class="edge-label" x="207" y="244">use</text>
+        <path class="flow" d="M580 220 V258" marker-end="url(#l1-blue)"/><text class="edge-label" x="592" y="244">participate</text>
+        <path class="event" d="M965 220 V258" marker-end="url(#l1-amber)"/><text class="edge-label" x="977" y="244">integrate</text>
+
+        <rect class="group blue" x="20" y="260" width="1120" height="120" rx="12"/>
+        <text class="group-title" x="36" y="278" fill="#3b8bff">Application experiences - App Shell / MFE, mobile and partner APIs</text>
+        <rect class="tile" x="40" y="296" width="170" height="64" rx="8"/><rect x="54" y="312" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="66" y="328">S</text><text class="title" x="88" y="320">Shipper workspace</text><text class="sub" x="88" y="337">tenders + tracking</text><text class="mini" x="54" y="352">cost + approvals</text>
+        <rect class="tile" x="224" y="296" width="170" height="64" rx="8"/><rect x="238" y="312" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="250" y="328">T</text><text class="title" x="272" y="320">Transport workspace</text><text class="sub" x="272" y="337">offers + fleet + jobs</text><text class="mini" x="238" y="352">POD + payment</text>
+        <rect class="tile" x="408" y="296" width="150" height="64" rx="8"/><rect x="422" y="312" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="434" y="328">D</text><text class="title" x="456" y="320">Driver mobile</text><text class="sub" x="456" y="337">tasks + evidence</text><text class="mini" x="422" y="352">status + alerts</text>
+        <rect class="tile" x="572" y="296" width="165" height="64" rx="8"/><rect x="586" y="312" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="598" y="328">A</text><text class="title" x="620" y="320">Tenant / org admin</text><text class="sub" x="620" y="337">members + policies</text><text class="mini" x="586" y="352">roles + configuration</text>
+        <rect class="tile" x="751" y="296" width="185" height="64" rx="8"/><rect x="765" y="312" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="777" y="328">O</text><text class="title" x="799" y="320">Operator control tower</text><text class="sub" x="799" y="337">exceptions + service</text><text class="mini" x="765" y="352">tenants + audit + health</text>
+        <rect class="tile" x="950" y="296" width="170" height="64" rx="8"/><rect x="964" y="312" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="976" y="328">I</text><text class="title" x="998" y="320">External data APIs</text><text class="sub" x="998" y="337">ingest + report extracts</text><text class="mini" x="964" y="352">scoped data + webhooks</text>
+
+        <path class="flow" d="M580 380 V418" marker-end="url(#l1-blue)"/><text class="edge-label" x="592" y="404">role-filtered business actions</text>
+
+        <rect class="group purple" x="20" y="420" width="1120" height="165" rx="12"/>
+        <text class="group-title" x="36" y="438" fill="#a78bfa">Logistics and commercial capabilities - one governed tender-to-settlement lifecycle</text>
+        <rect class="tile" x="40" y="456" width="250" height="52" rx="8"/><rect x="54" y="470" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="66" y="486">M</text><text class="title" x="88" y="478">Marketplace + tendering</text><text class="sub" x="88" y="495">demand, rates, bids, awards</text>
+        <rect class="tile" x="310" y="456" width="250" height="52" rx="8"/><rect x="324" y="470" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="336" y="486">L</text><text class="title" x="358" y="478">Loads + trips + routes</text><text class="sub" x="358" y="495">allocation, stops, execution</text>
+        <rect class="tile" x="580" y="456" width="250" height="52" rx="8"/><rect x="594" y="470" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="606" y="486">F</text><text class="title" x="628" y="478">Fleet + capacity</text><text class="sub" x="628" y="495">trucks, drivers, eligibility</text>
+        <rect class="tile" x="850" y="456" width="270" height="52" rx="8"/><rect x="864" y="470" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="876" y="486">T</text><text class="title" x="898" y="478">Tracking + exceptions</text><text class="sub" x="898" y="495">position, ETA, alerts, control tower</text>
+        <rect class="tile2" x="160" y="522" width="260" height="46" rx="8"/><rect x="174" y="533" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="186" y="549">D</text><text class="title" x="208" y="541">Documents + compliance</text><text class="sub" x="208" y="557">POD, licences, insurance, evidence</text>
+        <rect class="tile2" x="450" y="522" width="260" height="46" rx="8"/><rect x="464" y="533" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="476" y="549">C</text><text class="title" x="498" y="541">Claims + acceptance</text><text class="sub" x="498" y="557">proof gates, disputes, audit trail</text>
+        <rect class="tile2" x="740" y="522" width="260" height="46" rx="8"/><rect x="754" y="533" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="766" y="549">B</text><text class="title" x="788" y="541">Billing + settlement</text><text class="sub" x="788" y="557">pricing, tax, invoice, fees, payment</text>
+
+        <path class="place" d="M580 585 V613" marker-end="url(#l1-green)"/><text class="edge-label" x="592" y="603">implemented on shared platform foundations</text>
+
+        <rect class="group green" x="20" y="615" width="1120" height="126" rx="12"/>
+        <text class="group-title" x="36" y="633" fill="#34d399">Application platform - shared capabilities, tenant-aware access and operations</text>
+        <rect class="tile" x="40" y="648" width="170" height="42" rx="8"/><rect x="54" y="657" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="66" y="673">I</text><text class="title" x="88" y="665">Identity + access</text><text class="sub" x="88" y="681">membership, RBAC + ABAC</text>
+        <rect class="tile" x="224" y="648" width="170" height="42" rx="8"/><rect x="238" y="657" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="250" y="673">N</text><text class="title" x="272" y="665">NATS messaging</text><text class="sub" x="272" y="681">live + durable facts</text>
+        <rect class="tile" x="408" y="648" width="150" height="42" rx="8"/><rect x="422" y="657" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="434" y="673">W</text><text class="title" x="456" y="665">Temporal</text><text class="sub" x="456" y="681">long workflows</text>
+        <rect class="tile" x="572" y="648" width="165" height="42" rx="8"/><rect x="586" y="657" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="598" y="673">P</text><text class="title" x="620" y="665">Service data</text><text class="sub" x="620" y="681">Postgres + projections</text>
+        <rect class="tile" x="751" y="648" width="185" height="42" rx="8"/><rect x="765" y="657" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="777" y="673">S</text><text class="title" x="799" y="665">Evidence storage</text><text class="sub" x="799" y="681">adapter + S3-compatible</text>
+        <rect class="tile" x="950" y="648" width="170" height="42" rx="8"/><rect x="964" y="657" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="976" y="673">O</text><text class="title" x="998" y="665">Observe + audit</text><text class="sub" x="998" y="681">metrics, logs, traces</text>
+        <rect class="tile2" x="270" y="698" width="620" height="34" rx="8"/><rect x="284" y="703" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="296" y="719">S</text><text class="title" x="320" y="711">Security, residency + immutable audit</text><text class="sub" x="320" y="726">tenant separation &middot; RBAC/ABAC &middot; encryption &middot; masked logs &middot; country policy</text>
+
+        <path class="place" d="M580 741 V762 H205 V778 M580 762 V778 M580 762 H955 V778" marker-end="url(#l1-green)"/><text class="edge-label" x="592" y="756">policy-selected placement - not a runtime data flow</text>
+
+        <rect class="group cyan" x="20" y="780" width="1120" height="82" rx="12"/>
+        <text class="group-title" x="36" y="798" fill="#2fd4e8">Country and regional placement - AWS-shaped topology with policy-controlled locality</text>
+        <rect class="tile" x="40" y="810" width="330" height="38" rx="8"/><rect x="52" y="817" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="64" y="833">Z</text><text class="title" x="86" y="826">South Africa - shared Cape Town cell</text><text class="sub" x="86" y="841">af-south-1 &middot; ZAR policy default &middot; regional data</text>
+        <rect class="tile" x="415" y="810" width="330" height="38" rx="8"/><rect x="427" y="817" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="439" y="833">B</text><text class="title" x="461" y="826">Botswana - sovereign in-country cell</text><text class="sub" x="461" y="841">BWP default &middot; compute, data, transit + recovery stay local</text>
+        <rect class="tile" x="790" y="810" width="330" height="38" rx="8"/><rect x="802" y="817" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="814" y="833">A</text><text class="title" x="836" y="826">Australia - shared Sydney cell</text><text class="sub" x="836" y="841">ap-southeast-2 &middot; AUD policy default &middot; regional data</text>
+      </svg>
+      </div>
+      <figcaption><b>L1 reading rule.</b> Solid blue means a role uses a Linebooker experience; amber dashed means an external contract or event source; green means conceptual implementation or placement. Group colors identify viewpoint, not technology. Immutable audit means durable, tamper-evident business history; it does not require every domain to use event sourcing. Currency is selected by marketplace, legal entity and contract; the country code shown is a policy default, never an inference from the user's location.</figcaption>
+    </figure>
+
+    <aside class="notes" aria-label="Level 1 architecture notes">
+      <div class="note"><span class="tag">LINEBOOKER</span><p><b>Linebooker is the product business.</b> Finance includes Creditors and Debtors; Controllers perform logistics control and follow-up for the marketplace operation.</p></div>
+      <div class="note"><span class="tag">TECH</span><p><b>Linebooker Tech is the technology arm.</b> Its platform administrators and SRE capability provide, operate and support the logistics SaaS.</p></div>
+      <div class="note"><span class="tag">TENANCY</span><p><b>The tenant is the marketplace-operating business.</b> It is the authority boundary and may span more than one region.</p></div>
+      <div class="note"><span class="tag">ORGS</span><p><b>Organisations participate inside a tenant.</b> Shippers publish demand; transporters offer capacity and execute; users act through memberships.</p></div>
+      <div class="note"><span class="tag">EXTERNAL</span><p><b>External systems are ecosystem actors, not business participants.</b> WorkOS, ERP, telematics, maps, payments and notifications connect through contracts.</p></div>
+      <div class="note"><span class="tag">CHANNELS</span><p><b>One product exposes several governed channels.</b> Role-aware web/mobile experiences sit beside APIs for integration and authorised reporting extracts, never direct database access.</p></div>
+      <div class="note"><span class="tag">LOGISTICS</span><p><b>The platform owns the governed lifecycle.</b> Tender, award, allocation, trip, tracking, evidence, claims and settlement are mediated rather than direct organisation-to-organisation messaging.</p></div>
+      <div class="note"><span class="tag">FINANCE</span><p><b>Commercial finance is a first-class domain.</b> Pricing, tax, fees, invoices, payments and transporter settlement follow the marketplace legal entity and contract.</p></div>
+      <div class="note"><span class="tag">SECURITY</span><p><b>Security and residency are explicit guarantees.</b> Tenant separation, RBAC/ABAC, encryption, masked logs, immutable audit and country policy apply across the platform; Botswana-regulated data stays local.</p></div>
+      <div class="note"><span class="tag">LEVELS</span><p><b>L1 is the navigation map.</b> L2 will expand application, integration, control, domain, messaging, workflow, data and regional structures without changing these business boundaries.</p></div>
+    </aside>
+  </div>
+
+  <footer class="foot"><span>Source basis: proposed Linebooker V3 architecture discussion and the existing logistics SaaS V2/V3 reference artefacts. Proposed target architecture; regulatory and financial rules require jurisdiction and legal-owner validation.</span><span class="brand">LB-V3-L1-01 &middot; System overview</span></footer>
+</section>
+</body>
+</html>

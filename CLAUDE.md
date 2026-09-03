@@ -156,6 +156,29 @@ PNGs (`images/`). Diagram scripts stay in the repo
 (`demos/01-dictionary/diagrams/{sync-unifi-assets.mjs,export-png.sh}`) and resolve
 into that vault dir; see the `drawio-architecture-drawer` skill.
 
+### Proposed Linebooker V3 architecture levels
+
+- For any creation, revision, catalogue, or review work in this document series,
+  use `.claude/skills/linebooker-architecture-documenter/SKILL.md`; it orchestrates
+  level scope, IDs, HTML/PDF delivery and L0 synchronization while delegating
+  drawing mechanics to `html-diagram-drawer`.
+- `Proposed Linebooker V3 Architecture` names the architecture baseline; `L1` to
+  `L4` name increasing levels of detail, not competing architecture versions.
+- L0 is the Architecture Atlas and Diagram Sitemap: a graphical table of contents,
+  document-status map and navigation root. It links to available diagrams and may
+  show planned views, but contains no implementation design.
+- L1 is the System and Platform Overview; L2 is the Logical and Technical
+  Architecture; L3 contains focused concern views; L4 contains detailed designs.
+- Give diagrams stable IDs such as `LB-V3-L1-01`, and make each lower level read
+  as a zoom into a concept shown above it.
+- Every diagram should answer one primary question. Keep participant, tenant,
+  organisation, geography and external-system concepts distinct.
+- Deliver each document in this series as both editable HTML and PDF.
+- Before changing L1, update and trace the maintained requirements register at
+  `Proposed-Linebooker-V3-L1-Requirements.md` in this architecture-docs directory.
+- Existing V2/V3 artefacts are historical references; do not rename or overwrite
+  them unless the user requests it explicitly.
+
 ## Commands
 
 Standard `go build ./...` / `go test ./...` / `npm run dev` / `docker compose up

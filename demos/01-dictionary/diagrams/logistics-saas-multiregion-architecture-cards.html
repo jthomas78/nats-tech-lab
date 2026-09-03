@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Logistics SaaS - Multi-region NATS architecture reference cards</title>
+<style>
+  :root {
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4a515b;
+    --tx:#dee0e3; --tx2:#b7bcc2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --truth:#27c07f;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  @page { size:A4; margin:0; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px;
+  }
+  .page {
+    width:210mm; height:297mm; overflow:hidden; padding:14mm 13mm 10mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%,#16202c 0%,var(--bg) 55%);
+  }
+  .page:last-child { page-break-after:auto; }
+  .chead {
+    display:flex; justify-content:space-between; border-bottom:1px solid var(--line);
+    padding-bottom:9px; font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--tx3);
+  }
+  .chead .r { color:var(--blue); }
+  .titleblock {
+    margin-top:14px; background:var(--panel); border:1px solid var(--line);
+    border-left:3px solid var(--blue); border-radius:0 10px 10px 0;
+    padding:14px 20px 16px; display:grid; grid-template-columns:54px 1fr;
+    gap:4px 14px;
+  }
+  .num { font-size:29px; font-weight:800; color:var(--blue); line-height:33px; grid-row:span 3; }
+  .fam-lbl { font-size:9.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--blue); }
+  h1 { font-size:23px; line-height:29px; letter-spacing:-.01em; font-weight:700; margin:1px 0 6px; }
+  .lede { color:var(--tx2); font-size:12.5px; line-height:19px; }
+  .figwrap { margin-top:11px; }
+  svg { display:block; width:100%; height:auto; }
+  .grp { fill:rgba(255,255,255,.014); stroke-width:1.1; }
+  .grp-l { font-size:11px; letter-spacing:.13em; text-transform:uppercase; font-weight:600; }
+  .tile { fill:var(--panel); stroke:var(--line2); stroke-width:1.1; }
+  .tile2 { fill:var(--panel2); stroke:var(--line); stroke-width:1.1; }
+  .tile-t { font-size:12.5px; font-weight:600; fill:var(--tx); }
+  .tile-s { font-size:10.5px; fill:var(--tx3); }
+  .tile-m { font-size:10px; fill:var(--tx2); font-family:var(--mono); }
+  .icn-g { font-size:12px; font-weight:700; fill:var(--bg); text-anchor:middle; }
+  .edge { fill:none; stroke:var(--stroke); stroke-width:1.35; marker-end:url(#a-grey); }
+  .edge.blue { stroke:var(--blue); marker-end:url(#a-blue); }
+  .edge.cyan { stroke:var(--cyan); marker-end:url(#a-cyan); }
+  .edge.green { stroke:var(--green); marker-end:url(#a-green); }
+  .edge.purple { stroke:var(--purple); marker-end:url(#a-purple); }
+  .edge.dash { stroke-dasharray:5 4; }
+  .edge.dot { stroke-dasharray:2 4; }
+  .e-l { font-size:10px; fill:var(--tx2); }
+  .e-l2 { font-size:9.5px; fill:var(--tx3); font-family:var(--mono); }
+  .halo { paint-order:stroke; stroke:var(--bg); stroke-width:4px; stroke-linejoin:round; }
+  .legend { font-size:9.4px; fill:var(--tx3); }
+  /* Knockout halo: AWS-style group labels sit outside their boundary corner and the
+     backbone band edges cross them deliberately. paint-order:stroke breaks the line
+     around the glyphs instead of through them. */
+  .grp-l, .e-l, .e-l2, .legend, .tile-m {
+    paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round;
+  }
+  .panels { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:10px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:11px 14px; }
+  .panel > .lbl { font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; margin-bottom:7px; }
+  .panel.geo { border-left:2px solid var(--cyan); } .panel.geo > .lbl { color:var(--cyan); }
+  .panel.auth { border-left:2px solid var(--green); } .panel.auth > .lbl { color:var(--green); }
+  .panel.data { border-left:2px solid var(--amber); } .panel.data > .lbl { color:var(--amber); }
+  .panel p { color:var(--tx2); font-size:11.5px; line-height:17px; }
+  .panel b { color:var(--tx); font-weight:600; }
+  code { font-family:var(--mono); font-size:10.3px; color:var(--cyan); background:rgba(47,212,232,.07); padding:1px 4px; border-radius:3px; }
+  .verdict {
+    margin-top:auto; padding-top:12px; border-top:1px solid var(--line);
+    display:grid; grid-template-columns:auto 1fr auto; gap:16px; align-items:center;
+  }
+  .pill { border:1px solid var(--blue); color:var(--blue); border-radius:5px; padding:6px 11px; font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; white-space:nowrap; }
+  .verdict p { font-size:12.5px; line-height:19px; }
+  .verdict .side { font-size:9.5px; color:var(--tx3); letter-spacing:.06em; white-space:nowrap; font-family:var(--mono); }
+  .cover-pill { display:inline-flex; align-items:center; gap:9px; border:1px solid var(--line2); border-radius:999px; padding:7px 16px; font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--tx2); background:rgba(255,255,255,.02); }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--cyan); }
+  h1.cover { font-size:43px; line-height:50px; letter-spacing:-.02em; font-weight:800; margin:26px 0 0; }
+  h1.cover .hl { color:var(--blue); outline:1.5px solid var(--blue); padding:0 6px; margin-left:2px; }
+  .cover-sub { color:var(--tx2); font-size:15px; line-height:24px; max-width:88%; margin-top:16px; }
+  .cover-q { margin-top:22px; border-left:3px solid var(--blue); background:var(--panel); border-radius:0 8px 8px 0; padding:15px 20px; max-width:96%; }
+  .cover-q .lbl { font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--cyan); margin-bottom:7px; }
+  .cover-q p { font-size:14px; line-height:23px; }
+  .cover-foot { margin-top:auto; border-top:1px solid var(--line); padding-top:13px; }
+  .cards-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px 28px; margin-top:9px; }
+  .card-line { display:flex; align-items:center; gap:9px; font-size:11.2px; color:var(--tx2); }
+  .sw { width:9px; height:9px; border-radius:2px; flex:0 0 auto; }
+  .cover-meta { display:flex; justify-content:space-between; gap:24px; font-size:10px; letter-spacing:.09em; color:var(--tx3); margin-top:14px; }
+  .cover-meta span:first-child { max-width:72%; }
+  .cover-meta span:last-child { white-space:nowrap; flex:0 0 auto; }
+  .lbl-s { font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--tx3); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:10px; }
+  .decision { margin-top:10px; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:12px 18px; display:grid; grid-template-columns:98px 1fr; gap:14px; align-items:start; }
+  .decision .lbl { font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--blue); padding-top:3px; }
+  .decision p { font-size:13px; line-height:20px; color:var(--tx2); }
+  .decision b { color:var(--tx); }
+  ul.clean { list-style:none; }
+  ul.clean li { position:relative; padding-left:14px; margin-bottom:6px; font-size:11.6px; line-height:17.5px; color:var(--tx2); }
+  ul.clean li:last-child { margin-bottom:0; }
+  ul.clean li:before { content:'\203A'; position:absolute; left:0; top:-1px; color:var(--stroke); font-size:13px; }
+  ul.clean li b { color:var(--tx); font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:11.2px; }
+  th { font-size:8.8px; letter-spacing:.13em; text-transform:uppercase; color:var(--tx3); text-align:left; padding:0 7px 7px 0; font-weight:500; }
+  td { padding:5px 7px 5px 0; border-top:1px solid var(--line); color:var(--tx2); vertical-align:top; line-height:16px; }
+  td b { color:var(--tx); font-weight:600; }
+  .source { color:var(--tx2); font-size:11.5px; line-height:18px; }
+  .source a { color:var(--cyan); text-decoration:none; overflow-wrap:anywhere; }
+  .source + .source { margin-top:9px; }
+</style>
+</head>
+<body>
+<section class="page">
+  <div><span class="cover-pill"><span class="dot"></span>Architecture reference &middot; logistics SaaS &middot; NATS</span></div>
+  <h1 class="cover">A Multi-region Logistics SaaS<br>on <span class="hl">NATS</span></h1>
+  <p class="cover-sub">How shippers and transporters meet through a governed marketplace; how NATS accounts isolate
+    tenants; and how the same service and data model deploys across regions and logistics edge locations.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The governing invariant</div>
+    <p><b>Region is placement. Tenant is authority. Organisation is participation.</b> A marketplace tenant may span
+      regions and contain many shippers and transporters, but every interaction is mediated by platform services and
+      constrained by account, membership, role, and subject permissions.</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:12px">
+    <div class="lbl" style="color:var(--amber)">What the public Linebooker model adds</div>
+    <p>The business loop is not merely "customer talks to transporter." It is <b>procure, aggregate, execute and
+      settle</b>: fixed-lane tenders, bidding loads, truck commitment, route execution, live tracking, digital POD,
+      claims and consolidated payment.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The ten architecture cards</div>
+    <div class="cards-grid">
+      <div class="card-line"><span class="sw" style="background:var(--blue)"></span>01 &middot; System landscape</div>
+      <div class="card-line"><span class="sw" style="background:var(--blue)"></span>02 &middot; Shipper-transporter engagement</div>
+      <div class="card-line"><span class="sw" style="background:var(--green)"></span>03 &middot; Service and bounded-context model</div>
+      <div class="card-line"><span class="sw" style="background:var(--purple)"></span>04 &middot; Tenant, organisation and account model</div>
+      <div class="card-line"><span class="sw" style="background:var(--green)"></span>05 &middot; Human identity to NATS session</div>
+      <div class="card-line"><span class="sw" style="background:var(--cyan)"></span>06 &middot; Regional deployment model</div>
+      <div class="card-line"><span class="sw" style="background:var(--amber)"></span>07 &middot; Data and event ownership</div>
+      <div class="card-line"><span class="sw" style="background:var(--cyan)"></span>08 &middot; Tracking and logistics edge</div>
+      <div class="card-line"><span class="sw" style="background:var(--red)"></span>09 &middot; Failure, recovery and residency</div>
+      <div class="card-line"><span class="sw" style="background:var(--green)"></span>10 &middot; Provisioning and operations</div>
+    </div>
+    <div class="cover-meta">
+      <span>DRAWN FROM NATS-TECH-LAB ARCHITECTURE + LINEBOOKER PUBLIC OPERATING MODEL</span>
+      <span>REFERENCE DRAFT &middot; 2026-09-02</span>
+    </div>
+  </div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r">Card 01 &middot; System landscape</span></div>
+
+  <div class="titleblock">
+    <div class="num">01</div>
+    <div class="fam-lbl">Region is placement &middot; account is authority</div>
+    <h1>One SaaS, many regions, hard tenant walls</h1>
+    <p class="lede">A regional NATS supercluster carries the live logistics fabric. Human identity enters through
+      WorkOS; signed NATS credentials place every browser and service inside exactly one account boundary.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 670" role="img" aria-label="High-level AWS-style topology for a multi-region logistics SaaS. Human users reach an application shell and admin UI through a global edge and authenticate with WorkOS. Auth and accounts services mint signed NATS credentials. Two regional three-node NATS clusters form a supercluster through gateway connections. Each region hosts platform and tenant workloads, regional Postgres, JetStream storage and optional leaf nodes for depots, warehouses and fleet gateways. A separate logical account plane shows one platform account, two isolated tenant accounts and a system observability account governed by a NATS operator, with explicit imports and exports as the only cross-account path.">
+    <defs>
+      <marker id="a-grey" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#4a515b"/></marker>
+      <marker id="a-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+      <marker id="a-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker>
+      <marker id="a-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+      <marker id="a-purple" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#a78bfa"/></marker>
+    </defs>
+
+    <rect class="grp" x="20" y="26" width="960" height="116" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="38" y="18" fill="#3b8bff">Global access and identity plane</text>
+    <rect class="tile" x="40" y="50" width="158" height="68" rx="8"/>
+    <rect x="54" y="64" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="67" y="81">U</text>
+    <text class="tile-t" x="90" y="76">SaaS users</text><text class="tile-s" x="90" y="91">shipper &middot; transporter</text>
+    <text class="tile-s" x="54" y="108">tenant admin &middot; operator</text>
+
+    <rect class="tile" x="226" y="50" width="190" height="68" rx="8"/>
+    <rect x="240" y="64" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="253" y="81">E</text>
+    <text class="tile-t" x="276" y="76">Global edge</text><text class="tile-s" x="276" y="91">DNS &middot; CDN &middot; WAF</text>
+    <text class="tile-s" x="240" y="108">routes each tenant to its region</text>
+
+    <rect class="tile" x="444" y="50" width="186" height="68" rx="8"/>
+    <rect x="458" y="64" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="471" y="81">A</text>
+    <text class="tile-t" x="494" y="76">App Shell + Admin</text><text class="tile-s" x="494" y="91">one regional endpoint</text>
+    <text class="tile-s" x="458" y="108">HTTPS assets &middot; WSS messaging</text>
+
+    <rect class="tile" x="650" y="50" width="130" height="68" rx="8"/>
+    <rect x="664" y="64" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="677" y="81">W</text>
+    <text class="tile-t" x="700" y="76">WorkOS</text><text class="tile-s" x="700" y="91">OIDC identity</text>
+    <text class="tile-s" x="664" y="108">human sign-in</text>
+
+    <rect class="tile" x="800" y="50" width="160" height="68" rx="8"/>
+    <rect x="814" y="64" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="827" y="81">K</text>
+    <text class="tile-t" x="850" y="76">Auth + accounts</text><text class="tile-s" x="850" y="91">credential minting</text>
+    <text class="tile-s" x="814" y="108">membership -> NATS user</text>
+
+    <path class="edge blue" d="M198 84 H224"/>
+    <path class="edge blue" d="M416 84 H442"/>
+    <path class="edge green" d="M630 84 H648"/>
+    <path class="edge green" d="M780 84 H798"/>
+
+    <rect class="grp" x="20" y="184" width="960" height="314" rx="12" stroke="#2fd4e8"/>
+    <text class="grp-l" x="38" y="176" fill="#2fd4e8">NATS supercluster</text>
+
+    <rect class="grp" x="42" y="214" width="438" height="256" rx="12" stroke="#4a515b"/>
+    <text class="grp-l" x="58" y="206" fill="#b7bcc2">Region A - ZA Johannesburg</text>
+    <rect class="tile" x="62" y="236" width="398" height="62" rx="8"/>
+    <rect x="76" y="250" width="28" height="28" rx="7" fill="#2fd4e8"/><text class="icn-g" x="90" y="268">N</text>
+    <text class="tile-t" x="116" y="258">NATS cluster &middot; 3 nodes / 3 AZs</text>
+    <text class="tile-s" x="116" y="276">Core NATS + JetStream domain JHB</text>
+    <text class="tile-m" x="354" y="274">N1 &middot; N2 &middot; N3</text>
+
+    <rect class="tile" x="62" y="322" width="236" height="66" rx="8"/>
+    <rect x="76" y="336" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="89" y="353">P</text>
+    <text class="tile-t" x="112" y="348">Regional services</text>
+    <text class="tile-s" x="112" y="364">auth &middot; refdata &middot; tenant apps</text>
+    <text class="tile-s" x="76" y="378">marketplace &middot; trips &middot; payments</text>
+    <rect class="tile2" x="316" y="322" width="144" height="66" rx="8"/>
+    <rect x="330" y="336" width="26" height="26" rx="7" fill="#27c07f"/><text class="icn-g" x="343" y="353">D</text>
+    <text class="tile-t" x="366" y="348">Postgres</text>
+    <text class="tile-s" x="366" y="364">regional truth</text>
+    <text class="tile-s" x="330" y="378">per service / tenant scoped</text>
+
+    <rect class="tile2" x="62" y="410" width="398" height="42" rx="8"/>
+    <rect x="76" y="419" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="88" y="435">L</text>
+    <text class="tile-t" x="110" y="428">Leaf-node edge</text><text class="tile-s" x="110" y="443">depots &middot; warehouses &middot; fleet gateways &middot; offline local operation</text>
+
+    <rect class="grp" x="520" y="214" width="438" height="256" rx="12" stroke="#4a515b"/>
+    <text class="grp-l" x="536" y="206" fill="#b7bcc2">Region B - ZA Cape Town / expansion region</text>
+    <rect class="tile" x="540" y="236" width="398" height="62" rx="8"/>
+    <rect x="554" y="250" width="28" height="28" rx="7" fill="#2fd4e8"/><text class="icn-g" x="568" y="268">N</text>
+    <text class="tile-t" x="594" y="258">NATS cluster &middot; 3 nodes / 3 AZs</text>
+    <text class="tile-s" x="594" y="276">Core NATS + JetStream domain CPT</text>
+    <text class="tile-m" x="832" y="274">N1 &middot; N2 &middot; N3</text>
+
+    <rect class="tile" x="540" y="322" width="236" height="66" rx="8"/>
+    <rect x="554" y="336" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="567" y="353">P</text>
+    <text class="tile-t" x="590" y="348">Regional services</text>
+    <text class="tile-s" x="590" y="364">same deployable service set</text>
+    <text class="tile-s" x="554" y="378">local processing &middot; failover capacity</text>
+    <rect class="tile2" x="794" y="322" width="144" height="66" rx="8"/>
+    <rect x="808" y="336" width="26" height="26" rx="7" fill="#27c07f"/><text class="icn-g" x="821" y="353">D</text>
+    <text class="tile-t" x="844" y="348">Postgres</text>
+    <text class="tile-s" x="844" y="364">regional truth</text>
+    <text class="tile-s" x="808" y="378">residency policy applies</text>
+
+    <rect class="tile2" x="540" y="410" width="398" height="42" rx="8"/>
+    <rect x="554" y="419" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="566" y="435">L</text>
+    <text class="tile-t" x="588" y="428">Leaf-node edge</text><text class="tile-s" x="588" y="443">ports &middot; cross-docks &middot; maritime terminals &middot; telemetry</text>
+
+    <path class="edge cyan" d="M460 266 H538"/>
+    <path class="edge cyan" d="M538 282 H460"/>
+    <text class="e-l2" x="499" y="248" text-anchor="middle">gateway</text>
+    <path class="edge cyan" d="M180 320 V300"/>
+    <path class="edge" d="M298 354 H314"/>
+    <path class="edge cyan" d="M260 408 V390"/>
+    <path class="edge cyan" d="M658 320 V300"/>
+    <path class="edge" d="M776 354 H792"/>
+    <path class="edge cyan" d="M738 408 V390"/>
+
+    <path class="edge blue dash" d="M537 118 V154 H450 V234"/>
+    <path class="edge blue dash" d="M537 154 H930 V234"/>
+    <text class="e-l" x="656" y="148">nearest healthy region &middot; WSS</text>
+
+    <rect class="grp" x="20" y="546" width="960" height="82" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l" x="38" y="538" fill="#a78bfa">Logical account plane - resolved and enforced by every regional NATS server</text>
+    <rect class="tile" x="40" y="566" width="166" height="42" rx="8"/>
+    <rect x="52" y="575" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="64" y="591">O</text>
+    <text class="tile-t" x="86" y="584">NATS Operator</text><text class="tile-s" x="86" y="599">signing keys + resolver</text>
+    <rect class="tile" x="226" y="566" width="170" height="42" rx="8"/>
+    <rect x="238" y="575" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="250" y="591">P</text>
+    <text class="tile-t" x="272" y="584">PLATFORM account</text><text class="tile-s" x="272" y="599">auth &middot; refdata &middot; registry</text>
+    <rect class="tile" x="416" y="566" width="160" height="42" rx="8"/>
+    <rect x="428" y="575" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="440" y="591">A</text>
+    <text class="tile-t" x="462" y="584">TENANT ACME</text><text class="tile-s" x="462" y="599">private subject space</text>
+    <rect class="tile" x="596" y="566" width="174" height="42" rx="8"/>
+    <rect x="608" y="575" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="620" y="591">B</text>
+    <text class="tile-t" x="642" y="584">TENANT KALAHARI</text><text class="tile-s" x="642" y="599">same subjects, isolated</text>
+    <rect class="tile" x="790" y="566" width="170" height="42" rx="8"/>
+    <rect x="802" y="575" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="icn-g" x="814" y="591">S</text>
+    <text class="tile-t" x="836" y="584">SYS / OBS account</text><text class="tile-s" x="836" y="599">operator visibility</text>
+
+    <path class="edge purple dash" d="M396 587 H414"/>
+    <text class="e-l2" x="496" y="622" text-anchor="middle">explicit stream/service export + import &middot; otherwise isolated</text>
+
+    <line x1="20" y1="642" x2="980" y2="642" stroke="#2a3038"/>
+    <text class="legend" x="20" y="657">Solid arrow = request/read &middot; Dashed arrow = pushed credential/event &middot; Dotted = selective replication &middot; Blue = client &middot; Cyan = NATS &middot; Green = platform &middot; Purple = tenant</text>
+  </svg>
+  </div>
+
+  <div class="panels">
+    <div class="panel geo"><div class="lbl">Geography</div>
+      <p><b>Clusters provide regional HA.</b> Gateways make the clusters one supercluster. A tenant can operate in
+        several regions without region becoming part of its identity.</p></div>
+    <div class="panel auth"><div class="lbl">Identity + tenancy</div>
+      <p><b>WorkOS identifies the human; NATS authorizes the connection.</b> The minted credential binds a user or
+        service to one account and a least-privilege subject set.</p></div>
+    <div class="panel data"><div class="lbl">Data placement</div>
+      <p><b>Persistence stays regional by policy.</b> Postgres is authoritative; JetStream domains retain local event
+        history. Mirror only the streams approved for DR or global views.</p></div>
+  </div>
+
+  <div class="decision"><div class="lbl">Subject taxonomy</div><p><b>Four subject families carry every interaction.</b>
+    <code>evt.{context}.{service}.{entity}.{entity-id}.{event}</code> for replayable domain facts, <code>rpc.*</code>
+    between services, <code>api.*</code> from a browser and <code>notify.*</code> for live change. <code>{context}</code>
+    is the business unit &mdash; never the tenant and never the region, because tenancy is the account wall and region is
+    a deployment choice.</p></div>
+  <div class="verdict"><span class="pill">Card 01</span>
+    <p>The topology scales in two independent directions: add a region without redefining tenants, or add a tenant
+      without creating a new regional messaging fabric.</p>
+    <span class="side">REFERENCE MODEL &middot; 2026-09-02</span></div>
+</section>
+
+<section class="page" style="--blue:#3b8bff">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r">Card 02 &middot; Engagement model</span></div>
+  <div class="titleblock">
+    <div class="num">02</div>
+    <div class="fam-lbl">The marketplace is the conversation</div>
+    <h1>How shippers and transporters engage</h1>
+    <p class="lede">They never receive a direct technical channel to one another. Each side acts through a
+      role-specific client; marketplace services validate, rank, allocate, notify and preserve the audit trail.</p>
+  </div>
+
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 475" role="img" aria-label="The engagement lifecycle between shippers and transporters. A shipper publishes a fixed-lane tender or load request and later approves an award and monitors execution. A transporter submits tender rates or bids, commits an eligible truck, executes the route, updates status and tracking, uploads proof of delivery and receives settlement. Six marketplace stages mediate every exchange: publish demand, compete, award and allocate, commit capacity, execute and track, then prove and settle. No direct shipper-to-transporter messaging exists.">
+    <defs>
+      <marker id="b-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+      <marker id="b-purple" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#a78bfa"/></marker>
+      <marker id="b-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker>
+    </defs>
+    <rect class="grp" x="20" y="28" width="960" height="108" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="38" y="20" fill="#3b8bff">Shipper experience - demand, governance and visibility</text>
+    <rect class="tile" x="40" y="52" width="140" height="62" rx="8"/>
+    <rect x="52" y="65" width="24" height="24" rx="7" fill="#3b8bff"/><text class="icn-g" x="64" y="81">1</text>
+    <text class="tile-t" x="86" y="76">Create demand</text><text class="tile-s" x="86" y="92">tender or load</text><text class="tile-s" x="52" y="105">lane &middot; volume &middot; SLA</text>
+    <rect class="tile" x="352" y="52" width="140" height="62" rx="8"/>
+    <rect x="364" y="65" width="24" height="24" rx="7" fill="#3b8bff"/><text class="icn-g" x="376" y="81">3</text>
+    <text class="tile-t" x="398" y="76">Approve award</text><text class="tile-s" x="398" y="92">rate + carrier</text><text class="tile-s" x="364" y="105">transparent result</text>
+    <rect class="tile" x="820" y="52" width="140" height="62" rx="8"/>
+    <rect x="832" y="65" width="24" height="24" rx="7" fill="#3b8bff"/><text class="icn-g" x="844" y="81">6</text>
+    <text class="tile-t" x="866" y="76">Close the load</text><text class="tile-s" x="866" y="92">POD + invoice</text><text class="tile-s" x="832" y="105">claims + analytics</text>
+
+    <text class="grp-l halo" x="38" y="170" fill="#2fd4e8">Marketplace workflow - the only interaction path</text>
+    <rect class="tile2" x="40" y="188" width="140" height="80" rx="8"/><text class="tile-m" x="52" y="210">01 &middot; PUBLISH</text><text class="tile-t" x="52" y="231">Tender / load</text><text class="tile-s" x="52" y="249">validate lane demand</text>
+    <rect class="tile2" x="196" y="188" width="140" height="80" rx="8"/><text class="tile-m" x="208" y="210">02 &middot; COMPETE</text><text class="tile-t" x="208" y="231">Rates / bids</text><text class="tile-s" x="208" y="249">rank eligible offers</text>
+    <rect class="tile2" x="352" y="188" width="140" height="80" rx="8"/><text class="tile-m" x="364" y="210">03 &middot; AWARD</text><text class="tile-t" x="364" y="231">Allocate</text><text class="tile-s" x="364" y="249">price + service rules</text>
+    <rect class="tile2" x="508" y="188" width="140" height="80" rx="8"/><text class="tile-m" x="520" y="210">04 &middot; COMMIT</text><text class="tile-t" x="520" y="231">Truck + driver</text><text class="tile-s" x="520" y="249">capacity confirmed</text>
+    <rect class="tile2" x="664" y="188" width="140" height="80" rx="8"/><text class="tile-m" x="676" y="210">05 &middot; EXECUTE</text><text class="tile-t" x="676" y="231">Track route</text><text class="tile-s" x="676" y="249">ETA + exceptions</text>
+    <rect class="tile2" x="820" y="188" width="140" height="80" rx="8"/><text class="tile-m" x="832" y="210">06 &middot; SETTLE</text><text class="tile-t" x="832" y="231">POD + payment</text><text class="tile-s" x="832" y="249">one governed close</text>
+    <path d="M180 228 H194 M336 228 H350 M492 228 H506 M648 228 H662 M804 228 H818" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#b-cyan)"/>
+
+    <rect class="grp" x="20" y="326" width="960" height="108" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l halo" x="38" y="318" fill="#a78bfa">Transporter experience - opportunity, capacity and execution</text>
+    <rect class="tile" x="196" y="350" width="140" height="62" rx="8"/>
+    <rect x="208" y="363" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="220" y="379">2</text>
+    <text class="tile-t" x="242" y="374">Submit offer</text><text class="tile-s" x="242" y="390">tender rate / bid</text><text class="tile-s" x="208" y="403">available lanes</text>
+    <rect class="tile" x="508" y="350" width="140" height="62" rx="8"/>
+    <rect x="520" y="363" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="532" y="379">4</text>
+    <text class="tile-t" x="554" y="374">Commit asset</text><text class="tile-s" x="554" y="390">truck + driver</text><text class="tile-s" x="520" y="403">accept allocation</text>
+    <rect class="tile" x="664" y="350" width="296" height="62" rx="8"/>
+    <rect x="676" y="363" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="688" y="379">5</text>
+    <text class="tile-t" x="710" y="374">Execute, update, upload POD</text><text class="tile-s" x="710" y="390">GPS &middot; milestones &middot; exceptions &middot; delivery evidence</text><text class="tile-s" x="676" y="403">settlement follows accepted proof</text>
+
+    <path d="M110 114 V186" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#b-blue)"/>
+    <path d="M422 186 V116" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#b-blue)"/>
+    <path d="M890 114 V186" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#b-blue)"/>
+    <path d="M266 270 V348" fill="none" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#b-purple)"/>
+    <path d="M578 348 V270" fill="none" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#b-purple)"/>
+    <path d="M734 270 V348" fill="none" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#b-purple)"/>
+    <line x1="20" y1="454" x2="980" y2="454" stroke="#2a3038"/>
+    <text class="legend" x="20" y="469">Blue = shipper action &middot; Purple = transporter action &middot; Cyan = marketplace state transition &middot; Every transition is authorised, persisted and observable</text>
+  </svg>
+  </div>
+
+  <div class="grid3">
+    <div class="panel geo"><div class="lbl">Fixed contract lanes</div><p>Longer-term tenders establish lane rates,
+      committed volumes and selected transporter capacity.</p></div>
+    <div class="panel auth"><div class="lbl">Daily bidding loads</div><p>Spot opportunities absorb excess fleet and
+      return legs without bypassing vetting or allocation rules.</p></div>
+    <div class="panel data"><div class="lbl">Execution closes the loop</div><p>Tracking, exceptions, digital POD, claims
+      and settlement remain part of the same governed load record.</p></div>
+  </div>
+  <div class="panel" style="margin-top:10px">
+    <table><thead><tr><th>Engagement right</th><th>Shipper client</th><th>Marketplace service</th><th>Transporter client</th></tr></thead><tbody>
+      <tr><td><b>Publish tender or load</b></td><td>Yes, for its own organisation</td><td>Validates lane, volume and SLA</td><td>Reads eligible opportunities only</td></tr>
+      <tr><td><b>Submit rate or bid</b></td><td>Not permitted</td><td>Ranks offers on price and service</td><td>Yes, on vetted lanes and truck types</td></tr>
+      <tr><td><b>Award and allocate</b></td><td>Approves the presented result</td><td>Applies allocation rules and records the decision</td><td>Accepts or declines the allocation</td></tr>
+      <tr><td><b>Update trip and tracking</b></td><td>Reads the permitted window</td><td>Normalises fixes and keeps provenance</td><td>Publishes position and milestones</td></tr>
+      <tr><td><b>Prove and settle</b></td><td>Accepts or disputes the evidence</td><td>Gates settlement on accepted proof</td><td>Uploads delivery evidence</td></tr>
+    </tbody></table>
+  </div>
+  <div class="decision"><div class="lbl">Vetting gate</div><p><b>Capacity is admitted before it can compete.</b>
+    A transporter is registered, vetted and onboarded before any tender or bidding subject is granted, so allocation
+    draws only from approved carriers and agreed truck types.</p></div>
+  <div class="verdict"><span class="pill">Card 02</span><p>Clients collaborate through shared marketplace facts,
+    not through direct customer-to-carrier messaging or shared database access.</p><span class="side">LINEBOOKER PUBLIC MODEL</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r" style="color:var(--green)">Card 03 &middot; Service model</span></div>
+  <div class="titleblock" style="border-left-color:var(--green)">
+    <div class="num" style="color:var(--green)">03</div>
+    <div class="fam-lbl" style="color:var(--green)">Control plane around an application plane</div>
+    <h1>Services follow business ownership</h1>
+    <p class="lede">The boxes below are bounded contexts and deployable ownership units. They are not a mandate
+      to create one container, database or team for every noun on day one.</p>
+  </div>
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 610" role="img" aria-label="Service model for the logistics SaaS. Four role-specific web experiences connect through a NATS messaging backbone. A shared platform control plane contains accounts and authentication, reference data and configuration, the micro-frontend registry, observability and workflow orchestration. The tenant application plane contains organisation vetting, tender and bid marketplace, pricing and allocation, loads and trips, fleet and truck capacity, route and tracking, document and proof-of-delivery, and payment and settlement bounded contexts. Postgres is owned per service while JetStream and KV provide event and read-model infrastructure.">
+    <defs><marker id="c-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker><marker id="c-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker></defs>
+    <rect class="grp" x="20" y="28" width="960" height="118" rx="12" stroke="#3b8bff"/>
+    <text class="grp-l" x="38" y="20" fill="#3b8bff">Experience plane - one shell, role-filtered contributions</text>
+    <rect class="tile" x="42" y="54" width="214" height="68" rx="8"/><rect x="56" y="68" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="69" y="85">S</text><text class="tile-t" x="92" y="80">Shipper workspace</text><text class="tile-s" x="92" y="96">tenders &middot; loads &middot; control tower</text><text class="tile-s" x="56" y="112">cost, SLA, allocation, claims</text>
+    <rect class="tile" x="276" y="54" width="214" height="68" rx="8"/><rect x="290" y="68" width="26" height="26" rx="7" fill="#a78bfa"/><text class="icn-g" x="303" y="85">T</text><text class="tile-t" x="326" y="80">Transporter workspace</text><text class="tile-s" x="326" y="96">opportunities &middot; fleet &middot; POD</text><text class="tile-s" x="290" y="112">rates, bids, jobs, payment</text>
+    <rect class="tile" x="510" y="54" width="214" height="68" rx="8"/><rect x="524" y="68" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="537" y="85">A</text><text class="tile-t" x="560" y="80">Tenant Admin</text><text class="tile-s" x="560" y="96">memberships &middot; policies</text><text class="tile-s" x="524" y="112">organisation and BU scope</text>
+    <rect class="tile" x="744" y="54" width="214" height="68" rx="8"/><rect x="758" y="68" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="771" y="85">O</text><text class="tile-t" x="794" y="80">Operator Admin</text><text class="tile-s" x="794" y="96">tenants &middot; health &middot; audit</text><text class="tile-s" x="758" y="112">platform-wide operations</text>
+
+    <rect class="grp" x="20" y="184" width="960" height="70" rx="12" stroke="#2fd4e8"/>
+    <text class="grp-l halo" x="38" y="176" fill="#2fd4e8">NATS backbone - account-aware API, RPC, events and notifications</text>
+    <rect x="42" y="201" width="34" height="34" rx="7" fill="#2fd4e8"/><text class="icn-g" x="59" y="223">N</text><text class="tile-t" x="90" y="216">Core NATS + JetStream + KV</text><text class="tile-s" x="90" y="234">api.* browser grants &middot; rpc.* service calls &middot; evt.* durable facts &middot; notify.* live change</text>
+    <path d="M500 146 V162 H700 V182" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#c-blue)"/>
+
+    <rect class="grp" x="20" y="300" width="354" height="250" rx="12" stroke="#34d399"/>
+    <text class="grp-l halo" x="38" y="292" fill="#34d399">Shared control plane - platform-owned</text>
+    <rect class="tile" x="42" y="326" width="148" height="70" rx="8"/><rect x="54" y="340" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="66" y="356">A</text><text class="tile-t" x="88" y="350">Accounts + Auth</text><text class="tile-s" x="88" y="366">tenant + credentials</text><text class="tile-s" x="54" y="386">WorkOS integration</text>
+    <rect class="tile" x="204" y="326" width="148" height="70" rx="8"/><rect x="216" y="340" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="228" y="356">R</text><text class="tile-t" x="250" y="350">RefData</text><text class="tile-s" x="250" y="366">types + localisation</text><text class="tile-s" x="216" y="386">platform + tenant layers</text>
+    <rect class="tile" x="42" y="412" width="148" height="70" rx="8"/><rect x="54" y="426" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="66" y="442">M</text><text class="tile-t" x="88" y="436">MFE Registry</text><text class="tile-s" x="88" y="452">signed UI catalogue</text><text class="tile-s" x="54" y="472">routes + contributions</text>
+    <rect class="tile" x="204" y="412" width="148" height="70" rx="8"/><rect x="216" y="426" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="228" y="442">W</text><text class="tile-t" x="250" y="436">Workflow + Obs</text><text class="tile-s" x="250" y="452">Temporal + telemetry</text><text class="tile-s" x="216" y="472">sagas, audit, health</text>
+
+    <rect class="grp" x="404" y="300" width="576" height="250" rx="12" stroke="#a78bfa"/>
+    <text class="grp-l halo" x="422" y="292" fill="#a78bfa">Tenant application plane - marketplace and execution</text>
+    <rect class="tile" x="426" y="326" width="166" height="62" rx="8"/><text class="tile-t" x="440" y="348">Organisations</text><text class="tile-s" x="440" y="365">vetting &middot; membership</text><text class="tile-s" x="440" y="379">documents &middot; compliance</text>
+    <rect class="tile" x="608" y="326" width="166" height="62" rx="8"/><text class="tile-t" x="622" y="348">Marketplace</text><text class="tile-s" x="622" y="365">tenders &middot; bids &middot; awards</text><text class="tile-s" x="622" y="379">opportunity publication</text>
+    <rect class="tile" x="790" y="326" width="166" height="62" rx="8"/><text class="tile-t" x="804" y="348">Pricing + Allocation</text><text class="tile-s" x="804" y="365">lane rates &middot; fees</text><text class="tile-s" x="804" y="379">eligible truck assignment</text>
+    <rect class="tile" x="426" y="404" width="166" height="62" rx="8"/><text class="tile-t" x="440" y="426">Loads + Trips</text><text class="tile-s" x="440" y="443">dispatch to delivery</text><text class="tile-s" x="440" y="457">milestones + exceptions</text>
+    <rect class="tile" x="608" y="404" width="166" height="62" rx="8"/><text class="tile-t" x="622" y="426">Fleet + Tracking</text><text class="tile-s" x="622" y="443">trucks &middot; routes &middot; ETA</text><text class="tile-s" x="622" y="457">GPS provider adapters</text>
+    <rect class="tile" x="790" y="404" width="166" height="62" rx="8"/><text class="tile-t" x="804" y="426">POD + Settlement</text><text class="tile-s" x="804" y="443">documents &middot; claims</text><text class="tile-s" x="804" y="457">invoice + transporter pay</text>
+    <rect class="tile2" x="426" y="482" width="530" height="46" rx="8"/><text class="tile-t" x="440" y="501">Service-owned persistence</text><text class="tile-s" x="440" y="518">Postgres truth &middot; JetStream history &middot; KV/read projections &middot; Object Store documents</text>
+    <path d="M197 254 V272 H362 V298" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#c-cyan)"/><path d="M692 254 V272 H940 V298" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#c-cyan)"/>
+    <line x1="20" y1="560" x2="980" y2="560" stroke="#2a3038"/><text class="legend" x="20" y="576">Blue = client plane &middot; Cyan = messaging backbone &middot; Green = platform control plane &middot; Purple = tenant application plane &middot; A bounded context may begin inside a shared deployable</text>
+  </svg>
+  </div>
+  <div class="decision"><div class="lbl">Deployment rule</div><p><b>Package around change cadence and ownership.</b>
+    Split a bounded context into its own service only when independent scaling, release, failure isolation or data
+    ownership justifies the operational cost.</p></div>
+  <div class="panel" style="margin-top:10px">
+    <table><thead><tr><th>Bounded context</th><th>Owns</th><th>Publishes</th><th>Consumes</th></tr></thead><tbody>
+      <tr><td><b>Organisations</b></td><td>Vetting, membership, documents, compliance</td><td>Organisation and membership facts</td><td>Auth memberships, reference data</td></tr>
+      <tr><td><b>Marketplace</b></td><td>Tenders, bids, awards</td><td>Award and allocation facts</td><td>Organisation eligibility, lane pricing</td></tr>
+      <tr><td><b>Loads + Trips</b></td><td>Dispatch, route plan, milestones, exceptions</td><td>Trip lifecycle facts</td><td>Allocation, tracking, fleet state</td></tr>
+      <tr><td><b>Fleet + Tracking</b></td><td>Trucks, drivers, normalised position</td><td>Position and exception facts</td><td>Provider adapters, trip plan</td></tr>
+      <tr><td><b>POD + Settlement</b></td><td>Documents, charges, claims, invoices</td><td>Proof and settlement facts</td><td>Trip completion, pricing</td></tr>
+    </tbody></table>
+  </div>
+  <div class="verdict"><span class="pill" style="border-color:var(--green);color:var(--green)">Card 03</span><p>Clients see one product;
+    teams own explicit contexts; NATS subjects are the contract between them.</p><span class="side">CONTROL + APPLICATION PLANES</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r" style="color:var(--purple)">Card 04 &middot; Tenant model</span></div>
+  <div class="titleblock" style="border-left-color:var(--purple)">
+    <div class="num" style="color:var(--purple)">04</div><div class="fam-lbl" style="color:var(--purple)">Four axes, four different jobs</div>
+    <h1>The tenant is the marketplace operator</h1>
+    <p class="lede">A region is not a tenant, and a shipper or transporter is not automatically a tenant. They are
+      organisations participating in a marketplace tenant through scoped memberships.</p>
+  </div>
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 520" role="img" aria-label="NATS account and tenant model. A NATS operator governs the system. The platform account exposes authentication, accounts and reference data services. One tenant account represents the marketplace-operating business and contains shipper, marketplace broker and transporter roles. Both organisations communicate only with marketplace services, never directly. A second tenant account repeats the pattern with an isolated subject namespace. A system and observability account receives only approved operational exports.">
+    <defs><marker id="d-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker><marker id="d-purple" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#a78bfa"/></marker></defs>
+    <rect class="grp" x="340" y="30" width="320" height="82" rx="12" stroke="#34d399"/><text class="grp-l" x="358" y="22" fill="#34d399">Global trust authority</text>
+    <rect class="tile" x="360" y="48" width="280" height="48" rx="8"/><rect x="372" y="59" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="384" y="75">O</text><text class="tile-t" x="406" y="68">NATS Operator</text><text class="tile-s" x="406" y="84">signing keys + JWT resolver</text>
+
+    <rect class="grp" x="20" y="152" width="210" height="278" rx="12" stroke="#34d399"/><text class="grp-l halo" x="38" y="144" fill="#34d399">PLATFORM account</text>
+    <rect class="tile" x="40" y="178" width="170" height="58" rx="8"/><text class="tile-t" x="54" y="200">Accounts + Auth</text><text class="tile-s" x="54" y="217">tenants, users, credentials</text>
+    <rect class="tile" x="40" y="252" width="170" height="58" rx="8"/><text class="tile-t" x="54" y="274">RefData + Config</text><text class="tile-s" x="54" y="291">approved shared lookups</text>
+    <rect class="tile2" x="40" y="326" width="170" height="76" rx="8"/><text class="tile-m" x="54" y="348">PRIVATE EXPORTS</text><text class="tile-s" x="54" y="367">service and stream grants</text><text class="tile-s" x="54" y="385">imported by named accounts</text>
+
+    <rect class="grp" x="260" y="152" width="480" height="278" rx="12" stroke="#a78bfa"/><text class="grp-l halo" x="278" y="144" fill="#a78bfa">TENANT account - one marketplace-operating business</text>
+    <rect class="tile" x="282" y="184" width="132" height="90" rx="8"/><rect x="296" y="198" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="309" y="215">S</text><text class="tile-t" x="332" y="210">Shipper org</text><text class="tile-s" x="296" y="239">publish demand</text><text class="tile-s" x="296" y="255">review + monitor</text>
+    <rect class="tile" x="434" y="184" width="132" height="90" rx="8"/><rect x="448" y="198" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="461" y="215">M</text><text class="tile-t" x="484" y="210">Marketplace</text><text class="tile-s" x="448" y="239">validate + rank</text><text class="tile-s" x="448" y="255">allocate + audit</text>
+    <rect class="tile" x="586" y="184" width="132" height="90" rx="8"/><rect x="600" y="198" width="26" height="26" rx="7" fill="#a78bfa"/><text class="icn-g" x="613" y="215">T</text><text class="tile-t" x="636" y="210">Transporter</text><text class="tile-s" x="600" y="239">offer capacity</text><text class="tile-s" x="600" y="255">execute + POD</text>
+    <path d="M414 229 H432" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#d-purple)"/><path d="M586 245 H568" fill="none" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#d-purple)"/>
+    <rect class="tile2" x="282" y="304" width="436" height="96" rx="8"/><text class="tile-m" x="298" y="327">MEMBERSHIP-SCOPED USER GRANTS</text><text class="tile-t" x="298" y="350">Tenant + organisation + role + context</text><text class="tile-s" x="298" y="370">Shipper subjects cannot publish transporter actions; transporter subjects cannot award</text><text class="tile-s" x="298" y="387">Marketplace services hold the rights that cross role-owned state transitions</text>
+
+    <rect class="grp" x="770" y="152" width="210" height="278" rx="12" stroke="#a78bfa"/><text class="grp-l halo" x="788" y="144" fill="#a78bfa">TENANT B account</text>
+    <rect class="tile" x="790" y="178" width="170" height="74" rx="8"/><text class="tile-t" x="804" y="200">White-label market</text><text class="tile-s" x="804" y="218">same contracts</text><text class="tile-s" x="804" y="236">different subject namespace</text>
+    <rect class="tile" x="790" y="270" width="170" height="58" rx="8"/><text class="tile-t" x="804" y="292">Its organisations</text><text class="tile-s" x="804" y="309">isolated from Tenant A</text>
+    <rect class="tile2" x="790" y="346" width="170" height="56" rx="8"/><text class="tile-m" x="804" y="368">NO IMPLICIT ACCESS</text><text class="tile-s" x="804" y="386">even for equal subjects</text>
+
+    <path d="M420 96 V120 H200 V150" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#d-green)"/><path d="M500 96 V128 H720 V150" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#d-green)"/><path d="M580 96 V120 H950 V150" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#d-green)"/>
+    <rect class="grp" x="260" y="472" width="480" height="36" rx="10" stroke="#2fd4e8"/><text class="tile-m" x="284" y="495">SYS / OBS account gets approved operational exports only</text>
+  </svg>
+  </div>
+  <div class="grid2">
+    <div class="panel auth"><div class="lbl">The four scopes</div><ul class="clean"><li><b>Region:</b> placement and residency</li><li><b>Tenant:</b> NATS account wall</li><li><b>Organisation:</b> shipper, transporter, operator or integrator</li><li><b>Context:</b> business-unit naming scope</li></ul></div>
+    <div class="panel data"><div class="lbl">The engagement rule</div><ul class="clean"><li>No organisation receives another organisation's credential</li><li>No client publishes an award, allocation or settlement it does not own</li><li>Shared services cross roles through explicit domain commands and events</li></ul></div>
+  </div>
+  <div class="panel" style="margin-top:10px">
+    <table><thead><tr><th>Account</th><th>Who connects</th><th>Typical grant</th><th>Never granted</th></tr></thead><tbody>
+      <tr><td><b>PLATFORM</b></td><td>Auth, accounts, refdata, registry, observability</td><td>Platform <code>rpc.&gt;</code> and its own streams</td><td>Tenant business subjects</td></tr>
+      <tr><td><b>TENANT A</b></td><td>Tenant services and that tenant's browser users</td><td><code>api.&gt;</code> plus <code>evt.&gt;</code> inside the account</td><td>Any subject in another tenant account</td></tr>
+      <tr><td><b>TENANT B</b></td><td>The same pattern, isolated namespace</td><td>Identical subject shapes</td><td>Cross-account subscribe</td></tr>
+      <tr><td><b>SYS / OBS</b></td><td>Operators and the observability service</td><td>Approved operational exports</td><td>Business payload subjects</td></tr>
+      <tr><td><b>Leaf / edge</b></td><td>Depot, warehouse, port and fleet gateways</td><td>A narrow publish set for that site</td><td>Broad wildcard subscribe</td></tr>
+    </tbody></table>
+  </div>
+  <div class="verdict"><span class="pill" style="border-color:var(--purple);color:var(--purple)">Card 04</span><p>The marketplace account is the room;
+    organisations are participants; services enforce the rules of engagement.</p><span class="side">TENANT != REGION</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r" style="color:var(--green)">Card 05 &middot; Authentication</span></div>
+  <div class="titleblock" style="border-left-color:var(--green)">
+    <div class="num" style="color:var(--green)">05</div><div class="fam-lbl" style="color:var(--green)">Identity is not messaging authority</div>
+    <h1>From human sign-in to a NATS session</h1>
+    <p class="lede">WorkOS establishes who the person is. Accounts-service decides which active membership they
+      may use, then mints a short-lived credential whose signing key constrains the effective NATS permissions.</p>
+  </div>
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 470" role="img" aria-label="Authentication sequence from a user to WorkOS, accounts-service, a NATS server and a business service. The user selects a tenant membership and signs in with WorkOS. Accounts-service validates the callback, loads the active domain user and organisation membership, chooses a scoped signing key and mints short-lived NATS user credentials. The browser connects over WebSocket and proves possession of its NKey. The NATS server validates the account and user JWT chain and enforces publish and subscribe permissions before any request reaches a service. Business services trust the authenticated account connection and do not accept tenant identity from request payloads.">
+    <defs><marker id="e-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker><marker id="e-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker><marker id="e-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker></defs>
+    <rect class="grp" x="20" y="34" width="960" height="390" rx="12" stroke="#4a515b"/><text class="grp-l" x="38" y="26" fill="#b7bcc2">Login and connection sequence</text>
+    <rect class="tile" x="42" y="60" width="150" height="54" rx="8"/><rect x="54" y="72" width="24" height="24" rx="7" fill="#3b8bff"/><text class="icn-g" x="66" y="88">U</text><text class="tile-t" x="88" y="82">User + browser</text><text class="tile-s" x="88" y="99">selected membership</text>
+    <rect class="tile" x="234" y="60" width="150" height="54" rx="8"/><rect x="246" y="72" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="258" y="88">W</text><text class="tile-t" x="280" y="82">WorkOS</text><text class="tile-s" x="280" y="99">identity + MFA / SSO</text>
+    <rect class="tile" x="426" y="60" width="174" height="54" rx="8"/><rect x="438" y="72" width="24" height="24" rx="7" fill="#34d399"/><text class="icn-g" x="450" y="88">A</text><text class="tile-t" x="472" y="82">accounts-service</text><text class="tile-s" x="472" y="99">membership + minting</text>
+    <rect class="tile" x="642" y="60" width="150" height="54" rx="8"/><rect x="654" y="72" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="icn-g" x="666" y="88">N</text><text class="tile-t" x="688" y="82">NATS server</text><text class="tile-s" x="688" y="99">JWT + NKey proof</text>
+    <rect class="tile" x="834" y="60" width="124" height="54" rx="8"/><rect x="846" y="72" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="858" y="88">S</text><text class="tile-t" x="880" y="82">Service</text><text class="tile-s" x="880" y="99">account-bound</text>
+    <line x1="117" y1="114" x2="117" y2="394" stroke="#4a515b" stroke-dasharray="3 5"/><line x1="309" y1="114" x2="309" y2="330" stroke="#4a515b" stroke-dasharray="3 5"/><line x1="513" y1="114" x2="513" y2="330" stroke="#4a515b" stroke-dasharray="3 5"/><line x1="717" y1="114" x2="717" y2="394" stroke="#4a515b" stroke-dasharray="3 5"/><line x1="896" y1="114" x2="896" y2="394" stroke="#4a515b" stroke-dasharray="3 5"/>
+    <path d="M117 144 H307" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#e-blue)"/><text class="e-l" x="212" y="137" text-anchor="middle">1 &middot; login / SSO</text>
+    <path d="M309 184 H511" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#e-green)"/><text class="e-l" x="410" y="177" text-anchor="middle">2 &middot; verified callback</text>
+    <path d="M513 226 H119" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#e-green)"/><text class="e-l halo" x="316" y="219" text-anchor="middle">3 &middot; short-lived NATS user credentials</text>
+    <path d="M117 270 H715" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#e-cyan)"/><text class="e-l" x="416" y="263" text-anchor="middle">4 &middot; WSS CONNECT + signed nonce proof</text>
+    <path d="M717 312 H894" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#e-cyan)"/><text class="e-l" x="806" y="305" text-anchor="middle">5 &middot; authorised api.* request</text>
+    <path d="M896 354 H719" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#e-cyan)"/><text class="e-l" x="806" y="373" text-anchor="middle">response / notify.* update</text>
+    <rect class="tile2" x="234" y="338" width="366" height="56" rx="8"/><text class="tile-m" x="250" y="360">EFFECTIVE PERMISSION = SIGNING-KEY TEMPLATE</text><text class="tile-s" x="250" y="379">tenant account &middot; organisation role &middot; allowed subjects &middot; expiry</text>
+    <line x1="20" y1="442" x2="980" y2="442" stroke="#2a3038"/><text class="legend" x="20" y="459">Blue = browser identity action &middot; Green = identity and credential control &middot; Cyan = authenticated NATS traffic &middot; The browser never sends a tenant id that widens its credential</text>
+  </svg>
+  </div>
+  <div class="grid3">
+    <div class="panel auth"><div class="lbl">Authentication</div><p>WorkOS handles password, enterprise SSO,
+      MFA and directory-driven lifecycle.</p></div>
+    <div class="panel geo"><div class="lbl">Authorisation</div><p>NATS validates the operator-account-user trust chain
+      and enforces subject permissions server-side.</p></div>
+    <div class="panel data"><div class="lbl">HTTP exception</div><p>Where direct HTTP is unavoidable, first mint a short-lived,
+      single-use capability over the authenticated NATS connection.</p></div>
+  </div>
+  <div class="panel" style="margin-top:10px">
+    <table><thead><tr><th>Credential</th><th>Issued by</th><th>Lifetime</th><th>Bound to</th></tr></thead><tbody>
+      <tr><td><b>WorkOS session</b></td><td>WorkOS</td><td>Provider policy</td><td>The human identity only</td></tr>
+      <tr><td><b>Membership selection</b></td><td>accounts-service</td><td>Per sign-in</td><td>One organisation membership in one tenant</td></tr>
+      <tr><td><b>NATS user JWT</b></td><td>accounts-service, scoped signing key</td><td>Short, renewed before expiry</td><td>One account and one least-privilege subject set</td></tr>
+      <tr><td><b>Service credential</b></td><td>Provisioning control plane</td><td>Long-lived and rotatable</td><td>One named process in one account</td></tr>
+      <tr><td><b>HTTP capability</b></td><td>The owning service, over NATS</td><td>Single use, seconds</td><td>One object or one operation</td></tr>
+    </tbody></table>
+  </div>
+  <div class="decision"><div class="lbl">Renewal rule</div><p><b>A session ends when its credential ends.</b>
+    The browser renews over the connection it already holds, and a revoked membership simply stops the next renewal &mdash;
+    so withdrawing access never depends on a client honouring a logout.</p></div>
+  <div class="verdict"><span class="pill" style="border-color:var(--green);color:var(--green)">Card 05</span><p>The account on the live NATS connection is the tenant authority;
+    payload claims are never allowed to override it.</p><span class="side">WORKOS -> NATS</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r" style="color:var(--cyan)">Card 06 &middot; Deployment model</span></div>
+  <div class="titleblock" style="border-left-color:var(--cyan)">
+    <div class="num" style="color:var(--cyan)">06</div><div class="fam-lbl" style="color:var(--cyan)">Repeatable regional cells</div>
+    <h1>Deploy regions, not bespoke tenant stacks</h1>
+    <p class="lede">Each region is a repeatable cell: a three-node NATS cluster, the same versioned service set,
+      service-owned persistence and regional ingress. Gateways connect cells without turning the WAN into one cluster.</p>
+  </div>
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 540" role="img" aria-label="Regional deployment model with two repeatable regional cells. Johannesburg and Cape Town each contain ingress, three NATS nodes across availability zones, pooled service replicas, service-owned Postgres databases, JetStream domain storage, object storage and leaf-node ingress from logistics edge sites. The two NATS clusters connect with gateways. Services open separate credentials and connections for the platform account and each tenant account. A pooled default deployment serves many tenants while an optional silo tier can dedicate service and storage capacity without changing subjects or contracts.">
+    <defs><marker id="f-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker><marker id="f-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker></defs>
+    <rect class="grp" x="20" y="28" width="458" height="444" rx="12" stroke="#4a515b"/><text class="grp-l" x="38" y="20" fill="#b7bcc2">Region A - ZA Johannesburg</text>
+    <rect class="tile" x="42" y="54" width="414" height="52" rx="8"/><rect x="56" y="67" width="24" height="24" rx="7" fill="#3b8bff"/><text class="icn-g" x="68" y="83">I</text><text class="tile-t" x="90" y="78">Regional ingress</text><text class="tile-s" x="90" y="94">tenant-aware DNS route &middot; HTTPS + WSS</text>
+    <rect class="tile" x="42" y="132" width="414" height="72" rx="8"/><rect x="56" y="146" width="28" height="28" rx="7" fill="#2fd4e8"/><text class="icn-g" x="70" y="164">N</text><text class="tile-t" x="96" y="154">NATS cluster</text><text class="tile-s" x="96" y="171">N1 / AZ-a &middot; N2 / AZ-b &middot; N3 / AZ-c</text><text class="tile-s" x="56" y="192">Core routes inside region &middot; JetStream domain JHB</text>
+    <rect class="tile" x="42" y="232" width="414" height="84" rx="8"/><rect x="56" y="246" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="69" y="263">S</text><text class="tile-t" x="92" y="258">Versioned regional service pool</text><text class="tile-s" x="92" y="275">2+ replicas per critical deployable</text><text class="tile-s" x="56" y="296">one PLATFORM connection + one connection per active tenant</text><text class="tile-m" x="56" y="308">same binary; credential chooses account boundary</text>
+    <rect class="tile2" x="42" y="344" width="198" height="94" rx="8"/><rect x="56" y="358" width="24" height="24" rx="7" fill="#27c07f"/><text class="icn-g" x="68" y="374">P</text><text class="tile-t" x="90" y="370">Postgres</text><text class="tile-s" x="90" y="387">service-owned truth</text><text class="tile-s" x="56" y="406">regional backups</text><text class="tile-s" x="56" y="423">tenant scope in every row</text>
+    <rect class="tile2" x="258" y="344" width="198" height="94" rx="8"/><rect x="272" y="358" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="284" y="374">J</text><text class="tile-t" x="306" y="370">JetStream + Object</text><text class="tile-s" x="306" y="387">events, KV, POD files</text><text class="tile-s" x="272" y="406">replicas inside region</text><text class="tile-s" x="272" y="423">selected cross-region copy</text>
+    <path d="M249 106 V130" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#f-cyan)"/><path d="M249 206 V230" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#f-green)"/><path d="M150 316 V342 M350 316 V342" fill="none" stroke="#4a515b" stroke-width="1.2"/>
+
+    <rect class="grp" x="522" y="28" width="458" height="444" rx="12" stroke="#4a515b"/><text class="grp-l" x="540" y="20" fill="#b7bcc2">Region B - ZA Cape Town / future Africa cell</text>
+    <rect class="tile" x="544" y="54" width="414" height="52" rx="8"/><rect x="558" y="67" width="24" height="24" rx="7" fill="#3b8bff"/><text class="icn-g" x="570" y="83">I</text><text class="tile-t" x="592" y="78">Regional ingress</text><text class="tile-s" x="592" y="94">same routes, certificates and policy</text>
+    <rect class="tile" x="544" y="132" width="414" height="72" rx="8"/><rect x="558" y="146" width="28" height="28" rx="7" fill="#2fd4e8"/><text class="icn-g" x="572" y="164">N</text><text class="tile-t" x="598" y="154">NATS cluster</text><text class="tile-s" x="598" y="171">N1 / AZ-a &middot; N2 / AZ-b &middot; N3 / AZ-c</text><text class="tile-s" x="558" y="192">Core routes inside region &middot; JetStream domain CPT</text>
+    <rect class="tile" x="544" y="232" width="414" height="84" rx="8"/><rect x="558" y="246" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="571" y="263">S</text><text class="tile-t" x="594" y="258">Same deployable service set</text><text class="tile-s" x="594" y="275">active capacity or warm standby by service</text><text class="tile-s" x="558" y="296">tenant home-region policy controls placement</text><text class="tile-m" x="558" y="308">no region token inside business subjects</text>
+    <rect class="tile2" x="544" y="344" width="198" height="94" rx="8"/><rect x="558" y="358" width="24" height="24" rx="7" fill="#27c07f"/><text class="icn-g" x="570" y="374">P</text><text class="tile-t" x="592" y="370">Postgres</text><text class="tile-s" x="592" y="387">regional authority</text><text class="tile-s" x="558" y="406">promote by runbook</text><text class="tile-s" x="558" y="423">residency guardrails</text>
+    <rect class="tile2" x="760" y="344" width="198" height="94" rx="8"/><rect x="774" y="358" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="786" y="374">J</text><text class="tile-t" x="808" y="370">JetStream + Object</text><text class="tile-s" x="808" y="387">local event history</text><text class="tile-s" x="774" y="406">mirror approved streams</text><text class="tile-s" x="774" y="423">POD residency by policy</text>
+    <path d="M751 106 V130" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#f-cyan)"/><path d="M751 206 V230" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#f-green)"/><path d="M652 316 V342 M852 316 V342" fill="none" stroke="#4a515b" stroke-width="1.2"/>
+    <path d="M456 154 H542" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#f-cyan)"/><path d="M544 181 H458" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#f-cyan)"/><text class="e-l2" x="500" y="128" text-anchor="middle">gateway mesh</text>
+    <rect class="grp" x="168" y="496" width="664" height="32" rx="10" stroke="#f5b13d"/><text class="tile-m" x="190" y="517">LOGISTICS EDGE &middot; leaf nodes connect depots, warehouses, ports and fleet gateways</text>
+  </svg>
+  </div>
+  <div class="grid2">
+    <div class="panel geo"><div class="lbl">Pooled default</div><ul class="clean"><li>One service deployment per region serves many tenant accounts</li><li>Each active tenant gets its own NATS connection and data scope</li><li>Best operational efficiency for the standard tier</li></ul></div>
+    <div class="panel data"><div class="lbl">Optional silo tier</div><ul class="clean"><li>Dedicate selected service replicas or storage to a tenant</li><li>Keep the same subjects, contracts and onboarding control plane</li><li>Use for regulation, scale or noisy-neighbour isolation</li></ul></div>
+  </div>
+  <div class="panel" style="margin-top:10px">
+    <table><thead><tr><th>Concern</th><th>Per regional cell</th><th>Global to the platform</th></tr></thead><tbody>
+      <tr><td><b>NATS routing</b></td><td>A cluster of three nodes across availability zones</td><td>Gateways join the clusters into one supercluster</td></tr>
+      <tr><td><b>JetStream</b></td><td>A named domain holding that region's streams</td><td>Only approved mirrors may leave the region</td></tr>
+      <tr><td><b>Postgres</b></td><td>Service-owned authority plus regional backups</td><td>No global write master</td></tr>
+      <tr><td><b>Identity</b></td><td>Regional service endpoints and ingress</td><td>One directory and one NATS operator trust chain</td></tr>
+      <tr><td><b>Release</b></td><td>The same versioned service set, deployed locally</td><td>One catalogue of service and UI versions</td></tr>
+    </tbody></table>
+  </div>
+  <div class="verdict"><span class="pill" style="border-color:var(--cyan);color:var(--cyan)">Card 06</span><p>Scale regions by cloning a cell;
+    scale tenants by provisioning accounts and data scope, not by hand-building a second platform.</p><span class="side">POOL FIRST &middot; SILO WHEN NEEDED</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r" style="color:var(--amber)">Card 07 &middot; Data ownership</span></div>
+  <div class="titleblock" style="border-left-color:var(--amber)">
+    <div class="num" style="color:var(--amber)">07</div><div class="fam-lbl" style="color:var(--amber)">Truth, history and fast views are different jobs</div>
+    <h1>Each service owns its facts</h1>
+    <p class="lede">Postgres is authoritative for transactional state. JetStream retains replayable domain facts.
+      KV and projections make current state fast to read; Object Store holds POD and compliance documents.</p>
+  </div>
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 250" role="img" aria-label="Data flow inside one service. An authorised command arrives over NATS, a domain service validates business rules and commits transactional state to its own Postgres database. An outbox or durable publish records a domain event in a regional JetStream stream. Projectors update query tables and NATS KV read models. Browsers and downstream services read those projections and receive lightweight notifications. Large proof-of-delivery and compliance documents are stored in NATS Object Store with immutable metadata in Postgres.">
+    <defs><marker id="g-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker><marker id="g-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#27c07f"/></marker><marker id="g-amber" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker></defs>
+    <rect class="grp" x="20" y="30" width="960" height="174" rx="12" stroke="#4a515b"/><text class="grp-l" x="38" y="22" fill="#b7bcc2">One service-owned write and projection pipeline</text>
+    <rect class="tile" x="42" y="74" width="142" height="72" rx="8"/><text class="tile-m" x="56" y="95">NATS COMMAND</text><text class="tile-t" x="56" y="116">Authorised intent</text><text class="tile-s" x="56" y="135">account + context</text>
+    <rect class="tile" x="220" y="74" width="156" height="72" rx="8"/><text class="tile-m" x="234" y="95">DOMAIN</text><text class="tile-t" x="234" y="116">Rules + state</text><text class="tile-s" x="234" y="135">idempotent command</text>
+    <rect class="tile2" x="412" y="54" width="156" height="52" rx="8"/><text class="tile-t" x="426" y="76">Postgres</text><text class="tile-s" x="426" y="94">transactional truth</text>
+    <rect class="tile2" x="412" y="126" width="156" height="52" rx="8"/><text class="tile-t" x="426" y="148">JetStream</text><text class="tile-s" x="426" y="166">replayable event fact</text>
+    <rect class="tile" x="604" y="74" width="156" height="72" rx="8"/><text class="tile-m" x="618" y="95">PROJECTORS</text><text class="tile-t" x="618" y="116">Read models</text><text class="tile-s" x="618" y="135">ordered + idempotent</text>
+    <rect class="tile2" x="796" y="54" width="162" height="52" rx="8"/><text class="tile-t" x="810" y="76">Query Postgres</text><text class="tile-s" x="810" y="94">lists, reports, audit</text>
+    <rect class="tile2" x="796" y="126" width="162" height="52" rx="8"/><text class="tile-t" x="810" y="148">NATS KV + notify</text><text class="tile-s" x="810" y="166">fast current views</text>
+    <path d="M184 110 H218" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#g-blue)"/><path d="M376 96 H410" fill="none" stroke="#27c07f" stroke-width="1.4" marker-end="url(#g-green)"/><path d="M376 124 H410" fill="none" stroke="#f5b13d" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#g-amber)"/><path d="M568 152 H602" fill="none" stroke="#f5b13d" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#g-amber)"/><path d="M760 96 H794" fill="none" stroke="#27c07f" stroke-width="1.4" marker-end="url(#g-green)"/><path d="M760 124 H794" fill="none" stroke="#f5b13d" stroke-width="1.4" marker-end="url(#g-amber)"/>
+    <line x1="20" y1="224" x2="980" y2="224" stroke="#2a3038"/><text class="legend" x="20" y="241">Blue = request &middot; Green = authoritative write/read &middot; Amber dashed = durable event/projection &middot; Object Store follows the same ownership boundary for large immutable documents</text>
+  </svg>
+  </div>
+  <div class="panel" style="margin-top:10px">
+    <table>
+      <thead><tr><th>Domain</th><th>Authoritative records</th><th>Durable events / objects</th><th>Fast views and consumers</th></tr></thead>
+      <tbody>
+        <tr><td><b>Marketplace</b></td><td>Tender, lane, offer, award, allocation</td><td>Published, bid submitted, awarded, allocated</td><td>Opportunity board, ranking, award audit</td></tr>
+        <tr><td><b>Fleet</b></td><td>Truck, trailer, driver, eligibility, availability</td><td>Vetted, availability changed, committed</td><td>Eligible-capacity index, transporter fleet view</td></tr>
+        <tr><td><b>Execution</b></td><td>Load, trip, route plan, milestone, exception</td><td>Dispatched, collected, in transit, delivered</td><td>Control tower, ETA, alerts, customer timeline</td></tr>
+        <tr><td><b>Tracking</b></td><td>Provider link, latest fix, consent and retention</td><td>Normalised position and exception events</td><td>Live map, ETA projection, corridor analytics</td></tr>
+        <tr><td><b>Documents</b></td><td>POD metadata, version, checksum, access policy</td><td>Immutable POD/compliance objects</td><td>POD retrieval, claims and settlement gate</td></tr>
+        <tr><td><b>Settlement</b></td><td>Charge, fee, claim, invoice, transporter payment</td><td>Approved, invoiced, paid, disputed</td><td>Statements, ageing, reconciliation and audit</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="decision"><div class="lbl">Event-source when</div><p>History is itself a business concern: replaying a trip,
+    auditing an award, reconstructing allocation or proving a payment transition. Use CRUD when only current lookup
+    state matters.</p></div>
+  <div class="grid3">
+    <div class="panel auth"><div class="lbl">Postgres &mdash; truth</div><p>Commits the decision in one transaction and
+      answers what is contractually true right now.</p></div>
+    <div class="panel geo"><div class="lbl">JetStream &mdash; history</div><p>Retains the fact under a limits policy, so a
+      trip, award or payment sequence can be replayed later.</p></div>
+    <div class="panel data"><div class="lbl">KV + Object Store</div><p>KV is an eager write-through cache for current
+      views; Object Store holds POD blobs whose metadata stays in Postgres.</p></div>
+  </div>
+  <div class="verdict"><span class="pill" style="border-color:var(--amber);color:var(--amber)">Card 07</span><p>NATS carries facts between owners;
+    it does not turn every service into a writer of everyone else's data.</p><span class="side">POSTGRES + JETSTREAM + KV</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r" style="color:var(--cyan)">Card 08 &middot; Tracking and edge</span></div>
+  <div class="titleblock" style="border-left-color:var(--cyan)">
+    <div class="num" style="color:var(--cyan)">08</div><div class="fam-lbl" style="color:var(--cyan)">Many telemetry shapes, one trip timeline</div>
+    <h1>Tracking becomes a normalised business signal</h1>
+    <p class="lede">Vehicle devices, transporter systems and driver apps differ. Provider adapters normalise their
+      inputs before trip services derive milestones, ETA and exceptions for both client experiences.</p>
+  </div>
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 505" role="img" aria-label="Logistics tracking and edge architecture. Truck telematics, a driver app and transporter tracking providers send location and status data through provider adapters or an optional depot leaf-node edge. A tracking ingestion service validates transporter ownership, provider credentials, consent, timestamps and deduplication, then publishes normalised position and exception events to regional JetStream. Trip and ETA projectors correlate those events with an allocated load and route. The shipper control tower sees location, ETA and exceptions, while the transporter workspace sees jobs, truck status and required actions. Proof-of-delivery documents flow through a capability-protected upload into Object Store and release the settlement gate.">
+    <defs><marker id="h-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker><marker id="h-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker><marker id="h-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker></defs>
+    <rect class="grp" x="20" y="28" width="248" height="394" rx="12" stroke="#f5b13d"/><text class="grp-l" x="38" y="20" fill="#f5b13d">Physical and partner edge</text>
+    <rect class="tile" x="42" y="56" width="204" height="64" rx="8"/><rect x="56" y="70" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="68" y="86">T</text><text class="tile-t" x="90" y="82">Truck telematics</text><text class="tile-s" x="90" y="99">GPS &middot; ignition &middot; sensors</text><text class="tile-s" x="56" y="112">provider-owned protocol</text>
+    <rect class="tile" x="42" y="140" width="204" height="64" rx="8"/><rect x="56" y="154" width="24" height="24" rx="7" fill="#a78bfa"/><text class="icn-g" x="68" y="170">D</text><text class="tile-t" x="90" y="166">Driver / transporter app</text><text class="tile-s" x="90" y="183">manual milestones</text><text class="tile-s" x="56" y="196">exception + POD capture</text>
+    <rect class="tile" x="42" y="224" width="204" height="64" rx="8"/><rect x="56" y="238" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="68" y="254">P</text><text class="tile-t" x="90" y="250">Tracking providers</text><text class="tile-s" x="90" y="267">webhook / poll / stream</text><text class="tile-s" x="56" y="280">credentials per transporter</text>
+    <rect class="tile2" x="42" y="316" width="204" height="80" rx="8"/><rect x="56" y="330" width="24" height="24" rx="7" fill="#f5b13d"/><text class="icn-g" x="68" y="346">L</text><text class="tile-t" x="90" y="342">Optional leaf node</text><text class="tile-s" x="90" y="359">depot / warehouse</text><text class="tile-s" x="56" y="378">local queue + command path</text><text class="tile-s" x="56" y="390">continues during WAN loss</text>
+
+    <rect class="grp" x="304" y="28" width="360" height="394" rx="12" stroke="#2fd4e8"/><text class="grp-l" x="322" y="20" fill="#2fd4e8">Regional tracking pipeline</text>
+    <rect class="tile" x="326" y="56" width="316" height="82" rx="8"/><rect x="340" y="70" width="26" height="26" rx="7" fill="#34d399"/><text class="icn-g" x="353" y="87">A</text><text class="tile-t" x="376" y="82">Provider adapters + ingestion</text><text class="tile-s" x="376" y="99">authenticate &middot; validate &middot; deduplicate</text><text class="tile-s" x="340" y="120">map provider asset -> transporter truck -> active trip</text>
+    <rect class="tile" x="326" y="170" width="316" height="70" rx="8"/><rect x="340" y="184" width="26" height="26" rx="7" fill="#2fd4e8"/><text class="icn-g" x="353" y="201">N</text><text class="tile-t" x="376" y="196">Regional JetStream</text><text class="tile-s" x="376" y="213">normalised position + exception facts</text><text class="tile-m" x="340" y="230">evt.{context}.tracking.*</text>
+    <rect class="tile" x="326" y="272" width="150" height="86" rx="8"/><text class="tile-t" x="340" y="294">Trip projector</text><text class="tile-s" x="340" y="312">milestones + state</text><text class="tile-s" x="340" y="328">route progress</text><text class="tile-s" x="340" y="344">latest known fix</text>
+    <rect class="tile" x="492" y="272" width="150" height="86" rx="8"/><text class="tile-t" x="506" y="294">ETA + exception</text><text class="tile-s" x="506" y="312">geofence / delay</text><text class="tile-s" x="506" y="328">route deviation</text><text class="tile-s" x="506" y="344">actionable alert</text>
+    <rect class="tile2" x="326" y="378" width="316" height="28" rx="8"/><text class="tile-m" x="342" y="397">KV latest state + notify.* lightweight change</text>
+    <path d="M268 172 H324" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#h-cyan)"/><path d="M268 256 H292 V98 H324" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#h-cyan)"/><path d="M268 356 H292 V122 H324" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#h-cyan)"/><path d="M484 138 V168" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#h-cyan)"/><path d="M484 240 V258 H401 V270" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#h-cyan)"/><path d="M484 258 H567 V270" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#h-cyan)"/>
+
+    <rect class="grp" x="700" y="28" width="280" height="394" rx="12" stroke="#3b8bff"/><text class="grp-l" x="718" y="20" fill="#3b8bff">Role-filtered live experience</text>
+    <rect class="tile" x="722" y="56" width="236" height="88" rx="8"/><rect x="736" y="70" width="26" height="26" rx="7" fill="#3b8bff"/><text class="icn-g" x="749" y="87">S</text><text class="tile-t" x="772" y="82">Shipper control tower</text><text class="tile-s" x="772" y="99">map &middot; ETA &middot; exceptions</text><text class="tile-s" x="736" y="120">allocated carrier, not private fleet data</text><text class="tile-s" x="736" y="134">alerts + delivery evidence</text>
+    <rect class="tile" x="722" y="174" width="236" height="88" rx="8"/><rect x="736" y="188" width="26" height="26" rx="7" fill="#a78bfa"/><text class="icn-g" x="749" y="205">T</text><text class="tile-t" x="772" y="200">Transporter operations</text><text class="tile-s" x="772" y="217">assigned jobs &middot; truck state</text><text class="tile-s" x="736" y="238">exceptions, actions, POD status</text><text class="tile-s" x="736" y="252">no competing carrier visibility</text>
+    <rect class="tile2" x="722" y="292" width="236" height="104" rx="8"/><rect x="736" y="306" width="26" height="26" rx="7" fill="#27c07f"/><text class="icn-g" x="749" y="323">P</text><text class="tile-t" x="772" y="318">Digital POD</text><text class="tile-s" x="772" y="335">capability-protected upload</text><text class="tile-s" x="736" y="356">Object Store blob + Postgres metadata</text><text class="tile-s" x="736" y="374">accepted proof releases settlement gate</text><text class="tile-s" x="736" y="388">claims retain immutable evidence</text>
+    <path d="M664 200 H698 V100 H720" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#h-blue)"/><path d="M664 218 H698 V216 H720" fill="none" stroke="#3b8bff" stroke-width="1.4" marker-end="url(#h-blue)"/><path d="M664 316 H698 V344 H720" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#h-green)"/>
+    <line x1="20" y1="438" x2="980" y2="438" stroke="#2a3038"/><text class="legend" x="20" y="455">Amber = external/edge source &middot; Cyan = normalised event path &middot; Blue = client projection &middot; Green = accepted proof &middot; Raw provider payloads never become the public domain contract</text>
+  </svg>
+  </div>
+  <div class="grid2"><div class="panel geo"><div class="lbl">Privacy boundary</div><p>Share only tracking for an allocated load and its permitted time window. A shipper never gains general access to a transporter's fleet.</p></div><div class="panel data"><div class="lbl">Quality boundary</div><p>Reject stale, impossible or duplicate fixes; retain provider provenance so ETA and dispute decisions remain explainable.</p></div></div>
+  <div class="panel" style="margin-top:10px">
+    <table><thead><tr><th>Edge source</th><th>Arrives as</th><th>Adapter must supply</th><th>Domain result</th></tr></thead><tbody>
+      <tr><td><b>Vehicle telematics</b></td><td>Vendor position feed or webhook</td><td>Truck identity, timestamp, accuracy, provider</td><td>Normalised position fact</td></tr>
+      <tr><td><b>Transporter system</b></td><td>Batch or scheduled status file</td><td>Trip reference and milestone mapping</td><td>Milestone and exception fact</td></tr>
+      <tr><td><b>Driver app</b></td><td>Intermittent mobile updates</td><td>Ordering key and duplicate suppression</td><td>Trip event with device provenance</td></tr>
+      <tr><td><b>Depot / port gateway</b></td><td>Leaf-node publish from the site</td><td>Site identity and a narrow subject set</td><td>Gate-in, gate-out and dwell facts</td></tr>
+      <tr><td><b>Delivery evidence</b></td><td>Signature, photo or scanned document</td><td>Checksum, version and access policy</td><td>Immutable POD object plus metadata</td></tr>
+    </tbody></table>
+  </div>
+  <div class="decision"><div class="lbl">Adapter rule</div><p><b>A raw provider payload is never the domain contract.</b>
+    If a provider changes its format, only its adapter changes; trip services, client projections and the settlement gate
+    keep reading the same normalised events.</p></div>
+  <div class="verdict"><span class="pill" style="border-color:var(--cyan);color:var(--cyan)">Card 08</span><p>Tracking is not a separate dashboard feed;
+    it is evidence attached to the same allocated trip and visible through each role's authorised projection.</p><span class="side">GPS -> TRIP -> POD</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r" style="color:var(--red)">Card 09 &middot; Resilience</span></div>
+  <div class="titleblock" style="border-left-color:var(--red)">
+    <div class="num" style="color:var(--red)">09</div><div class="fam-lbl" style="color:var(--red)">Availability does not erase residency</div>
+    <h1>Fail locally before failing across regions</h1>
+    <p class="lede">A node or service failure should be invisible inside its regional cell. A regional evacuation is
+      a policy-driven event: traffic may move quickly, but authoritative data moves only through an approved DR design.</p>
+  </div>
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 255" role="img" aria-label="Resilience model with a home region and recovery region. The home region normally owns ingress, active services, Postgres authority and the local JetStream domain. A recovery region runs equivalent service capacity and a second NATS cluster. NATS gateways continue live subject routing while selected streams and backups replicate asynchronously. During a regional incident, global routing moves eligible tenants to the recovery region, services reconnect using the same tenant accounts, and a runbook promotes only the approved data stores. Tenants with residency restrictions remain in-region or follow their contractual recovery policy.">
+    <defs><marker id="i-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker><marker id="i-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker><marker id="i-amber" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker></defs>
+    <rect class="grp" x="20" y="32" width="406" height="176" rx="12" stroke="#34d399"/><text class="grp-l" x="38" y="24" fill="#34d399">Home region - normal authority</text>
+    <rect class="tile" x="42" y="58" width="166" height="58" rx="8"/><text class="tile-t" x="56" y="80">NATS + services</text><text class="tile-s" x="56" y="98">multi-node / replicas</text>
+    <rect class="tile2" x="228" y="58" width="176" height="58" rx="8"/><text class="tile-t" x="242" y="80">Postgres authority</text><text class="tile-s" x="242" y="98">regional writes + backups</text>
+    <rect class="tile2" x="42" y="136" width="362" height="48" rx="8"/><text class="tile-t" x="56" y="158">JetStream home domain</text><text class="tile-s" x="56" y="176">local replicas retain event history</text>
+    <rect class="grp" x="574" y="32" width="406" height="176" rx="12" stroke="#f5b13d"/><text class="grp-l" x="592" y="24" fill="#f5b13d">Recovery region - policy-controlled</text>
+    <rect class="tile" x="596" y="58" width="166" height="58" rx="8"/><text class="tile-t" x="610" y="80">NATS + services</text><text class="tile-s" x="610" y="98">active or warm capacity</text>
+    <rect class="tile2" x="782" y="58" width="176" height="58" rx="8"/><text class="tile-t" x="796" y="80">Recovery database</text><text class="tile-s" x="796" y="98">promoted by runbook</text>
+    <rect class="tile2" x="596" y="136" width="362" height="48" rx="8"/><text class="tile-t" x="610" y="158">Selected mirrors / restored streams</text><text class="tile-s" x="610" y="176">only approved facts cross residency boundary</text>
+    <path d="M426 84 H572" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#i-cyan)"/><path d="M574 104 H428" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#i-cyan)"/><text class="e-l2" x="500" y="73" text-anchor="middle">NATS gateways</text>
+    <path d="M404 160 H594" fill="none" stroke="#f5b13d" stroke-width="1.4" stroke-dasharray="2 4" marker-end="url(#i-amber)"/><text class="e-l2" x="500" y="180" text-anchor="middle">selective async copy</text>
+    <line x1="20" y1="226" x2="980" y2="226" stroke="#2a3038"/><text class="legend" x="20" y="243">Cyan = live messaging topology &middot; Amber dotted = asynchronous data movement &middot; Blue = traffic steering &middot; RTO and RPO are tenant policy inputs, not properties inferred from a diagram</text>
+  </svg>
+  </div>
+  <div class="panel" style="margin-top:10px">
+    <table><thead><tr><th>Failure</th><th>Expected response</th><th>What must not happen</th></tr></thead><tbody>
+      <tr><td><b>One NATS node / AZ</b></td><td>Clients reconnect inside the cluster; JetStream leader changes</td><td>Cross-region failover for a local node loss</td></tr>
+      <tr><td><b>Service replica</b></td><td>Queue subscriber or load balancer selects a healthy replica</td><td>Duplicate non-idempotent command execution</td></tr>
+      <tr><td><b>WAN / gateway</b></td><td>Regions and leaf sites continue locally; replay after reconnection</td><td>Assume a disconnected edge is permanently failed</td></tr>
+      <tr><td><b>External GPS / WorkOS</b></td><td>Degrade the affected capability and surface stale/blocked state</td><td>Lose active trip state or widen access to compensate</td></tr>
+      <tr><td><b>Whole region</b></td><td>Apply tenant-specific routing, data-promotion and residency runbook</td><td>Promote unapproved or incomplete data globally</td></tr>
+    </tbody></table>
+  </div>
+  <div class="grid2"><div class="panel no" style="border-left:2px solid var(--red)"><div class="lbl" style="color:var(--red)">Decide contractually</div><p>Home region, permitted recovery regions, RTO, RPO, POD residency and whether active trips may fail across borders.</p></div><div class="panel auth"><div class="lbl">Test operationally</div><p>Node loss, account suspension, expired credentials, gateway partition, stale telemetry, projector replay and database promotion.</p></div></div>
+  <div class="grid3">
+    <div class="panel geo"><div class="lbl">Blast radius</div><p>Contain a failure at the smallest boundary that can
+      absorb it: node, then replica, then cell, then region.</p></div>
+    <div class="panel auth"><div class="lbl">Evidence</div><p>Every failover records what moved, when it moved and which
+      tenant policy permitted it.</p></div>
+    <div class="panel data"><div class="lbl">Re-entry</div><p>Returning to the home region is a planned operation with
+      the same approval gates as leaving it.</p></div>
+  </div>
+  <div class="verdict"><span class="pill" style="border-color:var(--red);color:var(--red)">Card 09</span><p>A supercluster provides reachability;
+    it does not by itself define database recovery, data sovereignty or business continuity.</p><span class="side">POLICY BEFORE PROMOTION</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r" style="color:var(--green)">Card 10 &middot; Provisioning and operations</span></div>
+  <div class="titleblock" style="border-left-color:var(--green)">
+    <div class="num" style="color:var(--green)">10</div><div class="fam-lbl" style="color:var(--green)">Two repeatable control-plane workflows</div>
+    <h1>Add a tenant; clone a region</h1>
+    <p class="lede">Neither operation is a ticket-driven collection of manual NATS edits. The control plane applies
+      versioned policy, records every step and exposes readiness only when identity, messaging, data and UI agree.</p>
+  </div>
+  <div class="figwrap">
+  <svg viewBox="0 0 1000 435" role="img" aria-label="Provisioning and operations workflows. The tenant workflow creates the marketplace tenant record, maps a WorkOS organisation, creates a NATS account and scoped signing keys, grants imports from platform services, creates service data scopes, seeds reference data and UI contributions, invites operator and organisation administrators, then runs readiness checks before activation. The region workflow deploys networking and ingress, a three-node NATS cluster and JetStream domain, installs operator and account JWTs, deploys the versioned service set and persistence, attaches gateways, replication and observability, then admits tenants according to residency policy. Both workflows emit an auditable desired-versus-observed state.">
+    <defs><marker id="j-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker><marker id="j-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker></defs>
+    <rect class="grp" x="20" y="30" width="960" height="176" rx="12" stroke="#a78bfa"/><text class="grp-l" x="38" y="22" fill="#a78bfa">Workflow A - provision one marketplace tenant</text>
+    <rect class="tile" x="40" y="60" width="132" height="78" rx="8"/><text class="tile-m" x="52" y="81">01</text><text class="tile-t" x="52" y="103">Tenant record</text><text class="tile-s" x="52" y="121">home region + tier</text>
+    <rect class="tile" x="192" y="60" width="132" height="78" rx="8"/><text class="tile-m" x="204" y="81">02</text><text class="tile-t" x="204" y="103">Identity map</text><text class="tile-s" x="204" y="121">WorkOS organisation</text>
+    <rect class="tile" x="344" y="60" width="132" height="78" rx="8"/><text class="tile-m" x="356" y="81">03</text><text class="tile-t" x="356" y="103">NATS account</text><text class="tile-s" x="356" y="121">keys + permissions</text>
+    <rect class="tile" x="496" y="60" width="132" height="78" rx="8"/><text class="tile-m" x="508" y="81">04</text><text class="tile-t" x="508" y="103">Platform imports</text><text class="tile-s" x="508" y="121">auth + refdata</text>
+    <rect class="tile" x="648" y="60" width="132" height="78" rx="8"/><text class="tile-m" x="660" y="81">05</text><text class="tile-t" x="660" y="103">Data + UI seed</text><text class="tile-s" x="660" y="121">contexts + features</text>
+    <rect class="tile" x="800" y="60" width="160" height="78" rx="8"/><text class="tile-m" x="812" y="81">06</text><text class="tile-t" x="812" y="103">Invite + readiness</text><text class="tile-s" x="812" y="121">admins, probes, activate</text>
+    <path d="M172 99 H190 M324 99 H342 M476 99 H494 M628 99 H646 M780 99 H798" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#j-green)"/>
+    <rect class="tile2" x="40" y="158" width="920" height="28" rx="8"/><text class="tile-m" x="56" y="177">READY = account JWT resolved + imports active + service connections present + data seed complete + UI catalogue healthy + admin can sign in</text>
+
+    <rect class="grp" x="20" y="252" width="960" height="150" rx="12" stroke="#2fd4e8"/><text class="grp-l" x="38" y="244" fill="#2fd4e8">Workflow B - provision one regional cell</text>
+    <rect class="tile" x="40" y="282" width="160" height="72" rx="8"/><text class="tile-m" x="52" y="303">01 &middot; FOUNDATION</text><text class="tile-t" x="52" y="325">Network + ingress</text><text class="tile-s" x="52" y="343">DNS, TLS, storage</text>
+    <rect class="tile" x="220" y="282" width="160" height="72" rx="8"/><text class="tile-m" x="232" y="303">02 &middot; MESSAGING</text><text class="tile-t" x="232" y="325">NATS cell</text><text class="tile-s" x="232" y="343">cluster + JS domain</text>
+    <rect class="tile" x="400" y="282" width="160" height="72" rx="8"/><text class="tile-m" x="412" y="303">03 &middot; RUNTIME</text><text class="tile-t" x="412" y="325">Services + data</text><text class="tile-s" x="412" y="343">same release versions</text>
+    <rect class="tile" x="580" y="282" width="160" height="72" rx="8"/><text class="tile-m" x="592" y="303">04 &middot; FEDERATION</text><text class="tile-t" x="592" y="325">Gateway + DR</text><text class="tile-s" x="592" y="343">approved replication</text>
+    <rect class="tile" x="760" y="282" width="200" height="72" rx="8"/><text class="tile-m" x="772" y="303">05 &middot; ADMISSION</text><text class="tile-t" x="772" y="325">Observe, test, admit</text><text class="tile-s" x="772" y="343">tenants by residency policy</text>
+    <path d="M200 318 H218 M380 318 H398 M560 318 H578 M740 318 H758" fill="none" stroke="#2fd4e8" stroke-width="1.4" marker-end="url(#j-cyan)"/>
+  </svg>
+  </div>
+  <div class="grid3"><div class="panel auth"><div class="lbl">Desired state</div><p>Tenant, account, imports, signing keys, regions, service release and UI catalogue are versioned configuration.</p></div><div class="panel geo"><div class="lbl">Observed state</div><p>Connections, claims, consumers, stream health, projector lag, database readiness and plugin health are measured independently.</p></div><div class="panel data"><div class="lbl">Activation gate</div><p>Do not mark a tenant or region ready because provisioning returned 200. Require end-to-end probes from identity through a business read.</p></div></div>
+  <div class="panel" style="margin-top:10px">
+    <table><thead><tr><th>Readiness probe</th><th>What it proves</th><th>Blocks activation when</th></tr></thead><tbody>
+      <tr><td><b>Identity round trip</b></td><td>A test member signs in and receives a scoped credential</td><td>Sign-in, membership or signing key is wrong</td></tr>
+      <tr><td><b>Account isolation</b></td><td>A cross-account publish is refused by the server</td><td>Imports or exports are wider than intended</td></tr>
+      <tr><td><b>Stream and consumer</b></td><td>A published fact is stored and then consumed</td><td>Domain, retention or consumer is missing</td></tr>
+      <tr><td><b>Projection read</b></td><td>A business read returns the projected fact</td><td>Projector lag or a migration is incomplete</td></tr>
+      <tr><td><b>UI catalogue</b></td><td>The shell loads the role-filtered contributions</td><td>A plugin manifest or version is unavailable</td></tr>
+    </tbody></table>
+  </div>
+  <div class="decision"><div class="lbl">Rollback rule</div><p><b>Every provisioning step has a reverse step.</b>
+    Suspend an account, rotate or revoke a signing key, retire a release or withdraw a UI contribution &mdash; without
+    deleting the tenant's history.</p></div>
+  <div class="verdict"><span class="pill" style="border-color:var(--green);color:var(--green)">Card 10</span><p>Provisioning is a reconciled workflow with an audit trail;
+    readiness is an observed property, not an optimistic flag.</p><span class="side">DESIRED != OBSERVED</span></div>
+</section>
+
+<section class="page">
+  <div class="chead"><span>Logistics SaaS architecture</span><span class="r">Sources &middot; Assumptions</span></div>
+  <div class="titleblock">
+    <div class="num">S</div><div class="fam-lbl">Evidence and design status</div>
+    <h1>What is sourced, settled and proposed</h1>
+    <p class="lede">This document combines the repository's implemented NATS patterns, public statements about
+      Linebooker's operating model and explicit architecture proposals for a future multi-region logistics SaaS.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel auth"><div class="lbl">Repository-grounded</div><ul class="clean">
+      <li>NATS operator mode with PLATFORM, tenant and system account boundaries</li>
+      <li>Accounts-service mints short-lived credentials; auth-service is merged into it</li>
+      <li>Per-tenant service connections; context-scoped subjects and KV keys</li>
+      <li>Postgres projection as truth with JetStream history and eager KV cache</li>
+      <li>WorkOS user lifecycle is documented, with implementation status called out separately</li>
+    </ul></div>
+    <div class="panel geo"><div class="lbl">Linebooker public model</div><ul class="clean">
+      <li>Marketplace connects shippers/customers with vetted transport companies and trucks</li>
+      <li>Fixed contract lane rates dominate; bidding supports surplus capacity and return legs</li>
+      <li>Procure, aggregate and execute cover tendering, allocation, tracking, POD and payment</li>
+      <li>GPS-integrated tracking, digital POD, control-tower visibility and consolidated settlement</li>
+      <li>Transporters register, are vetted, receive opportunities, submit/accept, execute and get paid</li>
+    </ul></div>
+  </div>
+
+  <div class="panel data" style="margin-top:10px"><div class="lbl">Architecture proposals requiring design approval</div><ul class="clean">
+    <li>Johannesburg and Cape Town shown as example regional cells; actual cloud regions and residency classes remain to be selected</li>
+    <li>Pooled regional services are the default, with an optional silo tier for regulation, scale or noisy-neighbour isolation</li>
+    <li>Tenant means marketplace-operating business; shipper and transporter organisations participate inside it through membership-scoped grants</li>
+    <li>Selected JetStream mirrors, Postgres recovery and Object Store replication are governed separately; no automatic global data movement is assumed</li>
+    <li>Domain boxes are bounded contexts; final service boundaries, event schemas, RTO/RPO and retention policies need business-rule approval</li>
+  </ul></div>
+
+  <div class="panel" style="margin-top:10px"><div class="lbl" style="color:var(--tx3)">Primary public references</div>
+    <p class="source"><b>Linebooker:</b> <a href="https://linebooker.com/">linebooker.com</a> &middot;
+      <a href="https://linebooker.com/platform-solutions/">Platform Solutions</a> &middot;
+      <a href="https://linebooker.com/lb-transporters/">For Transporters</a> &middot;
+      <a href="https://linebooker.com/faq">FAQ</a></p>
+    <p class="source"><b>NATS:</b> <a href="https://nats.io/blog/synadia-adaptive-edge/">Adaptive Edge Architecture</a> &middot;
+      <a href="https://docs.nats.io/running-a-nats-service/configuration/securing_nats/accounts">Accounts</a> &middot;
+      <a href="https://docs.nats.io/running-a-nats-service/configuration/gateways">Gateways</a> &middot;
+      <a href="https://docs.nats.io/running-a-nats-service/configuration/leafnodes">Leaf Nodes</a></p>
+    <p class="source"><b>AWS architecture framing:</b> <a href="https://docs.aws.amazon.com/pdfs/whitepapers/latest/saas-architecture-fundamentals/saas-architecture-fundamentals.pdf">SaaS Architecture Fundamentals</a> &middot;
+      <a href="https://aws.amazon.com/blogs/apn/architecting-multi-region-saas-solutions-on-aws/">Architecting Multi-Region SaaS Solutions</a></p>
+  </div>
+
+  <div class="decision"><div class="lbl">Reading rule</div><p><b>Public business statements describe outcomes, not internal implementation.</b>
+    Service names, NATS subjects, deployment tiers and failure behavior in these cards are the proposed technical
+    model unless the repository already implements and documents them.</p></div>
+
+  <div class="verdict"><span class="pill">Sources</span><p>The next design step is to approve the business rules for
+    tenant identity, organisation memberships, tender/bid allocation, tracking visibility and regional recovery.</p><span class="side">REFERENCE DRAFT &middot; 2026-09-02</span></div>
+</section>
+</body>
+</html>

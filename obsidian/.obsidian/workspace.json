@@ -187,6 +187,7 @@
   },
   "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
+    "V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-L1-Requirements.md",
     "V3-Platform/Architecture/Dictionary-POC/images/phase38-temporal-deep-dive.png",
     "V3-Platform/Architecture/Dictionary-POC/images/phase38-temporal.png",
     "V3-Platform/Architecture/Dictionary-POC/images/temporal-vetting-integration.png",
@@ -203,7 +204,6 @@
     "V3-Platform/Architecture/Dictionary-POC/images/admin-traces-panel.png",
     "V3-Platform/Architecture/Dictionary-POC/images/otlp-bridge-ingest.png",
     "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ADMIN.md",
-    "V3-Platform/Architecture/Dictionary-POC/images/docker-compose-network.png",
     "V3-Platform/System Design - V3 Logistics Platform.md",
     "V3-Platform/Architecture/Pricing/Effective-dated-diesel-sequence.md",
     "V3-Platform/Architecture/Pricing/Effective-dated-diesel-pre-design.md",

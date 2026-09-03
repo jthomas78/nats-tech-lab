@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Logistics SaaS on NATS - Connected Freight Reference Architecture - Version 3</title>
+<style>
+  :root {
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --ink:#dee0e3;
+    --muted:#b7bcc2; --dim:#8b929b; --line:#2a3038; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --truth:#27c07f;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  @page { size:A3 landscape; margin:0; }
+  * { box-sizing:border-box; }
+  html { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans); }
+  .sheet {
+    width:420mm; height:297mm; overflow:hidden; padding:8mm 8mm 6mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(90% 100% at 65% -15%,#172536 0%,var(--bg) 57%);
+  }
+  .sheet:last-child { page-break-after:auto; }
+  .head { border-bottom:2px solid var(--stroke); padding-bottom:6px; }
+  .head h1 { margin:0; font-size:25px; line-height:30px; font-weight:650; letter-spacing:-.012em; }
+  .head p { margin:2px 0 0; color:var(--muted); font-size:11.5px; line-height:17px; max-width:126ch; }
+  .eyebrow { color:var(--cyan); font-family:var(--mono); font-size:9px; line-height:13px; letter-spacing:.15em; text-transform:uppercase; margin-bottom:2px; }
+  .body-grid { flex:1; min-height:0; display:grid; grid-template-columns:minmax(0,3.12fr) minmax(0,1fr); gap:8px; padding-top:7px; }
+  .arch { min-height:0; border:1px solid var(--line); background:rgba(9,11,13,.66); overflow:hidden; }
+  .arch svg { display:block; width:100%; height:100%; }
+  .notes { min-height:0; background:rgba(26,30,35,.88); border-left:1px solid var(--stroke); padding:7px 9px; display:flex; flex-direction:column; gap:4px; overflow:hidden; }
+  .note { display:grid; grid-template-columns:25px 1fr; gap:7px; align-items:start; }
+  .note .n { width:23px; height:23px; border-radius:50%; display:grid; place-items:center; background:#26303b; color:#fff; font-weight:700; font-size:10px; }
+  .note p { margin:0; color:var(--muted); font-size:8.6px; line-height:11.6px; }
+  .note b { color:var(--ink); font-weight:650; }
+  .foot { height:19px; flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; color:var(--dim); font-size:8.3px; letter-spacing:.04em; }
+  .foot .brand { color:var(--amber); font-weight:700; font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+  svg text { font-family:var(--sans); }
+  .cloud { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.2; }
+  .group { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.05; }
+  .group.blue { stroke:var(--blue); } .group.cyan { stroke:var(--cyan); }
+  .group.green { stroke:var(--green); } .group.purple { stroke:var(--purple); }
+  .group.amber { stroke:var(--amber); }
+  .node { fill:var(--panel); stroke:#3a424c; stroke-width:1.05; }
+  .node.subtle { fill:var(--panel2); }
+  .icon { rx:6; }
+  .glyph { fill:#0d0f11; font-size:11px; font-weight:800; text-anchor:middle; }
+  .title { fill:var(--ink); font-size:11px; font-weight:650; }
+  .sub { fill:var(--dim); font-size:8.5px; }
+  .mini { fill:var(--muted); font-size:8.2px; font-family:var(--mono); }
+  .group-title { fill:var(--muted); font-size:10px; font-weight:650; letter-spacing:.07em; text-transform:uppercase; }
+  .cloud-title { fill:var(--ink); font-size:12px; font-weight:650; }
+  .edge { fill:none; stroke:var(--stroke); stroke-width:1.35; marker-end:url(#v3-grey); }
+  .edge.blue { stroke:var(--blue); marker-end:url(#v3-blue); }
+  .edge.cyan { stroke:var(--cyan); marker-end:url(#v3-cyan); }
+  .edge.green { stroke:var(--green); marker-end:url(#v3-green); }
+  .edge.amber { stroke:var(--amber); marker-end:url(#v3-amber); stroke-dasharray:5 4; }
+  .edge.dot { stroke:var(--amber); marker-end:url(#v3-amber); stroke-dasharray:2 4; }
+  .edge-label { fill:var(--muted); font-size:8.3px; font-family:var(--mono); paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
+  .call { fill:#26303b; stroke:#56616d; stroke-width:1; }
+  .call-t { fill:#fff; font-size:10px; font-weight:750; text-anchor:middle; }
+  .legend { fill:var(--dim); font-size:8.2px; }
+</style>
+</head>
+<body>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Connected Freight Reference Architecture &middot; Version 3 &middot; Sheet 1 of 5</div>
+    <h1>Marketplace Tender-to-Settlement on NATS</h1>
+    <p>This architecture shows how shippers, transporters, drivers and external systems collaborate through a governed logistics marketplace. Numbered flows follow the AWS reference-architecture convention; the services and guarantees remain the proposed NATS-based platform model.</p>
+  </header>
+  <div class="body-grid">
+    <div class="arch">
+    <svg viewBox="0 0 1160 820" role="img" aria-label="AWS-reference-style architecture diagram for a NATS logistics marketplace. External shipper, transporter, driver and enterprise systems sit on the left. Inside the Logistics SaaS cloud boundary, three horizontal capability groups show tendering and award, trip execution and tracking, and delivery evidence and settlement. Numbered markers correspond to eight explanatory notes. NATS subjects and JetStream connect services, while bulk proof-of-delivery and compliance documents use an evidence storage adapter backed by regional S3-compatible object storage.">
+      <defs>
+        <marker id="v3-grey" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#4a515b"/></marker>
+        <marker id="v3-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+        <marker id="v3-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker>
+        <marker id="v3-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+        <marker id="v3-amber" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+      </defs>
+
+      <rect class="group green" x="10" y="58" width="132" height="672" rx="8"/>
+      <text class="group-title" x="20" y="48" fill="#34d399">Participants + partners</text>
+      <rect class="node" x="24" y="86" width="104" height="76" rx="7"/><rect class="icon" x="36" y="98" width="24" height="24" fill="#3b8bff"/><text class="glyph" x="48" y="114">S</text><text class="title" x="36" y="138">Shipper team</text><text class="sub" x="36" y="153">procurement + ops</text>
+      <rect class="node" x="24" y="244" width="104" height="76" rx="7"/><rect class="icon" x="36" y="256" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="48" y="272">T</text><text class="title" x="36" y="296">Transporter</text><text class="sub" x="36" y="311">commercial + dispatch</text>
+      <rect class="node" x="24" y="402" width="104" height="76" rx="7"/><rect class="icon" x="36" y="414" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="48" y="430">D</text><text class="title" x="36" y="454">Driver + truck</text><text class="sub" x="36" y="469">mobile + telematics</text>
+      <rect class="node" x="24" y="560" width="104" height="76" rx="7"/><rect class="icon" x="36" y="572" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="48" y="588">X</text><text class="title" x="36" y="612">External systems</text><text class="sub" x="36" y="627">ERP/TMS/GPS/banks</text>
+      <circle class="call" cx="112" cy="72" r="15"/><text class="call-t" x="112" y="76">1</text>
+
+      <rect class="cloud" x="168" y="28" width="976" height="748" rx="4"/>
+      <text class="cloud-title" x="184" y="48">Logistics SaaS cloud &middot; tenant-aware regional runtime</text>
+
+      <rect class="group blue" x="194" y="78" width="920" height="186" rx="7"/>
+      <text class="group-title" x="210" y="70" fill="#3b8bff">Tendering and award</text>
+      <rect class="node" x="216" y="112" width="150" height="62" rx="7"/><rect class="icon" x="230" y="128" width="24" height="24" fill="#3b8bff"/><text class="glyph" x="242" y="144">U</text><text class="title" x="266" y="137">Shipper app</text><text class="sub" x="266" y="153">demand + approvals</text>
+      <rect class="node" x="402" y="112" width="150" height="62" rx="7"/><rect class="icon" x="416" y="128" width="24" height="24" fill="#3b8bff"/><text class="glyph" x="428" y="144">A</text><text class="title" x="452" y="137">API / BFF</text><text class="sub" x="452" y="153">authorised command</text>
+      <rect class="node" x="588" y="112" width="150" height="62" rx="7"/><rect class="icon" x="602" y="128" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="614" y="144">R</text><text class="title" x="638" y="137">Tender + rates</text><text class="sub" x="638" y="153">lanes, terms, bids</text>
+      <rect class="node" x="774" y="112" width="150" height="62" rx="7"/><rect class="icon" x="788" y="128" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="800" y="144">M</text><text class="title" x="824" y="137">Marketplace</text><text class="sub" x="824" y="153">rank + award</text>
+      <rect class="node" x="960" y="112" width="132" height="62" rx="7"/><rect class="icon" x="974" y="128" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="986" y="144">U</text><text class="title" x="1010" y="137">Transporter UI</text><text class="sub" x="1010" y="153">offers + commit</text>
+      <rect class="node subtle" x="402" y="202" width="522" height="40" rx="7"/><rect class="icon" x="416" y="210" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="428" y="226">N</text><text class="title" x="452" y="222">NATS request/reply + JetStream tender facts</text><text class="mini" x="452" y="236">api.* &middot; rpc.* &middot; evt.* &middot; tenant account boundary</text>
+      <path class="edge blue" d="M128 124 H214 M366 143 H400 M552 143 H586 M738 143 H772 M924 143 H958"/>
+      <path class="edge amber" d="M849 174 V200 M663 174 V200"/>
+      <circle class="call" cx="384" cy="95" r="15"/><text class="call-t" x="384" y="99">2</text><circle class="call" cx="756" cy="95" r="15"/><text class="call-t" x="756" y="99">3</text>
+
+      <rect class="group cyan" x="194" y="310" width="920" height="198" rx="7"/>
+      <text class="group-title" x="210" y="302" fill="#2fd4e8">Trip execution, telemetry and live visibility</text>
+      <rect class="node" x="216" y="344" width="150" height="64" rx="7"/><rect class="icon" x="230" y="361" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="242" y="377">E</text><text class="title" x="266" y="369">Edge adapters</text><text class="sub" x="266" y="385">GPS + app + leaf</text>
+      <rect class="node" x="402" y="344" width="150" height="64" rx="7"/><rect class="icon" x="416" y="361" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="428" y="377">J</text><text class="title" x="452" y="369">JetStream domain</text><text class="sub" x="452" y="385">tracking facts</text>
+      <rect class="node" x="588" y="344" width="150" height="64" rx="7"/><rect class="icon" x="602" y="361" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="614" y="377">T</text><text class="title" x="638" y="369">Trip + route</text><text class="sub" x="638" y="385">stops + milestones</text>
+      <rect class="node" x="774" y="344" width="150" height="64" rx="7"/><rect class="icon" x="788" y="361" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="800" y="377">X</text><text class="title" x="824" y="369">Tracking + ETA</text><text class="sub" x="824" y="385">state + exceptions</text>
+      <rect class="node" x="960" y="344" width="132" height="64" rx="7"/><rect class="icon" x="974" y="361" width="24" height="24" fill="#3b8bff"/><text class="glyph" x="986" y="377">V</text><text class="title" x="1010" y="369">Live views</text><text class="sub" x="1010" y="385">role-filtered</text>
+      <rect class="node subtle" x="402" y="438" width="336" height="44" rx="7"/><text class="title" x="420" y="457">Postgres trip truth + KV current-state projection</text><text class="sub" x="420" y="474">idempotent projection; latest permitted view</text>
+      <rect class="node subtle" x="774" y="438" width="318" height="44" rx="7"/><text class="title" x="792" y="457">Alerts + notifications + control tower</text><text class="sub" x="792" y="474">ETA breach, route deviation, stale telemetry</text>
+      <path class="edge cyan" d="M128 440 H172 V376 H214 M366 376 H400 M552 376 H586 M738 376 H772 M924 376 H958"/>
+      <path class="edge green" d="M663 408 V436 M849 408 V436"/>
+      <circle class="call" cx="384" cy="327" r="15"/><text class="call-t" x="384" y="331">4</text><circle class="call" cx="756" cy="327" r="15"/><text class="call-t" x="756" y="331">5</text>
+
+      <rect class="group amber" x="194" y="554" width="920" height="182" rx="7"/>
+      <text class="group-title" x="210" y="546" fill="#f5b13d">Delivery evidence, claims and settlement</text>
+      <rect class="node" x="216" y="590" width="150" height="62" rx="7"/><rect class="icon" x="230" y="606" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="242" y="622">P</text><text class="title" x="266" y="615">Digital POD</text><text class="sub" x="266" y="631">photo + signature</text>
+      <rect class="node" x="402" y="590" width="150" height="62" rx="7"/><rect class="icon" x="416" y="606" width="24" height="24" fill="#27c07f"/><text class="glyph" x="428" y="622">S</text><text class="title" x="452" y="615">Evidence adapter</text><text class="sub" x="452" y="631">presigned S3 storage</text>
+      <rect class="node" x="588" y="590" width="150" height="62" rx="7"/><rect class="icon" x="602" y="606" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="614" y="622">C</text><text class="title" x="638" y="615">Claims + proof</text><text class="sub" x="638" y="631">exceptions + approval</text>
+      <rect class="node" x="774" y="590" width="150" height="62" rx="7"/><rect class="icon" x="788" y="606" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="800" y="622">$</text><text class="title" x="824" y="615">Rating + invoice</text><text class="sub" x="824" y="631">charges + audit</text>
+      <rect class="node" x="960" y="590" width="132" height="62" rx="7"/><rect class="icon" x="974" y="606" width="24" height="24" fill="#34d399"/><text class="glyph" x="986" y="622">B</text><text class="title" x="1010" y="615">Payment rail</text><text class="sub" x="1010" y="631">settlement state</text>
+      <rect class="node subtle" x="402" y="678" width="522" height="36" rx="7"/><text class="title" x="420" y="700">Settlement closes only on accepted proof; every transition remains auditable</text>
+      <path class="edge green" d="M128 598 H172 V621 H214 M366 621 H400 M552 621 H586 M738 621 H772 M924 621 H958"/>
+      <path class="edge amber" d="M663 652 V676 M849 652 V676"/>
+      <circle class="call" cx="384" cy="573" r="15"/><text class="call-t" x="384" y="577">6</text><circle class="call" cx="756" cy="573" r="15"/><text class="call-t" x="756" y="577">7</text><circle class="call" cx="1096" cy="573" r="15"/><text class="call-t" x="1096" y="577">8</text>
+
+      <text class="legend" x="184" y="802">Solid blue = client command/read &middot; cyan = telemetry/live event &middot; amber dashed = durable event/evidence &middot; green = authoritative write or accepted proof</text>
+    </svg>
+    </div>
+    <aside class="notes">
+      <div class="note"><span class="n">1</span><p><b>Participants remain separate organisations.</b> Shippers publish demand, transporters offer capacity, and drivers provide execution evidence through role-specific channels.</p></div>
+      <div class="note"><span class="n">2</span><p><b>The shipper creates a tender or load.</b> The API validates tenant, organisation, lane, volume, service window and commercial policy before accepting the command.</p></div>
+      <div class="note"><span class="n">3</span><p><b>Marketplace services mediate competition.</b> Eligible transporters see opportunities, submit rates or bids, and receive an award or allocation produced by platform policy.</p></div>
+      <div class="note"><span class="n">4</span><p><b>Edge inputs are normalized.</b> Driver apps, fleet systems, GPS providers and optional leaf nodes are adapters; their raw payloads never become the public domain contract.</p></div>
+      <div class="note"><span class="n">5</span><p><b>Trip services derive shared operational truth.</b> Milestones, latest position, ETA and exceptions are projected into the permitted shipper, transporter and operator views.</p></div>
+      <div class="note"><span class="n">6</span><p><b>Bulk evidence bypasses NATS payload storage.</b> The evidence service records version, checksum and policy metadata in Postgres, then uses a provider-neutral adapter and presigned URLs for regional S3-compatible document storage.</p></div>
+      <div class="note"><span class="n">7</span><p><b>Acceptance gates settlement.</b> Claims and proof approval determine whether rating and invoicing may progress; no client may publish its own settlement outcome.</p></div>
+      <div class="note"><span class="n">8</span><p><b>The marketplace closes the loop.</b> Payment status, remittance, audit and analytics return to role-filtered client experiences without direct customer-to-transporter data access.</p></div>
+    </aside>
+  </div>
+  <footer class="foot"><span>Visual composition inspired by AWS Connected Vehicle Reference Architecture; generic icons and NATS-specific semantics are original to this artefact.</span><span class="brand">Connected Freight Reference Architecture</span></footer>
+</section>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Connected Freight Reference Architecture &middot; Version 3 &middot; Sheet 2 of 5</div>
+    <h1>Multi-region Tenant Authority and Deployment</h1>
+    <p>This architecture separates the logical trust hierarchy and shared control plane from two repeatable physical regional cells. A tenant account can be resolved in permitted regions without making region part of tenant identity.</p>
+  </header>
+  <div class="body-grid">
+    <div class="arch">
+    <svg viewBox="0 0 1160 820" role="img" aria-label="AWS-reference-style multi-region NATS architecture. A logical trust hierarchy on the left contains the NATS operator, one account per marketplace tenant, organisation memberships and roles, and short-lived user and workload credentials. Inside the SaaS cloud boundary, a six-capability control plane provisions and observes two regional cells. Each cell contains regional ingress, service replicas, a three-node NATS cluster, a region-local JetStream domain, service-owned operational databases, and an evidence storage adapter backed by regional S3-compatible storage. NATS gateways connect clusters while approved durable copies follow a separate residency policy.">
+      <defs>
+        <marker id="v3-grey-2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#4a515b"/></marker>
+        <marker id="v3-blue-2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+        <marker id="v3-cyan-2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker>
+        <marker id="v3-green-2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+        <marker id="v3-amber-2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+      </defs>
+
+      <rect class="group purple" x="10" y="70" width="186" height="650" rx="8"/>
+      <text class="group-title" x="22" y="60" fill="#a78bfa">Logical trust hierarchy</text>
+      <rect class="node" x="26" y="104" width="154" height="66" rx="7"/><rect class="icon" x="40" y="120" width="24" height="24" fill="#34d399"/><text class="glyph" x="52" y="136">O</text><text class="title" x="76" y="129">NATS operator</text><text class="sub" x="76" y="145">global trust root</text><text class="mini" x="40" y="160">account issuers + resolver</text>
+      <path d="M103 170 V208" fill="none" stroke="#2fd4e8" stroke-width="1.35" marker-end="url(#v3-cyan-2)"/>
+      <rect class="node" x="26" y="210" width="154" height="76" rx="7"/><rect class="icon" x="40" y="226" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="52" y="242">A</text><text class="title" x="76" y="235">Tenant account</text><text class="sub" x="76" y="251">one per marketplace</text><text class="mini" x="40" y="271">isolated subject space</text>
+      <path d="M103 286 V324" fill="none" stroke="#f5b13d" stroke-width="1.35" stroke-dasharray="5 4" marker-end="url(#v3-amber-2)"/>
+      <rect class="node" x="26" y="326" width="154" height="86" rx="7"/><rect class="icon" x="40" y="342" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="52" y="358">R</text><text class="title" x="76" y="351">Org membership</text><text class="sub" x="76" y="367">role + context</text><text class="mini" x="40" y="388">shipper / transporter</text><text class="mini" x="40" y="402">operator / integrator</text>
+      <path d="M103 412 V450" fill="none" stroke="#f5b13d" stroke-width="1.35" stroke-dasharray="5 4" marker-end="url(#v3-amber-2)"/>
+      <rect class="node" x="26" y="452" width="154" height="86" rx="7"/><rect class="icon" x="40" y="468" width="24" height="24" fill="#34d399"/><text class="glyph" x="52" y="484">K</text><text class="title" x="76" y="477">Short-lived creds</text><text class="sub" x="76" y="493">users + workloads</text><text class="mini" x="40" y="514">NKey proof + expiry</text><text class="mini" x="40" y="528">least-privilege subjects</text>
+      <rect class="node subtle" x="26" y="584" width="154" height="104" rx="7"/><text class="title" x="42" y="608">Invariant</text><text class="sub" x="42" y="630">Region is placement.</text><text class="sub" x="42" y="648">Tenant is authority.</text><text class="sub" x="42" y="666">Organisation is</text><text class="sub" x="42" y="681">participation.</text>
+      <circle class="call" cx="174" cy="88" r="15"/><text class="call-t" x="174" y="92">1</text><circle class="call" cx="174" cy="194" r="15"/><text class="call-t" x="174" y="198">2</text><circle class="call" cx="174" cy="436" r="15"/><text class="call-t" x="174" y="440">3</text>
+
+      <rect class="cloud" x="220" y="28" width="924" height="748" rx="4"/>
+      <text class="cloud-title" x="236" y="48">Logistics SaaS cloud &middot; shared control plane + regional application cells</text>
+      <rect class="group green" x="244" y="82" width="876" height="196" rx="7"/>
+      <text class="group-title" x="260" y="74" fill="#34d399">Control plane - global services, unified tenant operations</text>
+      <rect class="node" x="264" y="112" width="268" height="56" rx="7"/><rect class="icon" x="278" y="128" width="24" height="24" fill="#34d399"/><text class="glyph" x="290" y="144">T</text><text class="title" x="314" y="137">Tenant + organisation management</text><text class="sub" x="314" y="153">lifecycle, entities, roles</text>
+      <rect class="node" x="550" y="112" width="268" height="56" rx="7"/><rect class="icon" x="564" y="128" width="24" height="24" fill="#34d399"/><text class="glyph" x="576" y="144">I</text><text class="title" x="600" y="137">Identity federation + membership</text><text class="sub" x="600" y="153">WorkOS, SSO, role selection</text>
+      <rect class="node" x="836" y="112" width="264" height="56" rx="7"/><rect class="icon" x="850" y="128" width="24" height="24" fill="#34d399"/><text class="glyph" x="862" y="144">N</text><text class="title" x="886" y="137">NATS account + credential provisioning</text><text class="sub" x="886" y="153">keys, users, imports, expiry</text>
+      <rect class="node" x="264" y="196" width="268" height="56" rx="7"/><rect class="icon" x="278" y="212" width="24" height="24" fill="#34d399"/><text class="glyph" x="290" y="228">R</text><text class="title" x="314" y="221">Reference data + configuration</text><text class="sub" x="314" y="237">taxonomy, policy, feature config</text>
+      <rect class="node" x="550" y="196" width="268" height="56" rx="7"/><rect class="icon" x="564" y="212" width="24" height="24" fill="#34d399"/><text class="glyph" x="576" y="228">E</text><text class="title" x="600" y="221">Entitlements, billing + administration</text><text class="sub" x="600" y="237">tiers, usage, invoices, actions</text>
+      <rect class="node" x="836" y="196" width="264" height="56" rx="7"/><rect class="icon" x="850" y="212" width="24" height="24" fill="#34d399"/><text class="glyph" x="862" y="228">O</text><text class="title" x="886" y="221">Observability + audit</text><text class="sub" x="886" y="237">tenant health, traces, security trail</text>
+      <circle class="call" cx="1110" cy="96" r="15"/><text class="call-t" x="1110" y="100">4</text>
+
+      <rect class="group cyan" x="244" y="326" width="414" height="386" rx="7"/>
+      <text class="group-title" x="260" y="318" fill="#2fd4e8">Region A - home cell / 3 AZs</text>
+      <rect class="node" x="264" y="354" width="177" height="58" rx="7"/><text class="title" x="280" y="378">Regional ingress</text><text class="sub" x="280" y="396">HTTPS + WSS + tenant route</text>
+      <rect class="node" x="461" y="354" width="177" height="58" rx="7"/><text class="title" x="477" y="378">Service replicas</text><text class="sub" x="477" y="396">local-first workers</text>
+      <rect class="node subtle" x="264" y="438" width="177" height="58" rx="7"/><text class="title" x="280" y="462">JetStream domain</text><text class="sub" x="280" y="480">regional streams + KV</text>
+      <rect class="node" x="461" y="438" width="177" height="58" rx="7"/><text class="title" x="477" y="462">NATS cluster x3</text><text class="sub" x="477" y="480">one node per AZ</text>
+      <rect class="node subtle" x="264" y="522" width="177" height="58" rx="7"/><text class="title" x="280" y="546">Operational DBs</text><text class="sub" x="280" y="564">service-owned Postgres</text>
+      <rect class="node subtle" x="461" y="522" width="177" height="58" rx="7"/><text class="title" x="477" y="546">S3 evidence store</text><text class="sub" x="477" y="564">via storage adapter</text>
+      <rect class="node subtle" x="264" y="618" width="374" height="64" rx="7"/><text class="title" x="280" y="642">Placement policy</text><text class="sub" x="280" y="659">tenant home region, RTO/RPO, permitted recovery, data residency</text><text class="mini" x="280" y="674">same account identity across every permitted cell</text>
+      <circle class="call" cx="675" cy="340" r="15"/><text class="call-t" x="675" y="344">5</text><circle class="call" cx="675" cy="424" r="15"/><text class="call-t" x="675" y="428">6</text>
+
+      <rect class="group cyan" x="706" y="326" width="414" height="386" rx="7"/>
+      <text class="group-title" x="722" y="318" fill="#2fd4e8">Region B - expansion / recovery</text>
+      <rect class="node" x="726" y="354" width="177" height="58" rx="7"/><text class="title" x="742" y="378">Regional ingress</text><text class="sub" x="742" y="396">same route + policy</text>
+      <rect class="node" x="923" y="354" width="177" height="58" rx="7"/><text class="title" x="939" y="378">Service replicas</text><text class="sub" x="939" y="396">active or warm</text>
+      <rect class="node" x="726" y="438" width="177" height="58" rx="7"/><text class="title" x="742" y="462">NATS cluster x3</text><text class="sub" x="742" y="480">independent regional mesh</text>
+      <rect class="node subtle" x="923" y="438" width="177" height="58" rx="7"/><text class="title" x="939" y="462">JetStream domain</text><text class="sub" x="939" y="480">selected mirrors only</text>
+      <rect class="node subtle" x="726" y="522" width="177" height="58" rx="7"/><text class="title" x="742" y="546">Operational DBs</text><text class="sub" x="742" y="564">policy-led promotion</text>
+      <rect class="node subtle" x="923" y="522" width="177" height="58" rx="7"/><text class="title" x="939" y="546">S3 evidence store</text><text class="sub" x="939" y="564">approved replication</text>
+      <rect class="node subtle" x="726" y="618" width="374" height="64" rx="7"/><text class="title" x="742" y="642">Recovery policy</text><text class="sub" x="742" y="659">admit only tenants allowed to run and recover in this region</text><text class="mini" x="742" y="674">reachability does not imply authority or durable replication</text>
+      <circle class="call" cx="1128" cy="340" r="15"/><text class="call-t" x="1128" y="344">7</text><circle class="call" cx="1128" cy="424" r="15"/><text class="call-t" x="1128" y="428">8</text>
+
+      <path d="M638 467 H724" fill="none" stroke="#2fd4e8" stroke-width="1.45" marker-end="url(#v3-cyan-2)"/><path d="M726 484 H640" fill="none" stroke="#2fd4e8" stroke-width="1.45" marker-end="url(#v3-cyan-2)"/><text class="edge-label" x="681" y="455" text-anchor="middle">gateways / live interest</text>
+      <path d="M638 551 H680 V598 H922" fill="none" stroke="#f5b13d" stroke-width="1.25" stroke-dasharray="2 4" marker-end="url(#v3-amber-2)"/><text class="edge-label" x="780" y="610" text-anchor="middle">approved durable copy</text>
+      <path d="M196 248 H218 M196 494 H218" fill="none" stroke="#f5b13d" stroke-width="1.35" stroke-dasharray="5 4" marker-end="url(#v3-amber-2)"/>
+      <path d="M682 278 V324 M972 278 V324" fill="none" stroke="#34d399" stroke-width="1.35" marker-end="url(#v3-green-2)"/>
+      <circle class="call" cx="680" cy="520" r="15"/><text class="call-t" x="680" y="524">9</text><circle class="call" cx="1110" cy="698" r="15"/><text class="call-t" x="1110" y="702">10</text>
+      <text class="legend" x="236" y="752">Green = control-plane provisioning &middot; cyan = NATS gateway/live routing &middot; amber dashed/dotted = credential or separately governed durable movement</text>
+    </svg>
+    </div>
+    <aside class="notes">
+      <div class="note"><span class="n">1</span><p><b>The NATS operator is the global trust root.</b> Regional servers resolve the same signed account and user claims; trust is not recreated independently per region.</p></div>
+      <div class="note"><span class="n">2</span><p><b>Each marketplace tenant receives one NATS account.</b> Its subject space and users are isolated from every other tenant unless a named import and export deliberately connects them.</p></div>
+      <div class="note"><span class="n">3</span><p><b>Membership becomes a scoped credential.</b> Tenant, organisation, role and business context determine short-lived user and workload grants with automatic renewal.</p></div>
+      <div class="note"><span class="n">4</span><p><b>The control plane is shared.</b> It manages tenants and organisations, identity, NATS provisioning, reference configuration, entitlements, billing, administration, observability and audit.</p></div>
+      <div class="note"><span class="n">5</span><p><b>A regional cell is repeatable.</b> Regional ingress, service replicas, three NATS nodes, JetStream, service-owned databases and an S3-compatible evidence-store binding deploy as one versioned unit.</p></div>
+      <div class="note"><span class="n">6</span><p><b>Region A normally owns local work.</b> Queue workers, streams and databases stay near the tenant's operational data while account authority remains portable.</p></div>
+      <div class="note"><span class="n">7</span><p><b>Region B repeats the same contracts.</b> It can host locally placed tenants, active capacity or a policy-defined recovery posture without becoming a bespoke platform.</p></div>
+      <div class="note"><span class="n">8</span><p><b>Gateway reachability is live and interest-based.</b> A supercluster joins independent regional clusters; it does not turn the WAN into one stretched cluster.</p></div>
+      <div class="note"><span class="n">9</span><p><b>Durable movement is explicit.</b> Selected JetStream mirrors, database backups and S3 object replication follow residency and recovery policy, separately from gateway routing.</p></div>
+      <div class="note"><span class="n">10</span><p><b>Recovery is a governed promotion.</b> Tenant-specific RTO, RPO and permitted regions determine routing, data promotion and re-entry into the home cell.</p></div>
+    </aside>
+  </div>
+  <footer class="foot"><span>Logical authority and physical placement are deliberately side by side; neither axis is encoded inside the other.</span><span class="brand">Connected Freight Reference Architecture</span></footer>
+</section>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Connected Freight Reference Architecture &middot; Version 3 &middot; Sheet 3 of 5</div>
+    <h1>Connected Fleet Data Gathering, Processing and Use</h1>
+    <p>This architecture follows vehicle data from truck sensors, driver applications and fleet providers through secure onboarding, regional NATS ingestion, normalization, state projection and role-filtered consumer services.</p>
+  </header>
+  <div class="body-grid">
+    <div class="arch">
+    <svg viewBox="0 0 1160 820" role="img" aria-label="AWS-reference-style connected fleet data architecture for trucking. A connected truck boundary on the left contains sensors, an edge gateway and the driver application, plus a depot leaf node. Inside the Logistics SaaS cloud boundary, global onboarding and routing establish provider, vehicle, tenant and credential identity. A regional ingest pipeline accepts telemetry, normalizes provider payloads through NATS and JetStream, and updates trip, tracking, ETA and exception services. Service-owned Postgres, KV projections, an S3-compatible evidence store behind a storage adapter, and analytics stores support role-filtered consumers. Ten numbered markers correspond to explanatory notes.">
+      <defs>
+        <marker id="v3-grey-3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#4a515b"/></marker>
+        <marker id="v3-blue-3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+        <marker id="v3-cyan-3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker>
+        <marker id="v3-green-3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+        <marker id="v3-amber-3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+      </defs>
+
+      <rect class="group amber" x="10" y="74" width="184" height="494" rx="8"/>
+      <text class="group-title" x="22" y="64" fill="#f5b13d">Connected truck + driver</text>
+      <rect class="node" x="26" y="104" width="152" height="78" rx="7"/><rect class="icon" x="40" y="120" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="52" y="136">S</text><text class="title" x="76" y="129">Truck sensors</text><text class="sub" x="76" y="145">GPS, ignition, tyres</text><text class="mini" x="40" y="166">position + component health</text>
+      <rect class="node" x="26" y="222" width="152" height="78" rx="7"/><rect class="icon" x="40" y="238" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="52" y="254">G</text><text class="title" x="76" y="247">Vehicle gateway</text><text class="sub" x="76" y="263">provider SDK / agent</text><text class="mini" x="40" y="284">buffer + secure transport</text>
+      <rect class="node" x="26" y="340" width="152" height="78" rx="7"/><rect class="icon" x="40" y="356" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="52" y="372">D</text><text class="title" x="76" y="365">Driver application</text><text class="sub" x="76" y="381">tasks + manual status</text><text class="mini" x="40" y="402">photo, signature, exception</text>
+      <rect class="node" x="26" y="458" width="152" height="78" rx="7"/><rect class="icon" x="40" y="474" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="52" y="490">F</text><text class="title" x="76" y="483">Fleet provider</text><text class="sub" x="76" y="499">TMS / FMS / GPS cloud</text><text class="mini" x="40" y="520">webhook, API, file, stream</text>
+      <path d="M102 182 V220 M102 300 V338" fill="none" stroke="#f5b13d" stroke-width="1.35" marker-end="url(#v3-amber-3)"/>
+      <circle class="call" cx="176" cy="88" r="15"/><text class="call-t" x="176" y="92">1</text><circle class="call" cx="176" cy="206" r="15"/><text class="call-t" x="176" y="210">2</text>
+
+      <rect class="group amber" x="10" y="620" width="184" height="104" rx="8"/>
+      <text class="group-title" x="22" y="612" fill="#f5b13d">Logistics edge site</text>
+      <rect class="node" x="26" y="646" width="152" height="58" rx="7"/><rect class="icon" x="40" y="663" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="52" y="679">L</text><text class="title" x="76" y="672">Optional leaf node</text><text class="sub" x="76" y="688">depot / warehouse / port</text>
+
+      <rect class="cloud" x="220" y="28" width="924" height="748" rx="4"/>
+      <text class="cloud-title" x="236" y="48">Logistics SaaS cloud &middot; connected fleet data plane</text>
+
+      <rect class="group green" x="244" y="82" width="876" height="130" rx="7"/>
+      <text class="group-title" x="260" y="74" fill="#34d399">Global onboarding, identity and routing</text>
+      <rect class="node" x="264" y="112" width="192" height="68" rx="7"/><rect class="icon" x="278" y="130" width="24" height="24" fill="#34d399"/><text class="glyph" x="290" y="146">I</text><text class="title" x="314" y="139">Identity + membership</text><text class="sub" x="314" y="155">WorkOS + organisation role</text><text class="mini" x="278" y="172">human access</text>
+      <rect class="node" x="478" y="112" width="192" height="68" rx="7"/><rect class="icon" x="492" y="130" width="24" height="24" fill="#34d399"/><text class="glyph" x="504" y="146">V</text><text class="title" x="528" y="139">Vehicle onboarding</text><text class="sub" x="528" y="155">truck + provider mapping</text><text class="mini" x="492" y="172">consent + retention</text>
+      <rect class="node" x="692" y="112" width="192" height="68" rx="7"/><rect class="icon" x="706" y="130" width="24" height="24" fill="#34d399"/><text class="glyph" x="718" y="146">K</text><text class="title" x="742" y="139">Credential issuer</text><text class="sub" x="742" y="155">account-bound identity</text><text class="mini" x="706" y="172">short expiry + renewal</text>
+      <rect class="node" x="906" y="112" width="192" height="68" rx="7"/><rect class="icon" x="920" y="130" width="24" height="24" fill="#3b8bff"/><text class="glyph" x="932" y="146">R</text><text class="title" x="956" y="139">Regional routing</text><text class="sub" x="956" y="155">home region + failover</text><text class="mini" x="920" y="172">tenant placement policy</text>
+      <circle class="call" cx="466" cy="96" r="15"/><text class="call-t" x="466" y="100">3</text><circle class="call" cx="894" cy="96" r="15"/><text class="call-t" x="894" y="100">4</text>
+
+      <rect class="group cyan" x="244" y="254" width="876" height="190" rx="7"/>
+      <text class="group-title" x="260" y="246" fill="#2fd4e8">Regional ingest, normalization and trip intelligence</text>
+      <rect class="node" x="264" y="286" width="150" height="66" rx="7"/><rect class="icon" x="278" y="304" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="290" y="320">A</text><text class="title" x="314" y="313">Ingress adapters</text><text class="sub" x="314" y="329">auth + dedupe</text><text class="mini" x="278" y="345">provider provenance</text>
+      <rect class="node" x="438" y="286" width="150" height="66" rx="7"/><rect class="icon" x="452" y="304" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="464" y="320">N</text><text class="title" x="488" y="313">Core NATS</text><text class="sub" x="488" y="329">live routing</text><text class="mini" x="452" y="345">tenant account</text>
+      <rect class="node" x="612" y="286" width="150" height="66" rx="7"/><rect class="icon" x="626" y="304" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="638" y="320">J</text><text class="title" x="662" y="313">JetStream</text><text class="sub" x="662" y="329">durable tracking facts</text><text class="mini" x="626" y="345">regional domain</text>
+      <rect class="node" x="786" y="286" width="150" height="66" rx="7"/><rect class="icon" x="800" y="304" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="812" y="320">T</text><text class="title" x="836" y="313">Trip + tracking</text><text class="sub" x="836" y="329">normalize + correlate</text><text class="mini" x="800" y="345">milestones + state</text>
+      <rect class="node" x="960" y="286" width="138" height="66" rx="7"/><rect class="icon" x="974" y="304" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="986" y="320">E</text><text class="title" x="1010" y="313">ETA + exception</text><text class="sub" x="1010" y="329">route + geofence</text><text class="mini" x="974" y="345">actionable alert</text>
+      <rect class="node subtle" x="438" y="380" width="498" height="40" rx="7"/><text class="title" x="456" y="399">Canonical event: tenant, trip, asset, timestamp, accuracy, provider, sequence</text><text class="sub" x="456" y="414">raw provider payload is retained for diagnosis, never exposed as the public contract</text>
+      <path class="edge cyan" d="M178 261 H218 V319 H262 M414 319 H436 M588 319 H610 M762 319 H784 M936 319 H958" style="marker-end:url(#v3-cyan-3)"/>
+      <path class="edge cyan" d="M178 379 H214 V335 H262 M178 497 H210 V351 H262 M178 675 H230 V367 H262" style="marker-end:url(#v3-cyan-3)"/>
+      <circle class="call" cx="426" cy="270" r="15"/><text class="call-t" x="426" y="274">5</text><circle class="call" cx="774" cy="270" r="15"/><text class="call-t" x="774" y="274">6</text>
+
+      <rect class="group amber" x="244" y="486" width="876" height="128" rx="7"/>
+      <text class="group-title" x="260" y="478" fill="#f5b13d">Owned state, evidence and analysis</text>
+      <rect class="node subtle" x="264" y="518" width="192" height="64" rx="7"/><rect class="icon" x="278" y="536" width="24" height="24" fill="#27c07f"/><text class="glyph" x="290" y="552">P</text><text class="title" x="314" y="545">Postgres truth</text><text class="sub" x="314" y="561">trip + tracking authority</text>
+      <rect class="node subtle" x="478" y="518" width="192" height="64" rx="7"/><rect class="icon" x="492" y="536" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="504" y="552">K</text><text class="title" x="528" y="545">KV current state</text><text class="sub" x="528" y="561">latest permitted projection</text>
+      <rect class="node subtle" x="692" y="518" width="192" height="64" rx="7"/><rect class="icon" x="706" y="536" width="24" height="24" fill="#27c07f"/><text class="glyph" x="718" y="552">S</text><text class="title" x="742" y="545">Evidence storage</text><text class="sub" x="742" y="561">S3 via service adapter</text>
+      <rect class="node subtle" x="906" y="518" width="192" height="64" rx="7"/><rect class="icon" x="920" y="536" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="932" y="552">Q</text><text class="title" x="956" y="545">Analytics store</text><text class="sub" x="956" y="561">corridor + service insights</text>
+      <path d="M861 352 H950 V484 M1029 352 V484" fill="none" stroke="#f5b13d" stroke-width="1.25" stroke-dasharray="5 4" marker-end="url(#v3-amber-3)"/>
+      <circle class="call" cx="252" cy="502" r="15"/><text class="call-t" x="252" y="506">7</text><circle class="call" cx="1110" cy="502" r="15"/><text class="call-t" x="1110" y="506">8</text>
+
+      <rect class="group blue" x="244" y="656" width="876" height="80" rx="7"/>
+      <text class="group-title" x="260" y="648" fill="#3b8bff">Consumer connected services</text>
+      <rect class="node" x="264" y="678" width="192" height="38" rx="7"/><text class="title" x="280" y="701">Shipper control tower</text>
+      <rect class="node" x="478" y="678" width="192" height="38" rx="7"/><text class="title" x="494" y="701">Transporter operations</text>
+      <rect class="node" x="692" y="678" width="192" height="38" rx="7"/><text class="title" x="708" y="701">Operator + SRE</text>
+      <rect class="node" x="906" y="678" width="192" height="38" rx="7"/><text class="title" x="922" y="701">Customer integrations</text>
+      <path d="M360 582 V626 H464 V654 M574 582 V654 M788 582 V654 M1002 582 V654" fill="none" stroke="#3b8bff" stroke-width="1.35" marker-end="url(#v3-blue-3)"/>
+      <circle class="call" cx="260" cy="620" r="15"/><text class="call-t" x="260" y="624">9</text><circle class="call" cx="1104" cy="638" r="15"/><text class="call-t" x="1104" y="642">10</text>
+      <text class="legend" x="236" y="754">Amber = device/provider edge &middot; cyan = normalized NATS data path &middot; green = identity/onboarding &middot; blue = role-filtered consumption</text>
+    </svg>
+    </div>
+    <aside class="notes">
+      <div class="note"><span class="n">1</span><p><b>The truck produces several evidence types.</b> Position, ignition and component health originate in vehicle systems; the driver adds task completion, exception and POD evidence.</p></div>
+      <div class="note"><span class="n">2</span><p><b>The edge buffers and authenticates.</b> A vehicle gateway or provider agent handles intermittent cellular service, ordering and secure delivery without becoming the business system of record.</p></div>
+      <div class="note"><span class="n">3</span><p><b>Onboarding binds technical identity to business identity.</b> Vehicle, provider, tenant, transporter organisation, consent and retention policy are established before telemetry is admitted.</p></div>
+      <div class="note"><span class="n">4</span><p><b>Routing selects a permitted regional endpoint.</b> The tenant's placement policy determines home and recovery cells; the NATS account remains the authority wherever it connects.</p></div>
+      <div class="note"><span class="n">5</span><p><b>Adapters authenticate, validate and deduplicate.</b> Every observation keeps provider provenance, source timestamp, accuracy and sequence information for later diagnosis.</p></div>
+      <div class="note"><span class="n">6</span><p><b>NATS separates live delivery from durable history.</b> Core request/reply and notifications serve live work; JetStream retains replayable position and exception facts in the regional domain.</p></div>
+      <div class="note"><span class="n">7</span><p><b>Transactional state remains service-owned.</b> Postgres owns current decisions, while KV and projections provide fast current-state reads without replacing the authority.</p></div>
+      <div class="note"><span class="n">8</span><p><b>Bulk evidence uses a storage adapter.</b> POD, scans and diagnostic files go to regional S3-compatible storage; Postgres retains metadata. NATS Object Store remains optional for small operational artifacts, not the bulk archive.</p></div>
+      <div class="note"><span class="n">9</span><p><b>Operational views are role-filtered.</b> Shippers see allocated-load progress, transporters see their fleet and jobs, and operators see cross-platform health through approved operational exports.</p></div>
+      <div class="note"><span class="n">10</span><p><b>External consumers receive contracts, not internals.</b> Customer systems use APIs, webhooks or approved event products with explicit versions, scopes and delivery guarantees.</p></div>
+    </aside>
+  </div>
+  <footer class="foot"><span>Edge telemetry is evidence attached to an allocated trip; it never grants a shipper unrestricted access to a transporter's fleet.</span><span class="brand">Connected Freight Reference Architecture</span></footer>
+</section>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Connected Freight Reference Architecture &middot; Version 3 &middot; Sheet 4 of 5</div>
+    <h1>Security, Privacy and Regulatory Controls</h1>
+    <p>This control view places identity, authorization, tenant separation, encryption, privacy, residency and audit around the same NATS-based logistics platform. It defines architectural requirements and evidence points; it does not claim certification or replace jurisdiction-specific legal and security review.</p>
+  </header>
+  <div class="body-grid">
+    <div class="arch">
+    <svg viewBox="0 0 1160 820" role="img" aria-label="AWS-reference-style security architecture for a multi-tenant NATS logistics SaaS. External users, workloads, data producers and assurance teams enter from the left. Identity federation, membership, RBAC, ABAC, credential issuance and NATS connection authorization form the top control plane. A NATS operator governs separated tenant accounts in the middle. Encryption, log masking, data residency, audit and incident response controls appear below. Numbered markers correspond to ten explanatory notes.">
+      <defs>
+        <marker id="v3-grey-4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#4a515b"/></marker>
+        <marker id="v3-blue-4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+        <marker id="v3-cyan-4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker>
+        <marker id="v3-green-4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+        <marker id="v3-amber-4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+      </defs>
+
+      <rect class="group green" x="10" y="76" width="184" height="626" rx="8"/>
+      <text class="group-title" x="22" y="66" fill="#34d399">Actors and trust inputs</text>
+      <rect class="node" x="26" y="108" width="152" height="76" rx="7"/><rect class="icon" x="40" y="124" width="24" height="24" fill="#34d399"/><text class="glyph" x="52" y="140">U</text><text class="title" x="76" y="133">Human users</text><text class="sub" x="76" y="149">shipper + transporter</text><text class="mini" x="40" y="169">federated identity</text>
+      <rect class="node" x="26" y="238" width="152" height="76" rx="7"/><rect class="icon" x="40" y="254" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="52" y="270">W</text><text class="title" x="76" y="263">Workloads</text><text class="sub" x="76" y="279">services + integrations</text><text class="mini" x="40" y="299">short-lived identity</text>
+      <rect class="node" x="26" y="368" width="152" height="76" rx="7"/><rect class="icon" x="40" y="384" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="52" y="400">D</text><text class="title" x="76" y="393">Data producers</text><text class="sub" x="76" y="409">apps, trucks, partners</text><text class="mini" x="40" y="429">classified at ingress</text>
+      <rect class="node" x="26" y="498" width="152" height="76" rx="7"/><rect class="icon" x="40" y="514" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="52" y="530">A</text><text class="title" x="76" y="523">Assurance teams</text><text class="sub" x="76" y="539">security + compliance</text><text class="mini" x="40" y="559">evidence, not payloads</text>
+      <rect class="node subtle" x="26" y="626" width="152" height="50" rx="7"/><text class="title" x="40" y="648">Policy sources</text><text class="sub" x="40" y="664">contract + jurisdiction</text>
+      <circle class="call" cx="176" cy="92" r="15"/><text class="call-t" x="176" y="96">1</text>
+
+      <rect class="cloud" x="220" y="28" width="924" height="748" rx="4"/>
+      <text class="cloud-title" x="236" y="48">Logistics SaaS cloud &middot; zero-trust, tenant-aware control envelope</text>
+
+      <rect class="group green" x="244" y="82" width="876" height="204" rx="7"/>
+      <text class="group-title" x="260" y="74" fill="#34d399">Identity, policy and connection authorization</text>
+      <rect class="node" x="264" y="112" width="192" height="62" rx="7"/><rect class="icon" x="278" y="128" width="24" height="24" fill="#34d399"/><text class="glyph" x="290" y="144">I</text><text class="title" x="314" y="137">Identity federation</text><text class="sub" x="314" y="153">WorkOS / enterprise IdP</text>
+      <rect class="node" x="478" y="112" width="192" height="62" rx="7"/><rect class="icon" x="492" y="128" width="24" height="24" fill="#34d399"/><text class="glyph" x="504" y="144">M</text><text class="title" x="528" y="137">Membership context</text><text class="sub" x="528" y="153">tenant + organisation</text>
+      <rect class="node" x="692" y="112" width="192" height="62" rx="7"/><rect class="icon" x="706" y="128" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="718" y="144">E</text><text class="title" x="742" y="137">Entitlements</text><text class="sub" x="742" y="153">plan + feature + contract</text>
+      <rect class="node" x="906" y="112" width="192" height="62" rx="7"/><rect class="icon" x="920" y="128" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="932" y="144">C</text><text class="title" x="956" y="137">Policy context</text><text class="sub" x="956" y="153">resource + region + risk</text>
+      <rect class="node" x="264" y="202" width="192" height="62" rx="7"/><rect class="icon" x="278" y="218" width="24" height="24" fill="#3b8bff"/><text class="glyph" x="290" y="234">R</text><text class="title" x="314" y="227">RBAC role grants</text><text class="sub" x="314" y="243">baseline job permissions</text>
+      <rect class="node" x="478" y="202" width="192" height="62" rx="7"/><rect class="icon" x="492" y="218" width="24" height="24" fill="#3b8bff"/><text class="glyph" x="504" y="234">A</text><text class="title" x="528" y="227">ABAC decision</text><text class="sub" x="528" y="243">tenant, org, object, region</text>
+      <rect class="node" x="692" y="202" width="192" height="62" rx="7"/><rect class="icon" x="706" y="218" width="24" height="24" fill="#34d399"/><text class="glyph" x="718" y="234">K</text><text class="title" x="742" y="227">Credential issuer</text><text class="sub" x="742" y="243">short expiry + rotation</text>
+      <rect class="node" x="906" y="202" width="192" height="62" rx="7"/><rect class="icon" x="920" y="218" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="932" y="234">N</text><text class="title" x="956" y="227">NATS authorization</text><text class="sub" x="956" y="243">account + subject allow/deny</text>
+      <path d="M178 146 H262 M178 276 H690 M456 143 H476 M670 143 H690 M884 143 H904 M360 174 V200 M574 174 V200 M788 174 V200 M1002 174 V200 M456 233 H476 M670 233 H690 M884 233 H904" fill="none" stroke="#34d399" stroke-width="1.35" marker-end="url(#v3-green-4)"/>
+      <circle class="call" cx="466" cy="96" r="15"/><text class="call-t" x="466" y="100">2</text><circle class="call" cx="680" cy="186" r="10"/><text class="call-t" x="680" y="190">3</text>
+
+      <rect class="group cyan" x="244" y="330" width="876" height="190" rx="7"/>
+      <text class="group-title" x="260" y="322" fill="#2fd4e8">NATS trust hierarchy and tenant separation</text>
+      <rect class="node" x="264" y="366" width="160" height="72" rx="7"/><rect class="icon" x="278" y="384" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="290" y="400">O</text><text class="title" x="314" y="393">NATS operator</text><text class="sub" x="314" y="409">signs account JWTs</text><text class="mini" x="278" y="428">root of messaging trust</text>
+      <rect class="group blue" x="450" y="350" width="250" height="142" rx="7"/>
+      <text class="group-title" x="464" y="372" fill="#3b8bff">Tenant A &middot; NATS account</text>
+      <rect class="node subtle" x="466" y="390" width="102" height="74" rx="7"/><text class="title" x="480" y="411">Organisations</text><text class="sub" x="480" y="428">members + roles</text><text class="mini" x="480" y="447">subject policy</text>
+      <rect class="node subtle" x="582" y="390" width="102" height="74" rx="7"/><text class="title" x="596" y="411">Services</text><text class="sub" x="596" y="428">owned stores</text><text class="mini" x="596" y="447">tenant data</text>
+      <rect class="node" x="724" y="382" width="150" height="80" rx="7"/><rect class="icon" x="738" y="399" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="750" y="415">X</text><text class="title" x="774" y="408">Explicit exchange</text><text class="sub" x="774" y="424">approved import/export</text><text class="mini" x="738" y="448">deny by default</text>
+      <rect class="group purple" x="898" y="350" width="200" height="142" rx="7"/>
+      <text class="group-title" x="912" y="372" fill="#a78bfa">Tenant B &middot; NATS account</text>
+      <rect class="node subtle" x="914" y="390" width="78" height="74" rx="7"/><text class="title" x="926" y="411">Orgs</text><text class="sub" x="926" y="428">roles</text><text class="mini" x="926" y="447">policy</text>
+      <rect class="node subtle" x="1004" y="390" width="78" height="74" rx="7"/><text class="title" x="1016" y="411">Services</text><text class="sub" x="1016" y="428">stores</text><text class="mini" x="1016" y="447">data</text>
+      <path d="M424 402 H448 M700 422 H722 M874 422 H896" fill="none" stroke="#2fd4e8" stroke-width="1.35" marker-end="url(#v3-cyan-4)"/>
+      <path d="M178 406 H242 M1002 264 V296 H230 V402 H262" fill="none" stroke="#2fd4e8" stroke-width="1.35" marker-end="url(#v3-cyan-4)"/>
+      <circle class="call" cx="250" cy="318" r="10"/><text class="call-t" x="250" y="322">4</text><circle class="call" cx="1108" cy="314" r="15"/><text class="call-t" x="1108" y="318">5</text>
+
+      <rect class="group amber" x="244" y="562" width="420" height="174" rx="7"/>
+      <text class="group-title" x="260" y="554" fill="#f5b13d">Encryption and privacy engineering</text>
+      <rect class="node" x="264" y="592" width="180" height="54" rx="7"/><rect class="icon" x="278" y="607" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="290" y="623">T</text><text class="title" x="314" y="616">Encryption in transit</text><text class="sub" x="314" y="632">HTTPS/WSS/TLS + mTLS</text>
+      <rect class="node" x="464" y="592" width="180" height="54" rx="7"/><rect class="icon" x="478" y="607" width="24" height="24" fill="#f5b13d"/><text class="glyph" x="490" y="623">K</text><text class="title" x="514" y="616">Encryption at rest</text><text class="sub" x="514" y="632">DB, streams, objects + keys</text>
+      <rect class="node" x="264" y="666" width="180" height="50" rx="7"/><text class="title" x="280" y="688">Application log events</text><text class="sub" x="280" y="704">structured + classified</text>
+      <rect class="node" x="464" y="666" width="180" height="50" rx="7"/><text class="title" x="480" y="688">Mask / tokenize / redact</text><text class="sub" x="480" y="704">before central collection</text>
+      <path d="M444 691 H462" fill="none" stroke="#f5b13d" stroke-width="1.35" marker-end="url(#v3-amber-4)"/>
+      <circle class="call" cx="260" cy="530" r="10"/><text class="call-t" x="260" y="534">6</text><circle class="call" cx="660" cy="540" r="10"/><text class="call-t" x="660" y="544">7</text>
+
+      <rect class="group purple" x="700" y="562" width="420" height="174" rx="7"/>
+      <text class="group-title" x="716" y="554" fill="#a78bfa">Residency, assurance and response</text>
+      <rect class="node" x="720" y="592" width="180" height="54" rx="7"/><rect class="icon" x="734" y="607" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="746" y="623">P</text><text class="title" x="770" y="616">Placement policy</text><text class="sub" x="770" y="632">tenant + data class + region</text>
+      <rect class="node" x="920" y="592" width="180" height="54" rx="7"/><rect class="icon" x="934" y="607" width="24" height="24" fill="#a78bfa"/><text class="glyph" x="946" y="623">R</text><text class="title" x="970" y="616">Region-held data</text><text class="sub" x="970" y="632">JetStream, DB, S3 objects</text>
+      <rect class="node" x="720" y="666" width="180" height="50" rx="7"/><text class="title" x="736" y="688">Tenant-aware audit</text><text class="sub" x="736" y="704">policy + admin + data access</text>
+      <rect class="node" x="920" y="666" width="180" height="50" rx="7"/><text class="title" x="936" y="688">Detect, revoke, rotate</text><text class="sub" x="936" y="704">respond + preserve evidence</text>
+      <path d="M900 619 H918 M900 691 H918 M178 536 H216 V522 H682 V691 H718 M178 651 H698 V619 H718" fill="none" stroke="#a78bfa" stroke-width="1.35" marker-end="url(#v3-blue-4)"/>
+      <circle class="call" cx="716" cy="530" r="10"/><text class="call-t" x="716" y="534">8</text><circle class="call" cx="1108" cy="546" r="15"/><text class="call-t" x="1108" y="550">9</text><circle class="call" cx="1108" cy="750" r="15"/><text class="call-t" x="1108" y="754">10</text>
+      <text class="legend" x="236" y="758">Green = identity and policy &middot; cyan = NATS trust and tenant isolation &middot; amber = encryption and privacy &middot; purple = residency and assurance</text>
+    </svg>
+    </div>
+    <aside class="notes">
+      <div class="note"><span class="n">1</span><p><b>Federation proves identity; membership grants tenancy.</b> WorkOS or an enterprise IdP authenticates people, while platform records bind each user to permitted tenant organisations.</p></div>
+      <div class="note"><span class="n">2</span><p><b>RBAC supplies the stable baseline.</b> Shipper, transporter, driver, finance, support and platform roles grant understandable job-level permissions inside an organisation.</p></div>
+      <div class="note"><span class="n">3</span><p><b>ABAC narrows each decision.</b> Tenant, organisation, resource ownership, tender or trip allocation, region, data class and risk context constrain what the role may do now.</p></div>
+      <div class="note"><span class="n">4</span><p><b>The NATS operator anchors messaging trust.</b> It signs one account per marketplace tenant; organisation membership and roles stay inside that tenant's application authority.</p></div>
+      <div class="note"><span class="n">5</span><p><b>Tenant accounts deny cross-tenant access by default.</b> Subjects, streams, limits and credentials are isolated. Any marketplace sharing uses an explicit, reviewed import/export contract.</p></div>
+      <div class="note"><span class="n">6</span><p><b>Connections and stored data are encrypted.</b> HTTPS, WSS, TLS and mTLS protect transit; databases, JetStream volumes, backups and S3-compatible evidence stores use managed keys with rotation.</p></div>
+      <div class="note"><span class="n">7</span><p><b>Sensitive fields are removed before logs leave the service.</b> Secrets, tokens, personal data, proof-of-delivery content and precise locations are masked, tokenized or omitted by policy.</p></div>
+      <div class="note"><span class="n">8</span><p><b>Residency is a placement rule, not a label.</b> Tenant contract, jurisdiction, data class, retention and approved cross-border transfer determine the region for streams, databases, S3 buckets and backups.</p></div>
+      <div class="note"><span class="n">9</span><p><b>Audit remains tenant-aware and tamper-resistant.</b> Authentication, authorization decisions, administrative actions, credential changes and sensitive reads produce correlated evidence without exposing payload data.</p></div>
+      <div class="note"><span class="n">10</span><p><b>Response can contain one tenant or credential.</b> Operators can suspend an account, revoke or rotate credentials, isolate exports, preserve evidence and replay approved events without opening every tenant.</p></div>
+    </aside>
+  </div>
+  <footer class="foot"><span>Control intent must be traced to threat models, data classification, tenant contracts, retention schedules and the regulations applicable in each operating region.</span><span class="brand">Connected Freight Reference Architecture</span></footer>
+</section>
+
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Connected Freight Reference Architecture &middot; Version 3 &middot; Sheet 5 of 5</div>
+    <h1>Regional Deployment and Country-Resident Tenant Placement</h1>
+    <p>The baseline uses three-node NATS clusters in Cape Town and Sydney, joined as a supercluster. A Botswana-regulated tenant is placed in a separate in-country sovereign cell: application transit, JetStream, databases, evidence, logs, keys and backups stay inside Botswana, with cross-border data paths denied by default.</p>
+  </header>
+  <div class="body-grid">
+    <div class="arch">
+    <svg viewBox="0 0 1160 820" role="img" aria-label="AWS-reference-style regional deployment model for a logistics SaaS. A global logical control plane containing identity, tenant lifecycle, the NATS operator, placement and observability sits above three side-by-side deployment cells. The shared Cape Town and Sydney cells run three-node NATS clusters, local JetStream, services, Postgres and S3-compatible evidence storage and connect through NATS gateways. A separate Botswana sovereign country cell contains local identity and ingress, services, a three-node NATS cluster, JetStream, Postgres, evidence objects, audit logs, keys and backups. It has no cross-border gateway, mirror, database, evidence, log or backup path. Only explicitly approved masked or aggregate operational metadata may leave Botswana.">
+      <defs>
+        <marker id="v3-blue-5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+        <marker id="v3-cyan-5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2fd4e8"/></marker>
+        <marker id="v3-green-5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#34d399"/></marker>
+        <marker id="v3-amber-5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+      </defs>
+
+      <rect class="group green" x="20" y="76" width="1120" height="136" rx="8"/>
+      <text class="group-title" x="36" y="68" fill="#34d399">Global logical control plane - authority and placement metadata, no regulated freight payload</text>
+      <rect class="node" x="44" y="108" width="196" height="72" rx="7"/><rect class="icon" x="58" y="126" width="24" height="24" fill="#34d399"/><text class="glyph" x="70" y="142">I</text><text class="title" x="94" y="135">Identity + membership</text><text class="sub" x="94" y="151">WorkOS + organisation roles</text><text class="mini" x="58" y="170">tenant context</text>
+      <rect class="node" x="260" y="108" width="196" height="72" rx="7"/><rect class="icon" x="274" y="126" width="24" height="24" fill="#34d399"/><text class="glyph" x="286" y="142">T</text><text class="title" x="310" y="135">Tenant lifecycle</text><text class="sub" x="310" y="151">authority, tier, countries</text><text class="mini" x="274" y="170">activate / suspend</text>
+      <rect class="node" x="476" y="108" width="196" height="72" rx="7"/><rect class="icon" x="490" y="126" width="24" height="24" fill="#2fd4e8"/><text class="glyph" x="502" y="142">O</text><text class="title" x="526" y="135">NATS operator</text><text class="sub" x="526" y="151">account JWTs + resolver</text><text class="mini" x="490" y="170">global trust root</text>
+      <rect class="node" x="692" y="108" width="196" height="72" rx="7"/><rect class="icon" x="706" y="126" width="24" height="24" fill="#3b8bff"/><text class="glyph" x="718" y="142">P</text><text class="title" x="742" y="135">Placement directory</text><text class="sub" x="742" y="151">home + permitted recovery</text><text class="mini" x="706" y="170">tenant -&gt; regional cell</text>
+      <rect class="node" x="908" y="108" width="208" height="72" rx="7"/><rect class="icon" x="922" y="126" width="24" height="24" fill="#34d399"/><text class="glyph" x="934" y="142">A</text><text class="title" x="958" y="135">Provision + observe</text><text class="sub" x="958" y="151">services, policy, SRE</text><text class="mini" x="922" y="170">desired vs observed</text>
+      <path d="M240 144 H258 M456 144 H474 M672 144 H690 M888 144 H906" fill="none" stroke="#34d399" stroke-width="1.35" marker-end="url(#v3-green-5)"/>
+      <circle class="call" cx="250" cy="94" r="12"/><text class="call-t" x="250" y="98">1</text><circle class="call" cx="900" cy="94" r="12"/><text class="call-t" x="900" y="98">2</text>
+
+      <path d="M790 180 V226 H195 V256 M790 226 H965 V256" fill="none" stroke="#34d399" stroke-width="1.35" marker-end="url(#v3-green-5)"/>
+      <text class="edge-label" x="790" y="219" text-anchor="middle">place + provision shared-region tenants</text>
+
+      <rect class="group cyan" x="20" y="258" width="350" height="388" rx="8"/>
+      <text class="group-title" x="36" y="278" fill="#2fd4e8">Shared Cape Town cell - AWS af-south-1 / 3 AZs</text>
+      <rect class="node" x="40" y="288" width="145" height="62" rx="7"/><text class="title" x="54" y="309">Regional ingress</text><text class="sub" x="54" y="327">HTTPS + WSS</text><text class="mini" x="54" y="343">tenant routed</text>
+      <rect class="node" x="205" y="288" width="145" height="62" rx="7"/><text class="title" x="219" y="309">Service replicas</text><text class="sub" x="219" y="327">local workers</text><text class="mini" x="219" y="343">pool or silo</text>
+      <rect class="node" x="40" y="374" width="145" height="62" rx="7"/><text class="title" x="54" y="395">NATS cluster x3</text><text class="sub" x="54" y="413">one server / AZ</text><text class="mini" x="54" y="429">regional routes</text>
+      <rect class="node subtle" x="205" y="374" width="145" height="62" rx="7"/><text class="title" x="219" y="395">JetStream AFRICA</text><text class="sub" x="219" y="413">R=3 streams + KV</text><text class="mini" x="219" y="429">Cape Town only</text>
+      <rect class="node subtle" x="40" y="460" width="145" height="62" rx="7"/><text class="title" x="54" y="481">Service Postgres</text><text class="sub" x="54" y="499">tenant scoped</text><text class="mini" x="54" y="515">regional backup</text>
+      <rect class="node subtle" x="205" y="460" width="145" height="62" rx="7"/><text class="title" x="219" y="481">Evidence adapter</text><text class="sub" x="219" y="499">S3-compatible</text><text class="mini" x="219" y="515">regional objects</text>
+      <rect class="node" x="40" y="546" width="310" height="72" rx="7"/><text class="title" x="54" y="568">South Africa + eligible regional tenants</text><text class="sub" x="54" y="586">tenant authority stays distinct from country</text><text class="mini" x="54" y="605">home=af-south-1 &middot; shared or isolated tier</text>
+      <path d="M185 319 H203 M112 350 V372 M277 350 V372 M112 436 V458 M277 436 V458" fill="none" stroke="#2fd4e8" stroke-width="1.25" marker-end="url(#v3-cyan-5)"/>
+      <circle class="call" cx="354" cy="274" r="12"/><text class="call-t" x="354" y="278">3</text><circle class="call" cx="195" cy="448" r="12"/><text class="call-t" x="195" y="452">5</text><circle class="call" cx="195" cy="534" r="12"/><text class="call-t" x="195" y="538">7</text>
+
+      <rect class="group amber" x="405" y="258" width="350" height="388" rx="8"/>
+      <text class="group-title" x="421" y="278" fill="#f5b13d">Botswana sovereign country cell - regulated tenants</text>
+      <rect class="node" x="425" y="288" width="310" height="50" rx="7"/><text class="title" x="439" y="309">Local identity + tenant control + ingress</text><text class="sub" x="439" y="327">Botswana credential, policy and endpoint authority</text>
+      <rect class="node" x="425" y="358" width="145" height="62" rx="7"/><text class="title" x="439" y="379">NATS cluster x3</text><text class="sub" x="439" y="397">in-country nodes</text><text class="mini" x="439" y="413">local client routes</text>
+      <rect class="node" x="590" y="358" width="145" height="62" rx="7"/><text class="title" x="604" y="379">Service replicas</text><text class="sub" x="604" y="397">Botswana workers</text><text class="mini" x="604" y="413">tenant silo</text>
+      <rect class="node subtle" x="425" y="440" width="145" height="62" rx="7"/><text class="title" x="439" y="461">JetStream BW</text><text class="sub" x="439" y="479">R=3 streams + KV</text><text class="mini" x="439" y="495">no external mirrors</text>
+      <rect class="node subtle" x="590" y="440" width="145" height="62" rx="7"/><text class="title" x="604" y="461">Service Postgres</text><text class="sub" x="604" y="479">local authority</text><text class="mini" x="604" y="495">local replicas</text>
+      <rect class="node subtle" x="425" y="522" width="145" height="62" rx="7"/><text class="title" x="439" y="543">Evidence objects</text><text class="sub" x="439" y="561">S3-compatible</text><text class="mini" x="439" y="577">local adapter + keys</text>
+      <rect class="node subtle" x="590" y="522" width="145" height="62" rx="7"/><text class="title" x="604" y="543">Logs + audit</text><text class="sub" x="604" y="561">masked in-country</text><text class="mini" x="604" y="577">local SIEM target</text>
+      <rect class="node" x="425" y="602" width="310" height="28" rx="7"/><text class="title" x="439" y="621">Local KMS/HSM &middot; backups &middot; recovery site</text>
+      <path d="M580 338 V346 H497 V356 M580 346 H662 V356 M497 420 V438 M662 420 V438 M497 502 V520 M662 502 V520" fill="none" stroke="#f5b13d" stroke-width="1.25" marker-end="url(#v3-amber-5)"/>
+      <circle class="call" cx="739" cy="650" r="12"/><text class="call-t" x="739" y="654">8</text>
+
+      <rect class="group cyan" x="790" y="258" width="350" height="388" rx="8"/>
+      <text class="group-title" x="806" y="278" fill="#2fd4e8">Shared Sydney cell - AWS ap-southeast-2 / 3 AZs</text>
+      <rect class="node" x="810" y="288" width="145" height="62" rx="7"/><text class="title" x="824" y="309">Regional ingress</text><text class="sub" x="824" y="327">HTTPS + WSS</text><text class="mini" x="824" y="343">tenant routed</text>
+      <rect class="node" x="975" y="288" width="145" height="62" rx="7"/><text class="title" x="989" y="309">Service replicas</text><text class="sub" x="989" y="327">local workers</text><text class="mini" x="989" y="343">pool or silo</text>
+      <rect class="node" x="810" y="374" width="145" height="62" rx="7"/><text class="title" x="824" y="395">NATS cluster x3</text><text class="sub" x="824" y="413">one server / AZ</text><text class="mini" x="824" y="429">regional routes</text>
+      <rect class="node subtle" x="975" y="374" width="145" height="62" rx="7"/><text class="title" x="989" y="395">JetStream AU</text><text class="sub" x="989" y="413">R=3 streams + KV</text><text class="mini" x="989" y="429">Sydney only</text>
+      <rect class="node subtle" x="810" y="460" width="145" height="62" rx="7"/><text class="title" x="824" y="481">Service Postgres</text><text class="sub" x="824" y="499">tenant scoped</text><text class="mini" x="824" y="515">regional backup</text>
+      <rect class="node subtle" x="975" y="460" width="145" height="62" rx="7"/><text class="title" x="989" y="481">Evidence adapter</text><text class="sub" x="989" y="499">S3-compatible</text><text class="mini" x="989" y="515">regional objects</text>
+      <rect class="node" x="810" y="546" width="310" height="72" rx="7"/><text class="title" x="824" y="568">Australian marketplace tenants</text><text class="sub" x="824" y="586">separate NATS accounts and tenant context</text><text class="mini" x="824" y="605">home=ap-southeast-2 &middot; shared or isolated tier</text>
+      <path d="M955 319 H973 M882 350 V372 M1047 350 V372 M882 436 V458 M1047 436 V458" fill="none" stroke="#2fd4e8" stroke-width="1.25" marker-end="url(#v3-cyan-5)"/>
+      <circle class="call" cx="1124" cy="274" r="12"/><text class="call-t" x="1124" y="278">4</text>
+
+      <path d="M40 405 H30 V666 H780 V405 H808" fill="none" stroke="#2fd4e8" stroke-width="1.35" marker-start="url(#v3-cyan-5)" marker-end="url(#v3-cyan-5)"/>
+      <text class="edge-label" x="198" y="662">Cape Town &harr; Sydney NATS gateways; Botswana subjects excluded</text>
+      <circle class="call" cx="1124" cy="670" r="12"/><text class="call-t" x="1124" y="674">6</text>
+
+      <rect class="group purple" x="20" y="704" width="1120" height="76" rx="8"/>
+      <text class="group-title" x="36" y="696" fill="#a78bfa">Country-residency policy guardrails - Botswana example</text>
+      <rect class="node" x="40" y="722" width="334" height="42" rx="7"/><text class="title" x="54" y="741">Placement: home=BW &middot; recovery=BW only</text><text class="mini" x="54" y="757">compute, messages and all durable stores</text>
+      <rect class="node" x="413" y="722" width="334" height="42" rx="7"/><text class="title" x="427" y="741">Cross-border default: DENY</text><text class="mini" x="427" y="757">no gateway, mirror, backup, object or log export</text>
+      <rect class="node" x="786" y="722" width="334" height="42" rx="7"/><text class="title" x="800" y="741">Exception: explicit regulatory approval</text><text class="mini" x="800" y="757">masked / aggregate operational metadata only</text>
+      <circle class="call" cx="18" cy="690" r="12"/><text class="call-t" x="18" y="694">9</text><circle class="call" cx="762" cy="690" r="12"/><text class="call-t" x="762" y="694">10</text>
+      <text class="legend" x="20" y="806">Cyan = permitted live NATS routing &middot; green = non-payload placement control &middot; amber = sovereign in-country boundary &middot; country is placement; tenant remains authority</text>
+    </svg>
+    </div>
+    <aside class="notes">
+      <div class="note"><span class="n">1</span><p><b>Authority is logical; regulated data is local.</b> The shared control plane does not store, relay or administer Botswana freight, identity, evidence, log or credential data; those functions execute inside Botswana.</p></div>
+      <div class="note"><span class="n">2</span><p><b>Placement is policy, not a cross-border runtime link.</b> The Botswana-local registry is authoritative for home and recovery placement. A global directory may retain only a non-sensitive deployment alias if regulation permits.</p></div>
+      <div class="note"><span class="n">3</span><p><b>Southern Africa runs in Cape Town.</b> AWS <code>af-south-1</code> supplies three Availability Zones for one NATS server per zone, local services and local data.</p></div>
+      <div class="note"><span class="n">4</span><p><b>Australia initially runs in Sydney.</b> AWS <code>ap-southeast-2</code> supplies the equivalent three-zone cell; Melbourne can be evaluated later without changing application contracts.</p></div>
+      <div class="note"><span class="n">5</span><p><b>JetStream replication remains local.</b> Each cluster uses <code>R=3</code> inside its allowed placement boundary; consensus never spans the intercontinental or Botswana border links.</p></div>
+      <div class="note"><span class="n">6</span><p><b>Cape Town and Sydney form the shared supercluster.</b> Gateways carry remote interest between eligible accounts. Botswana accounts and subjects are deliberately absent from that gateway path.</p></div>
+      <div class="note"><span class="n">7</span><p><b>Each cell owns its durable state.</b> Postgres holds transactional truth, JetStream holds replayable facts, and the storage adapter writes bulk evidence to locally approved S3-compatible storage.</p></div>
+      <div class="note"><span class="n">8</span><p><b>Botswana is a sovereign deployment cell.</b> Local tenant administration, identity, credentials, ingress, services, NATS, JetStream, databases, evidence, masked logs, keys, backups and recovery all remain in-country.</p></div>
+      <div class="note"><span class="n">9</span><p><b>Country and tenant remain separate axes.</b> Regulation can force Botswana placement and a silo without redefining every Botswana operating organisation as a marketplace tenant.</p></div>
+      <div class="note"><span class="n">10</span><p><b>Cross-border movement is deny-by-default.</b> No gateway, mirror, database replica, document copy, log export or foreign failover exists for Botswana. Any masked aggregate egress is an explicit policy exception.</p></div>
+    </aside>
+  </div>
+  <footer class="foot"><span>Architecture assumption for review: Botswana-regulated data must remain stored and in transit within Botswana. Validate scope, classifications and exceptions with regulatory and legal owners before implementation.</span><span class="brand">Connected Freight Reference Architecture</span></footer>
+</section>
+
+</body>
+</html>

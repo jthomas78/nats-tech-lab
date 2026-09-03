@@ -25,3 +25,9 @@ demos/01-dictionary/.acceptance/
 # are ~10MB of platform-specific Mach-O and rebuild in seconds.
 demos/01-dictionary/backend/mfe-registry-service/cmd/registry-acceptance/registry-acceptance
 shared/mfe-plugin-host/mfe-plugin-host
+
+# Scratch renders from the diagram/PDF pipeline (html-diagram-drawer,
+# linebooker-architecture-documenter). Page-by-page PNG proofs and text dumps
+# used to eyeball a render before it ships. The shipped output lives in
+# output/pdf/ and the architecture vault; these are throwaway and bulky.
+tmp/

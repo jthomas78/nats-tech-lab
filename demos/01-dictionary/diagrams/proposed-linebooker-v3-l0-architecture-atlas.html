@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed Linebooker V3 Architecture - L0 Architecture Atlas</title>
+<style>
+  :root {
+    --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --border:#2c3138; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --purple:#a78bfa; --amber:#f5b13d;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  @page { size:A3 landscape; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .sheet { width:420mm; height:297mm; padding:8mm; overflow:hidden; background:var(--bg); display:grid; grid-template-rows:30mm minmax(0,1fr) 8mm; gap:3mm; }
+  .head { border-bottom:1px solid var(--stroke); padding-bottom:3mm; }
+  .eyebrow { color:var(--cyan); font:650 9px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; margin-bottom:2mm; }
+  h1 { margin:0; font-size:27px; line-height:1.1; letter-spacing:-.025em; font-weight:680; }
+  .head p { margin:2mm 0 0; max-width:1220px; color:var(--muted); font-size:11.5px; line-height:1.42; }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; min-height:0; }
+  figure { margin:0; min-width:0; min-height:0; background:#0a0c0e; border:1px solid var(--border); display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+  .fig-body { min-height:0; padding:3mm 3mm 1mm; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  figure svg { display:block; width:100%; height:auto; max-height:100%; }
+  figcaption { border-top:1px solid var(--border); padding:2.2mm 3mm; color:var(--muted); font-size:9px; line-height:1.35; }
+  figcaption b { color:var(--text); font-weight:650; }
+  .notes { min-height:0; padding:2mm 2mm 0 3mm; border-left:1px solid var(--stroke); background:var(--panel2); display:flex; flex-direction:column; gap:2.4mm; }
+  .note { display:grid; grid-template-columns:19mm 1fr; gap:2mm; align-items:start; }
+  .tag { border:1px solid #46505b; color:var(--muted); border-radius:3px; padding:1.1mm 1.3mm; font:650 7px/1 var(--mono); letter-spacing:.07em; text-align:center; }
+  .note p { margin:0; color:var(--muted); font-size:8.6px; line-height:1.34; }
+  .note b { color:var(--text); font-weight:650; }
+  .foot { border-top:1px solid var(--border); padding-top:2mm; display:flex; justify-content:space-between; gap:8mm; color:var(--dim); font-size:7.8px; line-height:1.25; }
+  .brand { color:var(--amber); text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; font-weight:700; }
+
+  svg .group { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.1; }
+  svg .group.blue { stroke:var(--blue); } svg .group.green { stroke:var(--green); }
+  svg .group.purple { stroke:var(--purple); } svg .group.cyan { stroke:var(--cyan); }
+  svg .tile { fill:var(--panel); stroke:#3a424c; stroke-width:1.1; }
+  svg .available { stroke:var(--blue); stroke-width:1.6; }
+  svg .planned { stroke:#59616b; stroke-dasharray:5 4; opacity:.86; }
+  svg .root { fill:#172019; stroke:var(--green); stroke-width:1.6; }
+  svg .group-title { font:650 10px var(--sans); letter-spacing:.11em; text-transform:uppercase; }
+  svg .title { fill:var(--text); font:650 11.3px var(--sans); }
+  svg .sub { fill:var(--muted); font:9.2px var(--sans); }
+  svg .mini { fill:var(--dim); font:8.1px var(--mono); }
+  svg .glyph { fill:#0d0f11; font:800 11px var(--sans); text-anchor:middle; }
+  svg .status { font:750 7.5px var(--mono); letter-spacing:.08em; text-anchor:end; }
+  svg .link { fill:none; stroke:var(--blue); stroke-width:1.35; }
+  svg .road { fill:none; stroke:#69727d; stroke-width:1.15; stroke-dasharray:5 4; }
+  svg .edge-label { fill:var(--muted); font:8.2px var(--mono); paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
+  svg a:hover .available { fill:#1b2636; stroke:#68a7ff; }
+  svg a:focus .available { stroke:#ffffff; stroke-width:2.5; }
+</style>
+</head>
+<body>
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L0-01 &middot; Level 0</div>
+    <h1>Architecture Atlas</h1>
+    <p>A graphical table of contents for the Linebooker V3 architecture. Start here to find the smallest diagram that answers a question: L1 establishes the stakeholder landscape, L2 explains the logical construction, L3 isolates architectural concerns, and L4 records implementable designs.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+      <svg viewBox="0 0 1160 870" role="img" aria-label="Linebooker V3 architecture diagram sitemap. The L0 Architecture Atlas is the root. It links to the available L1 System and Platform Overview, which leads to a planned L2 Logical and Technical Architecture. L2 branches into twelve planned L3 concern views: participants and tenancy, functional domains, applications, external integration, NATS messaging, Temporal workflows, data, multi-region, security and identity, observability, financial architecture, and deployment and services. Planned L4 detailed designs cover NATS contracts, workflow definitions, schemas, APIs and adapters, deployment specifications, and permissions. Solid blue indicates an available linked document; dashed grey indicates a planned document.">
+        <defs>
+          <marker id="atlas-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+          <marker id="atlas-road" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#69727d"/></marker>
+        </defs>
+
+        <rect class="root" x="380" y="18" width="400" height="66" rx="12"/>
+        <rect x="398" y="37" width="28" height="28" rx="7" fill="#34d399"/><text class="glyph" x="412" y="55">0</text>
+        <text class="title" x="440" y="43">Linebooker V3 Architecture Atlas</text>
+        <text class="sub" x="440" y="59">graphical index, status map and navigation root</text>
+        <text class="mini" x="440" y="74">LB-V3-L0-01 &middot; CURRENT</text>
+
+        <path class="link" d="M580 84 V117" marker-end="url(#atlas-blue)"/><text class="edge-label" x="592" y="106">start with the system landscape</text>
+
+        <rect class="group blue" x="20" y="120" width="1120" height="112" rx="12"/>
+        <text class="group-title" x="36" y="112" fill="#3b8bff">L1 - stakeholder landscape and architecture entry point</text>
+        <a href="proposed-linebooker-v3-l1-system-platform-overview.html" aria-label="Open LB-V3-L1-01 System and Platform Overview HTML document">
+          <rect class="tile available" x="340" y="146" width="480" height="66" rx="8"/>
+          <rect x="358" y="165" width="28" height="28" rx="7" fill="#3b8bff"/><text class="glyph" x="372" y="183">1</text>
+          <text class="title" x="400" y="169">System and Platform Overview</text>
+          <text class="sub" x="400" y="185">participants, experiences, capabilities, platform and regions</text>
+          <text class="mini" x="400" y="201">LB-V3-L1-01 &middot; HTML + PDF</text>
+          <text class="status" x="800" y="169" fill="#3b8bff">AVAILABLE</text>
+        </a>
+
+        <path class="road" d="M580 232 V264" marker-end="url(#atlas-road)"/><text class="edge-label" x="592" y="253">zoom into logical construction</text>
+
+        <rect class="group green" x="20" y="267" width="1120" height="100" rx="12"/>
+        <text class="group-title" x="36" y="259" fill="#34d399">L2 - logical and technical architecture</text>
+        <rect class="tile planned" x="340" y="291" width="480" height="56" rx="8"/>
+        <rect x="358" y="305" width="28" height="28" rx="7" fill="#66707b"/><text class="glyph" x="372" y="323">2</text>
+        <text class="title" x="400" y="312">Logical and Technical Architecture</text>
+        <text class="sub" x="400" y="328">applications, services, messaging, workflow, data and deployment</text>
+        <text class="mini" x="400" y="342">LB-V3-L2-01</text>
+        <text class="status" x="800" y="312" fill="#8b929b">PLANNED</text>
+
+        <path class="road" d="M580 367 V398" marker-end="url(#atlas-road)"/><text class="edge-label" x="592" y="388">separate concern views</text>
+
+        <rect class="group purple" x="20" y="401" width="1120" height="264" rx="12"/>
+        <text class="group-title" x="36" y="393" fill="#a78bfa">L3 - focused architecture views</text>
+
+        <rect class="tile planned" x="40" y="427" width="255" height="60" rx="8"/><rect x="52" y="443" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="65" y="460">P</text><text class="title" x="88" y="448">Participant + Tenancy</text><text class="sub" x="88" y="464">authority and membership</text><text class="mini" x="52" y="480">LB-V3-L3-01 &middot; PLANNED</text>
+        <rect class="tile planned" x="315" y="427" width="255" height="60" rx="8"/><rect x="327" y="443" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="340" y="460">F</text><text class="title" x="363" y="448">Functional Domains</text><text class="sub" x="363" y="464">tender to settlement</text><text class="mini" x="327" y="480">LB-V3-L3-02 &middot; PLANNED</text>
+        <rect class="tile planned" x="590" y="427" width="255" height="60" rx="8"/><rect x="602" y="443" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="615" y="460">A</text><text class="title" x="638" y="448">Application / MFE</text><text class="sub" x="638" y="464">shell and experiences</text><text class="mini" x="602" y="480">LB-V3-L3-03 &middot; PLANNED</text>
+        <rect class="tile planned" x="865" y="427" width="255" height="60" rx="8"/><rect x="877" y="443" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="890" y="460">I</text><text class="title" x="913" y="448">External Integration</text><text class="sub" x="913" y="464">contracts, APIs, adapters</text><text class="mini" x="877" y="480">LB-V3-L3-04 &middot; PLANNED</text>
+
+        <rect class="tile planned" x="40" y="497" width="255" height="60" rx="8"/><rect x="52" y="513" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="65" y="530">N</text><text class="title" x="88" y="518">Messaging / NATS</text><text class="sub" x="88" y="534">trust, accounts and topology</text><text class="mini" x="52" y="550">LB-V3-L3-05 &middot; PLANNED</text>
+        <rect class="tile planned" x="315" y="497" width="255" height="60" rx="8"/><rect x="327" y="513" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="340" y="530">W</text><text class="title" x="363" y="518">Workflow / Temporal</text><text class="sub" x="363" y="534">long-lived processes</text><text class="mini" x="327" y="550">LB-V3-L3-06 &middot; PLANNED</text>
+        <rect class="tile planned" x="590" y="497" width="255" height="60" rx="8"/><rect x="602" y="513" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="615" y="530">D</text><text class="title" x="638" y="518">Data Architecture</text><text class="sub" x="638" y="534">truth, history and documents</text><text class="mini" x="602" y="550">LB-V3-L3-07 &middot; PLANNED</text>
+        <rect class="tile planned" x="865" y="497" width="255" height="60" rx="8"/><rect x="877" y="513" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="890" y="530">R</text><text class="title" x="913" y="518">Multi-Region</text><text class="sub" x="913" y="534">cells, residency and recovery</text><text class="mini" x="877" y="550">LB-V3-L3-08 &middot; PLANNED</text>
+
+        <rect class="tile planned" x="40" y="567" width="255" height="60" rx="8"/><rect x="52" y="583" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="65" y="600">S</text><text class="title" x="88" y="588">Security + Identity</text><text class="sub" x="88" y="604">access, policy and audit</text><text class="mini" x="52" y="620">LB-V3-L3-09 &middot; PLANNED</text>
+        <rect class="tile planned" x="315" y="567" width="255" height="60" rx="8"/><rect x="327" y="583" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="340" y="600">O</text><text class="title" x="363" y="588">Observability</text><text class="sub" x="363" y="604">health, logs and traces</text><text class="mini" x="327" y="620">LB-V3-L3-10 &middot; PLANNED</text>
+        <rect class="tile planned" x="590" y="567" width="255" height="60" rx="8"/><rect x="602" y="583" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="615" y="600">F</text><text class="title" x="638" y="588">Financial Architecture</text><text class="sub" x="638" y="604">billing, currency and settlement</text><text class="mini" x="602" y="620">LB-V3-L3-11 &middot; PLANNED</text>
+        <rect class="tile planned" x="865" y="567" width="255" height="60" rx="8"/><rect x="877" y="583" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="890" y="600">D</text><text class="title" x="913" y="588">Deployment + Services</text><text class="sub" x="913" y="604">service and runtime model</text><text class="mini" x="877" y="620">LB-V3-L3-12 &middot; PLANNED</text>
+
+        <path class="road" d="M580 665 V696" marker-end="url(#atlas-road)"/><text class="edge-label" x="592" y="686">refine into implementable designs</text>
+
+        <rect class="group cyan" x="20" y="699" width="1120" height="139" rx="12"/>
+        <text class="group-title" x="36" y="691" fill="#2fd4e8">L4 - detailed designs</text>
+        <rect class="tile planned" x="40" y="725" width="160" height="78" rx="8"/><rect x="54" y="743" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="67" y="760">N</text><text class="title" x="90" y="748">NATS contracts</text><text class="sub" x="90" y="764">subjects + streams</text><text class="mini" x="54" y="788">L4 &middot; PLANNED</text>
+        <rect class="tile planned" x="224" y="725" width="160" height="78" rx="8"/><rect x="238" y="743" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="251" y="760">W</text><text class="title" x="274" y="748">Workflows</text><text class="sub" x="274" y="764">states + activities</text><text class="mini" x="238" y="788">L4 &middot; PLANNED</text>
+        <rect class="tile planned" x="408" y="725" width="160" height="78" rx="8"/><rect x="422" y="743" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="435" y="760">D</text><text class="title" x="458" y="748">Data schemas</text><text class="sub" x="458" y="764">models + retention</text><text class="mini" x="422" y="788">L4 &middot; PLANNED</text>
+        <rect class="tile planned" x="592" y="725" width="160" height="78" rx="8"/><rect x="606" y="743" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="619" y="760">A</text><text class="title" x="642" y="748">APIs + adapters</text><text class="sub" x="642" y="764">payloads + policies</text><text class="mini" x="606" y="788">L4 &middot; PLANNED</text>
+        <rect class="tile planned" x="776" y="725" width="160" height="78" rx="8"/><rect x="790" y="743" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="803" y="760">D</text><text class="title" x="826" y="748">Deployment</text><text class="sub" x="826" y="764">runtime + recovery</text><text class="mini" x="790" y="788">L4 &middot; PLANNED</text>
+        <rect class="tile planned" x="960" y="725" width="160" height="78" rx="8"/><rect x="974" y="743" width="26" height="26" rx="7" fill="#66707b"/><text class="glyph" x="987" y="760">P</text><text class="title" x="1010" y="748">Permissions</text><text class="sub" x="1010" y="764">roles + claims</text><text class="mini" x="974" y="788">L4 &middot; PLANNED</text>
+      </svg>
+      </div>
+      <figcaption><b>Navigation rule.</b> Follow the tree until the diagram answers the question at hand; stop before unnecessary implementation detail. Solid blue denotes an available linked document. Dashed grey nodes are catalogue commitments, not completed designs. In the HTML edition, select the L1 card to open the current document.</figcaption>
+    </figure>
+
+    <aside class="notes" aria-label="Architecture atlas usage notes">
+      <div class="note"><span class="tag">PURPOSE</span><p><b>L0 is an architecture atlas.</b> It is a graphical table of contents and document-status map, not a technical architecture view.</p></div>
+      <div class="note"><span class="tag">START</span><p><b>Begin with L1.</b> It introduces actors, participating organisations, applications, logistics capabilities, shared platform concerns and regional placement.</p></div>
+      <div class="note"><span class="tag">ZOOM</span><p><b>Levels increase detail.</b> L2 explains construction, L3 isolates one concern, and L4 provides implementable contracts and designs.</p></div>
+      <div class="note"><span class="tag">STATUS</span><p><b>Visual treatment carries status.</b> Blue solid cards are available; grey dashed cards are planned. Future revisions may add draft and superseded states.</p></div>
+      <div class="note"><span class="tag">LINKS</span><p><b>Available cards are navigation targets.</b> HTML cards link directly to documents; the PDF remains a distributable index with stable IDs and titles.</p></div>
+      <div class="note"><span class="tag">IDS</span><p><b>Stable IDs prevent ambiguity.</b> Use <code>LB-V3-Lx-nn</code> when discussing, linking, superseding or reviewing a document.</p></div>
+      <div class="note"><span class="tag">SCOPE</span><p><b>Each document answers one primary question.</b> New diagrams are registered here without turning L0 into a mega-diagram.</p></div>
+      <div class="note"><span class="tag">CURRENT</span><p><b>The first available child is LB-V3-L1-01.</b> Its HTML and A3 PDF editions describe the current proposed system and platform landscape.</p></div>
+    </aside>
+  </div>
+
+  <footer class="foot"><span>Catalogue baseline: proposed Linebooker V3 architecture discussion and the maintained L1 system overview. Planned nodes indicate intended viewpoints and may be refined as requirements mature.</span><span class="brand">LB-V3-L0-01 &middot; Architecture atlas</span></footer>
+</section>
+</body>
+</html>
