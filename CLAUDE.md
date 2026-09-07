@@ -184,6 +184,14 @@ after any front matter change.
   gates no catalogue status, and it never describes architecture its drawing does
   not show. The rest of that docs site documents what the lab **built**; this
   series is a **proposal** and stays in its own section for that reason.
+- **C4 views are a separate, ungoverned deliverable.**
+  `.claude/skills/architecture-C4-draughtsman/SKILL.md` draws C4-model Context,
+  Container, Component, Deployment and Dynamic views in the dark UniFi house
+  style via `html-diagram-drawer`. It adopts C4's concepts and rejects C4's
+  notation, matching the authority's visual standard. A C4 view never claims an
+  `LB-V3-*` ID, never appears in the L0 atlas and never changes a catalogue
+  status. If the deliverable is a numbered LB-V3 document, that is
+  `architecture-draughtsman`, not this skill.
 
 ## Commands
 
