@@ -15,7 +15,7 @@ related: [46, 49]
 **Status:** **Accepted 2026-08-24** — ULID, scoped to `organizations-service`. `shipping-service` and `accounts-service` stay on UUID for now (see "Scope and what was deliberately left alone").
 **Date:** 2026-08-24
 **Deciders:** Jeremy (repo owner)
-**Related:** [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (the aggregate split that made `TransporterProfile`'s id a subject token); [ADR-049](ADR-049-lab-organizations-cross-aggregate-concurrency.md) (per-subject optimistic concurrency, which is keyed on that token); [ARCHITECTURE-COMMUNICATIONS.md](../Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md) § 2 (subject families, fixed arity, positional parsing); [ARCHITECTURE-ORGANIZATIONS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) § "Entity identity"; `CLAUDE.md` § "Storage naming"; `BUSINESS_RULES-ORGANIZATIONS.md` BR-TP73
+**Related:** [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (the aggregate split that made `TransporterProfile`'s id a subject token); [ADR-049](ADR-049-lab-organizations-cross-aggregate-concurrency.md) (per-subject optimistic concurrency, which is keyed on that token); [ARCHITECTURE-COMMUNICATIONS.md](../../Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md) § 2 (subject families, fixed arity, positional parsing); [ARCHITECTURE-ORGANIZATIONS.md](../../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) § "Entity identity"; `CLAUDE.md` § "Storage naming"; `BUSINESS_RULES-ORGANIZATIONS.md` BR-TP73
 
 ## Context
 

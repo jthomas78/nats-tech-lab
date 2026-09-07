@@ -18,7 +18,7 @@ applied_by: [52]
 **Scope:** Proposed Linebooker V3 Architecture (platform principle, not a lab implementation)
 **Date:** 2026-09-03
 **Deciders:** Jeremy (repo owner)
-**Related:** [ADR-052](ADR-052-lab-data-one-postgres-instance-database-per-service.md) applies this principle to the tech-lab compose stack, and records the concrete enforcement mechanism (`REVOKE CONNECT ... FROM PUBLIC`, `GRANT CONNECT` to the owning role, per-role `CONNECTION LIMIT`); [ARCHITECTURE-ACCOUNTS.md](../Dictionary-POC/ARCHITECTURE-ACCOUNTS.md) (in the lab, tenancy is the NATS account boundary, which is why the "Tenant Considerations" section below is a separate axis)
+**Related:** [ADR-052](../lab/ADR-052-lab-data-one-postgres-instance-database-per-service.md) applies this principle to the tech-lab compose stack, and records the concrete enforcement mechanism (`REVOKE CONNECT ... FROM PUBLIC`, `GRANT CONNECT` to the owning role, per-role `CONNECTION LIMIT`); [ARCHITECTURE-ACCOUNTS.md](../../Dictionary-POC/ARCHITECTURE-ACCOUNTS.md) (in the lab, tenancy is the NATS account boundary, which is why the "Tenant Considerations" section below is a separate axis)
 
 ## Context
 

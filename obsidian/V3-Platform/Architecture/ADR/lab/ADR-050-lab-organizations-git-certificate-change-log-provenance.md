@@ -15,7 +15,7 @@ related: [46, 47, 48]
 **Status:** **Accepted 2026-08-22** — Option A, scoped to `GOODS_IN_TRANSIT`. Decided at the Phase 39 design gate; all action items below are closed. Amends [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) and [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md).
 **Date:** 2026-08-21
 **Deciders:** Jeremy (repo owner) — Phase 39 design review
-**Related:** [Main-POC-Plan.md](../../../../.claude/plans/Main-POC-Plan.md) Phase 39 (decisions 11, 12, 13); [ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md) §§ 3, 5, 9.5; [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) (the saga whose signal is the only current producer of document events); [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (the aggregate split that put documents on the CRUD side); `CLAUDE.md` § "Event sourcing vs plain CRUD"
+**Related:** [Main-POC-Plan.md](../../../../../.claude/plans/Main-POC-Plan.md) Phase 39 (decisions 11, 12, 13); [ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md](../../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md) §§ 3, 5, 9.5; [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) (the saga whose signal is the only current producer of document events); [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (the aggregate split that put documents on the CRUD side); `CLAUDE.md` § "Event sourcing vs plain CRUD"
 
 ## Context
 

@@ -15,7 +15,7 @@ related: [46, 47, 50]
 **Status:** Accepted, with required amendments (see Punch List)
 **Date:** 2026-08-20
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) §§ "Document storage — NATS Object Store," "Data sections" (Documents, GIT Certificate, Tracking Credentials); [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md); [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) (compensation must be forward-only — the same constraint reappears here at the blob layer); [ARCHITECTURE-ACCOUNTS.md](../Dictionary-POC/ARCHITECTURE-ACCOUNTS.md) (tenant account resource limits)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) §§ "Document storage — NATS Object Store," "Data sections" (Documents, GIT Certificate, Tracking Credentials); [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md); [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) (compensation must be forward-only — the same constraint reappears here at the blob layer); [ARCHITECTURE-ACCOUNTS.md](../../Dictionary-POC/ARCHITECTURE-ACCOUNTS.md) (tenant account resource limits)
 
 ## Context
 

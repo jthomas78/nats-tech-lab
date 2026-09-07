@@ -15,7 +15,7 @@ related: [47, 48, 49, 50, 51]
 **Status:** Accepted — **amended 2026-08-22 for GIT document placement, see "Amendment"**
 **Date:** 2026-08-20 (revised same day — see "Revision History")
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) § "Decision," [BUSINESS_RULES-ORGANIZATIONS.md](../../../../demos/01-dictionary/BUSINESS_RULES-ORGANIZATIONS.md) (BR-TP01–BR-TP17, Phase 26)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) § "Decision," [BUSINESS_RULES-ORGANIZATIONS.md](../../../../../demos/01-dictionary/BUSINESS_RULES-ORGANIZATIONS.md) (BR-TP01–BR-TP17, Phase 26)
 
 ## Revision History
 

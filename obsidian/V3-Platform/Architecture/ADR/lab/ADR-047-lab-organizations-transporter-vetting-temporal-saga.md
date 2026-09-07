@@ -15,7 +15,7 @@ related: [46, 48, 49, 50]
 **Status:** Accepted, with required amendments (see Punch List) — **further amended 2026-08-22, see "Amendment"**
 **Date:** 2026-08-20
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) §§ "Temporal — role and workflow design," "Lifecycle," "Cross-aggregate invariant / saga," "CRUD vs. event sourcing"; [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (the aggregate-boundary decision this sits on top of)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) §§ "Temporal — role and workflow design," "Lifecycle," "Cross-aggregate invariant / saga," "CRUD vs. event sourcing"; [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (the aggregate-boundary decision this sits on top of)
 
 ## Amendment (2026-08-22, Phase 39 design gate)
 

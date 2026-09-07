@@ -15,7 +15,7 @@ related: [46, 47, 51]
 **Status:** Accepted, with required amendments (see Punch List)
 **Date:** 2026-08-20
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) §§ "Concurrency — two operators editing the same Transporter," "Cross-aggregate invariant / saga — two layers, not one," "Frontend," "Open questions" (3); [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (whose "zero changes to `organizations`" claim this ADR corrects); [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) (whose Activity-publish requirement interacts with this one); Phase 101 in [Main-POC-Plan.md](../../../../.claude/plans/Main-POC-Plan.md); [ARCHITECTURE-COMMUNICATIONS.md](../Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md) § 2 (subject taxonomy)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](../../Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md) §§ "Concurrency — two operators editing the same Transporter," "Cross-aggregate invariant / saga — two layers, not one," "Frontend," "Open questions" (3); [ADR-046](ADR-046-lab-organizations-transporter-aggregate-split.md) (whose "zero changes to `organizations`" claim this ADR corrects); [ADR-047](ADR-047-lab-organizations-transporter-vetting-temporal-saga.md) (whose Activity-publish requirement interacts with this one); Phase 101 in [Main-POC-Plan.md](../../../../../.claude/plans/Main-POC-Plan.md); [ARCHITECTURE-COMMUNICATIONS.md](../../Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md) § 2 (subject taxonomy)
 
 ## Context
 

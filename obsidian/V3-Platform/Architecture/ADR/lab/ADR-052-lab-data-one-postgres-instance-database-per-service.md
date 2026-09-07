@@ -16,8 +16,8 @@ applies: [53]
 **Status:** **Accepted 2026-09-03** — implemented and live-verified as Phase 53 (`Main-POC-Plan.md`).
 **Date:** 2026-09-03
 **Deciders:** Jeremy (repo owner)
-**Governed by:** [ADR-053](ADR-053-v3-data-shared-postgres-by-default.md) — the Proposed Linebooker V3 platform principle ("share PostgreSQL infrastructure by default, isolate databases logically, separate only on a demonstrated requirement"). This ADR is that principle applied to the lab compose stack.
-**Related:** [ARCHITECTURE-ACCOUNTS.md](../Dictionary-POC/ARCHITECTURE-ACCOUNTS.md) (tenancy is the NATS account boundary); [ARCHITECTURE-DICTIONARY.md](../Dictionary-POC/ARCHITECTURE-DICTIONARY.md) § "Database Schema"; [ARCHITECTURE.md](../Dictionary-POC/ARCHITECTURE.md) § "Reference Data Service"; `.claude/plans/Dictionary-Service-Plan.md` Q1 (the 2026-07-27 database-per-service decision this ADR revises); `.claude/memory/refdata_database_per_service.md`, `.claude/memory/tenant_service_separation_decision.md`; `CLAUDE.md` § "Docker Host Port Allocation"
+**Governed by:** [ADR-053](../v3/ADR-053-v3-data-shared-postgres-by-default.md) — the Proposed Linebooker V3 platform principle ("share PostgreSQL infrastructure by default, isolate databases logically, separate only on a demonstrated requirement"). This ADR is that principle applied to the lab compose stack.
+**Related:** [ARCHITECTURE-ACCOUNTS.md](../../Dictionary-POC/ARCHITECTURE-ACCOUNTS.md) (tenancy is the NATS account boundary); [ARCHITECTURE-DICTIONARY.md](../../Dictionary-POC/ARCHITECTURE-DICTIONARY.md) § "Database Schema"; [ARCHITECTURE.md](../../Dictionary-POC/ARCHITECTURE.md) § "Reference Data Service"; `.claude/plans/Dictionary-Service-Plan.md` Q1 (the 2026-07-27 database-per-service decision this ADR revises); `.claude/memory/refdata_database_per_service.md`, `.claude/memory/tenant_service_separation_decision.md`; `CLAUDE.md` § "Docker Host Port Allocation"
 
 ## Context
 
