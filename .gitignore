@@ -31,3 +31,4 @@ shared/mfe-plugin-host/mfe-plugin-host
 # used to eyeball a render before it ships. The shipped output lives in
 # output/pdf/ and the architecture vault; these are throwaway and bulky.
 tmp/
+.*.drawio.dtmp
