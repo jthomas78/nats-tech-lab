@@ -133,9 +133,6 @@ re-export the whole retained hour on the next start instead.
 | Admin UI              | http://localhost:7100                                        |
 | Port Management       | http://localhost:7101                                        |
 | Tech Lab Operator     | http://localhost:7102                                        |
-| NATS UI (under review)| http://localhost:7103                                        |
-| NUI (under review)    | http://localhost:7104                                        |
-| NATS Tower (under review) | http://localhost:7105                                    |
 | Docs (VitePress)      | http://localhost:7106                                        |
 | Swagger UI (backend)  | http://localhost:7200/swagger/                              |
 | Backend API           | http://localhost:7200                                       |

@@ -490,9 +490,11 @@ Two consequences:
   must not reach the bus directly is the *browser*, and it still cannot — it
   dials nginx, which forwards exactly one path, and it still needs an
   account-scoped JWT minted here to get past the server's own authorization.
-- **The NATS host port 9222 stays published**, but only for the `nats-ui`
-  container (under review), whose own browser page dials it directly. The
-  demo's three frontends no longer do.
+- **The NATS host port 9222 stays published**, but nothing in the stack uses
+  it — the demo's three frontends dial nginx's `/nats` instead. It is kept for
+  direct host access (debugging, ad hoc tooling). It was previously the
+  `nats-ui` review container's own path to the bus; that container and its two
+  siblings (`nui`, `nats-tower`) were removed.
 
 ### NATS operator-mode trust chain
 

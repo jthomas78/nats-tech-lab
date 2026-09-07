@@ -16,11 +16,11 @@ services:
     ports:
       - "4222:4222"
       - "8222:8222" # monitoring
-      # Still published for the nats-ui container (under review), whose
-      # browser page dials this host port directly. The demo's own three
-      # frontends no longer do — since Phase 45 they reach the listener
-      # through their own nginx at /nats (same origin), which is what makes
-      # them work behind a remote TLS proxy.
+      # Kept published for direct host access from a browser page or CLI
+      # (debugging, ad hoc tooling). The demo's own three frontends do not
+      # use it — since Phase 45 they reach the listener through their own
+      # nginx at /nats (same origin), which is what makes them work behind
+      # a remote TLS proxy.
       - "9222:9222" # websocket
     networks:
       - backend
@@ -913,74 +913,6 @@ services:
       registry-publisher-seed:
         condition: service_completed_successfully
 
-  # Under review — third-party NATS monitoring UI, not part of the demo's
-  # own frontend set. Uses the published image directly: the upstream
-  # project's own compose file builds from local source (`context: ..`,
-  # `docker/Dockerfile`), which only resolves inside a checkout of that
-  # repo, not this one.
-  nats-ui:
-    image: ghcr.io/gastbob40/nats-ui:latest
-    container_name: nats-ui
-    ports:
-      - "7103:3000"
-    networks:
-      - backend
-    depends_on:
-      nats:
-        condition: service_started
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    environment:
-      - NODE_ENV=production
-
-  # Under review — alongside nats-ui above, for comparison. Unlike nats-ui
-  # (a browser-side app that connects to NATS directly over WebSocket from
-  # the client), NUI's server connects to NATS itself, so the connection
-  # (nats://nats:4222) is added from its UI, not an env var — it needs the
-  # `backend` network to reach that hostname.
-  nui:
-    image: ghcr.io/nats-nui/nui:latest
-    container_name: nui
-    ports:
-      - "7104:31311"
-    networks:
-      - backend
-    depends_on:
-      nats:
-        condition: service_started
-    restart: unless-stopped
-    volumes:
-      - nui-data:/db
-      - ./nats/creds:/etc/nats/creds:ro
-
-  # Under review — a third comparison alongside nats-ui/nui. Server-side
-  # app (Pocketbase/SQLite under the hood), so it needs the `backend`
-  # network to reach `nats:4222`; the connection itself is registered
-  # from its UI ("+ Add installation"), not an env var. Pinned to a
-  # semver tag per the project's own install docs, which warn against
-  # tracking `main`.
-  nats-tower:
-    image: ghcr.io/nats-tower/nats-tower:v0.6.0
-    # amd64-only image (no arm64 manifest as of v0.6.0) — force emulation
-    # on Apple Silicon. Fine for a review-only container.
-    platform: linux/amd64
-    container_name: nats-tower
-    command: ["serve", "--http", "0.0.0.0:8099"]
-    ports:
-      - "7105:8099"
-    networks:
-      - backend
-    depends_on:
-      nats:
-        condition: service_started
-    restart: unless-stopped
-    volumes:
-      - nats-tower-data:/pb_data
-
   # Phase 28g — the OTLP exporter pair (ARCHITECTURE-COMMUNICATIONS.md § 6).
   # Both behind the `otlp` profile so a bare `docker compose up` is
   # unaffected: `docker compose --profile otlp up` starts them together,
@@ -1053,8 +985,6 @@ volumes:
   nats-logs:
   pg-data:
   temporal-postgres-data:
-  nui-data:
-  nats-tower-data:
   example-plugin-release:
   example-plugin-slow-release:
   example-plugin-unreachable-release:

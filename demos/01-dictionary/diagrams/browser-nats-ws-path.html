@@ -226,8 +226,10 @@ li b { color: var(--text); font-weight: 600; }
         can reach it. The trust-tier invariant is unchanged, and arguably tighter: what must not reach the
         bus directly is the <i>browser</i>, and it still cannot — it dials nginx, which forwards exactly one
         path.</li>
-      <li><b>Host port 9222 stays published</b>, but now only for the <code>nats-ui</code> container (under
-        review), whose own page dials it directly. The demo's three frontends no longer do.</li>
+      <li><b>Host port 9222 stays published</b>, but nothing in the stack uses it — the demo's three
+        frontends dial nginx's <code>/nats</code> instead. It is kept for direct host access (debugging,
+        ad hoc tooling). It was previously the <code>nats-ui</code> review container's own path to the bus;
+        that container and its two siblings (<code>nui</code>, <code>nats-tower</code>) were removed.</li>
       <li><b>Mixed content is the failure that would have outlived a hostname fix.</b> Worth stating plainly,
         because "point it at the real host" looks like the obvious repair and only solves half of it.</li>
     </ul>
