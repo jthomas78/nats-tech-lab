@@ -41,6 +41,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [phase16_tenancy_taxonomy](phase16_tenancy_taxonomy.md) — 13-point record; 16a–16f DONE; gap: refdata reads don't track own tenant
 - [tenant_service_separation_decision](tenant_service_separation_decision.md) — accounts-service is its own service/DB; Admin UI merges both
 - [project-ports-tenant-scoping](project-ports-tenant-scoping.md) — pending: ports/refdata should scope to tenant not BU; hack uses `_default_bu`
+- [compose_split_aws_deployment_decision](compose_split_aws_deployment_decision.md) — DECIDED 2026-09-07, not implemented: 3 compose files x 3 projects, prove multi-region locally before AWS; AWS work list
 
 ## Reference material
 - [aws_console_as_shell_app](aws_console_as_shell_app.md) — AWS Console as app-shell mental model; documented MFE discovery pattern + where our contribution points go further
