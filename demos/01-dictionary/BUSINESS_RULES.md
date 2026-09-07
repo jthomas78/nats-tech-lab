@@ -178,8 +178,9 @@ Split by domain so a rule add/edit only requires reading its own file:
   domain. Unlike refdata-service, this domain is write-adjacent (a fee
   calculation sits on a load-accept path in the source system), so it is
   its own service rather than a refdata-service extension. Postgres/REST
-  wiring is live (own `pricing-postgres` container, port 5435;
-  `pricing-service` on port 7203) and verified end to end. Phase 25e
+  wiring is live (the `pricing` database and role on the shared `postgres`
+  instance since Phase 53 / ADR-052; `pricing-service` on port 7203) and
+  verified end to end. Phase 25e
   resolved cross-service wiring in favor of the Sea Freight Flow *browser*
   talking to pricing-service directly — `shipping-service` never consults
   it — and Phase 25f built that path: an `api.*` adapter over one NATS

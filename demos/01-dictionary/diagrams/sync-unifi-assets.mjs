@@ -67,25 +67,12 @@ const iconCells = {
     ["net-accounts-svc", "1", "ico-container", 848, 858],
     ["net-pricing-svc", "1", "ico-container", 848, 1033],
     ["net-tp-svc", "1", "ico-container", 848, 1208],
-    ["net-nats", "1", "ico-nats", 1218, 358],
-    ["net-postgres", "1", "ico-db", 1218, 523],
-    ["net-refdata-pg", "1", "ico-db", 1218, 698],
-    ["net-accounts-pg", "1", "ico-db", 1218, 873],
-    ["net-pricing-pg", "1", "ico-db", 1218, 1048],
-    ["net-tp-pg", "1", "ico-db", 1218, 1230],
+    ["net-nats", "1", "ico-nats", 1208, 363],
+    ["net-postgres", "1", "ico-db", 1518, 768],
     ["net-nats-data", "1", "ico-volume", 1508, 360],
     ["net-nats-logs", "1", "ico-volume", 1508, 417],
-    ["net-pg-data", "1", "ico-volume", 1508, 541],
-    ["net-refdata-pg-data", "1", "ico-volume", 1508, 716],
-    ["net-accounts-pg-data", "1", "ico-volume", 1508, 891],
-    ["net-pricing-pg-data", "1", "ico-volume", 1508, 1066],
-    ["net-tp-pg-data", "1", "ico-volume", 1508, 1248],
+    ["net-pg-data", "1", "ico-volume", 1518, 948],
     ["net-creds-vol", "1", "ico-volume", 1508, 1308],
-    ["net-nats-ui", "1", "ico-container", 848, 1438],
-    ["net-nui", "1", "ico-container", 1073, 1438],
-    ["net-nats-tower", "1", "ico-container", 1298, 1438],
-    ["net-nui-data", "1", "ico-volume", 1073, 1567],
-    ["net-tower-data", "1", "ico-volume", 1298, 1567],
   ],
   "jwt-minting-sequence": [
     ["jwt-nats-icon", "1", "ico-nats", 1318, 168],
@@ -117,8 +104,7 @@ const textCells = [
   // organizations-service/-postgres — collide with the glyph otherwise).
   "admin-node", "seafreight-node", "refdata-node",
   "ship-svc", "refdata-svc", "accounts-svc", "pricing-svc", "tp-svc",
-  "nats", "refdata-pg", "accounts-pg", "pricing-pg", "tp-pg",
-  "nats-ui", "nui", "nats-tower",
+  "nats",
 ];
 
 let workbook = fs.readFileSync(workbookPath, "utf8");
