@@ -47,6 +47,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 
 ## Linebooker / V3 domain modelling
 - [proposed_linebooker_v3_architecture_levels](proposed_linebooker_v3_architecture_levels.md) — current L0-L2 inventory and proposed topology context; canonical hierarchy/catalogue lives in the architecture authority file
+- [refdata_v3_ladder_placement](refdata_v3_ladder_placement.md) — refdata's agreed V3 home: data jobs + theme storage in L3-07, shell theme consumption in L3-03, whole story as an L4
 - [linebooker_platform_vs_tenant_service_split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth platform; Marketplace/Payments tenant-scoped
 - [linebooker_platform_marketplace_tenant_diagram](linebooker_platform_marketplace_tenant_diagram.md) — Marketplace under PLATFORM; Trips per-tenant; 2 UIs per tenant
 - [linebooker_refdata_layering_model](linebooker_refdata_layering_model.md) — platform/tenant/org 3-layer; flags snapshot-onto-history gap
