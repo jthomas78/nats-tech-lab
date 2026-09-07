@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed Linebooker V3 Architecture - L3 Data Architecture</title>
+<style>
+  :root {
+    --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --border:#2c3138; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --purple:#a78bfa; --amber:#f5b13d;
+    --store:#27c07f; --bad:#f87171;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  @page { size:A3 landscape; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .sheet { width:420mm; height:297mm; padding:8mm; overflow:hidden; background:var(--bg); display:grid; grid-template-rows:30mm minmax(0,1fr) auto 8mm; gap:3mm; page-break-after:always; }
+  .sheet:last-child { page-break-after:auto; }
+  .head { border-bottom:1px solid var(--stroke); padding-bottom:3mm; }
+  .eyebrow { color:var(--cyan); font:650 9px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; margin-bottom:2mm; }
+  .eyebrow .doc-title { text-transform:none; letter-spacing:.04em; }
+  h1 { margin:0; font-size:27px; line-height:1.1; letter-spacing:-.025em; font-weight:680; }
+  .head p { margin:2mm 0 0; max-width:1220px; color:var(--muted); font-size:11.5px; line-height:1.42; }
+  .head p b { color:var(--text); font-weight:650; }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; min-height:0; }
+  figure { margin:0; min-width:0; min-height:0; background:#0a0c0e; border:1px solid var(--border); display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+  .fig-body { min-height:0; padding:3mm 3mm 1mm; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  figure svg { display:block; width:100%; height:auto; max-height:100%; }
+  figcaption { border-top:1px solid var(--border); padding:2.2mm 3mm; color:var(--muted); font-size:8.8px; line-height:1.34; }
+  figcaption b { color:var(--text); font-weight:650; }
+  figcaption code, .note code { font:8px var(--mono); background:rgba(255,255,255,.06); border-radius:3px; padding:0 3px; }
+  .notes { min-height:0; padding:2mm 2mm 0 3mm; border-left:1px solid var(--stroke); background:var(--panel2); display:flex; flex-direction:column; gap:1.8mm; }
+  .note { display:grid; grid-template-columns:19mm 1fr; gap:2mm; align-items:start; }
+  .tag { border:1px solid #46505b; color:var(--muted); border-radius:3px; padding:1.1mm 1.3mm; font:650 7px/1 var(--mono); letter-spacing:.07em; text-align:center; }
+  .note p { margin:0; color:var(--muted); font-size:8.35px; line-height:1.29; }
+  .note b { color:var(--text); font-weight:650; }
+
+  /* Legend and acronym key - required on every sheet by the authority's
+     Visual and notation standard ("Every sheet must carry"). */
+  .legend { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; border-top:1px solid var(--stroke); padding-top:2.2mm; }
+  .legend h2 { margin:0 0 1.4mm; color:var(--cyan); font:650 8px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .key-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.9mm 3mm; }
+  .key-item { display:grid; grid-template-columns:9mm 1fr; gap:1.6mm; align-items:center; color:var(--muted); font-size:7.6px; line-height:1.22; }
+  .key-item b { color:var(--text); font-weight:650; }
+  .sw { display:block; height:3.1mm; border-radius:1px; background:rgba(255,255,255,.012); border:1.1px solid var(--stroke); }
+  .sw-blue { border-color:var(--blue); } .sw-purple { border-color:var(--purple); }
+  .sw-green { border-color:var(--green); } .sw-cyan { border-color:var(--cyan); }
+  .sw-amber { border-color:var(--amber); } .sw-grey { border-color:var(--stroke); }
+  .sw-tile { background:var(--panel); border:1.1px solid #3a424c; }
+  .sw-prop { background:var(--panel); border:1.1px dashed #5b646f; }
+  .sw-openq { background:var(--panel); border:1.1px dashed var(--amber); }
+  .sw-policy { background:#201b12; border:1.1px solid var(--amber); }
+  .sw-block { background:#22110f; border:1.1px solid var(--bad); }
+  .sw-svg { display:block; width:9mm; height:3.4mm; }
+  .abbr { margin:0; padding:0; list-style:none; columns:2; column-gap:3mm; color:var(--muted); font-size:7.4px; line-height:1.28; }
+  .abbr li { break-inside:avoid; }
+  .abbr b { color:var(--text); font:650 7.4px var(--mono); }
+  .foot { border-top:1px solid var(--border); padding-top:2mm; display:flex; justify-content:space-between; gap:8mm; color:var(--dim); font-size:7.8px; line-height:1.25; }
+  .brand { color:var(--amber); text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; font-weight:700; }
+
+  svg .group { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.1; }
+  svg .group.blue { stroke:var(--blue); } svg .group.purple { stroke:var(--purple); }
+  svg .group.green { stroke:var(--green); } svg .group.cyan { stroke:var(--cyan); }
+  svg .group.amber { stroke:var(--amber); }
+  /* Solid tile = built and running in the Dictionary POC today. */
+  svg .tile { fill:var(--panel); stroke:#3a424c; stroke-width:1.1; }
+  /* Dashed grey tile = proposed for V3 and not built in the Dictionary POC. */
+  svg .tile.prop { stroke:#5b646f; stroke-width:1.1; stroke-dasharray:5 4; }
+  /* Dashed amber tile = a position that needs a named owner's confirmation. */
+  svg .tile.openq { stroke:var(--amber); stroke-width:1.1; stroke-dasharray:5 4; }
+  svg .policy { fill:#201b12; stroke:var(--amber); stroke-width:1.1; }
+  svg .block { fill:#22110f; stroke:var(--bad); stroke-width:1.1; }
+  svg .title { fill:var(--text); font:650 10.8px var(--sans); }
+  svg .sub { fill:var(--muted); font:8.9px var(--sans); }
+  svg .mini { fill:var(--dim); font:8.4px var(--mono); }
+  svg .glyph { fill:#0d0f11; font:800 10.5px var(--sans); text-anchor:middle; }
+  /* Knockout halo so a label stays legible where an edge passes behind it. */
+  svg .edge-label { fill:var(--muted); font:8px var(--mono); paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .group-title { font:650 10px var(--sans); letter-spacing:.105em; text-transform:uppercase; paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .sync { fill:none; stroke:var(--blue); stroke-width:1.35; }
+  svg .event { fill:none; stroke:var(--amber); stroke-width:1.35; stroke-dasharray:5 4; }
+  svg .place { fill:none; stroke:var(--green); stroke-width:1.35; }
+</style>
+</head>
+<body>
+
+<!-- ============================ SHEET 1 ============================ -->
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L3-07 &middot; <span class="doc-title">Data Architecture</span> &middot; Sheet 1 of 2</div>
+    <h1>Store Roles, Ownership and the Write Path</h1>
+    <p>Which store owns each kind of data, who is allowed to write it, and how one committed change becomes a published fact, a read model and a warmed cache. <b>Maturity is marked per element:</b> a solid tile is built and running in the Dictionary POC today, a dashed grey tile is a <b>directional</b> V3 position as at 4 September 2026 with no decision of record, and a dashed amber tile needs a named owner. Subjects, streams and grants belong to LB-V3-L3-05; where a store physically sits belongs to LB-V3-L3-08; table, column and migration design belongs to L4.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1160 760" role="img" aria-label="Sheet one of LB-V3-L3-07 Data Architecture shows store roles, ownership and the write path in four bands read downward, followed by two closing rules. The store-role band names five stores, each holding one kind of data: transactional truth in a service-owned PostgreSQL database, a durable fact log in JetStream kept under a limits policy so it can be replayed, workflow state in Temporal persistence, a derived read model made of a projection table with a key-value cache in front of it, and evidence documents in a repository reached through an adapter. One change is committed once and then told to the others, which feeds the ownership band: a database per service with its own schema and role, shared database infrastructure by default so that isolation is logical rather than physical, an identifier minted by the service and never by the database, and one writer per record with every other service told rather than allowed to write. A committed change becomes a published fact, which feeds the write-path band read from left to right: a command is accepted only after its domain rule is checked, state and the fact it produced are committed in one transaction through an outbox, the fact is published on the owning service's own stream, and one projector writes both the projection and the cache entry so the two cannot drift. A reader never opens another service's database, which feeds the read-path band: the cache is read first, a miss falls through to the projection table beneath it, the owning service answers over a request-reply contract, and governed extraction through a reporting interface and bulk exports is the only route out of the platform. Two closing rules follow. A red panel refuses any foreign database read, whether by another service, a report or a script. An amber panel states that history is kept only where something must replay it, that current state alone is a plain record rather than an event log, and that this is a directional position as at 4 September 2026 with no V3 decision of record.">
+          <defs>
+            <marker id="l37a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#3b8bff"/></marker>
+            <marker id="l37a-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f5b13d"/></marker>
+            <marker id="l37a-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34d399"/></marker>
+          </defs>
+
+          <!-- ROW 1: the five store roles -->
+          <text class="group-title" x="36" y="34" fill="#2fd4e8">Store roles &middot; each kind of data has exactly one owner</text>
+          <rect class="group cyan" x="20" y="42" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="68" width="208" height="76" rx="8"/><rect x="54" y="84" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="66" y="100">T</text><text class="title" x="88" y="88">Transactional truth</text><text class="sub" x="88" y="104">service-owned PostgreSQL</text><text class="mini" x="54" y="119">the record others follow</text><text class="mini" x="54" y="132">built in the lab</text>
+          <rect class="tile" x="258" y="68" width="208" height="76" rx="8"/><rect x="272" y="84" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="284" y="100">F</text><text class="title" x="306" y="88">Durable fact log</text><text class="sub" x="306" y="104">JetStream, limits policy</text><text class="mini" x="272" y="119">append only, replayable</text><text class="mini" x="272" y="132">built in the lab</text>
+          <rect class="tile" x="476" y="68" width="208" height="76" rx="8"/><rect x="490" y="84" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="502" y="100">W</text><text class="title" x="524" y="88">Workflow state</text><text class="sub" x="524" y="104">Temporal persistence</text><text class="mini" x="490" y="119">runs in flight, not records</text><text class="mini" x="490" y="132">built in the lab</text>
+          <rect class="tile" x="694" y="68" width="208" height="76" rx="8"/><rect x="708" y="84" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="720" y="100">R</text><text class="title" x="742" y="88">Derived read model</text><text class="sub" x="742" y="104">projection plus KV cache</text><text class="mini" x="708" y="119">rebuildable, not the truth</text><text class="mini" x="708" y="132">built in the lab</text>
+          <rect class="tile prop" x="912" y="68" width="208" height="76" rx="8"/><rect x="926" y="84" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="938" y="100">E</text><text class="title" x="960" y="88">Evidence documents</text><text class="sub" x="960" y="104">repository behind adapter</text><text class="mini" x="926" y="119">write once, never edited</text><text class="mini" x="926" y="132">proposed &middot; no V3 ADR</text>
+
+          <path class="place" d="M580 160 V188" marker-end="url(#l37a-green)"/>
+          <text class="edge-label" x="592" y="180">one change is committed once, then told to the others</text>
+
+          <!-- ROW 2: ownership -->
+          <text class="group-title" x="36" y="190" fill="#34d399">Ownership &middot; who may write, and who may never look</text>
+          <rect class="group green" x="20" y="198" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="224" width="261" height="76" rx="8"/><rect x="54" y="240" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="66" y="256">1</text><text class="title" x="88" y="244">A database per service</text><text class="sub" x="88" y="260">own schema, own role, own migrations</text><text class="mini" x="54" y="275">ADR-052 &middot; applied in the lab</text><text class="mini" x="54" y="288">built in the lab</text>
+          <rect class="tile prop" x="313" y="224" width="261" height="76" rx="8"/><rect x="327" y="240" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="339" y="256">2</text><text class="title" x="361" y="244">Shared instance by default</text><text class="sub" x="361" y="260">isolation is logical, not physical</text><text class="mini" x="327" y="275">ADR-053 &middot; accepted, not applied</text><text class="mini" x="327" y="288">proposed for V3</text>
+          <rect class="tile" x="586" y="224" width="261" height="76" rx="8"/><rect x="600" y="240" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="612" y="256">3</text><text class="title" x="634" y="244">The service mints the ID</text><text class="sub" x="634" y="260">never the database, never a default</text><text class="mini" x="600" y="275">ADR-051 &middot; a ULID, subject-safe</text><text class="mini" x="600" y="288">built in the lab</text>
+          <rect class="tile" x="859" y="224" width="261" height="76" rx="8"/><rect x="873" y="240" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="885" y="256">4</text><text class="title" x="907" y="244">One writer per record</text><text class="sub" x="907" y="260">the owner writes, others are told</text><text class="mini" x="873" y="275">no second service updates it</text><text class="mini" x="873" y="288">built in the lab</text>
+
+          <path class="sync" d="M580 316 V344" marker-end="url(#l37a-blue)"/>
+          <text class="edge-label" x="592" y="336">a committed change becomes a published fact</text>
+
+          <!-- ROW 3: the write path -->
+          <text class="group-title" x="36" y="346" fill="#3b8bff">The write path &middot; one commit, then one fact, read left to right</text>
+          <rect class="group blue" x="20" y="354" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="380" width="261" height="76" rx="8"/><rect x="54" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="66" y="412">A</text><text class="title" x="88" y="400">Command accepted</text><text class="sub" x="88" y="416">the domain rule is checked first</text><text class="mini" x="54" y="431">no rule lives in a handler</text><text class="mini" x="54" y="444">built in the lab</text>
+          <rect class="tile prop" x="313" y="380" width="261" height="76" rx="8"/><rect x="327" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="339" y="412">B</text><text class="title" x="361" y="400">Commit with an outbox</text><text class="sub" x="361" y="416">state and its fact, one transaction</text><text class="mini" x="327" y="431">a fact cannot contradict the record</text><text class="mini" x="327" y="444">proposed &middot; no V3 ADR</text>
+          <rect class="tile" x="586" y="380" width="261" height="76" rx="8"/><rect x="600" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="612" y="412">C</text><text class="title" x="634" y="400">Fact published</text><text class="sub" x="634" y="416">on the owning service's stream</text><text class="mini" x="600" y="431">one publisher per subject family</text><text class="mini" x="600" y="444">built in the lab</text>
+          <rect class="tile" x="859" y="380" width="261" height="76" rx="8"/><rect x="873" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="885" y="412">D</text><text class="title" x="907" y="400">Projector writes both</text><text class="sub" x="907" y="416">the projection and the cache</text><text class="mini" x="873" y="431">one handler, so they cannot drift</text><text class="mini" x="873" y="444">built in the lab</text>
+
+          <path class="event" d="M580 472 V500" marker-end="url(#l37a-amber)"/>
+          <text class="edge-label" x="592" y="492">a reader never opens another service's database</text>
+
+          <!-- ROW 4: the read path -->
+          <text class="group-title" x="36" y="502" fill="#f5b13d">The read path &middot; cache, then projection, then a contract</text>
+          <rect class="group amber" x="20" y="510" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="536" width="261" height="76" rx="8"/><rect x="54" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="66" y="568">1</text><text class="title" x="88" y="556">Cache read first</text><text class="sub" x="88" y="572">NATS KV, keyed by context</text><text class="mini" x="54" y="587">the fast answer, not the truth</text><text class="mini" x="54" y="600">built in the lab</text>
+          <rect class="tile" x="313" y="536" width="261" height="76" rx="8"/><rect x="327" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="339" y="568">2</text><text class="title" x="361" y="556">A miss falls through</text><text class="sub" x="361" y="572">to the projection table beneath</text><text class="mini" x="327" y="587">a cold cache is never an error</text><text class="mini" x="327" y="600">built in the lab</text>
+          <rect class="tile" x="586" y="536" width="261" height="76" rx="8"/><rect x="600" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="612" y="568">3</text><text class="title" x="634" y="556">The owner answers</text><text class="sub" x="634" y="572">over a request-reply contract</text><text class="mini" x="600" y="587">the caller names no table</text><text class="mini" x="600" y="600">built in the lab</text>
+          <rect class="tile prop" x="859" y="536" width="261" height="76" rx="8"/><rect x="873" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="885" y="568">4</text><text class="title" x="907" y="556">Governed extraction</text><text class="sub" x="907" y="572">reporting calls and bulk exports</text><text class="mini" x="873" y="587">the only route out of the platform</text><text class="mini" x="873" y="600">proposed &middot; no V3 ADR</text>
+
+          <!-- CLOSING RULES -->
+          <rect class="block" x="20" y="650" width="560" height="90" rx="8"/><rect x="36" y="668" width="24" height="24" rx="7" fill="#f87171"/><text class="glyph" x="48" y="684">X</text><text class="title" x="70" y="672">No foreign database read</text><text class="sub" x="70" y="688">not another service, not a report, not a script</text><text class="mini" x="36" y="708">a contract or nothing; a shared table is a hidden coupling</text><text class="mini" x="36" y="722">built in the lab &middot; enforced by a database role per service</text>
+
+          <rect class="policy" x="600" y="650" width="540" height="90" rx="8"/><rect x="616" y="668" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="628" y="684">!</text><text class="title" x="650" y="672">Keep history only where it must replay</text><text class="sub" x="650" y="688">otherwise current state alone is a plain record</text><text class="mini" x="616" y="708">replay when a rule, an audit or a rebuild reads the order</text><text class="mini" x="616" y="722">directional position as at 2026-09-04 &middot; no V3 ADR of record</text>
+        </svg>
+      </div>
+      <figcaption><b>Read it downward.</b> Five stores each hold one kind of data, one service owns each one, a single commit turns into a fact and then into a read model, and a reader is served by the cache, the projection or a contract. <b>Built today:</b> every solid tile &mdash; the database, the fact log, the projector, the cache and the read path. <b>Not shown:</b> subjects and streams, which are <code>LB-V3-L3-05</code>; where a store sits, which is <code>LB-V3-L3-08</code>; tables, columns and migrations, which are <code>L4</code>.</figcaption>
+    </figure>
+
+    <aside class="notes">
+      <div class="note"><span class="tag">SCOPE</span><p><b>One question.</b> Which store owns what, and how does one change reach the rest? Reference data and retention are on sheet 2.</p></div>
+      <div class="note"><span class="tag">MATURITY</span><p><b>Mixed.</b> Solid tiles run in the lab today. Dashed tiles are directional V3 positions as at 2026-09-04.</p></div>
+      <div class="note"><span class="tag">ROLE</span><p>A store is named by its <b>role</b>, never by product alone. The role decides the rules that follow it.</p></div>
+      <div class="note"><span class="tag">TRUTH</span><p><b>PostgreSQL is the default source of truth.</b> The fact log records what happened; it does not replace the record.</p></div>
+      <div class="note"><span class="tag">OWNER</span><p>One service owns its data. Others are <b>told</b> through a fact or <b>ask</b> through a contract. Nobody else writes.</p></div>
+      <div class="note"><span class="tag">OUTBOX</span><p>An <b>outbox</b> writes the fact in the same transaction as the state, so a published fact can never disagree with the record.</p></div>
+      <div class="note"><span class="tag">PROJECTOR</span><p>One handler writes <b>both</b> the projection and the cache entry. Two writers would let them drift apart silently.</p></div>
+      <div class="note"><span class="tag">CACHE</span><p>The cache is an <b>answer</b>, not a record. A miss falls through to the projection and costs nothing but time.</p></div>
+      <div class="note"><span class="tag">REPLAY</span><p>Event-source only where something must <b>replay</b> the sequence. Current-state-only data stays a plain record.</p></div>
+      <div class="note"><span class="tag">OPEN</span><p>Ten open items sit in the <b>L3-07 register</b>. The outbox and the extraction interface have no V3 ADR.</p></div>
+    </aside>
+  </div>
+
+  <div class="legend">
+    <div>
+      <h2>Legend</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan boundary</b> &mdash; the store roles being distinguished</span></div>
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; the ownership rules over those stores</span></div>
+        <div class="key-item"><span class="sw sw-blue"></span><span><b>Blue boundary</b> &mdash; the ordered path a write takes</span></div>
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; the ordered path a read takes</span></div>
+        <div class="key-item"><span class="sw sw-tile"></span><span><b>Solid tile</b> &mdash; built and running in the lab today</span></div>
+        <div class="key-item"><span class="sw sw-prop"></span><span><b>Dashed grey tile</b> &mdash; proposed for V3, not built</span></div>
+        <div class="key-item"><span class="sw sw-openq"></span><span><b>Dashed amber tile</b> &mdash; open, a named owner must confirm</span></div>
+        <div class="key-item"><span class="sw sw-policy"></span><span><b>Amber panel</b> &mdash; a rule that governs the whole sheet</span></div>
+        <div class="key-item"><span class="sw sw-block"></span><span><b>Red panel</b> &mdash; a path that is refused outright</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#34d399" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#34d399"/></svg><span><b>Green line</b> &mdash; one committed change reaching the other stores</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#3b8bff" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#3b8bff"/></svg><span><b>Blue line</b> &mdash; a committed change entering the write path</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#f5b13d" stroke-width="1.6" stroke-dasharray="5 4"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#f5b13d"/></svg><span><b>Amber dashed line</b> &mdash; a written result reaching the read path</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><path d="M26 2.4 L33 6 L26 9.6 z" fill="#b7bcc2"/></svg><span><b>Arrow head</b> &mdash; the direction of the relationship</span></div>
+        <div class="key-item"><span class="sw" style="background:none;border:none"></span><span><b>Line label</b> &mdash; names the relationship, never bare "uses"</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Words on this sheet</h2>
+      <ul class="abbr">
+        <li><b>store</b> a place data is kept, named by role</li>
+        <li><b>fact</b> a record that something happened</li>
+        <li><b>fact log</b> the ordered, replayable history</li>
+        <li><b>projection</b> a read model built from facts</li>
+        <li><b>cache</b> a fast copy of a projected answer</li>
+        <li><b>outbox</b> the fact written with the state</li>
+        <li><b>projector</b> the code that applies a fact</li>
+        <li><b>contract</b> a published request the owner answers</li>
+        <li><b>KV</b> NATS key-value store</li>
+        <li><b>ULID</b> a sortable, subject-safe identifier</li>
+        <li><b>migration</b> a versioned schema change</li>
+        <li><b>ADR</b> architecture decision record</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Traceability: L3-07-001 to L3-07-019 and L3-07-036 to L3-07-037 (store roles, ownership, the write path, the read path, refusals, maturity marking). Parent: LB-V3-L2-01 requirement L2-D06, refining L2-011 to L2-014. Received from LB-V3-L3-08 as L3-08-033. Governed by ADR-051, ADR-052 and ADR-053.</span>
+    <span class="brand">LB-V3-L3-07 &middot; 1/2 &middot; Stores and the write path</span>
+  </footer>
+</section>
+
+<!-- ============================ SHEET 2 ============================ -->
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L3-07 &middot; <span class="doc-title">Data Architecture</span> &middot; Sheet 2 of 2</div>
+    <h1>Reference Data, Distribution and Lifecycle</h1>
+    <p>Where shared values come from, how one changed value reaches every reader without polling, and how long each kind of data is kept. Reference data is more than code lists: it also carries localisation, translation, App Shell theme values and platform configuration. <b>Maturity is marked per element,</b> and every retention period is deliberately shown as <b>not set</b>. <b>This half is directional</b> as at 4 September 2026 and no V3 decision of record exists for retention or lifecycle. Rendering the theme belongs to LB-V3-L3-03; what may be copied to another cell belongs to LB-V3-L3-08.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1160 830" role="img" aria-label="Sheet two of LB-V3-L3-07 Data Architecture shows reference data, distribution and lifecycle in five bands read downward. The reference-data band gives three layers plus a scoping rule: a platform layer holding values every tenant shares, a tenant layer holding one tenant's own values, an organisation layer of overrides that is still open for V3, and a context-scoped key so that no global unscoped read exists. A lookup resolves the narrowest layer that answers, which feeds the second band, listing what reference data serves beyond plain code lists: code lists giving the values a field may take, localisation values for date, number, currency and unit, translations giving one key in many languages, App Shell theme values that are stored and served here while rendering them belongs to document L3-03, and a proposed configuration store for platform and tenant settings. A changed value is published rather than polled for, which feeds the distribution band: the change is published as a fact on the reference stream, a cache in every cell is written by the projector, readers watch that cache instead of polling it, and a proposed version stamp lets a reader know which version it holds and refuse a stale one. What is kept, and for how long, follows the store's role, which feeds the retention and lineage band: transactional truth kept while the record lives, the durable fact log which is itself the lineage record, the read model which is rebuilt from the log at will and needs no retention rule, evidence documents written once with the blob stored before the record, and tenant exit which exports first and then deletes. Every period on that band except the read model is shown as not set and owned by legal and the business. The fifth band records what is deliberately not done and why: no universal event sourcing, no database shared between services, and no reference data forked into a copy inside a consuming service.">
+          <defs>
+            <marker id="l37b-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#3b8bff"/></marker>
+            <marker id="l37b-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f5b13d"/></marker>
+            <marker id="l37b-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34d399"/></marker>
+          </defs>
+
+          <!-- ROW 1: reference data layers -->
+          <text class="group-title" x="36" y="34" fill="#34d399">Reference data &middot; three layers, one scoped lookup</text>
+          <rect class="group green" x="20" y="42" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="68" width="261" height="76" rx="8"/><rect x="54" y="84" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="66" y="100">P</text><text class="title" x="88" y="88">Platform layer</text><text class="sub" x="88" y="104">values every tenant shares</text><text class="mini" x="54" y="119">country, currency, unit, code list</text><text class="mini" x="54" y="132">built in the lab</text>
+          <rect class="tile" x="313" y="68" width="261" height="76" rx="8"/><rect x="327" y="84" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="339" y="100">T</text><text class="title" x="361" y="88">Tenant layer</text><text class="sub" x="361" y="104">one tenant's own values</text><text class="mini" x="327" y="119">added to, or overriding, platform</text><text class="mini" x="327" y="132">built in the lab</text>
+          <rect class="tile openq" x="586" y="68" width="261" height="76" rx="8"/><rect x="600" y="84" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="612" y="100">O</text><text class="title" x="634" y="88">Organisation layer</text><text class="sub" x="634" y="104">one organisation's overrides</text><text class="mini" x="600" y="119">the narrowest layer that answers</text><text class="mini" x="600" y="132">open &middot; in scope for V3?</text>
+          <rect class="tile" x="859" y="68" width="261" height="76" rx="8"/><rect x="873" y="84" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="885" y="100">K</text><text class="title" x="907" y="88">Context-scoped key</text><text class="sub" x="907" y="104">every lookup names its scope</text><text class="mini" x="873" y="119">there is no global unscoped read</text><text class="mini" x="873" y="132">built in the lab</text>
+
+          <path class="place" d="M580 160 V188" marker-end="url(#l37b-green)"/>
+          <text class="edge-label" x="592" y="180">a lookup resolves the narrowest layer that answers</text>
+
+          <!-- ROW 2: what reference data serves -->
+          <text class="group-title" x="36" y="190" fill="#3b8bff">What it serves &middot; far more than plain code lists</text>
+          <rect class="group blue" x="20" y="198" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="224" width="208" height="76" rx="8"/><rect x="54" y="240" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="66" y="256">1</text><text class="title" x="88" y="244">Code lists</text><text class="sub" x="88" y="260">values a field may take</text><text class="mini" x="54" y="275">one list, every service</text><text class="mini" x="54" y="288">built in the lab</text>
+          <rect class="tile" x="258" y="224" width="208" height="76" rx="8"/><rect x="272" y="240" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="284" y="256">2</text><text class="title" x="306" y="244">Localisation</text><text class="sub" x="306" y="260">date, number, currency</text><text class="mini" x="272" y="275">chosen by the locale</text><text class="mini" x="272" y="288">built in the lab</text>
+          <rect class="tile" x="476" y="224" width="208" height="76" rx="8"/><rect x="490" y="240" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="502" y="256">3</text><text class="title" x="524" y="244">Translations</text><text class="sub" x="524" y="260">one key, many languages</text><text class="mini" x="490" y="275">enum labels and strings</text><text class="mini" x="490" y="288">built in the lab</text>
+          <rect class="tile" x="694" y="224" width="208" height="76" rx="8"/><rect x="708" y="240" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="720" y="256">4</text><text class="title" x="742" y="244">App Shell theme</text><text class="sub" x="742" y="260">stored and served here</text><text class="mini" x="708" y="275">rendering it is L3-03</text><text class="mini" x="708" y="288">built in the lab</text>
+          <rect class="tile prop" x="912" y="224" width="208" height="76" rx="8"/><rect x="926" y="240" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="938" y="256">5</text><text class="title" x="960" y="244">Configuration</text><text class="sub" x="960" y="260">platform and tenant</text><text class="mini" x="926" y="275">one place, not a file each</text><text class="mini" x="926" y="288">proposed &middot; no V3 ADR</text>
+
+          <path class="sync" d="M580 316 V344" marker-end="url(#l37b-blue)"/>
+          <text class="edge-label" x="592" y="336">a changed value is published, never polled for</text>
+
+          <!-- ROW 3: distribution -->
+          <text class="group-title" x="36" y="346" fill="#2fd4e8">Distribution &middot; how one changed value reaches every reader</text>
+          <rect class="group cyan" x="20" y="354" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="380" width="261" height="76" rx="8"/><rect x="54" y="396" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="66" y="412">A</text><text class="title" x="88" y="400">The change is published</text><text class="sub" x="88" y="416">a fact on the reference stream</text><text class="mini" x="54" y="431">the same shape as any fact</text><text class="mini" x="54" y="444">built in the lab</text>
+          <rect class="tile" x="313" y="380" width="261" height="76" rx="8"/><rect x="327" y="396" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="339" y="412">B</text><text class="title" x="361" y="400">A cache in every cell</text><text class="sub" x="361" y="416">NATS KV, written by a projector</text><text class="mini" x="327" y="431">local to the reader that needs it</text><text class="mini" x="327" y="444">built in the lab</text>
+          <rect class="tile" x="586" y="380" width="261" height="76" rx="8"/><rect x="600" y="396" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="612" y="412">C</text><text class="title" x="634" y="400">Readers watch, not poll</text><text class="sub" x="634" y="416">the cache tells them it changed</text><text class="mini" x="600" y="431">a screen updates with no refresh</text><text class="mini" x="600" y="444">built in the lab</text>
+          <rect class="tile openq" x="859" y="380" width="261" height="76" rx="8"/><rect x="873" y="396" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="885" y="412">D</text><text class="title" x="907" y="400">Version stamped</text><text class="sub" x="907" y="416">a reader knows what it holds</text><text class="mini" x="873" y="431">and can refuse a stale value</text><text class="mini" x="873" y="444">open &middot; not designed yet</text>
+
+          <path class="event" d="M580 472 V500" marker-end="url(#l37b-amber)"/>
+          <text class="edge-label" x="592" y="492">what is kept, and for how long, follows the store's role</text>
+
+          <!-- ROW 4: retention and lineage -->
+          <text class="group-title" x="36" y="502" fill="#f5b13d">Retention and lineage &middot; by store role, and almost none agreed</text>
+          <rect class="group amber" x="20" y="510" width="1120" height="118" rx="12"/>
+          <rect class="tile openq" x="40" y="536" width="208" height="76" rx="8"/><rect x="54" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="66" y="568">1</text><text class="title" x="88" y="556">Transactional truth</text><text class="sub" x="88" y="572">kept while the record lives</text><text class="mini" x="54" y="587">period: not set</text><text class="mini" x="54" y="600">open &middot; legal, business</text>
+          <rect class="tile openq" x="258" y="536" width="208" height="76" rx="8"/><rect x="272" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="284" y="568">2</text><text class="title" x="306" y="556">Durable fact log</text><text class="sub" x="306" y="572">this is the lineage record</text><text class="mini" x="272" y="587">period: not set</text><text class="mini" x="272" y="600">open &middot; legal, business</text>
+          <rect class="tile" x="476" y="536" width="208" height="76" rx="8"/><rect x="490" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="502" y="568">3</text><text class="title" x="524" y="556">Read model</text><text class="sub" x="524" y="572">rebuilt from the log</text><text class="mini" x="490" y="587">no retention rule needed</text><text class="mini" x="490" y="600">built in the lab</text>
+          <rect class="tile openq" x="694" y="536" width="208" height="76" rx="8"/><rect x="708" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="720" y="568">4</text><text class="title" x="742" y="556">Evidence documents</text><text class="sub" x="742" y="572">blob before the record</text><text class="mini" x="708" y="587">period: set by statute</text><text class="mini" x="708" y="600">open &middot; legal</text>
+          <rect class="tile openq" x="912" y="536" width="208" height="76" rx="8"/><rect x="926" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="938" y="568">5</text><text class="title" x="960" y="556">Tenant exit</text><text class="sub" x="960" y="572">export first, then delete</text><text class="mini" x="926" y="587">and evidence it was done</text><text class="mini" x="926" y="600">open &middot; legal, business</text>
+
+          <!-- ROW 5: deliberately not done -->
+          <text class="group-title" x="36" y="682" fill="#f5b13d">Deliberately not done &middot; and the reason it is not done</text>
+          <rect class="group amber" x="20" y="690" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="716" width="350" height="76" rx="8"/><rect x="54" y="732" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="66" y="748">A</text><text class="title" x="88" y="736">No universal event sourcing</text><text class="sub" x="88" y="752">history is kept where history is a rule</text><text class="mini" x="54" y="767">current state alone stays a plain record</text><text class="mini" x="54" y="780">built this way in the lab</text>
+          <rect class="tile" x="405" y="716" width="350" height="76" rx="8"/><rect x="419" y="732" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="431" y="748">B</text><text class="title" x="453" y="736">No shared database</text><text class="sub" x="453" y="752">no table is read by two services</text><text class="mini" x="419" y="767">a contract is the only shared thing</text><text class="mini" x="419" y="780">built this way in the lab</text>
+          <rect class="tile prop" x="770" y="716" width="350" height="76" rx="8"/><rect x="784" y="732" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="796" y="748">C</text><text class="title" x="818" y="736">No forked reference copy</text><text class="sub" x="818" y="752">reference data is looked up, not copied</text><text class="mini" x="784" y="767">a fork drifts, and nobody notices</text><text class="mini" x="784" y="780">proposed &middot; no V3 ADR</text>
+        </svg>
+      </div>
+      <figcaption><b>Read it downward.</b> A value is resolved through three layers, it serves far more than code lists, a change is published once and watched by every reader, and how long anything is kept follows the store's role &mdash; except that almost no period has been agreed, which is why that band is amber. <b>Built today:</b> every solid tile. <b>Not shown:</b> theme rendering, which is <code>LB-V3-L3-03</code>; cross-cell copying, which is <code>LB-V3-L3-08</code>; the reference-data service told as one story, which is an <code>L4</code>.</figcaption>
+    </figure>
+
+    <aside class="notes">
+      <div class="note"><span class="tag">SCOPE</span><p><b>One question.</b> Where do shared values come from, how does a change spread, and how long is data kept? Stores are on sheet 1.</p></div>
+      <div class="note"><span class="tag">DIRECTION</span><p><b>Directional.</b> A first pass as at 2026-09-04. Every retention period is deliberately shown as unset.</p></div>
+      <div class="note"><span class="tag">LAYERS</span><p>Three layers answer one lookup. The <b>narrowest</b> layer that has a value wins; the platform layer is the floor.</p></div>
+      <div class="note"><span class="tag">SCOPED</span><p>Every lookup names its <b>context</b>. There is no global unscoped read, so no value leaks between scopes by accident.</p></div>
+      <div class="note"><span class="tag">MORE</span><p>Reference data also carries <b>localisation</b>, <b>translations</b>, <b>theme values</b> and <b>configuration</b> &mdash; not just code lists.</p></div>
+      <div class="note"><span class="tag">THEME</span><p>Theme values are <b>stored and served</b> here. Consuming and rendering them in the shell is <code>LB-V3-L3-03</code>.</p></div>
+      <div class="note"><span class="tag">WATCH</span><p>A reader <b>watches</b> the cache. Nothing polls, so a change reaches a screen without a refresh and without a timer.</p></div>
+      <div class="note"><span class="tag">SHARED</span><p>Reference data is the one class that <b>may be copied</b> to every cell. That border rule is set in <code>LB-V3-L3-08</code>.</p></div>
+      <div class="note"><span class="tag">LINEAGE</span><p>The fact log <b>is</b> the lineage record: what changed, when, and in what order. No separate lineage store is proposed.</p></div>
+      <div class="note"><span class="tag">OPEN</span><p>Ten open items sit in the <b>L3-07 register</b>. Retention, tenant exit and the version stamp are the largest.</p></div>
+    </aside>
+  </div>
+
+  <div class="legend">
+    <div>
+      <h2>Legend</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; the layers a lookup resolves through</span></div>
+        <div class="key-item"><span class="sw sw-blue"></span><span><b>Blue boundary</b> &mdash; what reference data is asked for</span></div>
+        <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan boundary</b> &mdash; how a change is distributed</span></div>
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; unsettled, or deliberately refused</span></div>
+        <div class="key-item"><span class="sw sw-tile"></span><span><b>Solid tile</b> &mdash; built and running in the lab today</span></div>
+        <div class="key-item"><span class="sw sw-prop"></span><span><b>Dashed grey tile</b> &mdash; proposed for V3, not built</span></div>
+        <div class="key-item"><span class="sw sw-openq"></span><span><b>Dashed amber tile</b> &mdash; open, a named owner must confirm</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#34d399" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#34d399"/></svg><span><b>Green line</b> &mdash; a lookup resolving to one answer</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#3b8bff" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#3b8bff"/></svg><span><b>Blue line</b> &mdash; a changed value entering distribution</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#f5b13d" stroke-width="1.6" stroke-dasharray="5 4"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#f5b13d"/></svg><span><b>Amber dashed line</b> &mdash; a store role imposing a lifecycle</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><path d="M26 2.4 L33 6 L26 9.6 z" fill="#b7bcc2"/></svg><span><b>Arrow head</b> &mdash; the direction of the relationship</span></div>
+        <div class="key-item"><span class="sw" style="background:none;border:none"></span><span><b>Line label</b> &mdash; names the relationship, never bare "uses"</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Words on this sheet</h2>
+      <ul class="abbr">
+        <li><b>reference data</b> shared values many services read</li>
+        <li><b>code list</b> the values one field may take</li>
+        <li><b>localisation</b> values shaped for one place</li>
+        <li><b>translation</b> one key rendered per language</li>
+        <li><b>context</b> the business-unit scope of a lookup</li>
+        <li><b>theme value</b> a colour, size or font token</li>
+        <li><b>watch</b> being told of a change, not asking</li>
+        <li><b>lineage</b> the ordered record of what changed</li>
+        <li><b>retention</b> how long something is kept</li>
+        <li><b>cell</b> one region's complete runtime</li>
+        <li><b>KV</b> NATS key-value store</li>
+        <li><b>ADR</b> architecture decision record</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Traceability: L3-07-020 to L3-07-035 and open items L3-07-O01 to L3-07-O10 (reference-data layers, what it serves, distribution, retention and lineage, deliberate refusals). Parent: LB-V3-L2-01 requirement L2-D06. Related: LB-V3-L3-03 Application / MFE renders the theme values stored here; LB-V3-L3-08 Multi-Region decides what may be copied to another cell.</span>
+    <span class="brand">LB-V3-L3-07 &middot; 2/2 &middot; Reference data and lifecycle</span>
+  </footer>
+</section>
+
+</body>
+</html>

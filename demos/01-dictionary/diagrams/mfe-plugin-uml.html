@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MFE plugin system — UML class, component and sequence views</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.div { stroke: currentColor; stroke-width: 1; stroke-opacity: 0.55; }
+.life { stroke: currentColor; stroke-width: 1; stroke-dasharray: 3 4; stroke-opacity: 0.45; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.edge2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.edge, .edge2 { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.dep  { fill: none; stroke: var(--sync); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.ret  { fill: none; stroke: var(--hop); stroke-width: 1.2; stroke-dasharray: 4 4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <div class="head-txt">
+      <span class="eyebrow">lab-shell · shared/mfe-preview · ARCHITECTURE-APP-SHELL · BR-AS02, BR-AS07, BR-AS08</span>
+      <h1>MFE plugin system — class, component and sequence views for both render paths</h1>
+      <p class="sub">Five UML views of the same system: the types a plugin and its two renderers share, the containers and subjects each path runs on, and the ordered call chains. Left/production is the application shell; right/development is the dev-only <code>/__preview</code> harness. UML's <em>structure</em> is used as-is — class compartments, component boundaries, lifelines and activation bars — drawn in this repo's dark house style rather than UML's own notation.</p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 740" role="img" aria-label="A UML class diagram in three zones. The centre zone, The Contract, holds four types every plugin declares: the plugin entry module src/plugin.js with its named exports components and activate; public/manifest.json with id, version, routePrefix, schemaVersion and shellApiVersion both fixed at 1, a federated remote descriptor, a contributions array and optional extensionPoints; the Contribution entry itself with its five kinds, its component key that must match an export, and its target or region identifier; and ShellApi, a frozen object of version 1 whose only member is ui.ExtensionRegion. The left zone is the production lab-shell runtime: validateManifest from the manifest schema, createPluginLoader which holds the frozen shellApi constant and exposes load, peek and isLoaded, createFederatedAdapter which calls init then registerRemotes then loadRemote, createContributionRegistry with index, extensionsFor, shellControlsFor and get, ExtensionPointRegistry which declares the three shell-owned points with capacities three, six and four, and the two render hosts, resolveRouteComponent for route contributions and PluginSlot for every other kind. The right zone is the dev-only preview harness: previewHarness, a serve-only Vite plugin, mountPreview in client.js which stubs RouterLink and RouterView, PreviewApp whose boot function imports the entry then fetches the manifest then activates then builds items, buildItems which maps contributions to stages, createPreviewShellApi which returns a stub of the same shape with a literal version, and PreviewStage which renders one selected item and contains a throw. Both outer zones depend on the centre contract; neither depends on the other.">
+        <defs>
+          <marker id="a-dep" viewBox="0 0 9 8" refX="8" refY="4" markerWidth="9" markerHeight="8" orient="auto-start-reverse">
+            <polyline points="1,1 8,4 1,7" fill="none" stroke="var(--sync)" stroke-width="1.2"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="8" y="30">LAB-SHELL RUNTIME — PRODUCTION</text>
+        <rect class="nb" x="8" y="40" width="306" height="677" rx="4"/>
+        <text class="grp" x="670" y="30">SHARED/MFE-PREVIEW — DEV ONLY</text>
+        <rect class="nb" x="670" y="40" width="302" height="677" rx="4"/>
+        <text class="grp" x="346" y="137">THE CONTRACT</text>
+        <rect class="nb" x="346" y="145" width="292" height="467" rx="4"/>
+
+        <rect class="n" x="20" y="62" width="282" height="89" rx="3"/>
+        <text class="lbl2" x="161" y="77" text-anchor="middle">«registry/manifestSchema.js»</text>
+        <text class="lbl"  x="161" y="92" text-anchor="middle">validateManifest()</text>
+        <line class="div" x1="20" y1="100" x2="302" y2="100"/>
+        <text class="lbl2" x="29" y="113">(manifest) -&gt; { ok, plugin } | { ok:false }</text>
+        <text class="lbl2" x="29" y="126">codes: unsupported-schema-version, ...</text>
+        <text class="lbl2" x="29" y="139">CONTRIBUTION_KINDS · ID_PATTERN</text>
+
+        <rect class="n" x="20" y="167" width="282" height="102" rx="3"/>
+        <text class="lbl2" x="161" y="182" text-anchor="middle">«loader/pluginLoader.js»</text>
+        <text class="lbl"  x="161" y="197" text-anchor="middle">createPluginLoader()</text>
+        <line class="div" x1="20" y1="205" x2="302" y2="205"/>
+        <text class="lbl2" x="29" y="218">{ allowlist, adapters, statuses }</text>
+        <text class="lbl2" x="29" y="231">load(plugin): Promise&lt;Module&gt;</text>
+        <text class="lbl2" x="29" y="244">peek(pluginId) · isLoaded(pluginId)</text>
+        <text class="lbl2" x="29" y="257">holds the frozen shellApi constant</text>
+
+        <rect class="n" x="20" y="285" width="282" height="76" rx="3"/>
+        <text class="lbl2" x="161" y="300" text-anchor="middle">«loader/federatedAdapter.js»</text>
+        <text class="lbl"  x="161" y="315" text-anchor="middle">createFederatedAdapter()</text>
+        <line class="div" x1="20" y1="323" x2="302" y2="323"/>
+        <text class="lbl2" x="29" y="336">load(remote): Promise&lt;Module&gt;</text>
+        <text class="lbl2" x="29" y="349">init -&gt; registerRemotes -&gt; loadRemote</text>
+
+        <rect class="n" x="20" y="377" width="282" height="102" rx="3"/>
+        <text class="lbl2" x="161" y="392" text-anchor="middle">«contributions/contributionRegistry.js»</text>
+        <text class="lbl"  x="161" y="407" text-anchor="middle">createContributionRegistry()</text>
+        <line class="div" x1="20" y1="415" x2="302" y2="415"/>
+        <text class="lbl2" x="29" y="428">index(plugins, statuses)</text>
+        <text class="lbl2" x="29" y="441">extensionsFor(pointId)</text>
+        <text class="lbl2" x="29" y="454">shellControlsFor(path) · get(qualifiedId)</text>
+        <text class="lbl2" x="29" y="467">get routes | navigation | shellFooter</text>
+
+        <rect class="n" x="20" y="495" width="282" height="102" rx="3"/>
+        <text class="lbl2" x="161" y="510" text-anchor="middle">«extensions/extensionPoints.js»</text>
+        <text class="lbl"  x="161" y="525" text-anchor="middle">ExtensionPointRegistry</text>
+        <line class="div" x1="20" y1="533" x2="302" y2="533"/>
+        <text class="lbl2" x="29" y="546">declare({ id, capacity })</text>
+        <text class="lbl2" x="29" y="559">accepts(targetId, { placedCount })</text>
+        <text class="lbl2" x="29" y="572">shell/topbar-controls/v1  cap 3</text>
+        <text class="lbl2" x="29" y="585">shell/footer/v1  6 · shell/home-main/v1  4</text>
+
+        <rect class="n" x="20" y="613" width="282" height="89" rx="3"/>
+        <text class="lbl2" x="161" y="628" text-anchor="middle">«two render hosts, not one»</text>
+        <text class="lbl"  x="161" y="643" text-anchor="middle">shellRoutes · PluginSlot</text>
+        <line class="div" x1="20" y1="651" x2="302" y2="651"/>
+        <text class="lbl2" x="29" y="664">resolveRouteComponent() — kind: route</text>
+        <text class="lbl2" x="29" y="677">PluginSlot.vue — every other kind</text>
+        <text class="lbl2" x="29" y="690">both end at components[c.component]</text>
+
+        <rect class="n" x="358" y="157" width="268" height="76" rx="3"/>
+        <text class="lbl2" x="492" y="172" text-anchor="middle">«plugin entry — named exports»</text>
+        <text class="lbl"  x="492" y="187" text-anchor="middle">src/plugin.js</text>
+        <line class="div" x1="358" y1="195" x2="626" y2="195"/>
+        <text class="lbl2" x="367" y="208">components: Record&lt;name, Component&gt;</text>
+        <text class="lbl2" x="367" y="221">activate?(shellApi): void | Promise</text>
+
+        <rect class="n" x="358" y="249" width="268" height="115" rx="3"/>
+        <text class="lbl2" x="492" y="264" text-anchor="middle">«declaration»</text>
+        <text class="lbl"  x="492" y="279" text-anchor="middle">public/manifest.json</text>
+        <line class="div" x1="358" y1="287" x2="626" y2="287"/>
+        <text class="lbl2" x="367" y="300">id · name · version · routePrefix</text>
+        <text class="lbl2" x="367" y="313">schemaVersion: 1 · shellApiVersion: 1</text>
+        <text class="lbl2" x="367" y="326">remote: { kind:'federated', url, module }</text>
+        <text class="lbl2" x="367" y="339">contributions: Contribution[]</text>
+        <text class="lbl2" x="367" y="352">extensionPoints?: { id, capacity }[]</text>
+
+        <rect class="n" x="358" y="380" width="268" height="128" rx="3"/>
+        <text class="lbl2" x="492" y="395" text-anchor="middle">«one manifest entry»</text>
+        <text class="lbl"  x="492" y="410" text-anchor="middle">Contribution</text>
+        <line class="div" x1="358" y1="418" x2="626" y2="418"/>
+        <text class="lbl2" x="367" y="431">kind: route | navigation | extension</text>
+        <text class="lbl2" x="367" y="444">      | shell-control | shell-footer</text>
+        <text class="lbl2" x="367" y="457">id · order · permission?</text>
+        <text class="lbl2" x="367" y="470">component -&gt; components[key]</text>
+        <text class="lbl2" x="367" y="483">target / region: 'owner/region/v1'</text>
+        <text class="lbl2" x="367" y="496">path · title   (route only)</text>
+
+        <rect class="n" x="358" y="524" width="268" height="76" rx="3"/>
+        <text class="lbl2" x="492" y="539" text-anchor="middle">«frozen, passed to activate()»</text>
+        <text class="lbl"  x="492" y="554" text-anchor="middle">ShellApi</text>
+        <line class="div" x1="358" y1="562" x2="626" y2="562"/>
+        <text class="lbl2" x="367" y="575">version: 1</text>
+        <text class="lbl2" x="367" y="588">ui.ExtensionRegion: Component</text>
+
+        <rect class="n" x="682" y="52" width="278" height="102" rx="3"/>
+        <text class="lbl2" x="821" y="67" text-anchor="middle">«vitePreview.js — a Vite plugin»</text>
+        <text class="lbl"  x="821" y="82" text-anchor="middle">previewHarness()</text>
+        <line class="div" x1="682" y1="90" x2="960" y2="90"/>
+        <text class="lbl2" x="691" y="103">apply: 'serve'  (absent from builds)</text>
+        <text class="lbl2" x="691" y="116">route '/__preview'  entry '/src/plugin.js'</text>
+        <text class="lbl2" x="691" y="129">manifest '/manifest.json'  fixtures?</text>
+        <text class="lbl2" x="691" y="142">configureServer -&gt; serves one HTML page</text>
+
+        <rect class="n" x="682" y="170" width="278" height="89" rx="3"/>
+        <text class="lbl2" x="821" y="185" text-anchor="middle">«client.js»</text>
+        <text class="lbl"  x="821" y="200" text-anchor="middle">mountPreview()</text>
+        <line class="div" x1="682" y1="208" x2="960" y2="208"/>
+        <text class="lbl2" x="691" y="221">whenSharedScopeReady(Vue)</text>
+        <text class="lbl2" x="691" y="234">createApp(PreviewApp, { options })</text>
+        <text class="lbl2" x="691" y="247">stubs RouterLink + RouterView globally</text>
+
+        <rect class="n" x="682" y="275" width="278" height="115" rx="3"/>
+        <text class="lbl2" x="821" y="290" text-anchor="middle">«boot() — the whole lifecycle»</text>
+        <text class="lbl"  x="821" y="305" text-anchor="middle">PreviewApp.vue</text>
+        <line class="div" x1="682" y1="313" x2="960" y2="313"/>
+        <text class="lbl2" x="691" y="326">props: options</text>
+        <text class="lbl2" x="691" y="339">import(entry) -&gt; fetch(manifest)</text>
+        <text class="lbl2" x="691" y="352">-&gt; activate(stub) -&gt; buildItems()</text>
+        <text class="lbl2" x="691" y="365">loadError · manifestError ·</text>
+        <text class="lbl2" x="691" y="378">activationError — shown, not thrown</text>
+
+        <rect class="n" x="682" y="406" width="278" height="102" rx="3"/>
+        <text class="lbl2" x="821" y="421" text-anchor="middle">«contributions.js»</text>
+        <text class="lbl"  x="821" y="436" text-anchor="middle">buildItems()</text>
+        <line class="div" x1="682" y1="444" x2="960" y2="444"/>
+        <text class="lbl2" x="691" y="457">{ manifest, components, fixtures }</text>
+        <text class="lbl2" x="691" y="470">-&gt; { key, kind, stage, component, props }[]</text>
+        <text class="lbl2" x="691" y="483">stage: page | region | topbar | footer</text>
+        <text class="lbl2" x="691" y="496">export with no entry -&gt; 'unclaimed'</text>
+
+        <rect class="n" x="682" y="524" width="278" height="89" rx="3"/>
+        <text class="lbl2" x="821" y="539" text-anchor="middle">«shellApiStub.js»</text>
+        <text class="lbl"  x="821" y="554" text-anchor="middle">createPreviewShellApi()</text>
+        <line class="div" x1="682" y1="562" x2="960" y2="562"/>
+        <text class="lbl2" x="691" y="575">{ version: 1, ui: { ExtensionRegion } }</text>
+        <text class="lbl2" x="691" y="588">PreviewExtensionRegion — a labelled box</text>
+        <text class="lbl2" x="691" y="601">version is a literal, not an import</text>
+
+        <rect class="n" x="682" y="629" width="278" height="76" rx="3"/>
+        <text class="lbl2" x="821" y="644" text-anchor="middle">«one frame, the selected item»</text>
+        <text class="lbl"  x="821" y="659" text-anchor="middle">PreviewStage.vue</text>
+        <line class="div" x1="682" y1="667" x2="960" y2="667"/>
+        <text class="lbl2" x="691" y="680">props: component, componentProps, stage</text>
+        <text class="lbl2" x="691" y="693">onErrorCaptured -&gt; banner, stays local</text>
+
+        <path class="dep" d="M314 378 L338 378" marker-end="url(#a-dep)"/>
+        <text class="edge" x="330" y="372" text-anchor="middle">«use»</text>
+        <path class="dep" d="M670 378 L646 378" marker-end="url(#a-dep)"/>
+        <text class="edge" x="654" y="372" text-anchor="middle">«use»</text>
+      </svg>
+    </div>
+    <figcaption><b>One contract, two implementations that never meet.</b> Both zones depend on the centre and on nothing else — <code>shared/mfe-preview/</code> imports nothing from <code>lab-shell/</code>, which is why its <code>version: 1</code> is a literal rather than an import of <code>SHELL_API_VERSION</code>. Two joins carry the whole system: a contribution's <code>component</code> string must match a key in the entry module's <code>components</code> export, and a contribution's <code>target</code>/<code>region</code> must name an extension point the host has declared (<code>BR-AS07</code>). The shell checks both — <code>validateManifest</code> rejects with a code, and <code>ExtensionPointRegistry.accepts</code> refuses an unknown or full point. The harness checks neither: an unmatched name simply renders as an <code>unclaimed</code> item.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 784" role="img" aria-label="A UML component diagram of the production deployment, drawn as four stacked bands. At the top the browser holds one page, one Vue app, the Module Federation runtime and a NATS WebSocket session, on origin localhost port 7110. Below it the frontend Docker network contains only lb-app-shell, an nginx container publishing host port 7110 to container port 80, which serves the SPA bundle, proxies the shell connect-info endpoint to accounts-service, and proxies the path slash nats to nats port 9222 for the WebSocket upgrade. Below that, a band for containers on both networks holds lb-nats, whose 4222 and 8222 ports are published while its 9222 WebSocket listener is internal only, and lb-mfe-registry-service, whose published port 7206 serves only a health check because the registry answers on NATS api subjects and has no HTTP API. At the bottom the backend network holds the plugin containers, each a static asset host and announcer in one process on ports 7111 through 7115, plus the announce-only containers, the publisher seed and the unreachable-plugin failure fixture. Three flows are drawn: the browser gets the SPA and its WebSocket from lb-app-shell; the plugin containers announce themselves and heartbeat to lb-nats; and separately the browser fetches remoteEntry.js straight from localhost port 7111 upward via the published host port, not across any Docker network. A table at the foot lists the six NATS subjects on this path.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+        </defs>
+
+        <rect class="n" x="250" y="40" width="480" height="71" rx="3"/>
+        <text class="lbl"  x="264" y="60">browser — one page, one Vue app</text>
+        <text class="lbl2" x="264" y="73">origin http://localhost:7110</text>
+        <text class="lbl2" x="264" y="86">Module Federation runtime + a NATS WebSocket session</text>
+        <text class="lbl2" x="264" y="99">the shell owns the only router (BR-AS09)</text>
+
+        <text class="grp" x="8" y="142">DOCKER NETWORK: frontend</text>
+        <rect class="nb" x="8" y="150" width="964" height="125" rx="4"/>
+        <rect class="n" x="250" y="168" width="480" height="97" rx="3"/>
+        <text class="lbl"  x="264" y="188">lb-app-shell</text>
+        <text class="lbl2" x="264" y="201">nginx · host 7110 -&gt; container 80</text>
+        <text class="lbl2" x="264" y="214">serves the SPA bundle</text>
+        <text class="lbl2" x="264" y="227">= /api/auth/shellConnectInfo -&gt; accounts-service</text>
+        <text class="lbl2" x="264" y="240">/nats -&gt; proxy_pass nats:9222 (the ws upgrade)</text>
+        <text class="lbl2" x="264" y="253">network: frontend only</text>
+
+        <text class="grp" x="8" y="307">ON BOTH NETWORKS — frontend + backend</text>
+        <rect class="nb" x="8" y="315" width="964" height="115" rx="4"/>
+        <rect class="n" x="24" y="333" width="450" height="84" rx="3"/>
+        <text class="lbl"  x="38" y="353">lb-nats</text>
+        <text class="lbl2" x="38" y="366">4222 client · 8222 monitor (both published)</text>
+        <text class="lbl2" x="38" y="379">websocket listener 9222 — internal only</text>
+        <text class="lbl2" x="38" y="392">operator mode, one JWT per account</text>
+        <text class="lbl2" x="38" y="405">subjects listed at the foot of this figure</text>
+        <rect class="n" x="506" y="333" width="420" height="84" rx="3"/>
+        <text class="lbl"  x="520" y="353">lb-mfe-registry-service</text>
+        <text class="lbl2" x="520" y="366">host 7206 -&gt; 8080 — GET /healthz only</text>
+        <text class="lbl2" x="520" y="379">no HTTP API; it answers on api.* over NATS</text>
+        <text class="lbl2" x="520" y="392">curates and validates announced entries</text>
+        <text class="lbl2" x="520" y="405">an operator must enable one before it ships</text>
+
+        <text class="grp" x="8" y="462">DOCKER NETWORK: backend</text>
+        <rect class="nb" x="8" y="470" width="964" height="141" rx="4"/>
+        <rect class="n" x="24" y="488" width="336" height="110" rx="3"/>
+        <text class="lbl"  x="38" y="508">announce-only containers</text>
+        <text class="lbl2" x="38" y="521">lb-registry-publisher-seed — runs once,</text>
+        <text class="lbl2" x="38" y="534">signs the static catalogue entries</text>
+        <text class="lbl2" x="38" y="547">lb-example-plugin-unreachable-announcer</text>
+        <text class="lbl2" x="38" y="560">— announces a plugin with no live host</text>
+        <text class="lbl2" x="38" y="573">both: backend network, no published port</text>
+        <text class="lbl2" x="38" y="586">failure fixtures for BR-AS04</text>
+        <rect class="n" x="376" y="488" width="580" height="110" rx="3"/>
+        <text class="lbl"  x="390" y="508">plugin containers — static host + announcer, one process</text>
+        <text class="lbl2" x="390" y="521">lb-example-plugin :7111 · lb-demo-catalog :7112</text>
+        <text class="lbl2" x="390" y="534">lb-example-plugin-slow :7113 · -activate-throws :7114</text>
+        <text class="lbl2" x="390" y="547">lb-example-plugin-incompatible :7115</text>
+        <text class="lbl2" x="390" y="560">serves /remoteEntry.js and /manifest.json from /srv</text>
+        <text class="lbl2" x="390" y="573">ASSET_ALLOWED_ORIGIN http://localhost:7110</text>
+        <text class="lbl2" x="390" y="586">network: backend only — ports published to the host</text>
+
+        <path class="flow" d="M490 111 L490 160" marker-end="url(#b-sync)"/>
+        <text class="edge" x="500" y="137">GET / -&gt; the SPA bundle</text>
+
+        <path class="flow" d="M490 265 L490 296 L249 296 L249 325" marker-end="url(#b-sync)"/>
+        <text class="edge" x="370" y="290" text-anchor="middle">ws upgrade proxied to nats:9222</text>
+
+        <path class="flow" d="M474 375 L506 375" marker-start="url(#b-sync)" marker-end="url(#b-sync)"/>
+        <text class="edge" x="490" y="369" text-anchor="middle">api.*</text>
+
+        <path class="rep" d="M500 488 L500 450 L249 450 L249 425" marker-end="url(#b-evtl)"/>
+        <text class="edge" x="374" y="444" text-anchor="middle">announce + 5s health heartbeat</text>
+
+        <path class="flow" d="M730 75 L944 75 L944 480" marker-end="url(#b-sync)"/>
+        <text class="edge" x="936" y="294" text-anchor="end">GET http://localhost:711x/remoteEntry.js</text>
+        <text class="edge" x="936" y="307" text-anchor="end">via the published host port, not a network</text>
+
+        <rect class="n" x="8" y="650" width="964" height="118" rx="3"/>
+        <text class="lbl" x="490" y="670" text-anchor="middle">NATS subjects on the production path</text>
+        <line class="div" x1="8" y1="678" x2="972" y2="678"/>
+        <text class="lbl2" x="24" y="691">api._platform.mfe-registry.frontend-plugins.read.v1      shell -&gt; registry · request/reply · the catalogue</text>
+        <text class="lbl2" x="24" y="704">notify._platform.mfe-registry.frontend-plugins.changed   registry -&gt; shell · re-read hint, no payload</text>
+        <text class="lbl2" x="24" y="717">api._platform.mfe-registry.frontend-plugins.health.v1    shell -&gt; registry · health snapshot</text>
+        <text class="lbl2" x="24" y="730">notify._platform.mfe-registry.frontend-plugins.health    registry -&gt; shell · a plugin's health changed</text>
+        <text class="lbl2" x="24" y="743">rpc._platform.mfe-registry.entries.announce.v1           plugin announcer -&gt; registry · self-registration</text>
+        <text class="lbl2" x="24" y="756">notify._platform.health.frontend.&lt;pluginId&gt;.v1           plugin announcer -&gt; registry · 5s heartbeat</text>
+      </svg>
+    </div>
+    <figcaption><b>The registry is reached over NATS; the plugin's code is not.</b> Published port 7206 serves <code>GET /healthz</code> and nothing else — the registry's whole API is the <code>api._platform.mfe-registry.*</code> subject family, which the browser reaches through the WebSocket that <code>lb-app-shell</code>'s nginx proxies to <code>nats:9222</code>. The one flow that skips all of this is the right-hand arrow: the browser fetches <code>remoteEntry.js</code> straight from <code>http://localhost:711x</code> over a published host port, which is why every plugin container joins the <code>backend</code> network only yet is still reachable from the page, and why each sets <code>ASSET_ALLOWED_ORIGIN</code> to <code>http://localhost:7110</code>.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 522" role="img" aria-label="A UML component diagram of the development preview path. The browser opens localhost port 7150 slash double-underscore preview and gets one page listing every contribution, with no shell, no router and no sibling plugins. Everything else runs inside a single boundary: the plugin's own Vite dev server. It holds four parts. The previewHarness middleware matches the preview route, builds the page, runs transformIndexHtml and responds 200 with no-store; it is a serve-only plugin and never appears in a build. The harness client, served over Vite's at-fs path from shared slash mfe-preview slash client.js, is imported by the page's inline module script and exposes mountPreview. The plugin entry at slash src slash plugin.js is plain transformed ESM on the same origin, with no remoteEntry and no Module Federation host, and is the first thing boot imports. The manifest at slash manifest.json is served as a static file from public and read raw, with no validation and no allowlist, and is fetched second, after the entry import. A final panel lists what is deliberately absent: no NATS, no registry service, no shell container, no vue-router since RouterLink and RouterView are inert global stubs, no sibling plugins since the stubbed ExtensionRegion draws an empty labelled box, and no plugin loader, federated adapter, allowlist or status record.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+        </defs>
+
+        <rect class="n" x="250" y="40" width="480" height="71" rx="3"/>
+        <text class="lbl"  x="264" y="60">browser — http://localhost:7150/__preview</text>
+        <text class="lbl2" x="264" y="73">one page, every contribution listed at once</text>
+        <text class="lbl2" x="264" y="86">no shell, no router, no sibling plugins</text>
+        <text class="lbl2" x="264" y="99">p-dark forced on &lt;html&gt;, UniFi theme imported</text>
+
+        <text class="grp" x="8" y="142">THE PLUGIN'S OWN VITE DEV SERVER — npm run dev</text>
+        <rect class="nb" x="8" y="150" width="964" height="244" rx="4"/>
+
+        <rect class="n" x="24" y="168" width="450" height="84" rx="3"/>
+        <text class="lbl"  x="38" y="188">previewHarness() middleware</text>
+        <text class="lbl2" x="38" y="201">server.middlewares.use — matches '/__preview'</text>
+        <text class="lbl2" x="38" y="214">builds the page, transformIndexHtml, 200</text>
+        <text class="lbl2" x="38" y="227">Content-Type text/html · Cache-Control no-store</text>
+        <text class="lbl2" x="38" y="240">apply: 'serve' — never present in a build</text>
+
+        <rect class="n" x="506" y="168" width="450" height="84" rx="3"/>
+        <text class="lbl"  x="520" y="188">/@fs shared/mfe-preview/client.js</text>
+        <text class="lbl2" x="520" y="201">imported by the page's inline module script</text>
+        <text class="lbl2" x="520" y="214">server.fs.allow widened to include shared/</text>
+        <text class="lbl2" x="520" y="227">resolve.dedupe: vue, primevue, @primeuix/styled</text>
+        <text class="lbl2" x="520" y="240">mountPreview() is the only export</text>
+
+        <rect class="n" x="24" y="292" width="450" height="84" rx="3"/>
+        <text class="lbl"  x="38" y="312">/src/plugin.js</text>
+        <text class="lbl2" x="38" y="325">plain ESM, transformed by Vite, same origin</text>
+        <text class="lbl2" x="38" y="338">no remoteEntry.js, no Module Federation host</text>
+        <text class="lbl2" x="38" y="351">Vue still resolved through the shared scope</text>
+        <text class="lbl2" x="38" y="364">the dynamic import is the FIRST thing boot() does</text>
+
+        <rect class="n" x="506" y="292" width="450" height="84" rx="3"/>
+        <text class="lbl"  x="520" y="312">/manifest.json  (static, from public/)</text>
+        <text class="lbl2" x="520" y="325">served as an ordinary static file by Vite</text>
+        <text class="lbl2" x="520" y="338">read raw — no validateManifest, no allowlist</text>
+        <text class="lbl2" x="520" y="351">optional /preview.fixtures.js sits beside it</text>
+        <text class="lbl2" x="520" y="364">fetched SECOND, after the entry import</text>
+
+        <path class="flow" d="M490 111 L490 160" marker-end="url(#c-sync)"/>
+        <text class="edge" x="500" y="137">GET /__preview -&gt; 200 text/html</text>
+
+        <path class="flow" d="M730 75 L944 75 L944 160" marker-end="url(#c-sync)"/>
+        <text class="edge" x="936" y="130" text-anchor="end">import('/@fs .../client.js')</text>
+
+        <path class="flow" d="M731 252 L731 272 L249 272 L249 284" marker-end="url(#c-sync)"/>
+        <text class="edge" x="490" y="266" text-anchor="middle">boot(): import(entry) — first</text>
+
+        <path class="flow" d="M760 252 L760 284" marker-end="url(#c-sync)"/>
+        <text class="edge" x="770" y="272">then fetch(manifest) — second</text>
+
+        <text class="grp" x="8" y="414">ABSENT ON THIS PATH — DELIBERATELY</text>
+        <rect class="n" x="8" y="422" width="964" height="84" rx="3"/>
+        <text class="lbl"  x="22" y="442">nothing else runs</text>
+        <text class="lbl2" x="22" y="455">no NATS connection · no mfe-registry-service · no lb-app-shell container · no Docker at all</text>
+        <text class="lbl2" x="22" y="468">no vue-router — RouterLink and RouterView are inert stubs registered globally by client.js</text>
+        <text class="lbl2" x="22" y="481">no sibling plugins — the stubbed ui.ExtensionRegion draws an empty labelled box</text>
+        <text class="lbl2" x="22" y="494">no pluginLoader, no federatedAdapter, no remote allowlist, no PluginStatusRecord</text>
+      </svg>
+    </div>
+    <figcaption><b>One process, one origin, four files.</b> Everything the preview needs is served by the plugin's own dev server, which is why it needs no Compose stack and no credentials. Note the order the two arrows carry: <code>boot()</code> imports the entry module <em>before</em> it fetches the manifest, the reverse of the shell, which cannot load code until a validated manifest has told it where the remote is. That inversion is the whole reason the harness can render a contribution the registry has never seen — and the reason it can also list an exported component the manifest never claims, as an <code>unclaimed</code> item.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 566" role="img" aria-label="A UML sequence diagram of the production shell path, with seven lifelines: the browser, main.js bootstrap, registrySession, mfe-registry-service over NATS, the contribution registry and router, the plugin loader with its federated adapter, and the plugin remote. Sixteen numbered messages run top to bottom. The shell boots, declares its three shell-owned extension points, creates the plugin loader, and mounts the app so the frame paints with no plugins in it. Only then does registrySession start: it waits for afterPaint, requests the read subject, and receives manifests with no code in them. Each manifest is admitted through validateManifest, extension-point declaration and the remote allowlist, the contribution registry indexes placements, and routes are installed that still point at nothing loaded. Not until the user opens a plugin route does the loader call loadRemote, receive the module, await its activate function with the shell API, and mount the named component.">
+        <defs>
+          <marker id="d-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="d-ret" viewBox="0 0 9 8" refX="8" refY="4" markerWidth="9" markerHeight="8" orient="auto-start-reverse">
+            <polyline points="1,1 8,4 1,7" fill="none" stroke="var(--hop)" stroke-width="1.2"/>
+          </marker>
+        </defs>
+
+        <rect class="n" x="4"   y="40" width="132" height="45" rx="3"/>
+        <text class="lbl"  x="70"  y="60" text-anchor="middle">browser</text>
+        <text class="lbl2" x="70"  y="73" text-anchor="middle">the one page</text>
+        <rect class="n" x="144" y="40" width="132" height="45" rx="3"/>
+        <text class="lbl"  x="210" y="60" text-anchor="middle">main.js</text>
+        <text class="lbl2" x="210" y="73" text-anchor="middle">bootstrap()</text>
+        <rect class="n" x="284" y="40" width="132" height="45" rx="3"/>
+        <text class="lbl"  x="350" y="60" text-anchor="middle">registrySession</text>
+        <text class="lbl2" x="350" y="73" text-anchor="middle">+ registryTransport</text>
+        <rect class="n" x="424" y="40" width="132" height="45" rx="3"/>
+        <text class="lbl"  x="490" y="60" text-anchor="middle">mfe-registry</text>
+        <text class="lbl2" x="490" y="73" text-anchor="middle">-service · over NATS</text>
+        <rect class="n" x="564" y="40" width="132" height="45" rx="3"/>
+        <text class="lbl"  x="630" y="60" text-anchor="middle">contribution</text>
+        <text class="lbl2" x="630" y="73" text-anchor="middle">Registry + router</text>
+        <rect class="n" x="704" y="40" width="132" height="45" rx="3"/>
+        <text class="lbl"  x="770" y="60" text-anchor="middle">pluginLoader</text>
+        <text class="lbl2" x="770" y="73" text-anchor="middle">+ federatedAdapter</text>
+        <rect class="n" x="844" y="40" width="132" height="45" rx="3"/>
+        <text class="lbl"  x="910" y="60" text-anchor="middle">plugin remote</text>
+        <text class="lbl2" x="910" y="73" text-anchor="middle">remoteEntry.js</text>
+
+        <line class="life" x1="70"  y1="85" x2="70"  y2="548"/>
+        <line class="life" x1="210" y1="85" x2="210" y2="548"/>
+        <line class="life" x1="350" y1="85" x2="350" y2="548"/>
+        <line class="life" x1="490" y1="85" x2="490" y2="548"/>
+        <line class="life" x1="630" y1="85" x2="630" y2="548"/>
+        <line class="life" x1="770" y1="85" x2="770" y2="548"/>
+        <line class="life" x1="910" y1="85" x2="910" y2="548"/>
+
+        <rect class="n" style="fill:var(--bg)" x="66"  y="112" width="8" height="436"/>
+        <rect class="n" style="fill:var(--bg)" x="206" y="112" width="8" height="104"/>
+        <rect class="n" style="fill:var(--bg)" x="346" y="216" width="8" height="118"/>
+        <rect class="n" style="fill:var(--bg)" x="486" y="282" width="8" height="26"/>
+        <rect class="n" style="fill:var(--bg)" x="626" y="134" width="8" height="10"/>
+        <rect class="n" style="fill:var(--bg)" x="626" y="334" width="8" height="66"/>
+        <rect class="n" style="fill:var(--bg)" x="766" y="426" width="8" height="104"/>
+        <rect class="n" style="fill:var(--bg)" x="906" y="452" width="8" height="52"/>
+
+        <path class="flow" d="M74 112 L202 112" marker-end="url(#d-sync)"/>
+        <text class="edge" x="140" y="106" text-anchor="middle">1  bootstrap() — the shell boots before any plugin</text>
+
+        <path class="flow" d="M214 138 L622 138" marker-end="url(#d-sync)"/>
+        <text class="edge" x="420" y="132" text-anchor="middle">2  declareShellExtensionPoints() — the 3 shell-owned points</text>
+
+        <path class="flow" d="M214 164 L762 164" marker-end="url(#d-sync)"/>
+        <text class="edge" x="490" y="158" text-anchor="middle">3  createPluginLoader({ allowlist, statuses, adapters })</text>
+
+        <path class="flow" d="M202 190 L78 190" marker-end="url(#d-sync)"/>
+        <text class="edge" x="76" y="184">4  app.mount('#app') — the frame paints with no plugins in it</text>
+
+        <path class="flow" d="M214 216 L342 216" marker-end="url(#d-sync)"/>
+        <text class="edge" x="280" y="210" text-anchor="middle">5  session.start()</text>
+
+        <path class="flow" d="M354 242 L372 242 L372 256 L358 256" marker-end="url(#d-sync)"/>
+        <text class="edge" x="380" y="253">6  await afterPaint() — a double rAF, or 1000 ms</text>
+
+        <path class="flow" d="M354 282 L482 282" marker-end="url(#d-sync)"/>
+        <text class="edge" x="420" y="276" text-anchor="middle">7  request api._platform.mfe-registry.frontend-plugins.read.v1 { heldRevision }</text>
+
+        <path class="ret" d="M482 308 L358 308" marker-end="url(#d-ret)"/>
+        <text class="edge" x="420" y="302" text-anchor="middle">8  { revision, plugins[] } — manifests only, no code</text>
+
+        <path class="flow" d="M354 334 L622 334" marker-end="url(#d-sync)"/>
+        <text class="edge" x="490" y="328" text-anchor="middle">9  admit(m): validateManifest -&gt; declare points -&gt; allowlist.add</text>
+
+        <path class="flow" d="M634 360 L652 360 L652 374 L638 374" marker-end="url(#d-sync)"/>
+        <text class="edge" x="660" y="371">10  contributions.index() -&gt; decidePlacements()</text>
+
+        <path class="flow" d="M622 400 L218 400" marker-end="url(#d-sync)"/>
+        <text class="edge" x="420" y="394" text-anchor="middle">11  installShellRoutes({ router, routes }) — still no plugin code</text>
+
+        <path class="flow" d="M74 426 L762 426" marker-end="url(#d-sync)"/>
+        <text class="edge" x="420" y="420" text-anchor="middle">12  user opens /example-plugin/overview -&gt; resolveRouteComponent()</text>
+
+        <path class="flow" d="M774 452 L902 452" marker-end="url(#d-sync)"/>
+        <text class="edge" x="840" y="446" text-anchor="middle">13  loadRemote('example_plugin/./plugin')</text>
+
+        <path class="ret" d="M902 478 L778 478" marker-end="url(#d-ret)"/>
+        <text class="edge" x="840" y="472" text-anchor="middle">14  the module — { components, activate }</text>
+
+        <path class="flow" d="M774 504 L902 504" marker-end="url(#d-sync)"/>
+        <text class="edge" x="840" y="498" text-anchor="middle">15  await module.activate(shellApi)</text>
+
+        <path class="flow" d="M762 530 L78 530" marker-end="url(#d-sync)"/>
+        <text class="edge" x="420" y="524" text-anchor="middle">16  components[componentKey] mounted into the route — the first plugin pixels</text>
+      </svg>
+    </div>
+    <figcaption><b>Two stops, and a long gap between them.</b> Messages 1–11 are the shell arranging itself around descriptions: nothing but manifests has crossed the wire, and message 4 deliberately paints the frame before message 5 even asks for the catalogue, which is what makes the shell's first paint independent of the registry (BR-AS08, stage one). Messages 12–16 are stage two, and they only ever run because a user navigated. A plugin that is registered, enabled, healthy and routed can sit at message 11 forever without a single byte of its code being fetched.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 540" role="img" aria-label="A UML sequence diagram of the development preview path, with six lifelines: the browser, the Vite dev server running previewHarness, the harness client.js mountPreview, PreviewApp.vue's boot function, the plugin module at slash src slash plugin.js, and PreviewStage.vue with the shell API stub. Fourteen numbered messages run top to bottom. The browser gets the preview route, the harness builds the page and responds 200 with no-store, the page's inline module script imports client.js, mountPreview waits for the shared module scope, parses its options, forces dark mode and registers inert RouterLink and RouterView stubs, then mounts PreviewApp. PreviewApp's boot imports the plugin entry FIRST, receives its named exports, and only THEN fetches the manifest, which it reads raw with no validation and no allowlist. It calls the plugin's activate with a locally built shell API stub whose version is a literal 1, builds an item list, and renders one PreviewStage per item.">
+        <defs>
+          <marker id="e-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="e-ret" viewBox="0 0 9 8" refX="8" refY="4" markerWidth="9" markerHeight="8" orient="auto-start-reverse">
+            <polyline points="1,1 8,4 1,7" fill="none" stroke="var(--hop)" stroke-width="1.2"/>
+          </marker>
+        </defs>
+
+        <rect class="n" x="2"   y="40" width="152" height="45" rx="3"/>
+        <text class="lbl"  x="78"  y="60" text-anchor="middle">browser</text>
+        <text class="lbl2" x="78"  y="73" text-anchor="middle">the one page</text>
+        <rect class="n" x="167" y="40" width="152" height="45" rx="3"/>
+        <text class="lbl"  x="243" y="60" text-anchor="middle">Vite dev server</text>
+        <text class="lbl2" x="243" y="73" text-anchor="middle">previewHarness()</text>
+        <rect class="n" x="332" y="40" width="152" height="45" rx="3"/>
+        <text class="lbl"  x="408" y="60" text-anchor="middle">client.js</text>
+        <text class="lbl2" x="408" y="73" text-anchor="middle">mountPreview()</text>
+        <rect class="n" x="497" y="40" width="152" height="45" rx="3"/>
+        <text class="lbl"  x="573" y="60" text-anchor="middle">PreviewApp.vue</text>
+        <text class="lbl2" x="573" y="73" text-anchor="middle">boot()</text>
+        <rect class="n" x="662" y="40" width="152" height="45" rx="3"/>
+        <text class="lbl"  x="738" y="60" text-anchor="middle">/src/plugin.js</text>
+        <text class="lbl2" x="738" y="73" text-anchor="middle">the plugin module</text>
+        <rect class="n" x="827" y="40" width="152" height="45" rx="3"/>
+        <text class="lbl"  x="903" y="60" text-anchor="middle">PreviewStage.vue</text>
+        <text class="lbl2" x="903" y="73" text-anchor="middle">+ shellApiStub</text>
+
+        <line class="life" x1="78"  y1="85" x2="78"  y2="524"/>
+        <line class="life" x1="243" y1="85" x2="243" y2="524"/>
+        <line class="life" x1="408" y1="85" x2="408" y2="524"/>
+        <line class="life" x1="573" y1="85" x2="573" y2="524"/>
+        <line class="life" x1="738" y1="85" x2="738" y2="524"/>
+        <line class="life" x1="903" y1="85" x2="903" y2="524"/>
+
+        <rect class="n" style="fill:var(--bg)" x="74"  y="112" width="8" height="412"/>
+        <rect class="n" style="fill:var(--bg)" x="239" y="112" width="8" height="66"/>
+        <rect class="n" style="fill:var(--bg)" x="239" y="388" width="8" height="26"/>
+        <rect class="n" style="fill:var(--bg)" x="404" y="204" width="8" height="106"/>
+        <rect class="n" style="fill:var(--bg)" x="569" y="310" width="8" height="196"/>
+        <rect class="n" style="fill:var(--bg)" x="734" y="336" width="8" height="26"/>
+        <rect class="n" style="fill:var(--bg)" x="734" y="440" width="8" height="14"/>
+        <rect class="n" style="fill:var(--bg)" x="899" y="506" width="8" height="14"/>
+
+        <path class="flow" d="M82 112 L235 112" marker-end="url(#e-sync)"/>
+        <text class="edge" x="160" y="106" text-anchor="middle">1  GET /__preview</text>
+
+        <path class="flow" d="M247 138 L265 138 L265 152 L251 152" marker-end="url(#e-sync)"/>
+        <text class="edge" x="273" y="149">2  declaredDeps(root) -&gt; page(...) -&gt; transformIndexHtml()</text>
+
+        <path class="ret" d="M235 178 L82 178" marker-end="url(#e-ret)"/>
+        <text class="edge" x="160" y="172" text-anchor="middle">3  200 text/html · no-store · &lt;div id="mfe-preview"&gt;</text>
+
+        <path class="flow" d="M82 204 L400 204" marker-end="url(#e-sync)"/>
+        <text class="edge" x="243" y="198" text-anchor="middle">4  import('/@fs .../shared/mfe-preview/client.js')</text>
+
+        <path class="flow" d="M412 230 L430 230 L430 244 L416 244" marker-end="url(#e-sync)"/>
+        <text class="edge" x="438" y="241">5  await whenSharedScopeReady(Vue) — up to 5000 ms</text>
+
+        <path class="flow" d="M412 270 L430 270 L430 284 L416 284" marker-end="url(#e-sync)"/>
+        <text class="edge" x="438" y="281">6  parse options JSON · p-dark · stub RouterLink/RouterView</text>
+
+        <path class="flow" d="M412 310 L565 310" marker-end="url(#e-sync)"/>
+        <text class="edge" x="490" y="304" text-anchor="middle">7  createApp(PreviewApp).mount('#mfe-preview')</text>
+
+        <path class="flow" d="M577 336 L730 336" marker-end="url(#e-sync)"/>
+        <text class="edge" x="655" y="330" text-anchor="middle">8  await import('/src/plugin.js')   &lt;-- FIRST</text>
+
+        <path class="ret" d="M730 362 L581 362" marker-end="url(#e-ret)"/>
+        <text class="edge" x="655" y="356" text-anchor="middle">9  { components, activate } — named exports, no default</text>
+
+        <path class="flow" d="M565 388 L251 388" marker-end="url(#e-sync)"/>
+        <text class="edge" x="408" y="382" text-anchor="middle">10  fetch('/manifest.json')   &lt;-- SECOND</text>
+
+        <path class="ret" d="M251 414 L565 414" marker-end="url(#e-ret)"/>
+        <text class="edge" x="408" y="408" text-anchor="middle">11  the raw manifest — no validateManifest, no allowlist</text>
+
+        <path class="flow" d="M577 440 L730 440" marker-end="url(#e-sync)"/>
+        <text class="edge" x="655" y="434" text-anchor="middle">12  await module.activate(createPreviewShellApi())</text>
+        <text class="edge2" x="655" y="452" text-anchor="middle">Object.freeze({ version: 1, ui: { ExtensionRegion } }) — a literal 1, nothing imported from lab-shell</text>
+
+        <path class="flow" d="M577 466 L595 466 L595 480 L581 480" marker-end="url(#e-sync)"/>
+        <text class="edge" x="603" y="477">13  buildItems({ manifest, components, fixtures }) -&gt; items[]</text>
+
+        <path class="flow" d="M577 506 L895 506" marker-end="url(#e-sync)"/>
+        <text class="edge" x="736" y="500" text-anchor="middle">14  one &lt;PreviewStage&gt; per item — page, region, topbar, footer</text>
+      </svg>
+    </div>
+    <figcaption><b>The same plugin, reached the other way round.</b> Message 8 fires before message 10: the harness imports the code first and reads the manifest afterwards, purely to label and group what it already holds. Nothing between messages 1 and 14 validates anything — no schema check, no shell-API version check, no allowlist, no extension-point capacity — so a manifest that the shell would reject at message 9 of the previous figure still renders here. Message 12's stub is a local literal, not an import from <code>lab-shell/</code>: that is what keeps the harness installable in a plugin repo that has never seen the shell, and also what makes it possible for the two to silently disagree about what version 1 means.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Reading the five views together</h2>
+    <ul>
+      <li><b>The class view is the only place the two paths meet.</b> Figure 1's centre column — <code>src/plugin.js</code>, <code>public/manifest.json</code>, <code>Contribution</code>, <code>ShellApi</code> — is imported by both sides and owned by neither. Every left-hand class and every right-hand class exists to turn that contract into rendered UI; they share no code and never call each other.</li>
+      <li><b>The component views differ by an order of magnitude in moving parts.</b> Production is eleven containers on two Docker networks with a message broker in the middle (figure 2). The preview is one <code>npm run dev</code> process serving four files on one origin (figure 3). That is the whole reason the harness exists — and the whole reason a clean preview is not evidence that the shell will load the plugin.</li>
+      <li><b>The sequence views invert the same two steps.</b> The shell fetches a description, validates it, and only then fetches code (figure 4, messages 7 → 9 → 13). The harness fetches code, then a description it does not check (figure 5, messages 8 → 10). Every difference in what each path can catch follows from that one inversion.</li>
+      <li><b>What the preview cannot tell you</b> is exactly the list in figure 4 that figure 5 has no counterpart for: <code>validateManifest</code>'s eight rejection codes, extension-point ownership and capacity, the remote allowlist, Module Federation's shared-scope negotiation against the real host, and every failure code the loader can return. A green preview means the component renders. Only the shell can say the plugin loads.</li>
+      <li><b>The shell API version is asserted twice, independently.</b> <code>SHELL_API_VERSION</code> in <code>lab-shell/src/shell/versions.js</code>, and a literal <code>1</code> in <code>shared/mfe-preview/shellApiStub.js</code>. Figure 1 draws them as two classes with the same stereotype for that reason. If the shell's API ever reaches version 2, the stub is the second edit and nothing enforces it — see BR-AS07's version discipline.</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

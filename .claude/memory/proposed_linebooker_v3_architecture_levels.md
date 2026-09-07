@@ -20,12 +20,12 @@ Do not copy their rules into this memory file.
 ## Available architecture documents
 
 - `LB-V3-L0-01` - Architecture Atlas and Diagram Sitemap:
-  `demos/01-dictionary/diagrams/proposed-linebooker-v3-l0-architecture-atlas.html`
+  `demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l0-architecture-atlas.html`
 - `LB-V3-L1-01` - System and Platform Overview:
-  `demos/01-dictionary/diagrams/proposed-linebooker-v3-l1-system-platform-overview.html`
+  `demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l1-system-platform-overview.html`
 - `LB-V3-L2-01` - Logical and Technical Architecture, two A3 sheets covering
   logical/service ownership and regional deployment:
-  `demos/01-dictionary/diagrams/proposed-linebooker-v3-l2-logical-technical-architecture.html`
+  `demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l2-logical-technical-architecture.html`
 - L2 requirements are maintained at
   `obsidian/V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-L2-Requirements.md`.
 

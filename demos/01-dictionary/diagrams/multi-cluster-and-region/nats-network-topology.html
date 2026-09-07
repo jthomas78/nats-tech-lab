@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NATS network topology — clusters, gateways, leaf nodes</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --ground: #15181c; --tile: #1a1e23; --tile-stroke: #3a424c;
+  --blue: #3b8bff; --cyan: #2fd4e8; --green: #34d399; --purple: #a78bfa;
+  --stroke: #4a515b; --amber: #f5b13d; --tx3: #8b929b;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code, td code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.sec { display: flex; flex-direction: column; gap: 11px; }
+table { border-collapse: collapse; font-size: 12px; line-height: 18px; color: var(--muted); width: 100%; }
+th, td { text-align: left; padding: 6px 14px 6px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
+td b { color: var(--text); font-weight: 600; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+.bnd  { fill: var(--ground); stroke-width: 1.1; }
+.tile { fill: var(--tile); stroke: var(--tile-stroke); stroke-width: 1.1; }
+.gl   { font-size: 11px; font-weight: 600; letter-spacing: 0.13em; }
+.tl   { font-size: 11.5px; font-weight: 600; fill: var(--text); }
+.tm   { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
+.td   { font-size: 9.5px; fill: var(--dim); }
+.ig   { font-size: 12px; font-weight: 700; fill: #0d0f11; }
+.lg   { font-size: 10px; fill: var(--dim); }
+.ed   { font-size: 9.5px; fill: var(--muted); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+.rt   { fill: none; stroke: var(--tx3); stroke-width: 1.1; }
+.gw   { fill: none; stroke: var(--cyan); stroke-width: 1.4; }
+.lf   { fill: none; stroke: var(--purple); stroke-width: 1.4; }
+.cl   { fill: none; stroke: var(--green); stroke-width: 1.4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <div class="eyebrow">NATS network topology &middot; discussion sketch (LB-V3-L3-04 context)</div>
+      <h1>Three clusters, one super-cluster &mdash; and yes, the control plane gets a cluster</h1>
+      <p class="sub">NATS joins servers in exactly three ways and no others: <b>routes</b> inside one cluster,
+      <b>gateways</b> between clusters, <b>leafnode</b> connections from the edge inward. Everything below is one of
+      those three. Today the lab runs a <b>single server</b> &mdash; <code>nats.conf</code> has no
+      <code>cluster</code>, <code>gateway</code> or <code>leafnodes</code> block at all.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 974 610" role="img" aria-label="A NATS super-cluster of three clusters stacked vertically. The top cluster is named cp and is the control plane: three identical servers, each with a client port 4222, a route port 6222 and a gateway port 7222, and each holding its own on-disk copy of the account JWTs from the full resolver. The middle cluster is named eu for region eu-west and the bottom cluster is named us for region us-east; both have three identical servers and both hold the JetStream streams for their own region, replicated three ways within the cluster only. Inside each cluster the three servers are joined by routes in a full mesh: a link between server one and two, a link between two and three, and a link running below the row from one to three. Between clusters, cyan gateway links join cp to eu, eu to us, and cp to us, the last routed down a lane on the far right, so all three clusters are gatewayed to each other. Each server opens one gateway connection per remote cluster, not one per remote server.">
+        <defs>
+          <marker id="a-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--cyan)"/>
+          </marker>
+        </defs>
+
+        <!-- ============ cluster cp ============ -->
+        <text class="gl" x="6" y="34" fill="var(--green)">CLUSTER cp &mdash; CONTROL PLANE &middot; SAME OPERATOR, OWN LIFECYCLE</text>
+        <rect class="bnd" x="6" y="40" width="830" height="136" rx="12" stroke="var(--green)"/>
+
+        <rect class="tile" x="20" y="54" width="250" height="76" rx="8"/>
+        <rect x="30" y="64" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="41" y="79" text-anchor="middle">N</text>
+        <text class="tl" x="58" y="79">nats-cp-1</text>
+        <text class="tm" x="32" y="102">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="32" y="120">resolver: full &mdash; own copy on disk</text>
+
+        <rect class="tile" x="296" y="54" width="250" height="76" rx="8"/>
+        <rect x="306" y="64" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="317" y="79" text-anchor="middle">N</text>
+        <text class="tl" x="334" y="79">nats-cp-2</text>
+        <text class="tm" x="308" y="102">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="308" y="120">resolver: full &mdash; own copy on disk</text>
+
+        <rect class="tile" x="572" y="54" width="250" height="76" rx="8"/>
+        <rect x="582" y="64" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="593" y="79" text-anchor="middle">N</text>
+        <text class="tl" x="610" y="79">nats-cp-3</text>
+        <text class="tm" x="584" y="102">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="584" y="120">resolver: full &mdash; own copy on disk</text>
+
+        <path class="rt" d="M270 92 L296 92"/>
+        <path class="rt" d="M546 92 L572 92"/>
+        <path class="rt" d="M145 130 L145 154 L697 154 L697 130"/>
+        <text class="ed" x="421" y="148" text-anchor="middle">routes &middot; full mesh, every server to every server</text>
+
+        <!-- ============ cluster eu ============ -->
+        <text class="gl" x="6" y="226" fill="var(--cyan)">CLUSTER eu &mdash; REGION eu-west &middot; STREAM PLACEMENT cluster: eu</text>
+        <rect class="bnd" x="6" y="232" width="830" height="136" rx="12" stroke="var(--cyan)"/>
+
+        <rect class="tile" x="20" y="246" width="250" height="76" rx="8"/>
+        <rect x="30" y="256" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="41" y="271" text-anchor="middle">N</text>
+        <text class="tl" x="58" y="271">nats-eu-1</text>
+        <text class="tm" x="32" y="294">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="32" y="312">eu streams live here &mdash; R3 inside eu</text>
+
+        <rect class="tile" x="296" y="246" width="250" height="76" rx="8"/>
+        <rect x="306" y="256" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="317" y="271" text-anchor="middle">N</text>
+        <text class="tl" x="334" y="271">nats-eu-2</text>
+        <text class="tm" x="308" y="294">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="308" y="312">eu streams live here &mdash; R3 inside eu</text>
+
+        <rect class="tile" x="572" y="246" width="250" height="76" rx="8"/>
+        <rect x="582" y="256" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="593" y="271" text-anchor="middle">N</text>
+        <text class="tl" x="610" y="271">nats-eu-3</text>
+        <text class="tm" x="584" y="294">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="584" y="312">eu streams live here &mdash; R3 inside eu</text>
+
+        <path class="rt" d="M270 284 L296 284"/>
+        <path class="rt" d="M546 284 L572 284"/>
+        <path class="rt" d="M145 322 L145 346 L697 346 L697 322"/>
+
+        <!-- ============ cluster us ============ -->
+        <text class="gl" x="6" y="418" fill="var(--cyan)">CLUSTER us &mdash; REGION us-east &middot; STREAM PLACEMENT cluster: us</text>
+        <rect class="bnd" x="6" y="424" width="830" height="136" rx="12" stroke="var(--cyan)"/>
+
+        <rect class="tile" x="20" y="438" width="250" height="76" rx="8"/>
+        <rect x="30" y="448" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="41" y="463" text-anchor="middle">N</text>
+        <text class="tl" x="58" y="463">nats-us-1</text>
+        <text class="tm" x="32" y="486">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="32" y="504">us streams live here &mdash; R3 inside us</text>
+
+        <rect class="tile" x="296" y="438" width="250" height="76" rx="8"/>
+        <rect x="306" y="448" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="317" y="463" text-anchor="middle">N</text>
+        <text class="tl" x="334" y="463">nats-us-2</text>
+        <text class="tm" x="308" y="486">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="308" y="504">us streams live here &mdash; R3 inside us</text>
+
+        <rect class="tile" x="572" y="438" width="250" height="76" rx="8"/>
+        <rect x="582" y="448" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="593" y="463" text-anchor="middle">N</text>
+        <text class="tl" x="610" y="463">nats-us-3</text>
+        <text class="tm" x="584" y="486">client 4222 &middot; route 6222 &middot; gw 7222</text>
+        <text class="td" x="584" y="504">us streams live here &mdash; R3 inside us</text>
+
+        <path class="rt" d="M270 476 L296 476"/>
+        <path class="rt" d="M546 476 L572 476"/>
+        <path class="rt" d="M145 514 L145 538 L697 538 L697 514"/>
+
+        <!-- ============ gateways ============ -->
+        <path class="gw" d="M740 178 L740 230" marker-start="url(#a-gw)" marker-end="url(#a-gw)"/>
+        <text class="ed" x="728" y="204" text-anchor="end">gateway &middot; one connection per remote cluster, not per server</text>
+        <path class="gw" d="M740 370 L740 422" marker-start="url(#a-gw)" marker-end="url(#a-gw)"/>
+        <path class="gw" d="M836 92 L890 92 L890 476 L836 476" marker-start="url(#a-gw)" marker-end="url(#a-gw)"/>
+
+        <rect x="6" y="584" width="962" height="1" fill="#2a3038"/>
+        <text class="lg" x="6" y="600">grey line = route (inside one cluster, full mesh) &nbsp;&middot;&nbsp; cyan = gateway (between clusters) &nbsp;&middot;&nbsp; green = control plane &nbsp;&middot;&nbsp; cyan boundary = regional data plane</text>
+      </svg>
+    </div>
+    <figcaption><b>Three clusters gatewayed into one super-cluster.</b> A <b>route</b> is intra-cluster and full-mesh; it is
+    what makes three servers one cluster, and it is the only link Raft runs over &mdash; which is why a cluster never
+    stretches across regions. A <b>gateway</b> is inter-cluster and carries only traffic that has interest on the other
+    side, with queue-group geo-affinity keeping most messages local. <b>Stream replicas never cross a gateway</b> &mdash;
+    a gateway carries interest, not stream copies; the only cross-cluster copy of a stream is an explicit
+    <code>mirror</code> or <code>source</code>, and it is eventually consistent. So <code>R3</code> means three copies
+    inside one cluster, and today <code>shared/jstream/jstream.go</code> sets no <code>Replicas</code> at all, so every
+    stream is <code>R1</code>. Gateway wiring is a full mesh of clusters, not of servers: each server opens one gateway
+    connection per <em>remote cluster</em>.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 974 330" role="img" aria-label="Which NATS node a process connects to, before and after regions exist. Day one, with no regions yet, there is only one cluster named cp: every process, whether the provisioner, a business service or the CLI, sets NATS_URL to nats-cp on port 4222, that one cluster carries tenant traffic as well as control-plane traffic, and there is no gateway because there is nothing to gateway to. Day two, once region eu is added, the control-plane process keeps exactly the same NATS_URL, a process in region eu sets NATS_URL to nats-eu instead and always connects to its own local cluster, and a request from eu that needs the control plane crosses the gateway by subject interest rather than by a second connection URL.">
+        <defs>
+          <marker id="b-cl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--green)"/>
+          </marker>
+          <marker id="b-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--cyan)"/>
+          </marker>
+        </defs>
+
+        <text class="gl" x="6" y="34" fill="var(--green)">DAY ONE &mdash; NO REGIONS YET &middot; ONE CLUSTER DOES EVERYTHING</text>
+        <rect class="bnd" x="6" y="40" width="962" height="100" rx="12" stroke="var(--green)"/>
+
+        <rect class="tile" x="20" y="54" width="290" height="72" rx="8"/>
+        <rect x="30" y="64" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="41" y="79" text-anchor="middle">P</text>
+        <text class="tl" x="58" y="79">every process</text>
+        <text class="tm" x="32" y="99">NATS_URL=nats://nats-cp:4222</text>
+        <text class="td" x="32" y="115">provisioner, services, the CLI</text>
+
+        <rect class="tile" x="342" y="54" width="290" height="72" rx="8"/>
+        <rect x="352" y="64" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="363" y="79" text-anchor="middle">C</text>
+        <text class="tl" x="380" y="79">cluster cp</text>
+        <text class="tm" x="354" y="99">3 servers, routed, 3 A records</text>
+        <text class="td" x="354" y="115">carries tenant traffic too, for now</text>
+
+        <rect class="tile" x="664" y="54" width="290" height="72" rx="8"/>
+        <rect x="674" y="64" width="22" height="22" rx="7" fill="var(--tx3)"/>
+        <text class="ig" x="685" y="79" text-anchor="middle">X</text>
+        <text class="tl" x="702" y="79">no gateway</text>
+        <text class="tm" x="676" y="99">gateway {} block absent</text>
+        <text class="td" x="676" y="115">nothing to gateway to yet</text>
+
+        <path class="cl" d="M310 90 L334 90" marker-end="url(#b-cl)"/>
+        <path class="rt" d="M632 90 L656 90"/>
+
+        <text class="gl" x="6" y="174" fill="var(--cyan)">DAY TWO &mdash; REGION eu ADDED &middot; SAME CODE, DIFFERENT NATS_URL</text>
+        <rect class="bnd" x="6" y="180" width="962" height="100" rx="12" stroke="var(--cyan)"/>
+
+        <rect class="tile" x="20" y="194" width="290" height="72" rx="8"/>
+        <rect x="30" y="204" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="41" y="219" text-anchor="middle">P</text>
+        <text class="tl" x="58" y="219">control-plane process</text>
+        <text class="tm" x="32" y="239">NATS_URL=nats://nats-cp:4222</text>
+        <text class="td" x="32" y="255">unchanged &mdash; it never moved</text>
+
+        <rect class="tile" x="342" y="194" width="290" height="72" rx="8"/>
+        <rect x="352" y="204" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="363" y="219" text-anchor="middle">E</text>
+        <text class="tl" x="380" y="219">process in region eu</text>
+        <text class="tm" x="354" y="239">NATS_URL=nats://nats-eu:4222</text>
+        <text class="td" x="354" y="255">always its own local cluster</text>
+
+        <rect class="tile" x="664" y="194" width="290" height="72" rx="8"/>
+        <rect x="674" y="204" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="685" y="219" text-anchor="middle">G</text>
+        <text class="tl" x="702" y="219">eu asks the control plane</text>
+        <text class="tm" x="676" y="239">rpc._platform.tenant.create</text>
+        <text class="td" x="676" y="255">crosses by interest, not a 2nd url</text>
+
+        <path class="gw" d="M632 230 L656 230" marker-end="url(#b-gw)"/>
+
+        <rect x="6" y="304" width="962" height="1" fill="#2a3038"/>
+        <text class="lg" x="6" y="320">green = control plane &nbsp;&middot;&nbsp; cyan = regional &nbsp;&middot;&nbsp; grey tile = deliberately absent</text>
+      </svg>
+    </div>
+    <figcaption><b>You never connect to a node &mdash; you connect to a cluster.</b> <code>NATS_URL</code> holds a name,
+    not an address: one DNS name with three A records, or a comma-separated seed list. The client dials any one of them,
+    the server hands back the rest of the cluster in its <code>INFO</code>, and the client reconnects itself from then on
+    &mdash; which is also why a plain TCP load balancer in front of a NATS cluster is the wrong answer, not a safer one.
+    <b>With no regions yet, <code>cp</code> is simply the only cluster</b>: it carries tenant traffic as well, and adding
+    <code>eu</code> later does not move anything already connected. Every process always connects to its <em>own</em>
+    cluster and nothing dials across a region border &mdash; a request that needs the control plane travels as
+    <b>subject interest over the gateway</b>, so the caller's URL never changes. Keep the URL in an env var from day one
+    and this stays a config change forever.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 974 340" role="img" aria-label="Leaf nodes, the optional fourth topology. A cluster named eu acts as a hub with three routed servers, each configured with a leafnodes block listening on port 7422. Below it sits an edge band of three leaf nodes that dial out to the hub and are never dialled into: a depot leaf at Rotterdam with its own account and credentials that keeps running if the wide-area link drops, a partner hub that is a separate security domain where only explicitly exported subjects cross, and a developer laptop with its own JetStream domain that mirrors only what it needs from eu. Purple connectors run upward from each leaf to the hub cluster, showing that the leaf always initiates the connection.">
+        <defs>
+          <marker id="c-lf" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--purple)"/>
+          </marker>
+        </defs>
+
+        <text class="gl" x="6" y="34" fill="var(--cyan)">CLUSTER eu &mdash; THE HUB &middot; 3 SERVERS, ROUTED</text>
+        <rect class="bnd" x="6" y="40" width="962" height="86" rx="12" stroke="var(--cyan)"/>
+
+        <rect class="tile" x="20" y="54" width="302" height="58" rx="8"/>
+        <rect x="30" y="64" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="41" y="79" text-anchor="middle">N</text>
+        <text class="tl" x="58" y="79">nats-eu-1</text>
+        <text class="tm" x="32" y="100">leafnodes { port: 7422 }</text>
+
+        <rect class="tile" x="336" y="54" width="302" height="58" rx="8"/>
+        <rect x="346" y="64" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="357" y="79" text-anchor="middle">N</text>
+        <text class="tl" x="374" y="79">nats-eu-2</text>
+        <text class="tm" x="348" y="100">leafnodes { port: 7422 }</text>
+
+        <rect class="tile" x="652" y="54" width="302" height="58" rx="8"/>
+        <rect x="662" y="64" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="673" y="79" text-anchor="middle">N</text>
+        <text class="tl" x="690" y="79">nats-eu-3</text>
+        <text class="tm" x="664" y="100">leafnodes { port: 7422 }</text>
+
+        <text class="gl" x="6" y="184" fill="var(--purple)">EDGE &mdash; LEAF NODES</text>
+        <rect class="bnd" x="6" y="190" width="962" height="100" rx="12" stroke="var(--purple)"/>
+
+        <rect class="tile" x="20" y="204" width="302" height="72" rx="8"/>
+        <rect x="30" y="214" width="22" height="22" rx="7" fill="var(--purple)"/>
+        <text class="ig" x="41" y="229" text-anchor="middle">D</text>
+        <text class="tl" x="58" y="229">depot-rotterdam</text>
+        <text class="tm" x="32" y="249">own account, own creds</text>
+        <text class="td" x="32" y="265">keeps running if the wan drops</text>
+
+        <rect class="tile" x="336" y="204" width="302" height="72" rx="8"/>
+        <rect x="346" y="214" width="22" height="22" rx="7" fill="var(--purple)"/>
+        <text class="ig" x="357" y="229" text-anchor="middle">P</text>
+        <text class="tl" x="374" y="229">partner-hub</text>
+        <text class="tm" x="348" y="249">separate security domain</text>
+        <text class="td" x="348" y="265">only exported subjects cross</text>
+
+        <rect class="tile" x="652" y="204" width="302" height="72" rx="8"/>
+        <rect x="662" y="214" width="22" height="22" rx="7" fill="var(--purple)"/>
+        <text class="ig" x="673" y="229" text-anchor="middle">L</text>
+        <text class="tl" x="690" y="229">dev-laptop</text>
+        <text class="tm" x="664" y="249">jetstream domain: laptop</text>
+        <text class="td" x="664" y="265">mirrors only what it needs</text>
+
+        <path class="lf" d="M171 204 L171 137" marker-end="url(#c-lf)"/>
+        <text class="ed" x="183" y="175">the leaf always dials out &mdash; 7422, outbound only</text>
+        <path class="lf" d="M487 204 L487 137" marker-end="url(#c-lf)"/>
+        <path class="lf" d="M803 204 L803 137" marker-end="url(#c-lf)"/>
+
+        <rect x="6" y="314" width="962" height="1" fill="#2a3038"/>
+        <text class="lg" x="6" y="330">purple = leafnode connection (leaf initiates, interest flows both ways) &nbsp;&middot;&nbsp; cyan = the hub cluster</text>
+      </svg>
+    </div>
+    <figcaption><b>Leaf nodes are the fourth topology, and you do not need them yet.</b> A leaf dials <em>out</em> to a
+    hub, so the edge needs no inbound firewall rule, and it authenticates its own clients independently &mdash; which is
+    what makes a leaf a genuine security domain rather than another cluster member. Reach for one when a site must keep
+    working while the link to the region is down, when a third party gets a foothold that shares nothing but the subjects
+    you export, or when a developer wants a local JetStream that is its own <b>domain</b> and pulls in only what it needs
+    by mirror. None of those is a V3 launch requirement, so this figure is here to mark the boundary of the design, not
+    to add a component to it.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Does the global control plane get a cluster? Yes &mdash; and here is why</h2>
+    <p class="sub">Nothing forces it. The provisioner could just be a client of a region's cluster. Four reasons say
+    give it its own three servers anyway.</p>
+    <ul>
+      <li><b>Blast radius.</b> A runaway tenant in one region cannot exhaust the servers that mint accounts. That is the
+      whole point of a control plane being a separate plane rather than a separate folder.</li>
+      <li><b>Lifecycle.</b> You upgrade and restart the control plane's servers without touching a region, and a region
+      without touching the control plane. Shared servers mean a shared maintenance window.</li>
+      <li><b>It needs R3 of its own.</b> The placement registry &mdash; which region a tenant lives in &mdash; has to
+      survive a node loss. Three servers give it a real JetStream <code>R3</code> without borrowing a region's storage or
+      making one region special.</li>
+      <li><b>No region is the capital.</b> If the provisioner lived in <code>eu</code>, then <code>eu</code> is
+      structurally more important than <code>us</code> forever, and every later conversation has to work around it.</li>
+    </ul>
+    <p class="sub">And the matching non-reason, which is the part that surprises people:</p>
+    <ul>
+      <li><b>Regions do not ask the control plane to log a user in.</b> With <code>resolver: full</code>, every server
+      keeps its own copy of the account JWTs on disk in <code>dir</code> &mdash; that is already how
+      <code>demos/01-dictionary/nats/nats.conf</code> is written. A claims update is <em>pushed</em> over the system
+      account when it changes; it is not fetched per connection. So the control plane being unreachable stops new tenants
+      being created and does not stop existing ones working.</li>
+      <li><b>Start it inside the first region if you want to.</b> Three extra servers on day one is a fair thing to
+      defer. What must never happen is <em>two</em> of it &mdash; there is one operator NKey, and a second minting
+      authority is a permanent fork of your trust chain, not a scaling step.</li>
+    </ul>
+  </section>
+
+  <section class="sec">
+    <h2>The three ways NATS joins servers, and what each one costs</h2>
+    <table>
+      <thead><tr><th>Link</th><th>Joins</th><th>Carries</th><th>Constraint that decides it</th></tr></thead>
+      <tbody>
+        <tr><td><b>Route</b> <code>6222</code></td><td>Servers into one cluster, full mesh</td><td>Everything, plus Raft for JetStream</td><td>Needs low latency &mdash; so one region, and never stretched</td></tr>
+        <tr><td><b>Gateway</b> <code>7222</code></td><td>Cluster to cluster, full mesh of clusters</td><td>Only subjects with interest on the far side</td><td>WAN-tolerant; carries no stream replicas</td></tr>
+        <tr><td><b>Leafnode</b> <code>7422</code></td><td>An edge server to a hub, leaf dials out</td><td>Interest both ways, over one outbound connection</td><td>Its own account and security domain; can hold its own JetStream domain</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><b>Three servers is not three copies of your data.</b> Servers are a cluster property; replicas are a
+      per-stream property. <code>R3</code> has to be set on every stream and every KV or Object Store bucket that
+      matters, and right now nothing sets it.</li>
+      <li><b>One super-cluster is one JetStream system.</b> A stream is pinned to a cluster by placement, and its
+      replicas stay inside that cluster. Getting the same data into two regions is a <code>mirror</code> or a
+      <code>source</code> &mdash; named, explicit, and eventually consistent.</li>
+      <li><b>The gap between the drawing and the repo is one server.</b> <code>nats.conf</code> today is
+      <code>server_name: nats-dev-1</code> with a client port, a monitor port, a WebSocket port, JetStream, and the
+      operator plus <code>resolver: full</code>. No <code>cluster</code>, no <code>gateway</code>, no
+      <code>leafnodes</code>. Every line in this sketch is additive to that file.</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

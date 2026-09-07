@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micro-frontend App Shell Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #131416;
+      --panel: #1a1e23;
+      --panel-2: #171a1f;
+      --border: #4a515b;
+      --border-soft: #2c3138;
+      --text: #dee0e3;
+      --muted: #b7bcc2;
+      --dim: #737c87;
+      --blue: #006fff;
+      --blue-soft: rgba(0,111,255,.13);
+      --green: #27c07f;
+      --green-soft: rgba(39,192,127,.12);
+      --amber: #c59a2d;
+      --amber-soft: rgba(197,154,45,.11);
+      --red: #e06c75;
+      --purple: #a88bea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      line-height: 20px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container { width: min(1480px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 52px; }
+    .header { margin-bottom: 24px; }
+    .header-row { display: flex; align-items: center; gap: 12px; }
+    .pulse-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 5px rgba(0,111,255,.11); }
+    h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -.02em; }
+    .subtitle { margin: 5px 0 0 21px; max-width: 920px; color: var(--muted); }
+    .toolbar { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .toolbar-actions { display: none; gap: 7px; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar button { font: inherit; color: var(--muted); background: var(--panel); border: 1px solid var(--border-soft); border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+    .toolbar button:hover { color: var(--text); border-color: var(--border); }
+    .toolbar .toolbar-toggle { border-color: transparent; background: transparent; font-size: 18px; }
+    .figure { margin: 0 0 24px; }
+    .figure-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 9px; }
+    .figure-no { color: var(--blue); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+    .diagram-container { background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; overflow-x: auto; }
+    svg { display: block; width: 100%; min-width: 980px; height: auto; }
+    figcaption { margin: 8px 4px 0; color: var(--muted); max-width: 118ch; }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .card { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 8px; padding: 16px; }
+    .card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+    .card-dot.green { background: var(--green); }
+    .card-dot.amber { background: var(--amber); }
+    .card h3 { margin: 0; font-size: 13px; font-weight: 600; }
+    .card p, .card ul { margin: 0; color: var(--muted); }
+    .card ul { padding-left: 17px; }
+    .sources { margin-top: 24px; border-top: 1px solid var(--border-soft); padding-top: 18px; }
+    .sources h2 { margin-bottom: 8px; }
+    .source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 24px; }
+    a { color: #6ba8ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px; }
+    .footer { margin: 22px 0 0; color: var(--dim); text-align: center; font-size: 12px; }
+    @media (max-width: 900px) { .cards, .source-grid { grid-template-columns: 1fr; } .container { width: calc(100% - 24px); } }
+    @media print { body { background: var(--bg); } .toolbar { display: none !important; } }
+
+    .svg-title { fill: var(--text); font-size: 15px; font-weight: 600; }
+    .svg-subtitle { fill: var(--muted); font-size: 11px; }
+    .lane-label { fill: var(--blue); font-size: 11px; font-weight: 600; letter-spacing: .06em; }
+    .boundary { fill: rgba(26,30,35,.55); stroke: var(--border); stroke-width: 1; stroke-dasharray: 7 5; }
+    .boundary-blue { fill: rgba(0,111,255,.035); stroke: var(--blue); stroke-width: 1; stroke-dasharray: 7 5; }
+    .node-bg { fill: var(--panel); }
+    .node { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 1.4; }
+    .node-green { fill: var(--green-soft); stroke: var(--green); stroke-width: 1.4; }
+    .node-amber { fill: var(--amber-soft); stroke: var(--amber); stroke-width: 1.4; }
+    .node-neutral { fill: rgba(74,81,91,.14); stroke: var(--border); stroke-width: 1.2; }
+    .node-purple { fill: rgba(168,139,234,.12); stroke: var(--purple); stroke-width: 1.3; }
+    .node-title { fill: var(--text); font-size: 12px; font-weight: 600; }
+    .node-copy { fill: var(--muted); font-size: 10px; }
+    .tiny { fill: var(--dim); font-size: 9px; }
+    .accent { fill: var(--blue); }
+    .green { fill: var(--green); }
+    .amber { fill: var(--amber); }
+    .line { fill: none; stroke: var(--blue); stroke-width: 1.5; marker-end: url(#arrow-blue); }
+    .line-green { fill: none; stroke: var(--green); stroke-width: 1.5; marker-end: url(#arrow-green); }
+    .line-amber { fill: none; stroke: var(--amber); stroke-width: 1.5; marker-end: url(#arrow-amber); stroke-dasharray: 6 4; }
+    .line-neutral { fill: none; stroke: var(--border); stroke-width: 1.35; marker-end: url(#arrow-neutral); }
+    .line-dashed { stroke-dasharray: 6 4; }
+    .line-label-bg { fill: var(--panel-2); }
+    .line-label { fill: var(--muted); font-size: 9px; }
+    .step { fill: var(--blue); }
+    .step-text { fill: #fff; font-size: 9px; font-weight: 600; text-anchor: middle; }
+    .zone { fill: rgba(0,111,255,.08); stroke: var(--blue); stroke-width: 1; stroke-dasharray: 4 3; }
+    .zone-owned { fill: rgba(39,192,127,.08); stroke: var(--green); stroke-width: 1; stroke-dasharray: 4 3; }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <header class="header">
+      <div class="header-row">
+        <div class="pulse-dot" aria-hidden="true"></div>
+        <h1>Micro-frontends: App Shell composition and local preview</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">As-built Vue micro-frontend architecture: independently served plugins are composed by the production shell and rendered in isolation by a shared development harness.</p>
+    </header>
+
+    <figure class="figure">
+      <div class="figure-head"><span class="figure-no">View 01</span><h2>Two hosts, one plugin contract</h2></div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 1200 700" role="img" aria-labelledby="split-title split-desc">
+          <title id="split-title">Production App Shell and development preview paths</title>
+          <desc id="split-desc">The production shell reads curated metadata over NATS and loads plugin code over HTTP through Module Federation. The development harness reads the local manifest and imports local plugin code directly.</desc>
+          <defs>
+            <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#006fff"/></marker>
+            <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#27c07f"/></marker>
+            <marker id="arrow-amber" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#c59a2d"/></marker>
+            <marker id="arrow-neutral" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4a515b"/></marker>
+          </defs>
+
+          <rect x="470" y="18" width="260" height="82" rx="8" class="node-bg"/><rect x="470" y="18" width="260" height="82" rx="8" class="node-green"/>
+          <text x="600" y="43" text-anchor="middle" class="node-title">Shared plugin package</text>
+          <text x="600" y="62" text-anchor="middle" class="node-copy">manifest.json · plugin.js</text>
+          <text x="600" y="78" text-anchor="middle" class="node-copy">Vue component exports · UniFi theme</text>
+
+          <rect x="20" y="122" width="560" height="526" rx="10" class="boundary-blue"/>
+          <text x="40" y="149" class="lane-label">PRODUCTION · APP SHELL :7110</text>
+          <text x="40" y="168" class="svg-subtitle">Full composition, policy and cross-plugin runtime</text>
+
+          <rect x="620" y="122" width="560" height="526" rx="10" class="boundary"/>
+          <text x="640" y="149" class="lane-label">DEVELOPMENT · PLUGIN DEV SERVER /__preview</text>
+          <text x="640" y="168" class="svg-subtitle">Contribution isolation on the plugin's own port</text>
+
+          <path d="M530 100 L530 188 L565 188 L565 410 L165 410 L165 432" class="line-green"/>
+          <text x="365" y="404" text-anchor="middle" class="line-label">built and published as an independent remote</text>
+          <path d="M670 100 L670 188 L1035 188 L1035 208" class="line-green"/>
+          <text x="852" y="182" text-anchor="middle" class="line-label">local source remains on the plugin dev server</text>
+
+          <rect x="55" y="210" width="220" height="72" rx="7" class="node-bg"/><rect x="55" y="210" width="220" height="72" rx="7" class="node-amber"/>
+          <text x="165" y="235" text-anchor="middle" class="node-title">MFE Registry Service</text>
+          <text x="165" y="254" text-anchor="middle" class="node-copy">curated metadata + revision</text>
+          <text x="165" y="269" text-anchor="middle" class="tiny">NATS request/reply + change hints</text>
+
+          <rect x="325" y="210" width="220" height="72" rx="7" class="node-bg"/><rect x="325" y="210" width="220" height="72" rx="7" class="node"/>
+          <text x="435" y="235" text-anchor="middle" class="node-title">Browser · App Shell</text>
+          <text x="435" y="254" text-anchor="middle" class="node-copy">router · theme · permissions</text>
+          <text x="435" y="269" text-anchor="middle" class="tiny">real shell API + error boundaries</text>
+          <path d="M275 246 L323 246" class="line-amber"/>
+          <text x="299" y="235" text-anchor="middle" class="line-label">1 metadata</text>
+
+          <rect x="190" y="322" width="220" height="72" rx="7" class="node-bg"/><rect x="190" y="322" width="220" height="72" rx="7" class="node-neutral"/>
+          <text x="300" y="347" text-anchor="middle" class="node-title">Validate and index</text>
+          <text x="300" y="366" text-anchor="middle" class="node-copy">routes · navigation · extensions</text>
+          <text x="300" y="381" text-anchor="middle" class="tiny">metadata only; remote stays lazy</text>
+          <path d="M435 282 L435 302 L300 302 L300 320" class="line-neutral"/>
+          <circle cx="420" cy="302" r="10" class="step"/><text x="420" y="305" class="step-text">2</text>
+
+          <rect x="55" y="434" width="220" height="72" rx="7" class="node-bg"/><rect x="55" y="434" width="220" height="72" rx="7" class="node-green"/>
+          <text x="165" y="459" text-anchor="middle" class="node-title">Plugin HTTP origin</text>
+          <text x="165" y="478" text-anchor="middle" class="node-copy">remoteEntry.js + chunks</text>
+          <text x="165" y="493" text-anchor="middle" class="tiny">independent image / deployment</text>
+
+          <rect x="325" y="434" width="220" height="72" rx="7" class="node-bg"/><rect x="325" y="434" width="220" height="72" rx="7" class="node"/>
+          <text x="435" y="459" text-anchor="middle" class="node-title">First contribution use</text>
+          <text x="435" y="478" text-anchor="middle" class="node-copy">Module Federation load</text>
+          <text x="435" y="493" text-anchor="middle" class="tiny">activate(real shellApi) once</text>
+          <path d="M300 394 L300 414 L435 414 L435 432" class="line-neutral"/>
+          <circle cx="316" cy="414" r="10" class="step"/><text x="316" y="417" class="step-text">3</text>
+          <path d="M275 470 L323 470" class="line-green"/>
+          <text x="299" y="459" text-anchor="middle" class="line-label">HTTP</text>
+
+          <rect x="190" y="548" width="220" height="72" rx="7" class="node-bg"/><rect x="190" y="548" width="220" height="72" rx="7" class="node"/>
+          <text x="300" y="573" text-anchor="middle" class="node-title">Composed application</text>
+          <text x="300" y="592" text-anchor="middle" class="node-copy">Vue Router + contribution slots</text>
+          <text x="300" y="607" text-anchor="middle" class="tiny">shell- and plugin-owned regions</text>
+          <path d="M435 506 L435 528 L300 528 L300 546" class="line"/>
+          <circle cx="420" cy="528" r="10" class="step"/><text x="420" y="531" class="step-text">4</text>
+
+          <rect x="660" y="210" width="220" height="72" rx="7" class="node-bg"/><rect x="660" y="210" width="220" height="72" rx="7" class="node"/>
+          <text x="770" y="235" text-anchor="middle" class="node-title">Browser · /__preview</text>
+          <text x="770" y="254" text-anchor="middle" class="node-copy">served by plugin's Vite server</text>
+          <text x="770" y="269" text-anchor="middle" class="tiny">previewHarness() · apply: serve</text>
+
+          <rect x="930" y="210" width="210" height="72" rx="7" class="node-bg"/><rect x="930" y="210" width="210" height="72" rx="7" class="node-green"/>
+          <text x="1035" y="235" text-anchor="middle" class="node-title">Local plugin files</text>
+          <text x="1035" y="254" text-anchor="middle" class="node-copy">/manifest.json · /src/plugin.js</text>
+          <text x="1035" y="269" text-anchor="middle" class="tiny">optional preview.fixtures.js</text>
+          <path d="M930 246 L882 246" class="line-green"/>
+          <text x="906" y="235" text-anchor="middle" class="line-label">1 direct</text>
+
+          <rect x="795" y="322" width="220" height="72" rx="7" class="node-bg"/><rect x="795" y="322" width="220" height="72" rx="7" class="node-neutral"/>
+          <text x="905" y="347" text-anchor="middle" class="node-title">Shared preview harness</text>
+          <text x="905" y="366" text-anchor="middle" class="node-copy">map manifest → component exports</text>
+          <text x="905" y="381" text-anchor="middle" class="tiny">sample props + per-item boundary</text>
+          <path d="M770 282 L770 302 L905 302 L905 320" class="line-neutral"/>
+          <circle cx="786" cy="302" r="10" class="step"/><text x="786" y="305" class="step-text">2</text>
+
+          <rect x="795" y="434" width="220" height="72" rx="7" class="node-bg"/><rect x="795" y="434" width="220" height="72" rx="7" class="node-purple"/>
+          <text x="905" y="459" text-anchor="middle" class="node-title">Preview activation</text>
+          <text x="905" y="478" text-anchor="middle" class="node-copy">activate(stub shellApi) once</text>
+          <text x="905" y="493" text-anchor="middle" class="tiny">ExtensionRegion becomes placeholder</text>
+          <path d="M905 394 L905 432" class="line-neutral"/>
+          <circle cx="905" cy="414" r="10" class="step"/><text x="905" y="417" class="step-text">3</text>
+
+          <rect x="795" y="548" width="220" height="72" rx="7" class="node-bg"/><rect x="795" y="548" width="220" height="72" rx="7" class="node"/>
+          <text x="905" y="573" text-anchor="middle" class="node-title">Isolated contribution frames</text>
+          <text x="905" y="592" text-anchor="middle" class="node-copy">page · extension · topbar · footer</text>
+          <text x="905" y="607" text-anchor="middle" class="tiny">no shell routing or sibling plugins</text>
+          <path d="M905 506 L905 546" class="line"/>
+          <circle cx="905" cy="528" r="10" class="step"/><text x="905" y="531" class="step-text">4</text>
+
+          <line x1="44" y1="674" x2="72" y2="674" class="line"/><text x="80" y="678" class="line-label">shell/runtime</text>
+          <line x1="205" y1="674" x2="233" y2="674" class="line-green"/><text x="241" y="678" class="line-label">JavaScript/assets</text>
+          <line x1="390" y1="674" x2="418" y2="674" class="line-amber"/><text x="426" y="678" class="line-label">registry metadata via NATS</text>
+        </svg>
+      </div>
+      <figcaption>Production enforces the curated registry, allowed origins, permissions and placement rules before loading code. The preview uses the same manifest/component mapping, but deliberately replaces the host environment with local fixtures and a minimal shell API.</figcaption>
+    </figure>
+
+    <figure class="figure">
+      <div class="figure-head"><span class="figure-no">View 02</span><h2>Plugin composition and host-owned contribution zones</h2></div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 1200 690" role="img" aria-labelledby="composition-title composition-desc">
+          <title id="composition-title">Example plugin contributions placed into App Shell and Demo Catalog zones</title>
+          <desc id="composition-desc">The example plugin exports six Vue components and declares route, navigation, extension, shell-control, and shell-footer contributions. The shell and the Demo Catalog plugin own the target regions.</desc>
+          <defs>
+            <marker id="c-arrow-blue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#006fff"/></marker>
+            <marker id="c-arrow-green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#27c07f"/></marker>
+          </defs>
+
+          <rect x="20" y="28" width="330" height="606" rx="10" class="boundary"/>
+          <text x="40" y="56" class="lane-label">EXAMPLE-PLUGIN · INDEPENDENT PACKAGE :7111</text>
+
+          <rect x="45" y="82" width="280" height="108" rx="7" class="node-bg"/><rect x="45" y="82" width="280" height="108" rx="7" class="node-green"/>
+          <text x="65" y="108" class="node-title">public/manifest.json</text>
+          <text x="65" y="129" class="node-copy">route → overview</text>
+          <text x="65" y="146" class="node-copy">extension → home-panel, render-throws, demo-sidebar</text>
+          <text x="65" y="163" class="node-copy">shell-control → topbar-control</text>
+          <text x="65" y="180" class="node-copy">shell-footer → footer-item</text>
+
+          <rect x="45" y="228" width="280" height="92" rx="7" class="node-bg"/><rect x="45" y="228" width="280" height="92" rx="7" class="node"/>
+          <text x="65" y="254" class="node-title">src/plugin.js</text>
+          <text x="65" y="275" class="node-copy">components { name → Vue component }</text>
+          <text x="65" y="294" class="node-copy">activate() called once before first render</text>
+          <text x="65" y="309" class="tiny">no shell imports · no router or arbitrary DOM access</text>
+
+          <rect x="45" y="358" width="280" height="234" rx="7" class="node-bg"/><rect x="45" y="358" width="280" height="234" rx="7" class="node-neutral"/>
+          <text x="65" y="384" class="node-title">Exported Vue views</text>
+          <text x="65" y="411" class="node-copy">OverviewView</text><text x="285" y="411" text-anchor="end" class="tiny">routed page</text>
+          <text x="65" y="441" class="node-copy">HomePanel</text><text x="285" y="441" text-anchor="end" class="tiny">shell home region</text>
+          <text x="65" y="471" class="node-copy">DemoSidebarPanel</text><text x="285" y="471" text-anchor="end" class="tiny">catalog-owned region</text>
+          <text x="65" y="501" class="node-copy">TopbarControl</text><text x="285" y="501" text-anchor="end" class="tiny">route-scoped</text>
+          <text x="65" y="531" class="node-copy">FooterItem</text><text x="285" y="531" text-anchor="end" class="tiny">shell footer</text>
+          <text x="65" y="561" class="node-copy">RenderThrows</text><text x="285" y="561" text-anchor="end" class="tiny">failure fixture</text>
+          <text x="65" y="580" class="tiny">backendServices: [] — no business backend invented here</text>
+
+          <path d="M185 190 L185 226" fill="none" stroke="#27c07f" stroke-width="1.4" marker-end="url(#c-arrow-green)"/>
+          <path d="M185 320 L185 356" fill="none" stroke="#006fff" stroke-width="1.4" marker-end="url(#c-arrow-blue)"/>
+
+          <rect x="405" y="28" width="770" height="606" rx="10" class="boundary-blue"/>
+          <text x="425" y="56" class="lane-label">BROWSER · APP SHELL COMPOSITION</text>
+
+          <rect x="435" y="82" width="710" height="58" rx="6" class="node-bg"/><rect x="435" y="82" width="710" height="58" rx="6" class="node-neutral"/>
+          <text x="458" y="107" class="node-title">Global topbar</text>
+          <rect x="928" y="94" width="190" height="34" rx="5" class="zone"/>
+          <text x="1023" y="115" text-anchor="middle" class="node-copy">stream-toggle · example-plugin</text>
+
+          <rect x="435" y="164" width="172" height="374" rx="6" class="node-bg"/><rect x="435" y="164" width="172" height="374" rx="6" class="node-neutral"/>
+          <text x="457" y="191" class="node-title">Navigation</text>
+          <rect x="455" y="218" width="132" height="40" rx="5" class="zone"/>
+          <text x="521" y="243" text-anchor="middle" class="node-copy">Example Plugin</text>
+          <text x="457" y="286" class="tiny">Metadata creates a link.</text>
+          <text x="457" y="302" class="tiny">It is not a mounted view.</text>
+
+          <rect x="632" y="164" width="513" height="374" rx="6" class="node-bg"/><rect x="632" y="164" width="513" height="374" rx="6" class="node-neutral"/>
+          <text x="654" y="191" class="node-title">Routed main content</text>
+
+          <rect x="654" y="214" width="469" height="92" rx="6" class="zone"/>
+          <text x="676" y="240" class="node-title">/example → OverviewView</text>
+          <text x="676" y="261" class="node-copy">Route record resolves the component exported by example-plugin.</text>
+          <text x="676" y="281" class="tiny">Shell retains the RouterView and route error presentation.</text>
+
+          <rect x="654" y="332" width="224" height="178" rx="6" class="zone"/>
+          <text x="676" y="359" class="node-title">shell/home-main/v1</text>
+          <text x="676" y="380" class="green">Owned by App Shell</text>
+          <rect x="676" y="404" width="180" height="38" rx="5" class="node"/>
+          <text x="766" y="428" text-anchor="middle" class="node-copy">HomePanel</text>
+          <rect x="676" y="452" width="180" height="38" rx="5" class="node"/>
+          <text x="766" y="476" text-anchor="middle" class="node-copy">RenderThrows → isolated</text>
+
+          <rect x="899" y="332" width="224" height="178" rx="6" class="zone-owned"/>
+          <text x="921" y="359" class="node-title">details-sidebar/v1</text>
+          <text x="921" y="380" class="green">Owned by Demo Catalog</text>
+          <text x="921" y="400" class="tiny">declared before either plugin loads</text>
+          <rect x="921" y="424" width="180" height="48" rx="5" class="node"/>
+          <text x="1011" y="445" text-anchor="middle" class="node-copy">DemoSidebarPanel</text>
+          <text x="1011" y="461" text-anchor="middle" class="tiny">supplied by example-plugin</text>
+
+          <rect x="435" y="562" width="710" height="48" rx="6" class="node-bg"/><rect x="435" y="562" width="710" height="48" rx="6" class="node-neutral"/>
+          <text x="458" y="591" class="node-title">Shell footer</text>
+          <rect x="929" y="570" width="189" height="32" rx="5" class="zone"/>
+          <text x="1023" y="590" text-anchor="middle" class="node-copy">version · example-plugin</text>
+
+          <path d="M325 274 L403 274" fill="none" stroke="#006fff" stroke-width="1.4" marker-end="url(#c-arrow-blue)"/>
+          <text x="364" y="252" text-anchor="middle" class="line-label">host resolves</text>
+          <text x="364" y="265" text-anchor="middle" class="line-label">component refs</text>
+
+          <text x="26" y="670" class="tiny">Placement rule: the target owner chooses location, capacity, ordering, readonly context and failure boundary; the contributor supplies only the declared component.</text>
+        </svg>
+      </div>
+      <figcaption>The real proof plugin exercises all five contribution kinds. Navigation contributes metadata; route, extension, shell-control and shell-footer declarations resolve named Vue exports. The cross-owner sidebar example demonstrates composition inside another plugin’s screen without either plugin reaching into the other’s DOM.</figcaption>
+    </figure>
+
+    <figure class="figure">
+      <div class="figure-head"><span class="figure-no">View 03</span><h2>Runtime services and four distinct traffic paths</h2></div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 1200 650" role="img" aria-labelledby="runtime-title runtime-desc">
+          <title id="runtime-title">MFE runtime services and transports</title>
+          <desc id="runtime-desc">The browser receives the shell and plugin assets over HTTP, connects to NATS over WebSocket for registry metadata, and plugin hosts announce and publish health through core NATS. The registry persists state in Postgres and probes approved backend services over NATS.</desc>
+          <defs>
+            <marker id="r-arrow-blue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#006fff"/></marker>
+            <marker id="r-arrow-green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#27c07f"/></marker>
+            <marker id="r-arrow-amber" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#c59a2d"/></marker>
+            <marker id="r-arrow-purple" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#a88bea"/></marker>
+          </defs>
+
+          <rect x="20" y="28" width="1160" height="160" rx="10" class="boundary-blue"/>
+          <text x="40" y="56" class="lane-label">USER DEVICE · BROWSER EXECUTION</text>
+          <rect x="55" y="82" width="220" height="76" rx="7" class="node-bg"/><rect x="55" y="82" width="220" height="76" rx="7" class="node"/>
+          <text x="165" y="108" text-anchor="middle" class="node-title">App Shell browser runtime</text>
+          <text x="165" y="128" text-anchor="middle" class="node-copy">Vue Router · contribution registry</text>
+          <text x="165" y="144" text-anchor="middle" class="tiny">one PLATFORM NATS connection</text>
+          <rect x="355" y="82" width="220" height="76" rx="7" class="node-bg"/><rect x="355" y="82" width="220" height="76" rx="7" class="node"/>
+          <text x="465" y="108" text-anchor="middle" class="node-title">Demo Catalog components</text>
+          <text x="465" y="128" text-anchor="middle" class="node-copy">catalog + intro routes</text>
+          <text x="465" y="144" text-anchor="middle" class="tiny">declares refdata-service for health</text>
+          <rect x="655" y="82" width="220" height="76" rx="7" class="node-bg"/><rect x="655" y="82" width="220" height="76" rx="7" class="node"/>
+          <text x="765" y="108" text-anchor="middle" class="node-title">Example Plugin components</text>
+          <text x="765" y="128" text-anchor="middle" class="node-copy">six exported views</text>
+          <text x="765" y="144" text-anchor="middle" class="tiny">no declared business backend</text>
+
+          <rect x="20" y="224" width="1160" height="330" rx="10" class="boundary"/>
+          <text x="40" y="252" class="lane-label">COMPOSE SERVICES · SEPARATELY DEPLOYED PROCESSES</text>
+
+          <rect x="55" y="286" width="200" height="72" rx="7" class="node-bg"/><rect x="55" y="286" width="200" height="72" rx="7" class="node-green"/>
+          <text x="155" y="312" text-anchor="middle" class="node-title">App Shell host</text>
+          <text x="155" y="331" text-anchor="middle" class="node-copy">nginx · localhost:7110</text>
+          <text x="155" y="346" text-anchor="middle" class="tiny">assets + auth and /nats proxies</text>
+
+          <rect x="305" y="286" width="200" height="72" rx="7" class="node-bg"/><rect x="305" y="286" width="200" height="72" rx="7" class="node-green"/>
+          <text x="405" y="312" text-anchor="middle" class="node-title">Demo Catalog host</text>
+          <text x="405" y="331" text-anchor="middle" class="node-copy">shared host · localhost:7112</text>
+          <text x="405" y="346" text-anchor="middle" class="tiny">assets + self-health only</text>
+
+          <rect x="555" y="286" width="200" height="72" rx="7" class="node-bg"/><rect x="555" y="286" width="200" height="72" rx="7" class="node-green"/>
+          <text x="655" y="312" text-anchor="middle" class="node-title">Example Plugin host</text>
+          <text x="655" y="331" text-anchor="middle" class="node-copy">shared host · localhost:7111</text>
+          <text x="655" y="346" text-anchor="middle" class="tiny">assets + announce + self-health</text>
+
+          <rect x="805" y="286" width="200" height="72" rx="7" class="node-bg"/><rect x="805" y="286" width="200" height="72" rx="7" class="node-amber"/>
+          <text x="905" y="312" text-anchor="middle" class="node-title">MFE Registry Service</text>
+          <text x="905" y="331" text-anchor="middle" class="node-copy">curation · trust · revisions</text>
+          <text x="905" y="346" text-anchor="middle" class="tiny">HTTP :7206 is healthz only</text>
+
+          <rect x="930" y="423" width="200" height="72" rx="7" class="node-bg"/><rect x="930" y="423" width="200" height="72" rx="7" class="node-purple"/>
+          <text x="1030" y="449" text-anchor="middle" class="node-title">Registry Postgres</text>
+          <text x="1030" y="468" text-anchor="middle" class="node-copy">approved entries + history</text>
+          <text x="1030" y="483" text-anchor="middle" class="tiny">transactional state</text>
+
+          <rect x="55" y="423" width="200" height="72" rx="7" class="node-bg"/><rect x="55" y="423" width="200" height="72" rx="7" class="node-neutral"/>
+          <text x="155" y="449" text-anchor="middle" class="node-title">Accounts Service</text>
+          <text x="155" y="468" text-anchor="middle" class="node-copy">mints shell connection info</text>
+          <text x="155" y="483" text-anchor="middle" class="tiny">GET /api/auth/shellConnectInfo</text>
+
+          <rect x="430" y="423" width="200" height="72" rx="7" class="node-bg"/><rect x="430" y="423" width="200" height="72" rx="7" class="node-amber"/>
+          <text x="530" y="449" text-anchor="middle" class="node-title">NATS</text>
+          <text x="530" y="468" text-anchor="middle" class="node-copy">Core :4222 · WebSocket :9222</text>
+          <text x="530" y="483" text-anchor="middle" class="tiny">metadata, hints, announce, health</text>
+
+          <rect x="680" y="423" width="200" height="72" rx="7" class="node-bg"/><rect x="680" y="423" width="200" height="72" rx="7" class="node-neutral"/>
+          <text x="780" y="449" text-anchor="middle" class="node-title">Refdata Service</text>
+          <text x="780" y="468" text-anchor="middle" class="node-copy">approved backend health target</text>
+          <text x="780" y="483" text-anchor="middle" class="tiny">not used by example-plugin views</text>
+
+          <path d="M155 284 L155 160" fill="none" stroke="#27c07f" stroke-width="1.5" marker-end="url(#r-arrow-green)"/>
+          <text x="164" y="217" class="line-label">HTTP shell assets + connection info</text>
+          <path d="M405 284 L405 160" fill="none" stroke="#27c07f" stroke-width="1.5" marker-end="url(#r-arrow-green)"/>
+          <text x="414" y="217" class="line-label">HTTP remoteEntry + chunks</text>
+          <path d="M655 284 L655 160" fill="none" stroke="#27c07f" stroke-width="1.5" marker-end="url(#r-arrow-green)"/>
+          <text x="664" y="217" class="line-label">HTTP remoteEntry + chunks</text>
+
+          <path d="M255 322 L278 322 L278 395 L530 395 L530 421" fill="none" stroke="#c59a2d" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#r-arrow-amber)"/>
+          <text x="318" y="388" class="line-label">proxied /nats → WebSocket :9222</text>
+          <path d="M155 360 L155 421" fill="none" stroke="#27c07f" stroke-width="1.5" marker-end="url(#r-arrow-green)"/>
+          <text x="164" y="394" class="line-label">HTTP auth proxy</text>
+          <path d="M530 421 L530 380 L905 380 L905 360" fill="none" stroke="#c59a2d" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#r-arrow-amber)"/>
+          <text x="686" y="373" class="line-label">Core NATS registry requests</text>
+          <path d="M655 360 L655 395 L595 395 L595 421" fill="none" stroke="#a88bea" stroke-width="1.5" stroke-dasharray="3 4" marker-end="url(#r-arrow-purple)"/>
+          <text x="662" y="389" class="line-label">signed announce + frontend health</text>
+          <path d="M405 360 L405 395 L465 395 L465 421" fill="none" stroke="#a88bea" stroke-width="1.5" stroke-dasharray="3 4" marker-end="url(#r-arrow-purple)"/>
+          <text x="312" y="389" class="line-label">frontend health only</text>
+          <path d="M880 459 L928 459" fill="none" stroke="#a88bea" stroke-width="1.5" marker-end="url(#r-arrow-purple)"/>
+          <text x="904" y="449" text-anchor="middle" class="line-label">SQL</text>
+          <path d="M870 360 L870 405 L780 405 L780 421" fill="none" stroke="#c59a2d" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#r-arrow-amber)"/>
+          <text x="792" y="398" class="line-label">backend health probe</text>
+
+          <line x1="55" y1="596" x2="84" y2="596" stroke="#27c07f" stroke-width="2" marker-end="url(#r-arrow-green)"/><text x="94" y="600" class="line-label">HTTP asset delivery</text>
+          <line x1="253" y1="596" x2="282" y2="596" stroke="#c59a2d" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#r-arrow-amber)"/><text x="292" y="600" class="line-label">NATS metadata / health request</text>
+          <line x1="523" y1="596" x2="552" y2="596" stroke="#a88bea" stroke-width="2" stroke-dasharray="3 4" marker-end="url(#r-arrow-purple)"/><text x="562" y="600" class="line-label">announce / health publication</text>
+          <text x="55" y="628" class="tiny">NATS transports registry and health messages. It never transports the JavaScript bundles rendered by the browser.</text>
+        </svg>
+      </div>
+      <figcaption>The example plugin is intentionally backend-free. Demo Catalog declares <code>refdata-service</code> as an approved health dependency, but its current Vue source does not make a feature-data request to that service. Plugin asset hosts publish their own frontend health; the registry joins those observations with approved backend probes.</figcaption>
+    </figure>
+
+    <figure class="figure">
+      <div class="figure-head"><span class="figure-no">View 04</span><h2>Developer recipe: from plugin files to visible App Shell UI</h2></div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 1200 930" role="img" aria-labelledby="recipe-title recipe-desc">
+          <title id="recipe-title">Developer recipe and contribution translation map</title>
+          <desc id="recipe-desc">Six development steps produce a deployable plugin. A matrix then maps each manifest declaration through the shell mechanism to its visible location.</desc>
+          <defs>
+            <marker id="d-arrow-blue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#006fff"/></marker>
+            <marker id="d-arrow-green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#27c07f"/></marker>
+            <marker id="d-arrow-neutral" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4a515b"/></marker>
+          </defs>
+
+          <rect x="20" y="28" width="1160" height="170" rx="10" class="boundary-blue"/>
+          <text x="40" y="55" class="lane-label">PLUGIN DELIVERY RECIPE</text>
+
+          <!-- Recipe connectors are drawn first so boxes mask them. -->
+          <path d="M208 119 L223 119" fill="none" stroke="#006fff" stroke-width="1.5" marker-end="url(#d-arrow-blue)"/>
+          <path d="M393 119 L408 119" fill="none" stroke="#006fff" stroke-width="1.5" marker-end="url(#d-arrow-blue)"/>
+          <path d="M578 119 L593 119" fill="none" stroke="#006fff" stroke-width="1.5" marker-end="url(#d-arrow-blue)"/>
+          <path d="M763 119 L778 119" fill="none" stroke="#006fff" stroke-width="1.5" marker-end="url(#d-arrow-blue)"/>
+          <path d="M948 119 L963 119" fill="none" stroke="#006fff" stroke-width="1.5" marker-end="url(#d-arrow-blue)"/>
+
+          <rect x="40" y="76" width="168" height="86" rx="7" class="node-bg"/><rect x="40" y="76" width="168" height="86" rx="7" class="node-green"/>
+          <circle cx="58" cy="94" r="10" class="step"/><text x="58" y="97" class="step-text">1</text>
+          <text x="124" y="103" text-anchor="middle" class="node-title">Scaffold package</text>
+          <text x="124" y="124" text-anchor="middle" class="node-copy">new-plugin.sh id port</text>
+          <text x="124" y="142" text-anchor="middle" class="tiny">copies the proof shape</text>
+
+          <rect x="225" y="76" width="168" height="86" rx="7" class="node-bg"/><rect x="225" y="76" width="168" height="86" rx="7" class="node-green"/>
+          <circle cx="243" cy="94" r="10" class="step"/><text x="243" y="97" class="step-text">2</text>
+          <text x="309" y="103" text-anchor="middle" class="node-title">Define manifest</text>
+          <text x="309" y="124" text-anchor="middle" class="node-copy">identity · remote · health</text>
+          <text x="309" y="142" text-anchor="middle" class="tiny">contributions + owned points</text>
+
+          <rect x="410" y="76" width="168" height="86" rx="7" class="node-bg"/><rect x="410" y="76" width="168" height="86" rx="7" class="node-green"/>
+          <circle cx="428" cy="94" r="10" class="step"/><text x="428" y="97" class="step-text">3</text>
+          <text x="494" y="103" text-anchor="middle" class="node-title">Implement views</text>
+          <text x="494" y="124" text-anchor="middle" class="node-copy">export components map</text>
+          <text x="494" y="142" text-anchor="middle" class="tiny">optional activate(shellApi)</text>
+
+          <rect x="595" y="76" width="168" height="86" rx="7" class="node-bg"/><rect x="595" y="76" width="168" height="86" rx="7" class="node"/>
+          <circle cx="613" cy="94" r="10" class="step"/><text x="613" y="97" class="step-text">4</text>
+          <text x="679" y="103" text-anchor="middle" class="node-title">Preview locally</text>
+          <text x="679" y="124" text-anchor="middle" class="node-copy">npm run dev</text>
+          <text x="679" y="142" text-anchor="middle" class="tiny">open /__preview</text>
+
+          <rect x="780" y="76" width="168" height="86" rx="7" class="node-bg"/><rect x="780" y="76" width="168" height="86" rx="7" class="node"/>
+          <circle cx="798" cy="94" r="10" class="step"/><text x="798" y="97" class="step-text">5</text>
+          <text x="864" y="103" text-anchor="middle" class="node-title">Review and build</text>
+          <text x="864" y="124" text-anchor="middle" class="node-copy">npm run build</text>
+          <text x="864" y="142" text-anchor="middle" class="tiny">run shell contract specs</text>
+
+          <rect x="965" y="76" width="195" height="86" rx="7" class="node-bg"/><rect x="965" y="76" width="195" height="86" rx="7" class="node-amber"/>
+          <circle cx="983" cy="94" r="10" class="step"/><text x="983" y="97" class="step-text">6</text>
+          <text x="1062" y="103" text-anchor="middle" class="node-title">Bootstrap and run</text>
+          <text x="1062" y="124" text-anchor="middle" class="node-copy">operator fixtures + Compose</text>
+          <text x="1062" y="142" text-anchor="middle" class="tiny">serve + signed announcement</text>
+
+          <rect x="20" y="228" width="1160" height="650" rx="10" class="boundary"/>
+          <text x="40" y="257" class="lane-label">HOW EACH DECLARATION BECOMES UI</text>
+          <text x="55" y="288" class="svg-title">Developer writes in manifest.json</text>
+          <text x="420" y="288" class="svg-title">App Shell translation</text>
+          <text x="830" y="288" class="svg-title">Visible result</text>
+
+          <!-- Row connectors are behind opaque node backgrounds. -->
+          <path d="M355 340 L408 340" fill="none" stroke="#4a515b" stroke-width="1.4" marker-end="url(#d-arrow-neutral)"/>
+          <path d="M765 340 L818 340" fill="none" stroke="#006fff" stroke-width="1.4" marker-end="url(#d-arrow-blue)"/>
+          <path d="M355 431 L408 431" fill="none" stroke="#4a515b" stroke-width="1.4" marker-end="url(#d-arrow-neutral)"/>
+          <path d="M765 431 L818 431" fill="none" stroke="#006fff" stroke-width="1.4" marker-end="url(#d-arrow-blue)"/>
+          <path d="M355 522 L408 522" fill="none" stroke="#4a515b" stroke-width="1.4" marker-end="url(#d-arrow-neutral)"/>
+          <path d="M765 522 L818 522" fill="none" stroke="#006fff" stroke-width="1.4" marker-end="url(#d-arrow-blue)"/>
+          <path d="M355 613 L408 613" fill="none" stroke="#4a515b" stroke-width="1.4" marker-end="url(#d-arrow-neutral)"/>
+          <path d="M765 613 L818 613" fill="none" stroke="#006fff" stroke-width="1.4" marker-end="url(#d-arrow-blue)"/>
+          <path d="M355 704 L408 704" fill="none" stroke="#4a515b" stroke-width="1.4" marker-end="url(#d-arrow-neutral)"/>
+          <path d="M765 704 L818 704" fill="none" stroke="#006fff" stroke-width="1.4" marker-end="url(#d-arrow-blue)"/>
+          <path d="M355 795 L408 795" fill="none" stroke="#4a515b" stroke-width="1.4" marker-end="url(#d-arrow-neutral)"/>
+          <path d="M765 795 L818 795" fill="none" stroke="#27c07f" stroke-width="1.4" marker-end="url(#d-arrow-green)"/>
+
+          <rect x="45" y="307" width="310" height="66" rx="6" class="node-bg"/><rect x="45" y="307" width="310" height="66" rx="6" class="node-green"/>
+          <text x="65" y="331" class="node-title">navigation { label, route, icon, order }</text>
+          <text x="65" y="353" class="node-copy">route names a local route contribution ID</text>
+          <rect x="410" y="307" width="355" height="66" rx="6" class="node-bg"/><rect x="410" y="307" width="355" height="66" rx="6" class="node-neutral"/>
+          <text x="430" y="331" class="node-title">Resolve pluginId/route → qualified route name</text>
+          <text x="430" y="353" class="node-copy">App.vue iterates accepted navigation metadata</text>
+          <rect x="820" y="307" width="315" height="66" rx="6" class="node-bg"/><rect x="820" y="307" width="315" height="66" rx="6" class="node"/>
+          <text x="840" y="331" class="node-title">Sidebar &lt;router-link&gt;</text>
+          <text x="840" y="353" class="node-copy">label + icon + active/status state</text>
+
+          <rect x="45" y="398" width="310" height="66" rx="6" class="node-bg"/><rect x="45" y="398" width="310" height="66" rx="6" class="node-green"/>
+          <text x="65" y="422" class="node-title">route { path, title, component }</text>
+          <text x="65" y="444" class="node-copy">path must live under the plugin routePrefix</text>
+          <rect x="410" y="398" width="355" height="66" rx="6" class="node-bg"/><rect x="410" y="398" width="355" height="66" rx="6" class="node-neutral"/>
+          <text x="430" y="422" class="node-title">Create Vue Router record; load on navigation</text>
+          <text x="430" y="444" class="node-copy">module.components[component] resolves lazily</text>
+          <rect x="820" y="398" width="315" height="66" rx="6" class="node-bg"/><rect x="820" y="398" width="315" height="66" rx="6" class="node"/>
+          <text x="840" y="422" class="node-title">Main content &lt;router-view&gt;</text>
+          <text x="840" y="444" class="node-copy">addressable page with route params as props</text>
+
+          <rect x="45" y="489" width="310" height="66" rx="6" class="node-bg"/><rect x="45" y="489" width="310" height="66" rx="6" class="node-green"/>
+          <text x="65" y="513" class="node-title">extension { target, component, order }</text>
+          <text x="65" y="535" class="node-copy">target = owner/region/v1</text>
+          <rect x="410" y="489" width="355" height="66" rx="6" class="node-bg"/><rect x="410" y="489" width="355" height="66" rx="6" class="node-neutral"/>
+          <text x="430" y="513" class="node-title">extensionsFor(target) → PluginSlot</text>
+          <text x="430" y="535" class="node-copy">host applies capacity, order and readonly context</text>
+          <rect x="820" y="489" width="315" height="66" rx="6" class="node-bg"/><rect x="820" y="489" width="315" height="66" rx="6" class="node"/>
+          <text x="840" y="513" class="node-title">Component inside named region</text>
+          <text x="840" y="535" class="node-copy">shell-owned or another plugin's screen</text>
+
+          <rect x="45" y="580" width="310" height="66" rx="6" class="node-bg"/><rect x="45" y="580" width="310" height="66" rx="6" class="node-green"/>
+          <text x="65" y="604" class="node-title">shell-control { region, routes, component }</text>
+          <text x="65" y="626" class="node-copy">routes optionally scope visibility by path prefix</text>
+          <rect x="410" y="580" width="355" height="66" rx="6" class="node-bg"/><rect x="410" y="580" width="355" height="66" rx="6" class="node-neutral"/>
+          <text x="430" y="604" class="node-title">shellControlsFor(current route) → PluginSlot</text>
+          <text x="430" y="626" class="node-copy">App.vue recomputes when the route changes</text>
+          <rect x="820" y="580" width="315" height="66" rx="6" class="node-bg"/><rect x="820" y="580" width="315" height="66" rx="6" class="node"/>
+          <text x="840" y="604" class="node-title">App Shell topbar control</text>
+          <text x="840" y="626" class="node-copy">shown only on declared route scopes</text>
+
+          <rect x="45" y="671" width="310" height="66" rx="6" class="node-bg"/><rect x="45" y="671" width="310" height="66" rx="6" class="node-green"/>
+          <text x="65" y="695" class="node-title">shell-footer { component, order }</text>
+          <text x="65" y="717" class="node-copy">component key must exist in plugin.js exports</text>
+          <rect x="410" y="671" width="355" height="66" rx="6" class="node-bg"/><rect x="410" y="671" width="355" height="66" rx="6" class="node-neutral"/>
+          <text x="430" y="695" class="node-title">Map to shell/footer/v1 → PluginSlot</text>
+          <text x="430" y="717" class="node-copy">shell owns the bar and its connection status</text>
+          <rect x="820" y="671" width="315" height="66" rx="6" class="node-bg"/><rect x="820" y="671" width="315" height="66" rx="6" class="node"/>
+          <text x="840" y="695" class="node-title">Item in the global footer</text>
+          <text x="840" y="717" class="node-copy">ordered beside shell-owned status content</text>
+
+          <rect x="45" y="762" width="310" height="66" rx="6" class="node-bg"/><rect x="45" y="762" width="310" height="66" rx="6" class="node-green"/>
+          <text x="65" y="786" class="node-title">extensionPoints [{ id, capacity }]</text>
+          <text x="65" y="808" class="node-copy">owner segment must equal this plugin's ID</text>
+          <rect x="410" y="762" width="355" height="66" rx="6" class="node-bg"/><rect x="410" y="762" width="355" height="66" rx="6" class="node-neutral"/>
+          <text x="430" y="786" class="node-title">Declare point before any remote code loads</text>
+          <text x="430" y="808" class="node-copy">plugin wrapper calls shellApi.ui.ExtensionRegion</text>
+          <rect x="820" y="762" width="315" height="66" rx="6" class="node-bg"/><rect x="820" y="762" width="315" height="66" rx="6" class="zone-owned"/>
+          <text x="840" y="786" class="node-title">New contribution zone in plugin view</text>
+          <text x="840" y="808" class="node-copy">other plugins can target it by stable ID</text>
+
+          <text x="45" y="858" class="tiny">Any contribution may add permission; order defaults to 0. Mounted contributions pass through the host loader/error boundary; navigation remains metadata.</text>
+          <text x="45" y="879" class="tiny">new-plugin.sh creates the dynamic announced path. A curated/preloaded plugin is a separate, explicit operator action.</text>
+          <text x="45" y="900" class="tiny">Scaffold output is a starting point: replace copied proof contributions and views with the plugin's real contract before production registration.</text>
+        </svg>
+      </div>
+      <figcaption>A plugin author declares intent in <code>public/manifest.json</code> and supplies matching components in <code>src/plugin.js</code>. The shell translates each accepted declaration through a kind-specific adapter; plugin code never creates global navigation, installs router records or selects arbitrary DOM targets itself. The scaffold automates the announced-plugin deployment wiring, while the copied proof surfaces still require deliberate replacement.</figcaption>
+    </figure>
+
+    <section class="cards" aria-label="Key architecture conclusions">
+      <article class="card"><div class="card-header"><span class="card-dot"></span><h3>Production composition</h3></div><p>The shell owns discovery, validation, authorization, loading, layout and errors. Plugins own their component implementation and deployment.</p></article>
+      <article class="card"><div class="card-header"><span class="card-dot green"></span><h3>Development isolation</h3></div><p><code>/__preview</code> provides fast local feedback using the real plugin entry and manifest, with representative frames rather than a simulated full shell.</p></article>
+      <article class="card"><div class="card-header"><span class="card-dot amber"></span><h3>Transport boundary</h3></div><p>Curated metadata and health use NATS. Federated JavaScript and chunks come from the plugin’s own HTTP origin.</p></article>
+    </section>
+
+    <section class="sources">
+      <h2>Implementation references</h2>
+      <div class="source-grid">
+        <a href="../../../lab-shell/plugins/README.md">Plugin creation and preview recipe · plugins/README.md</a>
+        <a href="../../../scripts/new-plugin.sh">Announced-plugin scaffold · scripts/new-plugin.sh</a>
+        <a href="../../../lab-shell/src/main.js">Shell boot and registry session · lab-shell/src/main.js</a>
+        <a href="../../../lab-shell/src/shell/bootShell.js">Manifest admission and extension points · bootShell.js</a>
+        <a href="../../../lab-shell/src/shell/registry/manifestSchema.js">Contribution contracts · manifestSchema.js</a>
+        <a href="../../../lab-shell/src/shell/routing/shellRoutes.js">Route-to-main-content translation · shellRoutes.js</a>
+        <a href="../../../lab-shell/src/App.vue">Navigation, topbar and router hosts · App.vue</a>
+        <a href="../../../lab-shell/src/shell/ui/ExtensionRegion.vue">Named-region placement and context · ExtensionRegion.vue</a>
+        <a href="../../../lab-shell/src/shell/loader/federatedAdapter.js">Module Federation adapter · federatedAdapter.js</a>
+        <a href="../../../lab-shell/src/shell/loader/pluginLoader.js">Activation lifecycle · pluginLoader.js</a>
+        <a href="../../../lab-shell/plugins/example-plugin/vite.config.js">Federation exposure and preview adoption · vite.config.js</a>
+        <a href="../../../lab-shell/plugins/example-plugin/public/manifest.json">Proof-plugin contributions · example-plugin/manifest.json</a>
+        <a href="../../../lab-shell/plugins/example-plugin/src/plugin.js">Proof-plugin component exports · example-plugin/plugin.js</a>
+        <a href="../../../lab-shell/plugins/demo-catalog/public/manifest.json">Plugin-owned extension point · demo-catalog/manifest.json</a>
+        <a href="../../../shared/mfe-preview/vitePreview.js">Development-only Vite harness · vitePreview.js</a>
+        <a href="../../../shared/mfe-preview/PreviewApp.vue">Preview loading and rendering · PreviewApp.vue</a>
+        <a href="../../../shared/mfe-preview/shellApiStub.js">Stub shell API and region placeholder · shellApiStub.js</a>
+        <a href="../../../lab-shell/nginx.conf">Same-origin auth and NATS WebSocket proxies · nginx.conf</a>
+        <a href="../backend/accounts-service/auth/handler.go">Shell connection-info credential · accounts-service handler</a>
+        <a href="../docker-compose.yml">Runtime services and ports · docker-compose.yml</a>
+        <a href="../../../shared/mfe-plugin-host/main.go">Combined asset host and announcer · mfe-plugin-host/main.go</a>
+      </div>
+    </section>
+
+    <p class="footer">NATS Tech Lab · as-built MFE architecture · PDF export is a high-resolution raster capture embedded in PDF</p>
+  </div>
+
+  <script>
+    async function capture() {
+      const el = document.getElementById('report-container');
+      const r = el.getBoundingClientRect();
+      const pad = 32;
+      return html2canvas(document.body, {
+        backgroundColor: '#131416', scale: 2, useCORS: true,
+        ignoreElements: (e) => e.classList && e.classList.contains('toolbar'),
+        x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad,
+        width: r.width + pad * 2, height: r.height + pad * 2
+      });
+    }
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const canvas = await capture();
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch { btn.textContent = '✗ Failed'; }
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    }
+    async function downloadPNG(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const canvas = await capture();
+        const link = document.createElement('a');
+        link.download = 'mfe-app-shell-composition.png';
+        link.href = canvas.toDataURL('image/png'); link.click();
+        btn.textContent = '✓ Done!';
+      } catch { btn.textContent = '✗ Failed'; }
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    }
+    async function downloadPDF(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const canvas = await capture();
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('mfe-app-shell-composition.pdf'); btn.textContent = '✓ Done!';
+      } catch { btn.textContent = '✗ Failed'; }
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    }
+  </script>
+</body>
+</html>

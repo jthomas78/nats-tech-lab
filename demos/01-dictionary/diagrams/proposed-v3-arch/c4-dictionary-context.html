@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dictionary POC — C4 System Context</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 72ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.person   { color: var(--accent); }
+.inscope  { color: var(--accent); stroke-width: 1.6; }
+.external { color: var(--hop); stroke-dasharray: 5 4; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <div class="head-txt">
+      <span class="eyebrow">C4 Level 1 · Context · Demo 01 Dictionary POC</span>
+      <h1>Dictionary POC — System Context</h1>
+      <p class="sub">Scope: the one software system in scope is the Dictionary POC platform. Audience: anyone meeting the lab for the first time. Every container, store, stream and subject is deferred to the Container view.</p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg role="img" viewBox="0 0 1010 510" aria-label="C4 system context diagram. Four operator roles on the left — platform operator, port operations user, tech lab operator and lab visitor — each reach the Dictionary POC platform in the centre through a browser over HTTPS and WebSocket. The platform in turn exports traces to an optional OTLP trace collector and requests translations from the Anthropic Messages API, both drawn dashed outside the boundary on the right.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="#4d94ff"/>
+          </marker>
+          <marker id="a-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="#f0b429"/>
+          </marker>
+        </defs>
+
+        <g class="person">
+          <rect class="n" x="16" y="40" width="200" height="60" rx="3"/>
+          <circle class="n" cx="32" cy="55" r="4"/>
+          <path class="n" d="M25 67 A9 8 0 0 1 39 67"/>
+          <rect class="n" x="16" y="120" width="200" height="60" rx="3"/>
+          <circle class="n" cx="32" cy="135" r="4"/>
+          <path class="n" d="M25 147 A9 8 0 0 1 39 147"/>
+          <rect class="n" x="16" y="200" width="200" height="60" rx="3"/>
+          <circle class="n" cx="32" cy="215" r="4"/>
+          <path class="n" d="M25 227 A9 8 0 0 1 39 227"/>
+          <rect class="n" x="16" y="280" width="200" height="60" rx="3"/>
+          <circle class="n" cx="32" cy="295" r="4"/>
+          <path class="n" d="M25 307 A9 8 0 0 1 39 307"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="122" y="59">PERSON</text>
+        <text class="lbl"  text-anchor="middle" x="122" y="77">Platform Operator</text>
+        <text class="lbl2" text-anchor="middle" x="122" y="92">Runs tenants and NATS</text>
+        <text class="grp"  text-anchor="middle" x="122" y="139">PERSON</text>
+        <text class="lbl"  text-anchor="middle" x="122" y="157">Port Operations User</text>
+        <text class="lbl2" text-anchor="middle" x="122" y="172">Works one port and its ships</text>
+        <text class="grp"  text-anchor="middle" x="122" y="219">PERSON</text>
+        <text class="lbl"  text-anchor="middle" x="122" y="237">Tech Lab Operator</text>
+        <text class="lbl2" text-anchor="middle" x="122" y="252">Curates reference data</text>
+        <text class="grp"  text-anchor="middle" x="122" y="299">PERSON</text>
+        <text class="lbl"  text-anchor="middle" x="122" y="317">Lab Visitor</text>
+        <text class="lbl2" text-anchor="middle" x="122" y="332">Reads the POC write-up</text>
+
+        <rect class="n inscope" x="396" y="40" width="250" height="300" rx="3"/>
+        <text class="grp"  text-anchor="middle" x="521" y="156">SOFTWARE SYSTEM · IN SCOPE</text>
+        <text class="lbl"  text-anchor="middle" x="521" y="180">Dictionary POC Platform</text>
+        <text class="lbl2" text-anchor="middle" x="521" y="204">Event-sourced shipping domain,</text>
+        <text class="lbl2" text-anchor="middle" x="521" y="218">reference data as a service and</text>
+        <text class="lbl2" text-anchor="middle" x="521" y="232">the NATS patterns lab around them</text>
+
+        <g class="external">
+          <rect class="n" x="800" y="120" width="200" height="76" rx="3"/>
+          <rect class="n" x="800" y="250" width="200" height="76" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="900" y="140">EXTERNAL · OPTIONAL</text>
+        <text class="lbl"  text-anchor="middle" x="900" y="160">OTLP Trace Collector</text>
+        <text class="lbl2" text-anchor="middle" x="900" y="178">Jaeger 1.68 · otlp profile</text>
+        <text class="grp"  text-anchor="middle" x="900" y="270">EXTERNAL · INERT</text>
+        <text class="lbl"  text-anchor="middle" x="900" y="290">Anthropic Messages API</text>
+        <text class="lbl2" text-anchor="middle" x="900" y="308">No API key set in Compose</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M216 70 H386"/>
+        <text class="edge" x="226" y="52">Administers tenants via</text>
+        <text class="edge" x="226" y="64">Admin UI · HTTPS + WS</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M216 150 H386"/>
+        <text class="edge" x="226" y="132">Records ship moves via</text>
+        <text class="edge" x="226" y="144">Sea Freight · HTTPS + WS</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M216 230 H386"/>
+        <text class="edge" x="226" y="212">Curates reference data via</text>
+        <text class="edge" x="226" y="224">Refdata app · HTTPS + WS</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M216 310 H386"/>
+        <text class="edge" x="226" y="292">Reads the write-up on</text>
+        <text class="edge" x="226" y="304">Docs site · HTTPS</text>
+
+        <path class="rep" marker-end="url(#a-evtl)" d="M646 158 H790"/>
+        <text class="edge" x="656" y="140">Exports spans to</text>
+        <text class="edge" x="656" y="152">OTLP/HTTP</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M646 288 H790"/>
+        <text class="edge" x="656" y="270">Requests translations</text>
+        <text class="edge" x="656" y="282">HTTPS/JSON</text>
+
+        <rect class="nb" x="16" y="380" width="984" height="112" rx="4"/>
+        <text class="grp" x="30" y="402">LEGEND</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M30 424 H78"/>
+        <text class="lbl2" x="88" y="428">Synchronous request / response</text>
+        <path class="rep" marker-end="url(#a-evtl)" d="M400 424 H448"/>
+        <text class="lbl2" x="458" y="428">Asynchronous telemetry export</text>
+        <rect class="n person" x="30" y="444" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="88" y="456">Person, or software system in scope</text>
+        <rect class="n external" x="400" y="444" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="458" y="456">External system, outside the boundary</text>
+        <text class="lbl2" x="30" y="480">OTLP — OpenTelemetry protocol · WS — WebSocket · POC — proof of concept · API — application programming interface</text>
+      </svg>
+    </div>
+    <figcaption><b>One system, four operator roles, two outside dependencies.</b> The four roles are four screens rather than four people — one engineer commonly wears all of them. Both external systems are optional and neither runs in a default <code>docker compose up</code>: the trace collector is gated behind the <code>otlp</code> Compose profile, and the translation path is inert because no <code>ANTHROPIC_API_KEY</code> is supplied. PostgreSQL, Temporal and the NATS server are deliberately absent — they sit inside the system boundary and appear in the Container view.</figcaption>
+  </figure>
+</div>
+</body>
+</html>

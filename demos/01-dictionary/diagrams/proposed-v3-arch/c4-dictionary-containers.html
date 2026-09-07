@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dictionary POC — C4 Containers</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0 0 8px; font-size: 15px; line-height: 21px; font-weight: 600; }
+.sub { margin: 0; color: var(--muted); max-width: 72ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+.sec { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 14px 16px 16px; }
+.sec ul { margin: 0; padding-left: 18px; color: var(--muted); }
+.sec li { margin-bottom: 6px; }
+.sec li b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, .sec code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.app  { color: var(--sync); }
+.ds   { color: var(--store); }
+.strm { color: var(--evtl); }
+.ext  { color: var(--hop); stroke-dasharray: 5 4; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <div class="head-txt">
+      <span class="eyebrow">C4 Level 2 · Containers · Demo 01 Dictionary POC</span>
+      <h1>Dictionary POC — Containers</h1>
+      <p class="sub">The separately deployable parts of the platform. Every element is a running Docker Compose service, a JetStream stream, a NATS key-value or object-store bucket, or a database. Drawn as four sheets so no label has to shrink. Component internals and deployment topology are out of scope.</p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg role="img" viewBox="0 0 1010 620" aria-label="Container diagram sheet one. Two single-page applications sit above four Go services. Each service reads and writes its own database in one shared PostgreSQL instance. The organizations service additionally orchestrates workflows in Temporal.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#4d94ff"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2dd4bf"/></marker>
+        </defs>
+
+        <g class="app">
+          <rect class="n" x="16" y="44" width="480" height="52" rx="3"/>
+          <rect class="n" x="512" y="44" width="232" height="52" rx="3"/>
+          <rect class="n" x="16" y="170" width="232" height="52" rx="3"/>
+          <rect class="n" x="264" y="170" width="232" height="52" rx="3"/>
+          <rect class="n" x="512" y="170" width="232" height="52" rx="3"/>
+          <rect class="n" x="760" y="170" width="232" height="52" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="256" y="61">CONTAINER · SPA</text>
+        <text class="lbl"  text-anchor="middle" x="256" y="77">Sea Freight App</text>
+        <text class="lbl2" text-anchor="middle" x="256" y="91">Vue 3.5 + PrimeVue 4 on nginx · :7101</text>
+        <text class="grp"  text-anchor="middle" x="628" y="61">CONTAINER · SPA</text>
+        <text class="lbl"  text-anchor="middle" x="628" y="77">Refdata App</text>
+        <text class="lbl2" text-anchor="middle" x="628" y="91">Vue 3.5 + Leaflet on nginx · :7102</text>
+        <text class="grp"  text-anchor="middle" x="132" y="187">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="132" y="203">shipping-service</text>
+        <text class="lbl2" text-anchor="middle" x="132" y="217">Go 1.27 · :7200 — Ship, Container</text>
+        <text class="grp"  text-anchor="middle" x="380" y="187">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="380" y="203">pricing-service</text>
+        <text class="lbl2" text-anchor="middle" x="380" y="217">Go 1.27 · :7203 — fees and rates</text>
+        <text class="grp"  text-anchor="middle" x="628" y="187">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="628" y="203">refdata-service</text>
+        <text class="lbl2" text-anchor="middle" x="628" y="217">Go 1.27 · :7201 — types and items</text>
+        <text class="grp"  text-anchor="middle" x="876" y="187">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="876" y="203">organizations-service</text>
+        <text class="lbl2" text-anchor="middle" x="876" y="217">Go 1.27 + Temporal SDK · :7204</text>
+
+        <g class="ds">
+          <rect class="n" x="16" y="330" width="800" height="56" rx="3"/>
+          <rect class="n" x="760" y="430" width="232" height="52" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="416" y="349">CONTAINER · DATASTORE · TRANSACTIONAL TRUTH</text>
+        <text class="lbl"  text-anchor="middle" x="416" y="366">PostgreSQL</text>
+        <text class="lbl2" text-anchor="middle" x="416" y="380">PostgreSQL 16 · one database and one role per service — dictionary, refdata, pricing, organizations</text>
+        <text class="grp"  text-anchor="middle" x="876" y="447">CONTAINER · WORKFLOW STATE</text>
+        <text class="lbl"  text-anchor="middle" x="876" y="463">Temporal</text>
+        <text class="lbl2" text-anchor="middle" x="876" y="477">Temporal 1.27 · gRPC :7233</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M132 96 V162"/>
+        <text class="edge" x="142" y="118">Requests ship state</text>
+        <text class="edge" x="142" y="130">api.*.shipping.* · WS</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M380 96 V162"/>
+        <text class="edge" x="390" y="118">Requests fee scales</text>
+        <text class="edge" x="390" y="130">api.*.pricing.* · WS</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M628 96 V162"/>
+        <text class="edge" x="638" y="118">Requests refdata items</text>
+        <text class="edge" x="638" y="130">api.*.refdata.* · WS</text>
+
+        <path class="proj" marker-end="url(#a-store)" d="M132 222 V322"/>
+        <text class="edge" x="142" y="244">Upserts CQRS rows into</text>
+        <text class="edge" x="142" y="256">SQL</text>
+        <path class="proj" marker-end="url(#a-store)" d="M380 222 V322"/>
+        <text class="edge" x="390" y="244">Reads and writes rates</text>
+        <text class="edge" x="390" y="256">SQL</text>
+        <path class="proj" marker-end="url(#a-store)" d="M628 222 V322"/>
+        <text class="edge" x="638" y="244">Reads and writes items</text>
+        <text class="edge" x="638" y="256">SQL</text>
+        <path class="proj" marker-end="url(#a-store)" d="M800 222 V322"/>
+        <text class="edge" x="810" y="244">Writes org records</text>
+        <text class="edge" x="810" y="256">SQL</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M960 222 V422"/>
+        <text class="edge" text-anchor="end" x="950" y="280">Orchestrates vetting</text>
+        <text class="edge" text-anchor="end" x="950" y="292">Temporal gRPC :7233</text>
+
+        <rect class="nb" x="16" y="500" width="978" height="100" rx="4"/>
+        <text class="grp" x="30" y="522">LEGEND</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M30 540 H78"/>
+        <text class="lbl2" x="88" y="544">Synchronous request / response</text>
+        <path class="proj" marker-end="url(#a-store)" d="M420 540 H468"/>
+        <text class="lbl2" x="478" y="544">Read or write against a store</text>
+        <rect class="n app" x="30" y="556" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="88" y="568">Application or service container</text>
+        <rect class="n ds" x="420" y="556" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="478" y="568">Datastore container</text>
+        <text class="lbl2" x="30" y="590">SPA — single-page application · WS — WebSocket · SQL — structured query language · CQRS — command query responsibility segregation</text>
+      </svg>
+    </div>
+    <figcaption><b>Sheet 1 of 4 — browser apps, business services and the databases behind them.</b> Only the synchronous and store paths are drawn here; the event backbone is sheet 2. Each service owns one database and one role inside a single PostgreSQL 16 instance (ADR-052) — one product, four isolated schemas, not four servers. Temporal keeps its workflow history in its own separate PostgreSQL 16 instance, which is why it is drawn as its own datastore rather than as a database inside the shared one. The apps reach services over a NATS WebSocket connection using <code>api.*</code> subjects, not over plain REST.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg role="img" viewBox="0 0 1010 640" aria-label="Container diagram sheet two. Three services each publish to their own JetStream stream and write through to a NATS key-value read model. The shipping service also replays its stream to rehydrate aggregates, and the refdata stream notifies the shipping service of reference-data changes across accounts.">
+        <defs>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2dd4bf"/></marker>
+          <marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#f0b429"/></marker>
+        </defs>
+
+        <rect class="nb" x="400" y="150" width="594" height="345" rx="4"/>
+        <text class="grp" x="416" y="176">NATS 2.14 · JETSTREAM + KV</text>
+
+        <g class="app">
+          <rect class="n" x="16" y="190" width="250" height="52" rx="3"/>
+          <rect class="n" x="16" y="300" width="250" height="52" rx="3"/>
+          <rect class="n" x="16" y="410" width="250" height="52" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="141" y="207">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="141" y="223">shipping-service</text>
+        <text class="lbl2" text-anchor="middle" x="141" y="237">Go 1.27 · :7200 — Ship, Container</text>
+        <text class="grp"  text-anchor="middle" x="141" y="317">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="141" y="333">refdata-service</text>
+        <text class="lbl2" text-anchor="middle" x="141" y="347">Go 1.27 · :7201 — types and items</text>
+        <text class="grp"  text-anchor="middle" x="141" y="427">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="141" y="443">organizations-service</text>
+        <text class="lbl2" text-anchor="middle" x="141" y="457">Go 1.27 + Temporal SDK · :7204</text>
+
+        <g class="strm">
+          <path class="n" d="M410 196 a120 16 0 0 1 240 0 v40 a120 16 0 0 1 -240 0 z"/>
+          <path class="n" d="M410 196 a120 16 0 0 0 240 0"/>
+          <path class="n" d="M410 306 a120 16 0 0 1 240 0 v40 a120 16 0 0 1 -240 0 z"/>
+          <path class="n" d="M410 306 a120 16 0 0 0 240 0"/>
+          <path class="n" d="M410 416 a120 16 0 0 1 240 0 v40 a120 16 0 0 1 -240 0 z"/>
+          <path class="n" d="M410 416 a120 16 0 0 0 240 0"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="530" y="220">CONTAINER · STREAM</text>
+        <text class="lbl"  text-anchor="middle" x="530" y="234">SHIPPING</text>
+        <text class="lbl2" text-anchor="middle" x="530" y="246">LimitsPolicy · evt.*.shipping.&gt;</text>
+        <text class="grp"  text-anchor="middle" x="530" y="330">CONTAINER · STREAM</text>
+        <text class="lbl"  text-anchor="middle" x="530" y="344">REFDATA</text>
+        <text class="lbl2" text-anchor="middle" x="530" y="356">LimitsPolicy · evt.*.refdata.&gt;</text>
+        <text class="grp"  text-anchor="middle" x="530" y="440">CONTAINER · STREAM</text>
+        <text class="lbl"  text-anchor="middle" x="530" y="454">TRANSPORTER</text>
+        <text class="lbl2" text-anchor="middle" x="530" y="466">LimitsPolicy · transporter events</text>
+
+        <g class="ds">
+          <rect class="n" x="760" y="190" width="234" height="52" rx="3"/>
+          <rect class="n" x="760" y="300" width="234" height="52" rx="3"/>
+          <rect class="n" x="760" y="410" width="234" height="52" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="877" y="207">CONTAINER · KV READ MODEL</text>
+        <text class="lbl"  text-anchor="middle" x="877" y="223">Shipping read model</text>
+        <text class="lbl2" text-anchor="middle" x="877" y="237">NATS KV · ships, container, meta</text>
+        <text class="grp"  text-anchor="middle" x="877" y="317">CONTAINER · KV READ MODEL</text>
+        <text class="lbl"  text-anchor="middle" x="877" y="333">Refdata read model</text>
+        <text class="lbl2" text-anchor="middle" x="877" y="347">NATS KV · refdata-{context}</text>
+        <text class="grp"  text-anchor="middle" x="877" y="427">CONTAINER · KV + OBJECT STORE</text>
+        <text class="lbl"  text-anchor="middle" x="877" y="443">Organizations store</text>
+        <text class="lbl2" text-anchor="middle" x="877" y="457">KV organizations · OBJ orgs-docs</text>
+
+        <path class="rep" marker-end="url(#b-evtl)" d="M266 204 H402"/>
+        <text class="edge" x="276" y="186">Publishes ship events</text>
+        <text class="edge" x="276" y="198">JetStream</text>
+        <path class="rep" marker-end="url(#b-evtl)" d="M410 230 H274"/>
+        <text class="edge" x="276" y="244">Replays history</text>
+        <text class="edge" x="276" y="256">JetStream</text>
+        <path class="proj" marker-end="url(#b-store)" d="M180 190 V140 H877 V182"/>
+        <text class="edge" x="400" y="122">Write-through caches into</text>
+        <text class="edge" x="400" y="134">NATS KV</text>
+
+        <path class="rep" marker-end="url(#b-evtl)" d="M650 320 H740 V158 H60 V182"/>
+        <text class="edge" x="70" y="170">Notifies changes</text>
+        <text class="edge" x="70" y="182">JetStream</text>
+
+        <path class="rep" marker-end="url(#b-evtl)" d="M266 318 H402"/>
+        <text class="edge" x="276" y="300">Publishes changes to</text>
+        <text class="edge" x="276" y="312">JetStream</text>
+        <path class="proj" marker-end="url(#b-store)" d="M180 300 V284 H877 V292"/>
+        <text class="edge" x="400" y="266">Caches items into</text>
+        <text class="edge" x="400" y="278">NATS KV</text>
+
+        <path class="rep" marker-end="url(#b-evtl)" d="M266 428 H402"/>
+        <text class="edge" x="276" y="410">Publishes events to</text>
+        <text class="edge" x="276" y="422">JetStream</text>
+        <path class="proj" marker-end="url(#b-store)" d="M180 410 V394 H877 V402"/>
+        <text class="edge" x="400" y="376">Caches profiles into</text>
+        <text class="edge" x="400" y="388">NATS KV + Object Store</text>
+
+        <rect class="nb" x="16" y="520" width="978" height="100" rx="4"/>
+        <text class="grp" x="30" y="542">LEGEND</text>
+        <path class="rep" marker-end="url(#b-evtl)" d="M30 560 H78"/>
+        <text class="lbl2" x="88" y="564">Asynchronous event on a stream</text>
+        <path class="proj" marker-end="url(#b-store)" d="M420 560 H468"/>
+        <text class="lbl2" x="478" y="564">Read or write against a store</text>
+        <rect class="n strm" x="30" y="576" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="88" y="588">Stream container — drawn as a cylinder</text>
+        <rect class="n ds" x="420" y="576" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="478" y="588">Key-value or object-store container</text>
+        <text class="lbl2" x="30" y="610">KV — key/value · OBJ — object store · TTL — time to live · The dashed box is the NATS server boundary, not a container</text>
+      </svg>
+    </div>
+    <figcaption><b>Sheet 2 of 4 — Postgres is the truth, the stream is the history, KV is the cache.</b> Every stream uses <code>LimitsPolicy</code>, not <code>InterestPolicy</code>, so messages survive delivery and the log can be replayed — that is what makes the shipping service's rehydration edge possible. NATS KV is an eager write-through cache filled by the same handler that upserts PostgreSQL on sheet 1; a cache miss falls through to PostgreSQL. The refdata notify edge crosses a NATS account boundary: tenant accounts export the subject and the PLATFORM account imports it. <code>pricing-service</code> is absent from this sheet on purpose — it has no stream and no KV bucket. Service-to-service <code>rpc.*.refdata.*</code> lookups exist but their callers were not confirmed, so no edge is drawn for them.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg role="img" viewBox="0 0 1010 620" aria-label="Container diagram sheet three. The admin single-page application drives the accounts service; the application shell reads the plugin registry service and loads federated plugin bundles from a plugin host. The accounts service mints tenant credentials against the NATS server and both services store rows in PostgreSQL. The documentation site is static and has no backend.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#4d94ff"/></marker>
+          <marker id="c-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2dd4bf"/></marker>
+        </defs>
+
+        <g class="app">
+          <rect class="n" x="16" y="44" width="232" height="52" rx="3"/>
+          <rect class="n" x="264" y="44" width="232" height="52" rx="3"/>
+          <rect class="n" x="512" y="44" width="232" height="52" rx="3"/>
+          <rect class="n" x="760" y="44" width="232" height="52" rx="3"/>
+          <rect class="n" x="16" y="190" width="232" height="52" rx="3"/>
+          <rect class="n" x="264" y="190" width="232" height="52" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="132" y="61">CONTAINER · SPA</text>
+        <text class="lbl"  text-anchor="middle" x="132" y="77">Admin UI</text>
+        <text class="lbl2" text-anchor="middle" x="132" y="91">Vue 3.5 on nginx · :7100</text>
+        <text class="grp"  text-anchor="middle" x="380" y="61">CONTAINER · SPA HOST</text>
+        <text class="lbl"  text-anchor="middle" x="380" y="77">App Shell</text>
+        <text class="lbl2" text-anchor="middle" x="380" y="91">Vue 3.5 + Module Federation · :7110</text>
+        <text class="grp"  text-anchor="middle" x="628" y="61">CONTAINER · STATIC SITE</text>
+        <text class="lbl"  text-anchor="middle" x="628" y="77">Docs Site</text>
+        <text class="lbl2" text-anchor="middle" x="628" y="91">VitePress on nginx · :7106</text>
+        <text class="grp"  text-anchor="middle" x="876" y="61">CONTAINER · PLUGIN HOST</text>
+        <text class="lbl"  text-anchor="middle" x="876" y="77">Plugin Host</text>
+        <text class="lbl2" text-anchor="middle" x="876" y="91">nginx · :7111-:7115 · remotes</text>
+        <text class="grp"  text-anchor="middle" x="132" y="207">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="132" y="223">accounts-service</text>
+        <text class="lbl2" text-anchor="middle" x="132" y="237">Go 1.27 · :7202 — tenants, users</text>
+        <text class="grp"  text-anchor="middle" x="380" y="207">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="380" y="223">mfe-registry-service</text>
+        <text class="lbl2" text-anchor="middle" x="380" y="237">Go 1.27 · :7206 — plugin registry</text>
+
+        <g class="strm">
+          <rect class="n" x="16" y="340" width="232" height="56" rx="3"/>
+        </g>
+        <g class="ds">
+          <rect class="n" x="264" y="340" width="480" height="56" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="132" y="359">CONTAINER · MESSAGE BROKER</text>
+        <text class="lbl"  text-anchor="middle" x="132" y="376">NATS Server</text>
+        <text class="lbl2" text-anchor="middle" x="132" y="390">NATS 2.14 · operator mode · :4222</text>
+        <text class="grp"  text-anchor="middle" x="504" y="359">CONTAINER · DATASTORE · TRANSACTIONAL TRUTH</text>
+        <text class="lbl"  text-anchor="middle" x="504" y="376">PostgreSQL</text>
+        <text class="lbl2" text-anchor="middle" x="504" y="390">PostgreSQL 16 · databases accounts and mfe_registry</text>
+
+        <path class="flow" marker-end="url(#c-sync)" d="M132 96 V182"/>
+        <text class="edge" x="142" y="140">Administers tenants</text>
+        <text class="edge" x="142" y="152">api._platform.accounts.* · WS</text>
+
+        <path class="flow" marker-end="url(#c-sync)" d="M340 96 V182"/>
+        <text class="edge" x="350" y="158">Reads the plugin catalogue</text>
+        <text class="edge" x="350" y="170">api._platform.mfe.registry.* · WS</text>
+
+        <path class="flow" marker-end="url(#c-sync)" d="M460 96 V130 H868 V104"/>
+        <text class="edge" x="600" y="152">Loads plugin bundles from</text>
+        <text class="edge" x="600" y="164">Module Federation · HTTPS</text>
+
+        <path class="flow" marker-end="url(#c-sync)" d="M60 242 V332"/>
+        <text class="edge" x="70" y="270">Mints tenant JWTs</text>
+        <text class="edge" x="70" y="282">$SYS.REQ.CLAIMS.*</text>
+
+        <path class="proj" marker-end="url(#c-store)" d="M220 242 V316 H400 V332"/>
+        <text class="edge" text-anchor="end" x="390" y="292">Stores tenants and users</text>
+        <text class="edge" text-anchor="end" x="390" y="304">SQL · database accounts</text>
+
+        <path class="proj" marker-end="url(#c-store)" d="M480 242 V332"/>
+        <text class="edge" x="490" y="270">Stores plugin registrations</text>
+        <text class="edge" x="490" y="282">SQL · database mfe_registry</text>
+
+        <rect class="nb" x="16" y="440" width="978" height="100" rx="4"/>
+        <text class="grp" x="30" y="462">LEGEND</text>
+        <path class="flow" marker-end="url(#c-sync)" d="M30 480 H78"/>
+        <text class="lbl2" x="88" y="484">Synchronous request / response</text>
+        <path class="proj" marker-end="url(#c-store)" d="M420 480 H468"/>
+        <text class="lbl2" x="478" y="484">Read or write against a store</text>
+        <rect class="n app" x="30" y="496" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="88" y="508">Application or service container</text>
+        <rect class="n ds" x="420" y="496" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="478" y="508">Datastore container</text>
+        <text class="lbl2" x="30" y="530">SPA — single-page application · MFE — micro-frontend · JWT — JSON web token · WS — WebSocket · SQL — structured query language</text>
+      </svg>
+    </div>
+    <figcaption><b>Sheet 3 of 4 — identity and the plugin platform.</b> <code>accounts-service</code> is the only container that holds a <code>SYS</code>-account credential, because minting and revoking a tenant JWT is only reachable as <code>SYS</code>; it keeps a second <code>PLATFORM</code> connection for <code>notify.accounts.account.created</code>, not drawn here. <code>mfe-registry-service</code> stores plugin registrations in PostgreSQL only — it has no key-value bucket. The App Shell fetches plugin code straight from the plugin host over HTTPS, never through the registry: the registry returns the remote's URL and the browser does the loading, which is why the two edges leave the shell separately. The Docs Site has no backend edge — it is a container of static files and that is the whole truth about it.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg role="img" viewBox="0 0 1010 600" aria-label="Container diagram sheet four. The admin single-page application queries the observability service, which persists pub/sub samples to the PUBSUB stream and spans to the TRACES stream inside NATS, indexing each into its own key-value bucket. Outside the NATS boundary the otlp-bridge consumes the TRACES stream and exports to Jaeger.">
+        <defs>
+          <marker id="d-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#4d94ff"/></marker>
+          <marker id="d-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#2dd4bf"/></marker>
+          <marker id="d-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#f0b429"/></marker>
+        </defs>
+
+        <rect class="nb" x="540" y="40" width="454" height="290" rx="4"/>
+        <text class="grp" x="556" y="64">NATS 2.14 · JETSTREAM + KV</text>
+
+        <g class="app">
+          <rect class="n" x="16" y="90" width="220" height="52" rx="3"/>
+          <rect class="n" x="290" y="90" width="220" height="100" rx="3"/>
+          <rect class="n" x="550" y="380" width="220" height="52" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="126" y="107">CONTAINER · SPA</text>
+        <text class="lbl"  text-anchor="middle" x="126" y="123">Admin UI</text>
+        <text class="lbl2" text-anchor="middle" x="126" y="137">Vue 3.5 on nginx · :7100</text>
+        <text class="grp"  text-anchor="middle" x="400" y="122">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="400" y="139">observability-service</text>
+        <text class="lbl2" text-anchor="middle" x="400" y="153">Go 1.27 · :7205 — traces and</text>
+        <text class="lbl2" text-anchor="middle" x="400" y="165">pub/sub inspection</text>
+        <text class="grp"  text-anchor="middle" x="660" y="397">CONTAINER · SERVICE</text>
+        <text class="lbl"  text-anchor="middle" x="660" y="413">otlp-bridge</text>
+        <text class="lbl2" text-anchor="middle" x="660" y="427">Go 1.27 · otlp profile · no port</text>
+
+        <g class="strm">
+          <path class="n" d="M560 96 a100 16 0 0 1 200 0 v40 a100 16 0 0 1 -200 0 z"/>
+          <path class="n" d="M560 96 a100 16 0 0 0 200 0"/>
+          <path class="n" d="M560 206 a100 16 0 0 1 200 0 v40 a100 16 0 0 1 -200 0 z"/>
+          <path class="n" d="M560 206 a100 16 0 0 0 200 0"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="660" y="120">CONTAINER · STREAM</text>
+        <text class="lbl"  text-anchor="middle" x="660" y="134">PUBSUB</text>
+        <text class="lbl2" text-anchor="middle" x="660" y="146">LimitsPolicy · obs.pubsub.&gt;</text>
+        <text class="grp"  text-anchor="middle" x="660" y="230">CONTAINER · STREAM</text>
+        <text class="lbl"  text-anchor="middle" x="660" y="244">TRACES</text>
+        <text class="lbl2" text-anchor="middle" x="660" y="256">LimitsPolicy · obs.trace.&gt;</text>
+
+        <g class="ds">
+          <rect class="n" x="790" y="90" width="204" height="52" rx="3"/>
+          <rect class="n" x="790" y="200" width="204" height="52" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="892" y="107">CONTAINER · KEY-VALUE</text>
+        <text class="lbl"  text-anchor="middle" x="892" y="123">pubsub-messages</text>
+        <text class="lbl2" text-anchor="middle" x="892" y="137">NATS KV · recent samples</text>
+        <text class="grp"  text-anchor="middle" x="892" y="217">CONTAINER · KEY-VALUE</text>
+        <text class="lbl"  text-anchor="middle" x="892" y="233">trace-request-reply</text>
+        <text class="lbl2" text-anchor="middle" x="892" y="247">NATS KV · reply pairing</text>
+
+        <g class="ext">
+          <rect class="n" x="790" y="380" width="204" height="52" rx="3"/>
+        </g>
+        <text class="grp"  text-anchor="middle" x="892" y="397">EXTERNAL · OPTIONAL</text>
+        <text class="lbl"  text-anchor="middle" x="892" y="413">Jaeger</text>
+        <text class="lbl2" text-anchor="middle" x="892" y="427">Jaeger 1.68 · :16686</text>
+
+        <path class="flow" marker-end="url(#d-sync)" d="M236 116 H282"/>
+        <text class="edge" x="16" y="64">Requests traces and messages</text>
+        <text class="edge" x="16" y="76">obs.api.* · WS</text>
+
+        <path class="rep" marker-end="url(#d-evtl)" d="M510 116 H552"/>
+        <text class="edge" x="300" y="64">Records message samples to</text>
+        <text class="edge" x="300" y="76">obs.pubsub.&gt; · JetStream</text>
+
+        <path class="rep" marker-end="url(#d-evtl)" d="M400 190 V226 H552"/>
+        <text class="edge" x="402" y="208">Persists spans to</text>
+        <text class="edge" x="402" y="220">obs.trace.&gt; · JetStream</text>
+
+        <path class="proj" marker-end="url(#d-store)" d="M760 116 H782"/>
+        <text class="edge" x="790" y="64">Indexes samples in</text>
+        <text class="edge" x="790" y="76">NATS KV · pubsub-messages</text>
+
+        <path class="proj" marker-end="url(#d-store)" d="M760 226 H782"/>
+        <text class="edge" x="790" y="174">Indexes replies in</text>
+        <text class="edge" x="790" y="186">NATS KV · trace-request-reply</text>
+
+        <path class="rep" marker-end="url(#d-evtl)" d="M660 272 V372"/>
+        <text class="edge" x="670" y="300">Consumes span batches</text>
+        <text class="edge" x="670" y="312">JetStream pull consumer</text>
+
+        <path class="rep" marker-end="url(#d-evtl)" d="M770 406 H782"/>
+        <text class="edge" x="790" y="352">Exports spans to</text>
+        <text class="edge" x="790" y="364">OTLP/HTTP</text>
+
+        <rect class="nb" x="16" y="460" width="978" height="100" rx="4"/>
+        <text class="grp" x="30" y="482">LEGEND</text>
+        <path class="flow" marker-end="url(#d-sync)" d="M30 500 H78"/>
+        <text class="lbl2" x="88" y="504">Synchronous request / response</text>
+        <path class="rep" marker-end="url(#d-evtl)" d="M420 500 H468"/>
+        <text class="lbl2" x="478" y="504">Asynchronous event on a stream</text>
+        <path class="proj" marker-end="url(#d-store)" d="M30 524 H78"/>
+        <text class="lbl2" x="88" y="528">Read or write against a store</text>
+        <rect class="n ext" x="420" y="516" width="48" height="16" rx="3"/>
+        <text class="lbl2" x="478" y="528">External system, outside the platform</text>
+        <text class="lbl2" x="30" y="550">KV — key/value · OTLP — OpenTelemetry protocol · WS — WebSocket · The dashed box is the NATS server boundary, not a container</text>
+      </svg>
+    </div>
+    <figcaption><b>Sheet 4 of 4 — observability is built out of the same three parts as the business domain.</b> A stream holds the history, a key-value bucket holds the fast lookup, and one service owns both. <code>observability-service</code> keeps the two paths on separate streams on purpose, so an <code>evt.*</code> burst on the pub/sub side cannot evict trace history. <code>otlp-bridge</code> and Jaeger are drawn outside the platform boundary and neither starts in a default <code>docker compose up</code> — both sit behind the <code>otlp</code> Compose profile. <code>otlp-bridge</code> reuses <code>platform.creds</code> rather than holding a credential of its own, because it only ever consumes.</figcaption>
+  </figure>
+</div>
+</body>
+</html>

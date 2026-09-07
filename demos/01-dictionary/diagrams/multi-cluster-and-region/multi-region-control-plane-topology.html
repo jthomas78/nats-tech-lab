@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Global control plane, regional data planes</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --blue: #3b8bff; --cyan: #2fd4e8; --green: #34d399; --purple: #a78bfa;
+  --amber: #f5b13d; --stroke: #4A515B; --tx3: #8b929b; --truth: #27C07F;
+  --tile: #1A1E23; --ground: #15181c; --tile-stroke: #3a424c;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.sec { display: flex; flex-direction: column; gap: 11px; }
+table { border-collapse: collapse; font-size: 12px; line-height: 18px; color: var(--muted); width: 100%; }
+th, td { text-align: left; padding: 6px 14px 6px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
+td b { color: var(--text); font-weight: 600; }
+.tf   { font-family: var(--mono); font-size: 11px; font-weight: 600; fill: var(--text); }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+/* --- AWS-style topology primitives --- */
+.bnd  { fill: var(--ground); stroke-width: 1.1; }
+.grp  { fill: none; stroke-width: 1.1; }
+.tile { fill: var(--tile); stroke: var(--tile-stroke); stroke-width: 1.1; }
+.gl   { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.13em; }
+.tl   { font-family: var(--sans); font-size: 11.5px; font-weight: 600; fill: var(--text); }
+.ts   { font-family: var(--sans); font-size: 10px; fill: var(--muted); }
+.td   { font-family: var(--sans); font-size: 9.5px; fill: var(--dim); }
+.tm   { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.ig   { font-family: var(--sans); font-size: 12px; font-weight: 700; fill: #0d0f11; }
+.ed   { font-family: var(--sans); font-size: 9.5px; fill: var(--muted);
+        paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+.lg   { font-family: var(--sans); font-size: 9.5px; fill: var(--dim); }
+.push { fill: none; stroke: var(--green); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.peer { fill: none; stroke: var(--cyan); stroke-width: 1.4; stroke-dasharray: 1.5 3.5; }
+.join { fill: none; stroke: var(--tx3); stroke-width: 1.1; }
+.rule { stroke: #2a3038; stroke-width: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Multi-region deployment &middot; discussion sketch (LB-V3-L3-04 context)</span>
+      <h1>Global control plane, regional data planes</h1>
+      <p class="sub">The split is by <b>plane</b>, not by place. There is exactly one control plane for the whole platform,
+      because there is exactly one NATS operator and one JWT resolver. A region is a self-contained data-plane cell that can
+      serve every tenant placed in it. A tenant is a logical object <em>inside</em> a cell &mdash; an account, its streams, its
+      KV buckets, its rows &mdash; never a stack of its own.</p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 974 816" role="img" aria-label="Topology of a multi-region, multi-tenant NATS platform. A single global control plane band across the top holds five components: the NATS operator as root of trust, the JWT resolver holding account JWTs, the tenant provisioner that mints accounts and credentials, the placement registry mapping each tenant to its region, and the platform refdata master owning the underscore-platform context. Below it sit two peer regional data-plane cells, eu-west and us-east, drawn with identical internal structure: a messaging backbone group containing a three-node NATS cluster and its JetStream, KV and object store; a platform services group with auth-service, accounts-service and refdata-service; a pooled tenant workload group listing shipping-service, pricing-service and organizations-service, all shared by every tenant; and a persistence group with one Postgres instance that never leaves the region. Account JWTs are pushed downward from the control plane into each region. The two regions are joined to each other, peer to peer, by a NATS gateway supercluster link that runs between their boundaries and belongs to neither control plane nor either region alone.">
+        <defs>
+          <marker id="a-push" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--green)"/>
+          </marker>
+          <marker id="a-peer" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--cyan)"/>
+          </marker>
+        </defs>
+
+        <!-- ===== BAND 1 : global control plane ===== -->
+        <text class="gl" x="6" y="40" fill="var(--green)">GLOBAL CONTROL PLANE &mdash; ONE PER PLATFORM, NOT PER REGION</text>
+        <rect class="bnd" x="6" y="46" width="962" height="122" rx="12" stroke="var(--green)"/>
+
+        <!-- tile 1 -->
+        <rect class="tile" x="18" y="76" width="178" height="76" rx="8"/>
+        <rect x="28" y="86" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="39" y="101" text-anchor="middle">O</text>
+        <text class="tl" x="58" y="101">nats operator</text>
+        <text class="ts" x="30" y="124">root of trust &middot; NKey</text>
+        <text class="td" x="30" y="142">one chain, all regions</text>
+        <!-- tile 2 -->
+        <rect class="tile" x="208" y="76" width="178" height="76" rx="8"/>
+        <rect x="218" y="86" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="229" y="101" text-anchor="middle">J</text>
+        <text class="tl" x="248" y="101">jwt resolver</text>
+        <text class="ts" x="220" y="124">account JWT store</text>
+        <text class="td" x="220" y="142">full resolver, pushed out</text>
+        <!-- tile 3 -->
+        <rect class="tile" x="398" y="76" width="178" height="76" rx="8"/>
+        <rect x="408" y="86" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="419" y="101" text-anchor="middle">T</text>
+        <text class="tl" x="438" y="101">tenant provisioner</text>
+        <text class="ts" x="410" y="124">mints account + creds</text>
+        <text class="td" x="410" y="142">API-driven, not GitOps</text>
+        <!-- tile 4 -->
+        <rect class="tile" x="588" y="76" width="178" height="76" rx="8"/>
+        <rect x="598" y="86" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="609" y="101" text-anchor="middle">P</text>
+        <text class="tl" x="628" y="101">placement registry</text>
+        <text class="ts" x="600" y="124">tenant to region map</text>
+        <text class="td" x="600" y="142">resolve before routing</text>
+        <!-- tile 5 -->
+        <rect class="tile" x="778" y="76" width="178" height="76" rx="8"/>
+        <rect x="788" y="86" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="799" y="101" text-anchor="middle">D</text>
+        <text class="tl" x="818" y="101">refdata master</text>
+        <text class="ts" x="790" y="124">owns _platform context</text>
+        <text class="tm" x="790" y="142">evt._platform.refdata.*</text>
+
+        <!-- ===== corridor connectors ===== -->
+        <path class="push" d="M290 168 L290 222" marker-end="url(#a-push)"/>
+        <text class="ed" x="278" y="200" text-anchor="end">account JWTs, pushed</text>
+        <path class="push" d="M940 168 L940 222" marker-end="url(#a-push)"/>
+        <path class="peer" d="M330 222 L330 192 L800 192 L800 222"
+              marker-start="url(#a-peer)" marker-end="url(#a-peer)"/>
+        <text class="ed" x="565" y="186" text-anchor="middle">gateway &middot; supercluster</text>
+
+        <!-- ===== BAND 2 : region eu-west ===== -->
+        <text class="gl" x="6" y="226" fill="var(--stroke)">REGION eu-west &mdash; CELL 1 OF N</text>
+        <rect class="bnd" x="6" y="232" width="452" height="524" rx="12" stroke="var(--stroke)"/>
+
+        <text class="gl" x="18" y="258" fill="var(--cyan)">MESSAGING BACKBONE</text>
+        <rect class="grp" x="18" y="264" width="428" height="94" rx="12" stroke="var(--cyan)"/>
+        <rect class="tile" x="28" y="274" width="198" height="74" rx="8"/>
+        <rect x="38" y="284" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="49" y="299" text-anchor="middle">N</text>
+        <text class="tl" x="68" y="299">nats cluster</text>
+        <text class="ts" x="40" y="322">3 nodes &middot; raft</text>
+        <text class="td" x="40" y="340">eu-west only, never stretched</text>
+        <rect class="tile" x="238" y="274" width="198" height="74" rx="8"/>
+        <rect x="248" y="284" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="259" y="299" text-anchor="middle">S</text>
+        <text class="tl" x="278" y="299">jetstream + kv</text>
+        <text class="ts" x="250" y="322">streams, KV, object store</text>
+        <text class="td" x="250" y="340" fill="var(--amber)">replicas not set &mdash; R1 today</text>
+
+        <text class="gl" x="18" y="384" fill="var(--green)">PLATFORM SERVICES</text>
+        <rect class="grp" x="18" y="390" width="428" height="94" rx="12" stroke="var(--green)"/>
+        <rect class="tile" x="28" y="400" width="198" height="74" rx="8"/>
+        <rect x="38" y="410" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="49" y="425" text-anchor="middle">C</text>
+        <text class="tl" x="68" y="425">accounts-service</text>
+        <text class="ts" x="40" y="448">serves + mints user JWTs</text>
+        <text class="td" x="40" y="466">auth folded in (Phase 19)</text>
+        <rect class="tile" x="238" y="400" width="198" height="74" rx="8"/>
+        <rect x="248" y="410" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="259" y="425" text-anchor="middle">R</text>
+        <text class="tl" x="278" y="425">refdata-service</text>
+        <text class="ts" x="250" y="448">regional read replica</text>
+        <text class="td" x="250" y="466">platform + tenant layers</text>
+
+        <text class="gl" x="18" y="510" fill="var(--purple)">TENANT WORKLOAD &mdash; POOLED, ALL TENANTS</text>
+        <rect class="grp" x="18" y="516" width="428" height="132" rx="12" stroke="var(--purple)"/>
+        <rect class="tile" x="28" y="526" width="408" height="32" rx="8"/>
+        <rect x="36" y="533" width="18" height="18" rx="6" fill="var(--purple)"/>
+        <text class="ig" x="45" y="546" text-anchor="middle">S</text>
+        <text class="tl" x="62" y="547">shipping-service</text>
+        <text class="td" x="426" y="547" text-anchor="end">tenant = NATS account</text>
+        <rect class="tile" x="28" y="566" width="408" height="32" rx="8"/>
+        <rect x="36" y="573" width="18" height="18" rx="6" fill="var(--purple)"/>
+        <text class="ig" x="45" y="586" text-anchor="middle">P</text>
+        <text class="tl" x="62" y="587">pricing-service</text>
+        <text class="td" x="426" y="587" text-anchor="end">tenant = NATS account</text>
+        <rect class="tile" x="28" y="606" width="408" height="32" rx="8"/>
+        <rect x="36" y="613" width="18" height="18" rx="6" fill="var(--purple)"/>
+        <text class="ig" x="45" y="626" text-anchor="middle">O</text>
+        <text class="tl" x="62" y="627">organizations-service</text>
+        <text class="td" x="426" y="627" text-anchor="end">tenant = NATS account</text>
+
+        <text class="gl" x="18" y="674" fill="var(--truth)">PERSISTENCE &mdash; SOURCE OF TRUTH</text>
+        <rect class="grp" x="18" y="680" width="428" height="62" rx="12" stroke="var(--truth)"/>
+        <rect class="tile" x="28" y="690" width="408" height="42" rx="8"/>
+        <rect x="38" y="698" width="18" height="18" rx="6" fill="var(--truth)"/>
+        <text class="ig" x="47" y="711" text-anchor="middle">G</text>
+        <text class="tl" x="64" y="706">postgres</text>
+        <text class="td" x="64" y="722">one instance &middot; db + role per service &middot; never leaves the region</text>
+
+        <!-- ===== BAND 2 : region us-east (EU geometry + 510) ===== -->
+        <text class="gl" x="516" y="226" fill="var(--stroke)">REGION us-east &mdash; CELL 1 OF N</text>
+        <rect class="bnd" x="516" y="232" width="452" height="524" rx="12" stroke="var(--stroke)"/>
+
+        <text class="gl" x="528" y="258" fill="var(--cyan)">MESSAGING BACKBONE</text>
+        <rect class="grp" x="528" y="264" width="428" height="94" rx="12" stroke="var(--cyan)"/>
+        <rect class="tile" x="538" y="274" width="198" height="74" rx="8"/>
+        <rect x="548" y="284" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="559" y="299" text-anchor="middle">N</text>
+        <text class="tl" x="578" y="299">nats cluster</text>
+        <text class="ts" x="550" y="322">3 nodes &middot; raft</text>
+        <text class="td" x="550" y="340">us-east only, never stretched</text>
+        <rect class="tile" x="748" y="274" width="198" height="74" rx="8"/>
+        <rect x="758" y="284" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="769" y="299" text-anchor="middle">S</text>
+        <text class="tl" x="788" y="299">jetstream + kv</text>
+        <text class="ts" x="760" y="322">streams, KV, object store</text>
+        <text class="td" x="760" y="340" fill="var(--amber)">replicas not set &mdash; R1 today</text>
+
+        <text class="gl" x="528" y="384" fill="var(--green)">PLATFORM SERVICES</text>
+        <rect class="grp" x="528" y="390" width="428" height="94" rx="12" stroke="var(--green)"/>
+        <rect class="tile" x="538" y="400" width="198" height="74" rx="8"/>
+        <rect x="548" y="410" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="559" y="425" text-anchor="middle">C</text>
+        <text class="tl" x="578" y="425">accounts-service</text>
+        <text class="ts" x="550" y="448">serves + mints user JWTs</text>
+        <text class="td" x="550" y="466">auth folded in (Phase 19)</text>
+        <rect class="tile" x="748" y="400" width="198" height="74" rx="8"/>
+        <rect x="758" y="410" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="769" y="425" text-anchor="middle">R</text>
+        <text class="tl" x="788" y="425">refdata-service</text>
+        <text class="ts" x="760" y="448">regional read replica</text>
+        <text class="td" x="760" y="466">platform + tenant layers</text>
+
+        <text class="gl" x="528" y="510" fill="var(--purple)">TENANT WORKLOAD &mdash; POOLED, ALL TENANTS</text>
+        <rect class="grp" x="528" y="516" width="428" height="132" rx="12" stroke="var(--purple)"/>
+        <rect class="tile" x="538" y="526" width="408" height="32" rx="8"/>
+        <rect x="546" y="533" width="18" height="18" rx="6" fill="var(--purple)"/>
+        <text class="ig" x="555" y="546" text-anchor="middle">S</text>
+        <text class="tl" x="572" y="547">shipping-service</text>
+        <text class="td" x="936" y="547" text-anchor="end">tenant = NATS account</text>
+        <rect class="tile" x="538" y="566" width="408" height="32" rx="8"/>
+        <rect x="546" y="573" width="18" height="18" rx="6" fill="var(--purple)"/>
+        <text class="ig" x="555" y="586" text-anchor="middle">P</text>
+        <text class="tl" x="572" y="587">pricing-service</text>
+        <text class="td" x="936" y="587" text-anchor="end">tenant = NATS account</text>
+        <rect class="tile" x="538" y="606" width="408" height="32" rx="8"/>
+        <rect x="546" y="613" width="18" height="18" rx="6" fill="var(--purple)"/>
+        <text class="ig" x="555" y="626" text-anchor="middle">O</text>
+        <text class="tl" x="572" y="627">organizations-service</text>
+        <text class="td" x="936" y="627" text-anchor="end">tenant = NATS account</text>
+
+        <text class="gl" x="528" y="674" fill="var(--truth)">PERSISTENCE &mdash; SOURCE OF TRUTH</text>
+        <rect class="grp" x="528" y="680" width="428" height="62" rx="12" stroke="var(--truth)"/>
+        <rect class="tile" x="538" y="690" width="408" height="42" rx="8"/>
+        <rect x="548" y="698" width="18" height="18" rx="6" fill="var(--truth)"/>
+        <text class="ig" x="557" y="711" text-anchor="middle">G</text>
+        <text class="tl" x="574" y="706">postgres</text>
+        <text class="td" x="574" y="722">one instance &middot; db + role per service &middot; never leaves the region</text>
+
+        <!-- ===== legend ===== -->
+        <rect x="6" y="774" width="962" height="1" fill="#2a3038"/>
+        <text class="lg" x="6" y="790">solid = request/reply or an awaited read &nbsp;&middot;&nbsp; dashed = pushed, fire-and-forget &nbsp;&middot;&nbsp; dotted = replication or sync between peers</text>
+        <text class="lg" x="6" y="806">cyan = messaging &nbsp;&middot;&nbsp; green = platform / control &nbsp;&middot;&nbsp; purple = tenant-pooled workload &nbsp;&middot;&nbsp; #27C07F = source of truth &nbsp;&middot;&nbsp; grey = infrastructure boundary</text>
+      </svg>
+    </div>
+    <figcaption><b>The control plane is global because its two most important objects are global.</b> There is one NATS
+    operator and one JWT resolver for the whole platform, so &ldquo;create a tenant&rdquo; is a single global act. Give each
+    region its own provisioner and you get two truths and permanent drift. A <b>region</b> is a cell: a full data plane that
+    can serve every tenant placed in it, with its own NATS cluster, its own platform services and its own Postgres. Regions
+    join as <b>peers</b> over NATS gateways &mdash; a supercluster &mdash; and a single cluster is never stretched across
+    regions, because Raft needs low latency. Only three things ever cross a region border: <b>signed policy in</b> (account
+    JWTs and claims), <b>approved subjects across</b>, and a <b>named stream copy across</b>. Nothing else, and never a
+    Postgres connection.
+    <br><br>Two staging notes. The control plane does not need its own infrastructure on day one &mdash; it can start
+    <b>inside the first region's</b> control services and be lifted out later; what matters is that there is only ever one of
+    it. And its availability target is specific: if the control plane is down, every region must keep serving, including
+    <b>login and token renewal</b> &mdash; surviving on already-open connections is not enough. A region is a
+    <b>deployment stamp</b>: it holds one cell today and can gain more for capacity or isolation without changing this
+    picture. Postgres shape follows <code>ADR-053</code> for V3 scope (<code>ADR-052</code> is the lab-scope decision).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 974 430" role="img" aria-label="How the same split is expressed in Docker Compose locally. A top band shows four compose files as three deploy units plus one entry point: compose.infra.yml carrying NATS and Postgres, compose.control.yml carrying the provisioner and resolver, compose.runtime.yml carrying accounts, refdata and the business services, and compose.yml which includes the other three so one command brings up a whole region. A middle band shows three compose projects as the run units: lb-cp running only the control file once globally, and lb-eu and lb-us both running the same infra and runtime files with different env files and different host ports. All three projects attach to one external Docker network named platform, carrying only the resolver endpoint and the gateway links, so region eu cannot reach region us Postgres.">
+        <defs>
+          <marker id="b-join" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--tx3)"/>
+          </marker>
+        </defs>
+
+        <!-- ===== band 1 : the files ===== -->
+        <text class="gl" x="6" y="34" fill="var(--stroke)">COMPOSE FILES &mdash; THREE DEPLOY UNITS + ONE ENTRY POINT</text>
+        <rect class="bnd" x="6" y="40" width="962" height="104" rx="12" stroke="var(--stroke)"/>
+
+        <rect class="tile" x="20" y="54" width="224" height="76" rx="8"/>
+        <rect x="30" y="64" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="41" y="79" text-anchor="middle">I</text>
+        <text class="tf" x="60" y="79">compose.infra.yml</text>
+        <text class="ts" x="32" y="102">nats &middot; postgres</text>
+        <text class="td" x="32" y="120">stateful &mdash; upgrade on its own</text>
+
+        <rect class="tile" x="258" y="54" width="224" height="76" rx="8"/>
+        <rect x="268" y="64" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="279" y="79" text-anchor="middle">C</text>
+        <text class="tf" x="298" y="79">compose.control.yml</text>
+        <text class="ts" x="270" y="102">provisioner &middot; resolver</text>
+        <text class="td" x="270" y="120">global &mdash; mints accounts</text>
+
+        <rect class="tile" x="496" y="54" width="224" height="76" rx="8"/>
+        <rect x="506" y="64" width="22" height="22" rx="7" fill="var(--purple)"/>
+        <text class="ig" x="517" y="79" text-anchor="middle">R</text>
+        <text class="tf" x="536" y="79">compose.runtime.yml</text>
+        <text class="ts" x="508" y="102">accounts &middot; refdata &middot; business</text>
+        <text class="td" x="508" y="120">stateless &mdash; ship any time</text>
+
+        <rect class="tile" x="734" y="54" width="224" height="76" rx="8"/>
+        <rect x="744" y="64" width="22" height="22" rx="7" fill="var(--stroke)"/>
+        <text class="ig" x="755" y="79" text-anchor="middle">E</text>
+        <text class="tf" x="774" y="79">compose.yml</text>
+        <text class="ts" x="746" y="102">include: the three above</text>
+        <text class="td" x="746" y="120">one whole region, one command</text>
+
+        <!-- ===== band 2 : the projects ===== -->
+        <text class="gl" x="6" y="176" fill="var(--green)">PROJECT lb-cp &mdash; RUN ONCE</text>
+        <rect class="bnd" x="6" y="182" width="310" height="100" rx="12" stroke="var(--green)"/>
+        <rect class="tile" x="20" y="196" width="282" height="72" rx="8"/>
+        <rect x="30" y="206" width="22" height="22" rx="7" fill="var(--green)"/>
+        <text class="ig" x="41" y="221" text-anchor="middle">C</text>
+        <text class="tf" x="60" y="221">-p lb-cp</text>
+        <text class="tm" x="32" y="243">-f compose.control.yml</text>
+        <text class="td" x="32" y="261">one control plane, ever</text>
+
+        <text class="gl" x="332" y="176" fill="var(--stroke)">PROJECT lb-eu &mdash; CELL</text>
+        <rect class="bnd" x="332" y="182" width="310" height="100" rx="12" stroke="var(--stroke)"/>
+        <rect class="tile" x="346" y="196" width="282" height="72" rx="8"/>
+        <rect x="356" y="206" width="22" height="22" rx="7" fill="var(--stroke)"/>
+        <text class="ig" x="367" y="221" text-anchor="middle">E</text>
+        <text class="tf" x="386" y="221">-p lb-eu</text>
+        <text class="tm" x="358" y="243">-f infra -f runtime &middot; .env.eu</text>
+        <text class="tm" x="358" y="261">NATS_PORT=4222 &middot; PG_PORT=5432</text>
+
+        <text class="gl" x="658" y="176" fill="var(--stroke)">PROJECT lb-us &mdash; CELL</text>
+        <rect class="bnd" x="658" y="182" width="310" height="100" rx="12" stroke="var(--stroke)"/>
+        <rect class="tile" x="672" y="196" width="282" height="72" rx="8"/>
+        <rect x="682" y="206" width="22" height="22" rx="7" fill="var(--stroke)"/>
+        <text class="ig" x="693" y="221" text-anchor="middle">U</text>
+        <text class="tf" x="712" y="221">-p lb-us</text>
+        <text class="tm" x="684" y="243">-f infra -f runtime &middot; .env.us</text>
+        <text class="tm" x="684" y="261">NATS_PORT=4322 &middot; PG_PORT=5532</text>
+
+        <!-- ===== band 3 : the one shared network ===== -->
+        <path class="join" d="M161 282 L161 322" marker-end="url(#b-join)"/>
+        <text class="ed" x="173" y="306">joins one shared network</text>
+        <path class="join" d="M487 282 L487 322" marker-end="url(#b-join)"/>
+        <path class="join" d="M813 282 L813 322" marker-end="url(#b-join)"/>
+
+        <rect class="tile" x="6" y="330" width="962" height="56" rx="8" stroke="var(--cyan)"/>
+        <rect x="18" y="342" width="22" height="22" rx="7" fill="var(--cyan)"/>
+        <text class="ig" x="29" y="357" text-anchor="middle">P</text>
+        <text class="tl" x="50" y="354">external docker network: platform</text>
+        <text class="td" x="50" y="374">resolver endpoint + gateway links only &mdash; region eu cannot reach region us postgres</text>
+
+        <rect x="6" y="402" width="962" height="1" fill="#2a3038"/>
+        <text class="lg" x="6" y="418">solid = joins the shared network &nbsp;&middot;&nbsp; cyan = infrastructure &nbsp;&middot;&nbsp; green = control plane &nbsp;&middot;&nbsp; purple = runtime services &nbsp;&middot;&nbsp; grey = region cell</text>
+      </svg>
+    </div>
+    <figcaption><b>Three files, three projects &mdash; and they are not the same three.</b> The <b>file</b> split is the
+    <em>release</em> boundary: infra is stateful and upgrades on its own schedule, control is global, runtime is stateless and
+    ships whenever. The <b>project</b> split is the <em>cell</em> boundary: one project per control plane, one per region.
+    That is why <code>lb-eu</code> and <code>lb-us</code> run the <b>same two files</b> and differ only by their env file.
+    <code>compose.yml</code> exists so a developer can still type one command for a whole region &mdash; use Compose's
+    <code>include:</code>, or the older <code>-f a.yml -f b.yml</code> form; both merge into one project. Every host port
+    comes from a variable, never a literal &mdash; that is the one change today's flat
+    <code>demos/01-dictionary/docker-compose.yml</code> needs before a second region can start, because <code>4222</code>,
+    <code>8222</code>, <code>9222</code> and <code>5432</code> are hard-coded in it now. Always run <b>two</b> regions
+    locally: one region hides every region bug.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>How the local split maps to production</h2>
+    <p class="sub">The file boundaries are the point. They are what carry over &mdash; the Compose syntax does not.</p>
+    <table>
+      <thead><tr><th>Local</th><th>Production</th><th>Why it maps</th></tr></thead>
+      <tbody>
+        <tr><td><code>compose.infra.yml</code></td><td>OpenTofu / Terraform for managed Postgres, plus the official NATS Helm chart as a StatefulSet</td><td>Stateful, own lifecycle, own upgrade window</td></tr>
+        <tr><td><code>compose.control.yml</code></td><td>One Helm release in the management cluster</td><td>One of it, platform-wide</td></tr>
+        <tr><td><code>compose.runtime.yml</code></td><td>One Helm release <b>per cell</b></td><td>Stateless, scaled and released per cell</td></tr>
+        <tr><td><code>.env.eu</code> / <code>.env.us</code></td><td><code>values-eu.yaml</code> / <code>values-us.yaml</code></td><td>Same job: the only place a region name appears</td></tr>
+        <tr><td><code>-p lb-eu</code></td><td>The cell's namespace and its Argo CD <code>Application</code></td><td>One project ≈ one reconciled unit</td></tr>
+        <tr><td>external network <code>platform</code></td><td>Gateway routes + the resolver endpoint</td><td>The only sanctioned cross-cell path</td></tr>
+        <tr><td><code>NATS_PORT=4222</code> / <code>4322</code></td><td>Nothing &mdash; the variable disappears</td><td>Separate clusters, so both use <code>4222</code>; the port split is a laptop artifact</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><b>Compose has no replica concept, so the R1 gap is invisible locally.</b> <code>shared/jstream/jstream.go</code>
+      never sets <code>Replicas</code>, so every stream is single-copy. A local <code>kind</code> cluster running the real
+      Helm chart is where that gets caught &mdash; not Compose.</li>
+      <li><b>Three NATS servers is not three copies of your data.</b> Servers are a cluster property; replicas are a
+      per-stream property. Set them explicitly for every durable stream and every KV or Object Store bucket that matters.</li>
+      <li><b>Stream replicas never cross a cluster.</b> Cross-region copies are <code>mirrors</code> or <code>sources</code>
+      &mdash; explicit, named and eventually consistent. A gateway carries messages, not replication.</li>
+    </ul>
+  </section>
+
+  <section class="sec">
+    <h2>Why there is no tenant stack</h2>
+    <ul>
+      <li><b>A tenant is a NATS account, its streams, its KV buckets and its Postgres rows.</b> Zero containers. Nothing in
+      the drawing above is created when a tenant signs up.</li>
+      <li><b>One stack per tenant does not scale</b> &mdash; 500 tenants would be 500 stacks. The industry keeps that shape
+      (a &ldquo;silo&rdquo;) for a dedicated price tier and pools everything else, which is what the purple band shows.</li>
+      <li><b>Tenant sign-up is an API call to the provisioner, not a Git commit.</b> GitOps is right for platform shape
+      &mdash; regions, clusters, streams, buckets &mdash; and wrong for customer onboarding, which cannot wait for a review.</li>
+      <li><b>The tenant boundary is the NATS account, and the server enforces it.</b> A container or a Docker network is a
+      weaker boundary that would only duplicate what the account already guarantees.</li>
+      <li><b>A tenant's placement is a record in the control plane, resolved before routing.</b> There is no silent
+      re-route to another region, so a request that arrives at the wrong cell is rejected rather than served from the wrong
+      side of a border.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

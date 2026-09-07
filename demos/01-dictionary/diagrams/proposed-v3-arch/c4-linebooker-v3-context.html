@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proposed Linebooker V3 - C4 System Context</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+<style>
+:root {
+  --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87; --bg:#14171b; --panel:#1a1e23;
+  --border:#2c3138; --accent:#006fff; --nested:#171c29; --sync:#4d94ff;
+  --store:#2dd4bf; --evtl:#f0b429; --bad:#f87171; --hop:#8b93a1;
+  --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+  --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box} @page{size:A3 landscape;margin:0}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans)}
+.page{width:420mm;height:297mm;padding:7mm 8mm 6mm;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;gap:3mm;background:var(--bg)}
+.head{display:flex;align-items:flex-start;gap:4mm}.dot{width:9px;height:9px;margin-top:5px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}@keyframes pulse{50%{opacity:.45}}
+.head-copy{min-width:0}.eyebrow{font:600 8px var(--mono);letter-spacing:.14em;color:var(--accent);text-transform:uppercase;margin-bottom:1.2mm}
+h1{font-size:23px;line-height:1.1;margin:0;letter-spacing:-.025em}.sub{font-size:9px;line-height:1.35;color:var(--muted);margin:1.5mm 0 0;max-width:300mm}
+.toolbar{margin-left:auto;display:flex;gap:2mm}.toolbar-actions{display:none;gap:1.5mm}.toolbar.expanded .toolbar-actions{display:flex}.toolbar button{border:1px solid #3a424c;background:var(--panel);color:var(--muted);border-radius:5px;padding:1.5mm 2.3mm;font:8px var(--mono)}.toolbar-toggle{font-size:16px!important;border-color:transparent!important;background:transparent!important}
+figure{margin:0;min-height:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden;display:grid;grid-template-rows:minmax(0,1fr) auto}.fig-body{min-height:0;padding:2mm}svg{display:block;width:100%;height:100%}
+figcaption{border-top:1px solid var(--border);padding:2mm 3mm;color:var(--muted);font-size:7.4px;line-height:1.35}figcaption b{color:var(--text)}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm}.card{border:1px solid var(--border);border-radius:7px;background:var(--panel);padding:2.6mm;min-height:21mm}.card h3{margin:0 0 1mm;font-size:8.5px}.card p{margin:0;color:var(--muted);font-size:7.1px;line-height:1.35}.card h3:before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:2mm}
+.foot{display:flex;justify-content:space-between;gap:8mm;color:var(--dim);font:6.8px/1.2 var(--mono)}.foot strong{color:var(--evtl);white-space:nowrap}
+@media print{.toolbar{display:none!important}}
+svg text{font-family:var(--mono)}.grid{stroke:#20262d;stroke-width:.5}.n{fill:#1a1e23;stroke-width:1.3}.person{stroke:var(--accent)}.system{stroke:var(--accent);stroke-width:2}.external{stroke:var(--hop);stroke-dasharray:6 4}.constraint{stroke:var(--bad);stroke-dasharray:5 4}.kind{font-size:8px;fill:var(--dim);letter-spacing:.08em}.lbl{font-size:11px;fill:var(--text);font-weight:600}.lbl2{font-size:8.5px;fill:var(--muted)}.edge{font-size:7.5px;fill:var(--muted);paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}.flow{fill:none;stroke:var(--sync);stroke-width:1.5}.async{fill:none;stroke:var(--evtl);stroke-width:1.5;stroke-dasharray:6 4}.legend{fill:none;stroke:var(--border);stroke-width:1}
+</style>
+</head>
+<body>
+<main class="page" id="report-container">
+  <header class="head">
+    <span class="dot" aria-hidden="true"></span>
+    <div class="head-copy">
+      <div class="eyebrow">C4 Level 1 - System Context - Proposed Linebooker V3 - 06 September 2026</div>
+      <h1>Linebooker Logistics SaaS - System Context</h1>
+      <p class="sub">Scope: the proposed Linebooker Logistics SaaS is the one software system in scope. Audience: business stakeholders, product teams, architects and new engineers. Internal applications, services, stores, NATS topology and regional deployment are deliberately deferred.</p>
+    </div>
+    <div class="toolbar"><div class="toolbar-actions"><button onclick="copyAsImage()">Copy PNG</button><button onclick="downloadPNG()">Download PNG</button><button onclick="downloadPDF()">Quick PDF</button></div><button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" aria-label="Export options">...</button></div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1440 690" role="img" aria-label="C4 System Context diagram for the proposed Linebooker Logistics SaaS. Shippers, transporters and drivers, Linebooker business teams, and Linebooker Tech operators use the system. The system federates identity, ingests fleet telemetry, exchanges financial records, consumes route and regulatory utilities, and provides governed reporting data to customer systems. Tenant separation, authorization, audit and country-residency policy constrain the system boundary.">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" class="grid"/></pattern>
+          <marker id="ctx-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#4d94ff"/></marker>
+          <marker id="ctx-async" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f0b429"/></marker>
+        </defs>
+        <rect width="1440" height="690" fill="url(#grid)"/>
+
+        <!-- Relationships are behind the elements. -->
+        <path class="flow" marker-end="url(#ctx-sync)" d="M310 136H430"/><text class="edge" x="370" y="119" text-anchor="middle">Creates tenders</text><text class="edge" x="370" y="130" text-anchor="middle">Tracks loads</text>
+        <path class="flow" marker-end="url(#ctx-sync)" d="M310 260H430"/><text class="edge" x="370" y="243" text-anchor="middle">Bids and dispatches</text><text class="edge" x="370" y="254" text-anchor="middle">Proves delivery</text>
+        <path class="flow" marker-end="url(#ctx-sync)" d="M310 384H430"/><text class="edge" x="370" y="367" text-anchor="middle">Controls exceptions</text><text class="edge" x="370" y="378" text-anchor="middle">Runs finance operations</text>
+        <path class="flow" marker-end="url(#ctx-sync)" d="M310 508H430"/><text class="edge" x="370" y="491" text-anchor="middle">Runs tenants</text><text class="edge" x="370" y="502" text-anchor="middle">Operates the platform</text>
+
+        <path class="flow" marker-end="url(#ctx-sync)" d="M1010 110H1120"/><text class="edge" x="1065" y="93" text-anchor="middle">Federates identity</text><text class="edge" x="1065" y="104" text-anchor="middle">OIDC and SAML</text>
+        <path class="async" marker-end="url(#ctx-async)" d="M1120 220H1010"/><text class="edge" x="1065" y="203" text-anchor="middle">Streams positions</text><text class="edge" x="1065" y="214" text-anchor="middle">API and webhook</text>
+        <path class="flow" marker-end="url(#ctx-sync)" d="M1010 330H1120"/><text class="edge" x="1065" y="313" text-anchor="middle">Exchanges finance</text><text class="edge" x="1065" y="324" text-anchor="middle">API and file transfer</text>
+        <path class="flow" marker-end="url(#ctx-sync)" d="M1010 440H1120"/><text class="edge" x="1065" y="423" text-anchor="middle">Routes and alerts</text><text class="edge" x="1065" y="434" text-anchor="middle">HTTPS APIs</text>
+        <path class="flow" marker-end="url(#ctx-sync)" d="M1120 550H1010"/><text class="edge" x="1065" y="533" text-anchor="middle">Requests extracts</text><text class="edge" x="1065" y="544" text-anchor="middle">HTTPS API</text>
+
+        <!-- Internal people. -->
+        <g>
+          <rect class="n person" x="30" y="96" width="280" height="80" rx="6"/><circle class="person" cx="52" cy="118" r="6" fill="none"/><path class="person" d="M42 136A12 10 0 0 1 62 136" fill="none"/>
+          <text class="kind" x="170" y="116" text-anchor="middle">PERSON / ORGANISATION ROLE</text><text class="lbl" x="170" y="138" text-anchor="middle">Shippers</text><text class="lbl2" x="170" y="157" text-anchor="middle">Users and admins in demand-owner organisations</text>
+          <rect class="n person" x="30" y="220" width="280" height="80" rx="6"/><circle class="person" cx="52" cy="242" r="6" fill="none"/><path class="person" d="M42 260A12 10 0 0 1 62 260" fill="none"/>
+          <text class="kind" x="170" y="240" text-anchor="middle">PERSON / ORGANISATION ROLE</text><text class="lbl" x="170" y="262" text-anchor="middle">Transporters and Drivers</text><text class="lbl2" x="170" y="281" text-anchor="middle">Operations teams and mobile workforce</text>
+          <rect class="n person" x="30" y="344" width="280" height="80" rx="6"/><circle class="person" cx="52" cy="366" r="6" fill="none"/><path class="person" d="M42 384A12 10 0 0 1 62 384" fill="none"/>
+          <text class="kind" x="170" y="364" text-anchor="middle">PERSON / INTERNAL BUSINESS</text><text class="lbl" x="170" y="386" text-anchor="middle">Linebooker Business Teams</text><text class="lbl2" x="170" y="405" text-anchor="middle">Controllers, creditors and debtors</text>
+          <rect class="n person" x="30" y="468" width="280" height="80" rx="6"/><circle class="person" cx="52" cy="490" r="6" fill="none"/><path class="person" d="M42 508A12 10 0 0 1 62 508" fill="none"/>
+          <text class="kind" x="170" y="488" text-anchor="middle">PERSON / INTERNAL TECHNOLOGY</text><text class="lbl" x="170" y="510" text-anchor="middle">Linebooker Tech</text><text class="lbl2" x="170" y="529" text-anchor="middle">Platform administrators, engineers and SRE</text>
+        </g>
+
+        <!-- System in scope. -->
+        <rect class="n system" x="430" y="76" width="580" height="500" rx="10"/>
+        <text class="kind" x="720" y="210" text-anchor="middle">SOFTWARE SYSTEM - IN SCOPE</text>
+        <text class="lbl" x="720" y="244" text-anchor="middle" style="font-size:18px">Linebooker Logistics SaaS</text>
+        <text class="lbl2" x="720" y="280" text-anchor="middle">Connects shipper demand with transporter capacity</text>
+        <text class="lbl2" x="720" y="298" text-anchor="middle">through tendering, allocation, route execution, tracking,</text>
+        <text class="lbl2" x="720" y="316" text-anchor="middle">evidence, acceptance, billing and settlement.</text>
+        <rect class="n constraint" x="500" y="370" width="440" height="112" rx="6"/>
+        <text class="kind" x="720" y="396" text-anchor="middle" fill="#f87171">SYSTEM CONSTRAINTS</text>
+        <text class="lbl2" x="720" y="420" text-anchor="middle">Tenant and organisation separation - RBAC and ABAC</text>
+        <text class="lbl2" x="720" y="440" text-anchor="middle">Encryption - masked logs - immutable audit evidence</text>
+        <text class="lbl2" x="720" y="460" text-anchor="middle">Country-aware residency, transit, currency and regulation</text>
+
+        <!-- External systems. -->
+        <g>
+          <rect class="n external" x="1120" y="74" width="290" height="72" rx="6"/><text class="kind" x="1265" y="94" text-anchor="middle">EXTERNAL SOFTWARE SYSTEM</text><text class="lbl" x="1265" y="116" text-anchor="middle">WorkOS and Customer IdPs</text><text class="lbl2" x="1265" y="134" text-anchor="middle">Prove workforce identity</text>
+          <rect class="n external" x="1120" y="184" width="290" height="72" rx="6"/><text class="kind" x="1265" y="204" text-anchor="middle">EXTERNAL SOFTWARE SYSTEM</text><text class="lbl" x="1265" y="226" text-anchor="middle">Telematics and GPS Platforms</text><text class="lbl2" x="1265" y="244" text-anchor="middle">Provide truck position and telemetry</text>
+          <rect class="n external" x="1120" y="294" width="290" height="72" rx="6"/><text class="kind" x="1265" y="314" text-anchor="middle">EXTERNAL SOFTWARE SYSTEM</text><text class="lbl" x="1265" y="336" text-anchor="middle">ERP, Finance and Payments</text><text class="lbl2" x="1265" y="354" text-anchor="middle">Exchange financial records</text>
+          <rect class="n external" x="1120" y="404" width="290" height="72" rx="6"/><text class="kind" x="1265" y="424" text-anchor="middle">EXTERNAL SOFTWARE SYSTEM</text><text class="lbl" x="1265" y="446" text-anchor="middle">Maps, Notify and Regulatory</text><text class="lbl2" x="1265" y="464" text-anchor="middle">Supply utility and compliance services</text>
+          <rect class="n external" x="1120" y="514" width="290" height="72" rx="6"/><text class="kind" x="1265" y="534" text-anchor="middle">EXTERNAL SOFTWARE SYSTEM</text><text class="lbl" x="1265" y="556" text-anchor="middle">Customer Data Consumers</text><text class="lbl2" x="1265" y="574" text-anchor="middle">Build reports from governed extracts</text>
+        </g>
+
+        <rect class="legend" x="30" y="620" width="1380" height="48" rx="5"/>
+        <rect class="n person" x="50" y="635" width="38" height="16" rx="3"/><text class="lbl2" x="98" y="647">Person or internal role</text>
+        <rect class="n system" x="295" y="635" width="38" height="16" rx="3"/><text class="lbl2" x="343" y="647">System in scope</text>
+        <rect class="n external" x="520" y="635" width="38" height="16" rx="3"/><text class="lbl2" x="568" y="647">External system</text>
+        <path class="flow" marker-end="url(#ctx-sync)" d="M760 643H806"/><text class="lbl2" x="818" y="647">Synchronous interaction</text>
+        <path class="async" marker-end="url(#ctx-async)" d="M1060 643H1106"/><text class="lbl2" x="1118" y="647">Pushed event or telemetry</text>
+        <text class="lbl2" x="50" y="664">IdP - identity provider | OIDC - OpenID Connect | SAML - Security Assertion Markup Language | RBAC - role-based access control | ABAC - attribute-based access control | SRE - site reliability engineering</text>
+      </svg>
+    </div>
+    <figcaption><b>Context, not internals.</b> The diagram establishes people, organisational roles, the single Linebooker system boundary and owned-versus-external responsibilities. A customer or transporter organisation is a participant in the marketplace; it is not a deployment region or a NATS account.</figcaption>
+  </figure>
+
+  <section class="cards" aria-label="Context interpretation">
+    <article class="card"><h3>Marketplace participation</h3><p>Shippers create demand; transporters supply capacity; drivers execute work. Organisation membership provides the business context for every user action.</p></article>
+    <article class="card"><h3>Linebooker responsibilities</h3><p>Linebooker operates the logistics business. Linebooker Tech provides and runs the multi-tenant SaaS platform supporting that business.</p></article>
+    <article class="card"><h3>Trust and sovereignty</h3><p>External identity proves who a user is. Linebooker decides what they may do and applies country policy to regulated processing, transit and storage.</p></article>
+  </section>
+  <footer class="foot"><span>Standalone C4 companion view. Proposed technologies and external contracts remain subject to architecture decisions.</span><strong>C4 SYSTEM CONTEXT - PROPOSED LINEBOOKER V3</strong></footer>
+</main>
+<script>
+const capture=()=>{const t=document.getElementById('report-container'),r=t.getBoundingClientRect();return html2canvas(document.body,{x:r.left,y:r.top,width:r.width,height:r.height,scale:2,backgroundColor:'#14171b',ignoreElements:e=>e.classList&&e.classList.contains('toolbar')})};
+async function copyAsImage(){const c=await capture();c.toBlob(async b=>navigator.clipboard.write([new ClipboardItem({'image/png':b})]))}
+async function downloadPNG(){const c=await capture(),a=document.createElement('a');a.download='c4-linebooker-v3-context.png';a.href=c.toDataURL('image/png');a.click()}
+async function downloadPDF(){const c=await capture(),{jsPDF}=window.jspdf,p=new jsPDF({orientation:'landscape',unit:'mm',format:'a3'});p.addImage(c.toDataURL('image/png'),'PNG',0,0,420,297);p.save('Proposed Linebooker V3 - C4 System Context.pdf')}
+</script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proposed Linebooker V3 Architecture - ADR Decision Landscape</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg:#131416; --panel:#1a1e23; --panel-2:#16191d; --line:#4a515b;
+      --text:#dee0e3; --muted:#b7bcc2; --blue:#006fff; --green:#27c07f;
+      --amber:#d5a833; --rose:#e26b78; --violet:#a88bf0; --slate:#7f8995;
+      --font:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    }
+    * { box-sizing:border-box; }
+    @page { size:A3 landscape; margin:0; }
+    html,body { margin:0; background:var(--bg); color:var(--text); font-family:var(--font); }
+    body { -webkit-font-smoothing:antialiased; }
+    .page { width:420mm; height:297mm; padding:7mm 8mm 5mm; overflow:hidden; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; gap:3mm; background:var(--bg); }
+    .header { display:flex; align-items:flex-start; gap:4mm; }
+    .pulse-dot { width:10px; height:10px; margin-top:5px; flex:0 0 auto; background:var(--blue); border-radius:50%; animation:pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+    .eyebrow { color:var(--blue); font-size:8px; line-height:1.2; letter-spacing:.14em; text-transform:uppercase; margin-bottom:1.2mm; }
+    h1 { margin:0; font-size:23px; line-height:1.1; letter-spacing:-.03em; }
+    .subtitle { margin:1.5mm 0 0; max-width:330mm; color:var(--muted); font-size:9px; line-height:1.35; }
+    .toolbar { margin-left:auto; display:flex; align-items:center; gap:2mm; }
+    .toolbar-actions { display:none; gap:1.5mm; }
+    .toolbar.expanded .toolbar-actions { display:flex; }
+    .toolbar button { border:1px solid #39414a; background:#20262d; color:var(--muted); border-radius:5px; padding:1.5mm 2.3mm; font:8px var(--font); cursor:pointer; }
+    .toolbar-toggle { font-size:16px!important; padding:0 2mm!important; background:transparent!important; border-color:transparent!important; }
+    .diagram-container { min-height:0; border:1px solid #2d333a; border-radius:10px; background:var(--panel-2); padding:2mm; overflow:hidden; }
+    svg { display:block; width:100%; height:100%; }
+    .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:3mm; }
+    .card { min-height:20mm; border:1px solid #30373f; border-radius:8px; background:var(--panel); padding:2.7mm 3mm; }
+    .card-head { display:flex; gap:2mm; align-items:center; margin-bottom:1.3mm; }
+    .card-dot { width:7px; height:7px; border-radius:50%; }
+    .card h3 { margin:0; font-size:9px; }
+    .card p { margin:0; color:var(--muted); font-size:7.5px; line-height:1.35; }
+    .footer { display:flex; justify-content:space-between; gap:8mm; color:#747c86; font-size:7px; line-height:1.2; }
+    .footer strong { color:var(--blue); font-weight:600; white-space:nowrap; }
+    @media print { .toolbar{display:none!important} }
+
+    svg text { font-family:var(--font); }
+    svg .lane { fill:#171b20; stroke-width:1.35; }
+    svg .p0-boundary { stroke:var(--blue); }
+    svg .p1-boundary { stroke:var(--amber); }
+    svg .p2-boundary { stroke:var(--violet); }
+    svg .record-boundary { stroke:var(--green); }
+    svg .cluster { fill:#1a1e23; stroke:#4a515b; stroke-width:1; }
+    svg .cluster-p0 { stroke:#315f9e; }
+    svg .cluster-p1 { stroke:#77652e; }
+    svg .cluster-p2 { stroke:#62568a; }
+    svg .cluster-security { stroke:#94505b; }
+    svg .row { fill:#20262c; stroke:#343c45; stroke-width:.8; }
+    svg .row-p0 { fill:rgba(0,111,255,.11); stroke:#245fae; }
+    svg .row-p1 { fill:rgba(213,168,51,.09); stroke:#665826; }
+    svg .row-p2 { fill:rgba(168,139,240,.09); stroke:#5a4f7f; }
+    svg .row-security { fill:rgba(226,107,120,.09); stroke:#7a4048; }
+    svg .accepted { fill:rgba(39,192,127,.13); stroke:var(--green); stroke-width:1.1; }
+    svg .precedent { fill:#1d2228; stroke:var(--slate); stroke-width:1; stroke-dasharray:5 4; }
+    svg .lane-label { font-size:11px; font-weight:700; letter-spacing:.08em; }
+    svg .lane-sub { fill:var(--muted); font-size:7.3px; }
+    svg .cluster-title { fill:var(--text); font-size:9px; font-weight:700; letter-spacing:.035em; }
+    svg .ref { font-size:7.7px; font-weight:700; }
+    svg .item { fill:var(--text); font-size:7.7px; font-weight:500; }
+    svg .small { fill:var(--muted); font-size:6.8px; }
+    svg .tiny { fill:#8e969f; font-size:6.4px; }
+    svg .dependency { fill:none; stroke:#59636e; stroke-width:1.25; marker-end:url(#arrow); }
+  </style>
+</head>
+<body>
+  <main class="page" id="report-container">
+    <header class="header">
+      <span class="pulse-dot" aria-hidden="true"></span>
+      <div>
+        <div class="eyebrow">Proposed Linebooker V3 · Directional decision catalogue · 07 September 2026</div>
+        <h1>Architecture Decision Record Landscape</h1>
+        <p class="subtitle">Which decisions must be settled, in what order, and how the recorded lab evidence relates to the proposed V3 platform. V3-D01 to V3-D42 are planning references, not allocated ADR numbers. The official ADR sequence remains global.</p>
+      </div>
+      <div class="toolbar">
+        <div class="toolbar-actions">
+          <button onclick="copyAsImage()">Copy PNG</button>
+          <button onclick="downloadPNG()">Download PNG</button>
+          <button onclick="downloadPDF()">Quick PDF</button>
+        </div>
+        <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+      </div>
+    </header>
+
+    <section class="diagram-container">
+      <svg viewBox="0 0 1500 765" role="img" aria-label="Proposed Linebooker V3 ADR decision landscape. Twelve priority-zero foundation decisions feed platform, data, messaging, integration and security decisions, which in turn feed deployment and operational decisions. Accepted ADR 053 and seven lab ADRs appear separately from the proposed backlog.">
+        <defs>
+          <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#242a30" stroke-width=".55"/></pattern>
+          <marker id="arrow" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="8" markerHeight="6" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#59636e"/></marker>
+        </defs>
+        <rect width="1500" height="765" fill="url(#grid)"/>
+
+        <!-- The dependency spine is drawn behind nodes. -->
+        <path class="dependency" d="M65 190V220"/><path class="dependency" d="M65 465V495"/>
+        <path class="dependency" d="M92 105H112"/><path class="dependency" d="M92 340H112"/><path class="dependency" d="M92 575H112"/>
+
+        <!-- P0 lane. -->
+        <rect class="lane p0-boundary" x="15" y="15" width="1470" height="175" rx="10"/>
+        <text class="lane-label" x="35" y="45" fill="#006fff">P0</text><text class="lane-label" x="35" y="61" fill="#dee0e3">FOUNDATION</text>
+        <text class="lane-sub" x="35" y="80">settle first</text><text class="lane-sub" x="35" y="92">defines the</text><text class="lane-sub" x="35" y="104">vocabulary</text>
+
+        <g transform="translate(112 30)"><rect class="cluster cluster-p0" width="325" height="145" rx="8"/><text class="cluster-title" x="14" y="20">BUSINESS BOUNDARIES</text>
+          <g transform="translate(12 31)"><rect class="row row-p0" width="301" height="23" rx="4"/><text class="ref" x="9" y="15" fill="#6ea8ff">D01</text><text class="item" x="42" y="15">Tenant + participation model</text></g>
+          <g transform="translate(12 57)"><rect class="row row-p0" width="301" height="23" rx="4"/><text class="ref" x="9" y="15" fill="#6ea8ff">D02</text><text class="item" x="42" y="15">Five tenancy dimensions</text></g>
+          <g transform="translate(12 83)"><rect class="row row-p0" width="301" height="23" rx="4"/><text class="ref" x="9" y="15" fill="#6ea8ff">D03</text><text class="item" x="42" y="15">Domains + bounded contexts</text></g>
+          <g transform="translate(12 109)"><rect class="row row-p0" width="301" height="23" rx="4"/><text class="ref" x="9" y="15" fill="#6ea8ff">D04</text><text class="item" x="42" y="15">Control plane vs business plane</text></g></g>
+
+        <g transform="translate(450 30)"><rect class="cluster cluster-p0" width="325" height="145" rx="8"/><text class="cluster-title" x="14" y="20">CANONICAL STATE + EVENTS</text>
+          <g transform="translate(12 38)"><rect class="row row-p0" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#6ea8ff">D05</text><text class="item" x="42" y="17">Event-sourcing policy by aggregate</text></g>
+          <g transform="translate(12 69)"><rect class="row row-p0" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#6ea8ff">D06</text><text class="item" x="42" y="17">Authoritative state responsibilities</text></g>
+          <g transform="translate(12 100)"><rect class="row row-p0" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#6ea8ff">D07</text><text class="item" x="42" y="17">Transaction to event publication</text></g></g>
+
+        <g transform="translate(788 30)"><rect class="cluster cluster-p0" width="325" height="145" rx="8"/><text class="cluster-title" x="14" y="20">PLACEMENT + SOVEREIGNTY</text>
+          <g transform="translate(12 48)"><rect class="row row-p0" width="301" height="31" rx="4"/><text class="ref" x="9" y="19" fill="#6ea8ff">D08</text><text class="item" x="42" y="19">Regional cell architecture</text></g>
+          <g transform="translate(12 85)"><rect class="row row-p0" width="301" height="31" rx="4"/><text class="ref" x="9" y="19" fill="#6ea8ff">D09</text><text class="item" x="42" y="19">Residency + Botswana sovereignty</text></g></g>
+
+        <g transform="translate(1126 30)"><rect class="cluster cluster-p0" width="345" height="145" rx="8"/><text class="cluster-title" x="14" y="20">EXPERIENCE + IDENTITY</text>
+          <g transform="translate(12 38)"><rect class="row row-p0" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#6ea8ff">D10</text><text class="item" x="42" y="17">Access-channel portfolio</text></g>
+          <g transform="translate(12 69)"><rect class="row row-p0" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#6ea8ff">D11</text><text class="item" x="42" y="17">App shell, multiple apps or hybrid</text></g>
+          <g transform="translate(12 100)"><rect class="row row-p0" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#6ea8ff">D12</text><text class="item" x="42" y="17">Identity, membership + authorization</text></g></g>
+
+        <!-- P1 lane. -->
+        <rect class="lane p1-boundary" x="15" y="220" width="1470" height="245" rx="10"/>
+        <text class="lane-label" x="35" y="250" fill="#d5a833">P1</text><text class="lane-label" x="35" y="266" fill="#dee0e3">PLATFORM</text>
+        <text class="lane-sub" x="35" y="285">turns the</text><text class="lane-sub" x="35" y="297">foundation</text><text class="lane-sub" x="35" y="309">into rules</text>
+
+        <g transform="translate(112 235)"><rect class="cluster cluster-p1" width="325" height="215" rx="8"/><text class="cluster-title" x="14" y="20">MESSAGING + WORKFLOW</text>
+          <g transform="translate(12 33)"><rect class="row row-p1" width="301" height="28" rx="4"/><text class="ref" x="9" y="18" fill="#e6c866">D13</text><text class="item" x="42" y="18">NATS trust hierarchy</text></g>
+          <g transform="translate(12 65)"><rect class="row row-p1" width="301" height="28" rx="4"/><text class="ref" x="9" y="18" fill="#e6c866">D14</text><text class="item" x="42" y="18">NATS regional topology</text></g>
+          <g transform="translate(12 97)"><rect class="row row-p1" width="301" height="28" rx="4"/><text class="ref" x="9" y="18" fill="#e6c866">D15</text><text class="item" x="42" y="18">Subjects + messaging conventions</text></g>
+          <g transform="translate(12 129)"><rect class="row row-p1" width="301" height="28" rx="4"/><text class="ref" x="9" y="18" fill="#e6c866">D16</text><text class="item" x="42" y="18">Event-contract governance</text></g>
+          <g transform="translate(12 161)"><rect class="row row-p1" width="301" height="28" rx="4"/><text class="ref" x="9" y="18" fill="#e6c866">D17</text><text class="item" x="42" y="18">Temporal orchestration boundary</text></g></g>
+
+        <g transform="translate(450 235)"><rect class="cluster cluster-p1" width="325" height="215" rx="8"/><text class="cluster-title" x="14" y="20">DATA + AUDIT</text>
+          <g transform="translate(12 42)"><rect class="row row-p1" width="301" height="31" rx="4"/><text class="ref" x="9" y="19" fill="#e6c866">D18</text><text class="item" x="42" y="19">Service + data ownership</text></g>
+          <g transform="translate(12 78)"><rect class="row row-p1" width="301" height="31" rx="4"/><text class="ref" x="9" y="19" fill="#e6c866">D19</text><text class="item" x="42" y="19">PostgreSQL tenancy + isolation</text></g>
+          <g transform="translate(12 114)"><rect class="row row-p1" width="301" height="31" rx="4"/><text class="ref" x="9" y="19" fill="#e6c866">D20</text><text class="item" x="42" y="19">Evidence-document repository</text></g>
+          <g transform="translate(12 150)"><rect class="row row-p1" width="301" height="31" rx="4"/><text class="ref" x="9" y="19" fill="#e6c866">D21</text><text class="item" x="42" y="19">Immutable audit architecture</text></g></g>
+
+        <g transform="translate(788 235)"><rect class="cluster cluster-p1" width="325" height="215" rx="8"/><text class="cluster-title" x="14" y="20">INTERFACES + DOMAIN SEMANTICS</text>
+          <g transform="translate(12 29)"><rect class="row row-p1" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#e6c866">D22</text><text class="item" x="42" y="17">External API architecture</text></g>
+          <g transform="translate(12 58)"><rect class="row row-p1" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#e6c866">D23</text><text class="item" x="42" y="17">Integration architecture</text></g>
+          <g transform="translate(12 87)"><rect class="row row-p1" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#e6c866">D24</text><text class="item" x="42" y="17">Integration delivery semantics</text></g>
+          <g transform="translate(12 116)"><rect class="row row-p1" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#e6c866">D25</text><text class="item" x="42" y="17">Canonical business identifiers</text></g>
+          <g transform="translate(12 145)"><rect class="row row-p1" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#e6c866">D26</text><text class="item" x="42" y="17">Money, currency, time + units</text></g>
+          <g transform="translate(12 174)"><rect class="row row-p1" width="301" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#e6c866">D27</text><text class="item" x="42" y="17">Tracking + telemetry ingestion</text></g></g>
+
+        <g transform="translate(1126 235)"><rect class="cluster cluster-security" width="345" height="215" rx="8"/><text class="cluster-title" x="14" y="20">SECURITY ENFORCEMENT</text>
+          <g transform="translate(12 29)"><rect class="row row-security" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#ee929d">D28</text><text class="item" x="42" y="17">Authorization enforcement points</text></g>
+          <g transform="translate(12 58)"><rect class="row row-security" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#ee929d">D29</text><text class="item" x="42" y="17">Tenant-isolation enforcement</text></g>
+          <g transform="translate(12 87)"><rect class="row row-security" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#ee929d">D30</text><text class="item" x="42" y="17">Encryption + key management</text></g>
+          <g transform="translate(12 116)"><rect class="row row-security" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#ee929d">D31</text><text class="item" x="42" y="17">Workload identity + secrets</text></g>
+          <g transform="translate(12 145)"><rect class="row row-security" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#ee929d">D32</text><text class="item" x="42" y="17">Privileged operations</text></g>
+          <g transform="translate(12 174)"><rect class="row row-security" width="321" height="26" rx="4"/><text class="ref" x="9" y="17" fill="#ee929d">D33</text><text class="item" x="42" y="17">Sensitive-data handling</text></g></g>
+
+        <!-- P2 lane. -->
+        <rect class="lane p2-boundary" x="15" y="495" width="1470" height="130" rx="10"/>
+        <text class="lane-label" x="35" y="525" fill="#a88bf0">P2</text><text class="lane-label" x="35" y="541" fill="#dee0e3">DELIVERY</text>
+        <text class="lane-sub" x="35" y="560">operationalizes</text><text class="lane-sub" x="35" y="572">the platform</text>
+
+        <g transform="translate(112 510)"><rect class="cluster cluster-p2" width="430" height="100" rx="8"/><text class="cluster-title" x="14" y="20">HOSTING + RUNTIME</text>
+          <g transform="translate(12 30)"><rect class="row row-p2" width="406" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D34</text><text class="item" x="42" y="13">Cloud + portability strategy</text></g>
+          <g transform="translate(12 52)"><rect class="row row-p2" width="406" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D35</text><text class="item" x="42" y="13">Compute + orchestration platform</text></g>
+          <g transform="translate(12 74)"><rect class="row row-p2" width="406" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D36</text><text class="item" x="42" y="13">Temporal hosting model</text></g></g>
+
+        <g transform="translate(555 510)"><rect class="cluster cluster-p2" width="430" height="100" rx="8"/><text class="cluster-title" x="14" y="20">AUTHORITY + RESILIENCE</text>
+          <g transform="translate(12 30)"><rect class="row row-p2" width="406" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D37</text><text class="item" x="42" y="13">Control-plane authority placement</text></g>
+          <g transform="translate(12 52)"><rect class="row row-p2" width="406" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D38</text><text class="item" x="42" y="13">Configuration + reference-data distribution</text></g>
+          <g transform="translate(12 74)"><rect class="row row-p2" width="406" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D39</text><text class="item" x="42" y="13">Availability + disaster recovery</text></g></g>
+
+        <g transform="translate(998 510)"><rect class="cluster cluster-p2" width="473" height="100" rx="8"/><text class="cluster-title" x="14" y="20">OPERATIONS + EVOLUTION</text>
+          <g transform="translate(12 30)"><rect class="row row-p2" width="449" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D40</text><text class="item" x="42" y="13">Observability architecture</text></g>
+          <g transform="translate(12 52)"><rect class="row row-p2" width="449" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D41</text><text class="item" x="42" y="13">Deployment + release model</text></g>
+          <g transform="translate(12 74)"><rect class="row row-p2" width="449" height="19" rx="4"/><text class="ref" x="9" y="13" fill="#c3adf7">D42</text><text class="item" x="42" y="13">Build-versus-buy policy</text></g></g>
+
+        <!-- Recorded decisions: official identities only. -->
+        <rect class="lane record-boundary" x="15" y="680" width="1470" height="70" rx="10"/>
+        <text class="lane-label" x="35" y="707" fill="#27c07f">RECORDED</text><text class="lane-sub" x="35" y="724">official ADRs</text><text class="lane-sub" x="35" y="736">046–053</text>
+        <g transform="translate(112 693)"><rect class="precedent" width="1015" height="44" rx="7"/><text class="cluster-title" x="12" y="15">LAB-SCOPED EVIDENCE · ACCEPTED · INFORMS D17 / D20 / D25</text><text class="small" x="12" y="32">046 aggregate split · 047 Temporal saga · 048 NATS Object Store · 049 concurrency · 050 provenance · 051 ULID identity · 052 database + role per service</text></g>
+        <g transform="translate(1140 693)"><rect class="accepted" width="331" height="44" rx="7"/><text class="cluster-title" x="12" y="15">ADR-053 · V3 · ACCEPTED · GOVERNS D19</text><text class="small" x="12" y="32">Shared PostgreSQL instances by default</text></g>
+
+        <text class="tiny" x="112" y="671">LEGEND · blue P0 foundation · amber P1 platform · rose security subset · violet P2 delivery · green accepted V3 · dashed slate accepted lab precedent · solid arrow means the next decision wave depends on the prior wave</text>
+      </svg>
+    </section>
+
+    <section class="cards" aria-label="Decision catalogue reading guide">
+      <article class="card"><div class="card-head"><span class="card-dot" style="background:#006fff"></span><h3>Start with the twelve P0 decisions</h3></div><p>They define tenant, domain, control-plane, canonical-state, regional, channel and identity vocabulary. Downstream technology choices should not silently decide these questions.</p></article>
+      <article class="card"><div class="card-head"><span class="card-dot" style="background:#27c07f"></span><h3>Recorded is not the same as proposed</h3></div><p>ADR-053 is the only accepted V3 record shown. ADR-046–052 are accepted lab evidence; each requires explicit evaluation before it governs the V3 product.</p></article>
+      <article class="card"><div class="card-head"><span class="card-dot" style="background:#d5a833"></span><h3>Create small, independently reversible ADRs</h3></div><p>“Technology stack”, “security” and “external systems” are portfolios of decisions. Allocate the next global ADR number only when one decision is written and proposed.</p></article>
+    </section>
+
+    <footer class="footer"><span>Companion planning view; not an LB-V3-L0-L4 catalogue document. Decision-of-record source: obsidian/V3-Platform/Architecture/ADR/ADR-INDEX.md</span><strong>PROPOSED LINEBOOKER V3 · ADR DECISION LANDSCAPE</strong></footer>
+  </main>
+
+  <script>
+    const captureOptions = () => {
+      const target=document.getElementById('report-container'); const rect=target.getBoundingClientRect();
+      return {target,rect,options:{x:rect.left,y:rect.top,width:rect.width,height:rect.height,scale:3,backgroundColor:'#131416',ignoreElements:el=>el.classList&&el.classList.contains('toolbar')}};
+    };
+    async function renderCanvas(){const c=captureOptions();return html2canvas(document.body,c.options);}
+    async function copyAsImage(){const canvas=await renderCanvas();canvas.toBlob(async blob=>navigator.clipboard.write([new ClipboardItem({'image/png':blob})]));}
+    async function downloadPNG(){const canvas=await renderCanvas();const a=document.createElement('a');a.download='proposed-linebooker-v3-adr-decision-landscape.png';a.href=canvas.toDataURL('image/png');a.click();}
+    async function downloadPDF(){const canvas=await renderCanvas();const {jsPDF}=window.jspdf;const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a3'});pdf.addImage(canvas.toDataURL('image/png'),'PNG',0,0,420,297);pdf.save('Proposed Linebooker V3 Architecture - ADR Decision Landscape.pdf');}
+  </script>
+</body>
+</html>

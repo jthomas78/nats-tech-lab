@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proposed Linebooker V3 - Platform and Container Overview</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+<style>
+:root {
+  --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87; --bg:#14171b; --panel:#1a1e23;
+  --border:#2c3138; --accent:#006fff; --nested:#171c29; --sync:#4d94ff;
+  --store:#2dd4bf; --evtl:#f0b429; --bad:#f87171; --hop:#8b93a1;
+  --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+  --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box}@page{size:A3 landscape;margin:0}html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans)}
+.page{width:420mm;height:297mm;padding:7mm 8mm 6mm;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;gap:3mm;background:var(--bg)}
+.head{display:flex;align-items:flex-start;gap:4mm}.dot{width:9px;height:9px;margin-top:5px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}@keyframes pulse{50%{opacity:.45}}
+.head-copy{min-width:0}.eyebrow{font:600 8px var(--mono);letter-spacing:.14em;color:var(--accent);text-transform:uppercase;margin-bottom:1.2mm}h1{font-size:23px;line-height:1.1;margin:0;letter-spacing:-.025em}.sub{font-size:9px;line-height:1.35;color:var(--muted);margin:1.5mm 0 0;max-width:315mm}
+.toolbar{margin-left:auto;display:flex;gap:2mm}.toolbar-actions{display:none;gap:1.5mm}.toolbar.expanded .toolbar-actions{display:flex}.toolbar button{border:1px solid #3a424c;background:var(--panel);color:var(--muted);border-radius:5px;padding:1.5mm 2.3mm;font:8px var(--mono)}.toolbar-toggle{font-size:16px!important;border-color:transparent!important;background:transparent!important}
+figure{margin:0;min-height:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden;display:grid;grid-template-rows:minmax(0,1fr) auto}.fig-body{min-height:0;padding:2mm}svg{display:block;width:100%;height:100%}figcaption{border-top:1px solid var(--border);padding:2mm 3mm;color:var(--muted);font-size:7.4px;line-height:1.35}figcaption b{color:var(--text)}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm}.card{border:1px solid var(--border);border-radius:7px;background:var(--panel);padding:2.6mm;min-height:21mm}.card h3{margin:0 0 1mm;font-size:8.5px}.card p{margin:0;color:var(--muted);font-size:7.1px;line-height:1.35}.card h3:before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--store);margin-right:2mm}.foot{display:flex;justify-content:space-between;gap:8mm;color:var(--dim);font:6.8px/1.2 var(--mono)}.foot strong{color:var(--evtl);white-space:nowrap}@media print{.toolbar{display:none!important}}
+svg text{font-family:var(--mono)}.grid{stroke:#20262d;stroke-width:.5}.boundary{fill:#171c29;fill-opacity:.35;stroke:var(--border);stroke-width:1.3;stroke-dasharray:8 5}.n{fill:#1a1e23;stroke-width:1.25}.app{stroke:var(--sync)}.svc{stroke:var(--accent)}.store{stroke:var(--store)}.queue{stroke:var(--evtl)}.ops{stroke:var(--hop)}.kind{font-size:7.5px;fill:var(--dim);letter-spacing:.075em}.lbl{font-size:10px;fill:var(--text);font-weight:600}.lbl2{font-size:7.7px;fill:var(--muted)}.grp{font-size:8px;fill:var(--dim);letter-spacing:.1em}.edge{font-size:6.9px;fill:var(--muted);paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}.flow{fill:none;stroke:var(--sync);stroke-width:1.4}.event{fill:none;stroke:var(--evtl);stroke-width:1.45;stroke-dasharray:6 4}.write{fill:none;stroke:var(--store);stroke-width:1.4}.hop{fill:none;stroke:var(--hop);stroke-width:1.3}.legend{fill:none;stroke:var(--border);stroke-width:1}
+</style>
+</head>
+<body>
+<main class="page" id="report-container">
+  <header class="head">
+    <span class="dot" aria-hidden="true"></span>
+    <div class="head-copy">
+      <div class="eyebrow">C4 Level 2 - Platform and Container View - Proposed Linebooker V3 - 06 September 2026</div>
+      <h1>Linebooker Logistics SaaS - Platform and Container Overview</h1>
+      <p class="sub">Scope: separately runnable applications, services, messaging, workflow and stores inside the proposed Linebooker system. Audience: architects, engineering leads, security and operations. Regions, instance counts and country placement belong in the separate Deployment view.</p>
+    </div>
+    <div class="toolbar"><div class="toolbar-actions"><button onclick="copyAsImage()">Copy PNG</button><button onclick="downloadPNG()">Download PNG</button><button onclick="downloadPDF()">Quick PDF</button></div><button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" aria-label="Export options">...</button></div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1440 790" role="img" aria-label="C4 Container diagram for the proposed Linebooker Logistics SaaS. Three client and API containers enter through a regional edge. Identity and tenant services establish membership, attributes and authorization. Five independently deployable logistics services own marketplace, execution, tracking, evidence and settlement responsibilities. NATS Core subject families support request reply, JetStream subject families retain durable domain facts, Temporal orchestrates long-running workflows, and service-owned PostgreSQL, derived read stores, evidence object storage and an audit repository keep distinct kinds of state.">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" class="grid"/></pattern>
+          <marker id="con-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#4d94ff"/></marker>
+          <marker id="con-event" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#f0b429"/></marker>
+          <marker id="con-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#2dd4bf"/></marker>
+          <marker id="con-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="#8b93a1"/></marker>
+        </defs>
+        <rect width="1440" height="790" fill="url(#grid)"/>
+
+        <!-- Relationships are drawn before containers. -->
+        <path class="flow" marker-end="url(#con-sync)" d="M185 124V172H175V192"/><text class="edge" x="198" y="158">Submits marketplace actions - HTTPS</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M505 124V160H205V192"/><text class="edge" x="400" y="150">Reports tasks and evidence - HTTPS</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M825 124V174H235V192"/><text class="edge" x="710" y="166">Requests extracts and webhooks - HTTPS</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M315 225H350"/><text class="edge" x="332" y="185" text-anchor="middle">Validates session - HTTPS</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M630 225H665"/><text class="edge" x="647" y="185" text-anchor="middle">Resolves policy - NATS request/reply</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M175 258V300H165V326"/><text class="edge" x="190" y="292">Routes tender commands - HTTPS/JSON</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M225 258V286H445V326"/><text class="edge" x="330" y="278">Routes execution commands - HTTPS/JSON</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M275 258V274H725V326"/><text class="edge" x="590" y="266">Routes tracking and evidence queries - HTTPS/JSON</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M945 225H980"/><text class="edge" x="962" y="185" text-anchor="middle">Authorizes exchange - NATS request/reply</text>
+
+        <path class="event" marker-end="url(#con-event)" d="M165 388V448H205V476"/><text class="edge" x="220" y="444">Publishes tender and award facts - JetStream</text>
+        <path class="event" marker-end="url(#con-event)" d="M445 388V434H520V476"/><text class="edge" x="535" y="430">Publishes load and trip facts - JetStream</text>
+        <path class="event" marker-end="url(#con-event)" d="M725 388V420H520V476"/><text class="edge" x="650" y="412">Publishes position and ETA facts - JetStream</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M1005 388V448H200V476"/><text class="edge" x="850" y="444">Requests settlement decisions - NATS request/reply</text>
+        <path class="flow" marker-end="url(#con-sync)" d="M1165 388V434H985V476"/><text class="edge" x="1070" y="426">Starts long-running settlement workflow - Temporal gRPC</text>
+
+        <path class="write" marker-end="url(#con-store)" d="M205 538V588H220V616"/><text class="edge" x="235" y="582">Projects durable facts - JetStream consumer</text>
+        <path class="write" marker-end="url(#con-store)" d="M520 538V574H520V616"/><text class="edge" x="535" y="568">Updates operational truth - SQL</text>
+        <path class="write" marker-end="url(#con-store)" d="M1005 388V408H1068V588H895V616"/><text class="edge" x="910" y="582">Stores evidence documents - S3-compatible API</text>
+        <path class="event" marker-end="url(#con-event)" d="M825 538V574H1180V616"/><text class="edge" x="1030" y="568">Appends security and business audit facts - OTLP and events</text>
+
+        <!-- System boundary and group labels. -->
+        <rect class="boundary" x="20" y="34" width="1400" height="680" rx="10"/>
+        <text class="grp" x="36" y="56">SOFTWARE SYSTEM BOUNDARY - LINEBOOKER LOGISTICS SAAS</text>
+        <text class="grp" x="45" y="78" fill="#4d94ff">EXPERIENCE AND ENTRY</text>
+        <text class="grp" x="1100" y="188" fill="#006fff">SECURITY, CONTROL AND INTEGRATION</text>
+        <text class="grp" x="1040" y="322" fill="#006fff">LOGISTICS DOMAIN SERVICES</text>
+        <text class="grp" x="1080" y="472" fill="#f0b429">MESSAGING, EVENTS AND WORKFLOW</text>
+        <text class="grp" x="45" y="612" fill="#2dd4bf">STATE OWNERSHIP</text>
+
+        <!-- Experience containers. -->
+        <g>
+          <rect class="n app" x="45" y="82" width="280" height="42" rx="5"/><text class="kind" x="185" y="94" text-anchor="middle">CONTAINER - WEB APPLICATION</text><text class="lbl" x="185" y="108" text-anchor="middle">Web Experience Platform</text><text class="lbl2" x="185" y="119" text-anchor="middle">Vue 3 + Module Federation - shipper, transporter, operator</text>
+          <rect class="n app" x="365" y="82" width="280" height="42" rx="5"/><text class="kind" x="505" y="94" text-anchor="middle">CONTAINER - MOBILE APPLICATION</text><text class="lbl" x="505" y="108" text-anchor="middle">Driver Mobile</text><text class="lbl2" x="505" y="119" text-anchor="middle">Technology TBD - tasks, tracking and evidence</text>
+          <rect class="n app" x="685" y="82" width="280" height="42" rx="5"/><text class="kind" x="825" y="94" text-anchor="middle">CONTAINER - API</text><text class="lbl" x="825" y="108" text-anchor="middle">Partner and Data API</text><text class="lbl2" x="825" y="119" text-anchor="middle">HTTPS/JSON + webhooks - governed exchange and extracts</text>
+        </g>
+
+        <!-- Control containers. -->
+        <g>
+          <rect class="n svc" x="45" y="192" width="270" height="66" rx="5"/><text class="kind" x="180" y="209" text-anchor="middle">CONTAINER - EDGE SERVICE</text><text class="lbl" x="180" y="227" text-anchor="middle">Regional Edge and API Gateway</text><text class="lbl2" x="180" y="244" text-anchor="middle">Technology TBD - TLS, WAF and request routing</text>
+          <rect class="n svc" x="350" y="192" width="280" height="66" rx="5"/><text class="kind" x="490" y="209" text-anchor="middle">CONTAINER - SERVICE</text><text class="lbl" x="490" y="227" text-anchor="middle">Identity and Policy Service</text><text class="lbl2" x="490" y="244" text-anchor="middle">Go + OIDC/SAML - identity proof, RBAC and ABAC</text>
+          <rect class="n svc" x="665" y="192" width="280" height="66" rx="5"/><text class="kind" x="805" y="209" text-anchor="middle">CONTAINER - SERVICE</text><text class="lbl" x="805" y="227" text-anchor="middle">Tenant and Organisation Service</text><text class="lbl2" x="805" y="244" text-anchor="middle">Go + NATS JWT - membership, tenancy and credentials</text>
+          <rect class="n svc" x="980" y="192" width="395" height="66" rx="5"/><text class="kind" x="1177" y="209" text-anchor="middle">CONTAINER - ADAPTER SERVICE</text><text class="lbl" x="1177" y="227" text-anchor="middle">External Integration Adapters</text><text class="lbl2" x="1177" y="244" text-anchor="middle">Go adapters - IdP, telematics, ERP, payments, maps and notify</text>
+        </g>
+
+        <!-- Domain service containers. -->
+        <g>
+          <rect class="n svc" x="45" y="326" width="240" height="62" rx="5"/><text class="kind" x="165" y="343" text-anchor="middle">CONTAINER - SERVICE</text><text class="lbl" x="165" y="361" text-anchor="middle">Marketplace and Tender</text><text class="lbl2" x="165" y="378" text-anchor="middle">Go - tenders, bids, awards and allocation</text>
+          <rect class="n svc" x="325" y="326" width="240" height="62" rx="5"/><text class="kind" x="445" y="343" text-anchor="middle">CONTAINER - SERVICE</text><text class="lbl" x="445" y="361" text-anchor="middle">Transport Execution</text><text class="lbl2" x="445" y="378" text-anchor="middle">Go - loads, trips, routes and milestones</text>
+          <rect class="n svc" x="605" y="326" width="240" height="62" rx="5"/><text class="kind" x="725" y="343" text-anchor="middle">CONTAINER - SERVICE</text><text class="lbl" x="725" y="361" text-anchor="middle">Fleet and Tracking</text><text class="lbl2" x="725" y="378" text-anchor="middle">Go - trucks, positions, geofences and ETA</text>
+          <rect class="n svc" x="885" y="326" width="240" height="62" rx="5"/><text class="kind" x="1005" y="343" text-anchor="middle">CONTAINER - SERVICE</text><text class="lbl" x="1005" y="361" text-anchor="middle">Evidence and Compliance</text><text class="lbl2" x="1005" y="378" text-anchor="middle">Go - metadata, proof gates and retention</text>
+          <rect class="n svc" x="1165" y="326" width="210" height="62" rx="5"/><text class="kind" x="1270" y="343" text-anchor="middle">CONTAINER - SERVICE</text><text class="lbl" x="1270" y="361" text-anchor="middle">Billing and Settlement</text><text class="lbl2" x="1270" y="378" text-anchor="middle">Go - invoices, charges and payment state</text>
+        </g>
+
+        <!-- Messaging and workflow containers. -->
+        <g>
+          <rect class="n queue" x="45" y="476" width="320" height="62" rx="5"/><text class="kind" x="205" y="493" text-anchor="middle">CONTAINER - MESSAGE SUBJECT FAMILIES</text><text class="lbl" x="205" y="511" text-anchor="middle">NATS Core Requests and Live Events</text><text class="lbl2" x="205" y="528" text-anchor="middle">NATS 2.x - rpc.{tenant}.* and approved live subjects</text>
+          <rect class="n queue" x="405" y="476" width="330" height="62" rx="5"/><text class="kind" x="570" y="493" text-anchor="middle">CONTAINER - DURABLE STREAM FAMILIES</text><text class="lbl" x="570" y="511" text-anchor="middle">JetStream Domain Event History</text><text class="lbl2" x="570" y="528" text-anchor="middle">NATS JetStream - tender, trip, tracking and finance facts</text>
+          <rect class="n queue" x="775" y="476" width="280" height="62" rx="5"/><text class="kind" x="915" y="493" text-anchor="middle">CONTAINER - WORKFLOW PLATFORM</text><text class="lbl" x="915" y="511" text-anchor="middle">Temporal Workflow Runtime</text><text class="lbl2" x="915" y="528" text-anchor="middle">Temporal - long-running orchestration and workflow state</text>
+          <rect class="n ops" x="1095" y="476" width="280" height="62" rx="5"/><text class="kind" x="1235" y="493" text-anchor="middle">CONTAINER - OPERATIONS SERVICE</text><text class="lbl" x="1235" y="511" text-anchor="middle">Observability and Audit Pipeline</text><text class="lbl2" x="1235" y="528" text-anchor="middle">OpenTelemetry - masked logs, metrics and traces</text>
+        </g>
+
+        <!-- State containers. -->
+        <g>
+          <rect class="n store" x="45" y="616" width="350" height="62" rx="5"/><text class="kind" x="220" y="633" text-anchor="middle">CONTAINER - DATASTORE - TRANSACTIONAL TRUTH</text><text class="lbl" x="220" y="651" text-anchor="middle">Service-Owned Operational Databases</text><text class="lbl2" x="220" y="668" text-anchor="middle">PostgreSQL - one database and role per service</text>
+          <rect class="n store" x="435" y="616" width="280" height="62" rx="5"/><text class="kind" x="575" y="633" text-anchor="middle">CONTAINER - DERIVED READ STORE</text><text class="lbl" x="575" y="651" text-anchor="middle">Projection and Lookup Stores</text><text class="lbl2" x="575" y="668" text-anchor="middle">PostgreSQL projections + NATS KV</text>
+          <rect class="n store" x="755" y="616" width="280" height="62" rx="5"/><text class="kind" x="895" y="633" text-anchor="middle">CONTAINER - DOCUMENT REPOSITORY</text><text class="lbl" x="895" y="651" text-anchor="middle">Evidence Document Repository</text><text class="lbl2" x="895" y="668" text-anchor="middle">Storage adapter - S3-compatible implementation option</text>
+          <rect class="n store" x="1075" y="616" width="300" height="62" rx="5"/><text class="kind" x="1225" y="633" text-anchor="middle">CONTAINER - AUDIT REPOSITORY</text><text class="lbl" x="1225" y="651" text-anchor="middle">Resident Telemetry and Audit Store</text><text class="lbl2" x="1225" y="668" text-anchor="middle">Technology TBD - masked and residency-scoped records</text>
+        </g>
+
+        <rect class="legend" x="20" y="730" width="1400" height="44" rx="5"/>
+        <path class="flow" marker-end="url(#con-sync)" d="M40 748H82"/><text class="lbl2" x="92" y="752">Sync request/response</text>
+        <path class="event" marker-end="url(#con-event)" d="M275 748H317"/><text class="lbl2" x="327" y="752">Async event</text>
+        <path class="write" marker-end="url(#con-store)" d="M465 748H507"/><text class="lbl2" x="517" y="752">Store read/write</text>
+        <rect class="n app" x="650" y="740" width="36" height="15" rx="3"/><text class="lbl2" x="696" y="752">Client/edge</text>
+        <rect class="n svc" x="810" y="740" width="36" height="15" rx="3"/><text class="lbl2" x="856" y="752">Service</text>
+        <rect class="n queue" x="950" y="740" width="36" height="15" rx="3"/><text class="lbl2" x="996" y="752">Messaging/workflow</text>
+        <rect class="n store" x="1175" y="740" width="36" height="15" rx="3"/><text class="lbl2" x="1221" y="752">Datastore</text>
+        <text class="lbl2" x="40" y="770">API - application programming interface | WAF - web application firewall | JWT - JSON Web Token | ETA - estimated time of arrival | KV - key/value | OTLP - OpenTelemetry Protocol</text>
+      </svg>
+    </div>
+    <figcaption><b>Separately runnable containers and distinct state roles.</b> Relationships are intentionally representative rather than exhaustive. The diagram identifies the transports and state responsibilities that shape the platform; the regional Deployment view will place instances of these containers into South Africa, Australia and Botswana cells.</figcaption>
+  </figure>
+
+  <section class="cards" aria-label="Container interpretation">
+    <article class="card"><h3>Trust is resolved before business work</h3><p>External identity proof is converted into Linebooker tenant, organisation, membership and attribute context before a business service accepts a command.</p></article>
+    <article class="card"><h3>Messaging has explicit roles</h3><p>NATS Core carries request/reply and selected live subjects. JetStream retains durable domain facts. Temporal owns workflow progress and retry state.</p></article>
+    <article class="card"><h3>State remains deliberately distinct</h3><p>PostgreSQL is operational truth, projections and KV are rebuildable reads, the evidence repository stores documents, and audit storage follows masking and residency policy.</p></article>
+  </section>
+  <footer class="foot"><span>Standalone C4 companion view. Proposed Go, mobile, edge, telemetry and storage technologies require confirmation before implementation.</span><strong>PLATFORM AND CONTAINERS - PROPOSED LINEBOOKER V3</strong></footer>
+</main>
+<script>
+const capture=()=>{const t=document.getElementById('report-container'),r=t.getBoundingClientRect();return html2canvas(document.body,{x:r.left,y:r.top,width:r.width,height:r.height,scale:2,backgroundColor:'#14171b',ignoreElements:e=>e.classList&&e.classList.contains('toolbar')})};
+async function copyAsImage(){const c=await capture();c.toBlob(async b=>navigator.clipboard.write([new ClipboardItem({'image/png':b})]))}
+async function downloadPNG(){const c=await capture(),a=document.createElement('a');a.download='c4-linebooker-v3-containers.png';a.href=c.toDataURL('image/png');a.click()}
+async function downloadPDF(){const c=await capture(),{jsPDF}=window.jspdf,p=new jsPDF({orientation:'landscape',unit:'mm',format:'a3'});p.addImage(c.toDataURL('image/png'),'PNG',0,0,420,297);p.save('Proposed Linebooker V3 - Platform and Container Overview.pdf')}
+</script>
+</body>
+</html>

@@ -135,12 +135,12 @@ document repository.
 | LB-V3-L2-02 | L2 | Technology Selection and Rationale | LB-V3-L1-01 | DRAFT | [L2-02 requirements](Proposed-Linebooker-V3-L2-02-Requirements.md) |
 | LB-V3-L3-01 | L3 | Participant + Tenancy | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-02 | L3 | Functional Domains | LB-V3-L2-01 | PLANNED | Create when scoped |
-| LB-V3-L3-03 | L3 | Application / MFE | LB-V3-L2-01 | PLANNED | Create when scoped |
+| LB-V3-L3-03 | L3 | Application / MFE | LB-V3-L2-01 | AVAILABLE | [L3-03 requirements](Proposed-Linebooker-V3-L3-03-Requirements.md) |
 | LB-V3-L3-04 | L3 | External Integration | LB-V3-L2-01 | PLANNED | Create when scoped |
-| LB-V3-L3-05 | L3 | Messaging / NATS | LB-V3-L2-01 | PLANNED | Create when scoped |
+| LB-V3-L3-05 | L3 | Messaging / NATS | LB-V3-L2-01 | AVAILABLE | [L3-05 requirements](Proposed-Linebooker-V3-L3-05-Requirements.md) |
 | LB-V3-L3-06 | L3 | Workflow / Temporal | LB-V3-L2-01 | PLANNED | Create when scoped |
-| LB-V3-L3-07 | L3 | Data Architecture | LB-V3-L2-01 | PLANNED | Create when scoped |
-| LB-V3-L3-08 | L3 | Multi-Region | LB-V3-L2-01 | PLANNED | Create when scoped |
+| LB-V3-L3-07 | L3 | Data Architecture | LB-V3-L2-01 | AVAILABLE | [L3-07 requirements](Proposed-Linebooker-V3-L3-07-Requirements.md) |
+| LB-V3-L3-08 | L3 | Multi-Region | LB-V3-L2-01 | AVAILABLE | [L3-08 requirements](Proposed-Linebooker-V3-L3-08-Requirements.md) |
 | LB-V3-L3-09 | L3 | Security + Identity | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-10 | L3 | Observability | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-11 | L3 | Financial Architecture | LB-V3-L2-01 | PLANNED | Create when scoped |
@@ -149,17 +149,29 @@ document repository.
 ### Published artefacts
 
 - `LB-V3-L0-01`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-linebooker-v3-l0-architecture-atlas.html)
+  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l0-architecture-atlas.html)
   - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L0 Architecture Atlas.pdf>)
 - `LB-V3-L1-01`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-linebooker-v3-l1-system-platform-overview.html)
+  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l1-system-platform-overview.html)
   - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L1 System and Platform Overview.pdf>)
 - `LB-V3-L2-01`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-linebooker-v3-l2-logical-technical-architecture.html)
+  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l2-logical-technical-architecture.html)
   - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L2 Logical and Technical Architecture.pdf>)
 - `LB-V3-L2-02`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-linebooker-v3-l2-technology-selection-rationale.html)
+  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l2-technology-selection-rationale.html)
   - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L2 Technology Selection and Rationale.pdf>)
+- `LB-V3-L3-03`
+  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l3-application-mfe.html)
+  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L3 Application and MFE.pdf>)
+- `LB-V3-L3-05`
+  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l3-messaging-nats.html)
+  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L3 Messaging and NATS.pdf>)
+- `LB-V3-L3-07`
+  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l3-data-architecture.html)
+  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L3 Data Architecture.pdf>)
+- `LB-V3-L3-08`
+  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l3-multi-region.html)
+  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L3 Multi-Region.pdf>)
 
 ## Modelling invariants
 
@@ -303,7 +315,7 @@ rules above are the specification.
 ## File and output conventions
 
 - HTML source:
-  `demos/01-dictionary/diagrams/proposed-linebooker-v3-l<level>-<lowercase-kebab-title>.html`
+  `demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l<level>-<lowercase-kebab-title>.html`
 - Final PDF:
   `output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf`
 - Written edition (Markdown page on the docs site):
@@ -394,10 +406,33 @@ authorized creation or revision:
 - [Execution workflow - drawn and print editions](../../../../.claude/skills/architecture-draughtsman/SKILL.md)
 - [Execution workflow - written edition](../../../../.claude/skills/architecture-document-writer/SKILL.md)
 - [Drawing workflow](../../../../.claude/skills/html-diagram-drawer/SKILL.md)
-- [Graphical catalogue - LB-V3-L0-01](../../../../demos/01-dictionary/diagrams/proposed-linebooker-v3-l0-architecture-atlas.html)
+- [Graphical catalogue - LB-V3-L0-01](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l0-architecture-atlas.html)
 
 ## Change history
 
+- 2026-09-04 - Published `LB-V3-L3-03 Application / MFE` as two A3 landscape
+  sheets and moved it from PLANNED to AVAILABLE. Sheet 1 covers ownership of the
+  application frame, the platform's curated list of plugins, the three gates an
+  entry must pass, and the permission source; sheet 2 covers the description
+  before code rule as five ordered steps, the seven observable plugin states,
+  failure containment, and what a running plugin is handed. Applied the
+  mixed-maturity marking convention: most of this document is built in the
+  Dictionary POC today, and only the mid-session list-change position and the
+  refusal of a shared connection broker are directional. The document receives
+  the theme and label consumption slice from `LB-V3-L3-07` and points back to it
+  for storage and distribution, closing the split recorded on 2026-09-04 for
+  reference data.
+- 2026-09-04 - Published `LB-V3-L3-07 Data Architecture` as two A3 landscape
+  sheets and moved it from PLANNED to AVAILABLE. Sheet 1 covers store roles,
+  ownership, the write path and the read path; sheet 2 covers reference data,
+  distribution, retention and lineage. Established the mixed-maturity marking
+  convention for a document that is part built and part directional: a solid
+  tile is built in the Dictionary POC, a dashed grey tile is a proposed V3
+  position with no decision of record, and a dashed amber tile is open and
+  needs a named owner. Recorded that reference data is a data concern, so
+  localisation, enum and string translation, App Shell theme storage and the
+  configuration store belong to this document, while consuming and rendering
+  theme values belongs to `LB-V3-L3-03`.
 - 2026-09-03 - Defined the written edition. A stable ID may now carry up to
   three editions of one document - drawn HTML, print PDF and a written page in
   the docs site's own `/v3-architecture/` section on port 7106 - sharing one
@@ -424,3 +459,22 @@ authorized creation or revision:
   concepts to the existing Linebooker theme. Enforcement is by review.
 - 2026-09-03 - Established this file as the central operational authority for
   the Proposed Linebooker V3 L0-L4 architecture document set.
+- 2026-09-03 - `LB-V3-L3-08 Multi-Region` moved from `PLANNED` to `AVAILABLE`.
+  Two A3 landscape sheets: placement, routing and the border contract; then
+  availability, recovery and failure by jurisdiction. Its register is
+  `Proposed-Linebooker-V3-L3-08-Requirements.md`. Nothing on either sheet is
+  built, so the document is published as directional as at 2026-09-03. It adds a
+  third tile treatment to the solid/dashed pair introduced by `LB-V3-L3-05`: a
+  dashed amber tile marks an item that a named owner must confirm, as distinct
+  from a proposed position. It also records the Published artefacts entry for
+  `LB-V3-L3-05`, which was omitted when that document was published.
+- 2026-09-03 - `LB-V3-L3-05 Messaging / NATS` moved from `PLANNED` to
+  `AVAILABLE` as the first L3 concern view. Two A3 landscape sheets: trust,
+  accounts and the cross-account contract; then server topology, durable state
+  and failure behaviour. Its register is
+  `Proposed-Linebooker-V3-L3-05-Requirements.md`. The document introduces a
+  solid/dashed tile treatment that separates what is built in the Dictionary POC
+  from what is proposed for V3, with a legend entry on every sheet that uses it.
+  Its PDF filename substitutes `and` for the `/` in the catalogue title, because
+  `/` cannot appear in a filename; the catalogue title itself is unchanged and
+  appears verbatim inside both editions.

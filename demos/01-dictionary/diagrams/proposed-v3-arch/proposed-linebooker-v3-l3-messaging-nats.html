@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed Linebooker V3 Architecture - L3 Messaging / NATS</title>
+<style>
+  :root {
+    --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --border:#2c3138; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --purple:#a78bfa; --amber:#f5b13d;
+    --store:#27c07f; --bad:#f87171;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  @page { size:A3 landscape; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .sheet { width:420mm; height:297mm; padding:8mm; overflow:hidden; background:var(--bg); display:grid; grid-template-rows:30mm minmax(0,1fr) auto 8mm; gap:3mm; page-break-after:always; }
+  .sheet:last-child { page-break-after:auto; }
+  .head { border-bottom:1px solid var(--stroke); padding-bottom:3mm; }
+  .eyebrow { color:var(--cyan); font:650 9px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; margin-bottom:2mm; }
+  .eyebrow .doc-title { text-transform:none; letter-spacing:.04em; }
+  h1 { margin:0; font-size:27px; line-height:1.1; letter-spacing:-.025em; font-weight:680; }
+  .head p { margin:2mm 0 0; max-width:1220px; color:var(--muted); font-size:11.5px; line-height:1.42; }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; min-height:0; }
+  figure { margin:0; min-width:0; min-height:0; background:#0a0c0e; border:1px solid var(--border); display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+  .fig-body { min-height:0; padding:3mm 3mm 1mm; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  figure svg { display:block; width:100%; height:auto; max-height:100%; }
+  figcaption { border-top:1px solid var(--border); padding:2.2mm 3mm; color:var(--muted); font-size:8.8px; line-height:1.34; }
+  figcaption b { color:var(--text); font-weight:650; }
+  figcaption code, .note code { font:8px var(--mono); background:rgba(255,255,255,.06); border-radius:3px; padding:0 3px; }
+  .notes { min-height:0; padding:2mm 2mm 0 3mm; border-left:1px solid var(--stroke); background:var(--panel2); display:flex; flex-direction:column; gap:1.8mm; }
+  .note { display:grid; grid-template-columns:19mm 1fr; gap:2mm; align-items:start; }
+  .tag { border:1px solid #46505b; color:var(--muted); border-radius:3px; padding:1.1mm 1.3mm; font:650 7px/1 var(--mono); letter-spacing:.07em; text-align:center; }
+  .note p { margin:0; color:var(--muted); font-size:8.35px; line-height:1.29; }
+  .note b { color:var(--text); font-weight:650; }
+
+  /* Legend and acronym key - required on every sheet by the authority's
+     Visual and notation standard ("Every sheet must carry"). */
+  .legend { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; border-top:1px solid var(--stroke); padding-top:2.2mm; }
+  .legend h2 { margin:0 0 1.4mm; color:var(--cyan); font:650 8px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .key-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.9mm 3mm; }
+  .key-item { display:grid; grid-template-columns:9mm 1fr; gap:1.6mm; align-items:center; color:var(--muted); font-size:7.6px; line-height:1.22; }
+  .key-item b { color:var(--text); font-weight:650; }
+  .sw { display:block; height:3.1mm; border-radius:1px; background:rgba(255,255,255,.012); border:1.1px solid var(--stroke); }
+  .sw-blue { border-color:var(--blue); } .sw-purple { border-color:var(--purple); }
+  .sw-green { border-color:var(--green); } .sw-cyan { border-color:var(--cyan); }
+  .sw-amber { border-color:var(--amber); } .sw-grey { border-color:var(--stroke); }
+  .sw-tile { background:var(--panel); border:1.1px solid #3a424c; }
+  .sw-prop { background:var(--panel); border:1.1px dashed #5b646f; }
+  .sw-policy { background:#201b12; border:1.1px solid var(--amber); }
+  .ln { display:block; height:0; border-top-width:1.4px; border-top-style:solid; }
+  .ln-sync { border-top-color:var(--blue); }
+  .ln-event { border-top-color:var(--amber); border-top-style:dashed; }
+  .ln-place { border-top-color:var(--green); }
+  .ln-rep { border-top-color:var(--cyan); border-top-style:dotted; border-top-width:1.6px; }
+  .sw-svg { display:block; width:9mm; height:3.4mm; }
+  .abbr { margin:0; padding:0; list-style:none; columns:2; column-gap:3mm; color:var(--muted); font-size:7.4px; line-height:1.28; }
+  .abbr li { break-inside:avoid; }
+  .abbr b { color:var(--text); font:650 7.4px var(--mono); }
+  .foot { border-top:1px solid var(--border); padding-top:2mm; display:flex; justify-content:space-between; gap:8mm; color:var(--dim); font-size:7.8px; line-height:1.25; }
+  .brand { color:var(--amber); text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; font-weight:700; }
+
+  svg .group { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.1; }
+  svg .group.blue { stroke:var(--blue); } svg .group.purple { stroke:var(--purple); }
+  svg .group.green { stroke:var(--green); } svg .group.cyan { stroke:var(--cyan); }
+  svg .group.amber { stroke:var(--amber); }
+  svg .tile { fill:var(--panel); stroke:#3a424c; stroke-width:1.1; }
+  /* Dashed tile = proposed for V3 and not built in the Dictionary POC. */
+  svg .tile.prop { stroke:#5b646f; stroke-width:1.1; stroke-dasharray:5 4; }
+  svg .policy { fill:#201b12; stroke:var(--amber); stroke-width:1.1; }
+  svg .title { fill:var(--text); font:650 10.8px var(--sans); }
+  svg .sub { fill:var(--muted); font:8.9px var(--sans); }
+  svg .mini { fill:var(--dim); font:8.4px var(--mono); }
+  svg .glyph { fill:#0d0f11; font:800 10.5px var(--sans); text-anchor:middle; }
+  /* Knockout halo so a label stays legible where an edge passes behind it. */
+  svg .edge-label { fill:var(--muted); font:8px var(--mono); paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .group-title { font:650 10px var(--sans); letter-spacing:.105em; text-transform:uppercase; paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .sync { fill:none; stroke:var(--blue); stroke-width:1.35; }
+  svg .event { fill:none; stroke:var(--amber); stroke-width:1.35; stroke-dasharray:5 4; }
+  svg .place { fill:none; stroke:var(--green); stroke-width:1.35; }
+  svg .rep { fill:none; stroke:var(--cyan); stroke-width:1.3; stroke-dasharray:2 4; }
+  svg .rule { stroke:#2a3038; stroke-width:1; }
+</style>
+</head>
+<body>
+
+<!-- ============================ SHEET 1 ============================ -->
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L3-05 &middot; <span class="doc-title">Messaging / NATS</span> &middot; Sheet 1 of 2</div>
+    <h1>Trust, Accounts and the Cross-Account Contract</h1>
+    <p>How the messaging system is divided so that one tenant cannot reach another, and what the only permitted path between two accounts is. This sheet shows the mechanism: the trust chain that issues identity, the account plane that isolates, the subject families the platform speaks in, and the export and import grants that let a named subject cross a boundary. Exact subjects, stream settings and permission claims belong to L4.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1160 760" role="img" aria-label="Sheet one of LB-V3-L3-05 Messaging / NATS shows the messaging trust and isolation mechanism in five parts. A trust chain group shows the operator as the single root that signs account claims, an account claim as one signed token per isolation boundary, and a user credential held by exactly one process. A second group shows where the claims live: an account resolver holding signed tokens on disk so no account list sits in server configuration, and a claim push over the system API that adds or revokes an account while the platform runs. Both feed the account plane, which holds a system account for server and claim administration, a platform account for shared control-plane services, and one hard-isolated account per tenant that can be added at run time. The account plane feeds the subject families the platform speaks in: event, remote procedure call, browser interface, change notification and observability. Those families feed the cross-account contract, which has exactly three parts: reference data exported down from the platform account and imported by each tenant as a plain local subject, telemetry and read-only stream views exported up from each tenant and remapped by the server under a monitor prefix carrying the tenant name, and everything else refused because no grant means no delivery. A closing policy statement records that isolation is enforced by the server rather than by application code.">
+          <defs>
+            <marker id="ah-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#3b8bff"/></marker>
+            <marker id="ah-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f5b13d"/></marker>
+            <marker id="ah-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34d399"/></marker>
+          </defs>
+
+          <!-- ROW 1a: trust chain -->
+          <text class="group-title" x="36" y="34" fill="#34d399">Trust chain &middot; operator-signed, nothing listed on the server</text>
+          <rect class="group green" x="20" y="42" width="700" height="118" rx="12"/>
+          <rect class="tile" x="40" y="68" width="212" height="76" rx="8"/><rect x="54" y="84" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="66" y="100">O</text><text class="title" x="88" y="88">Operator</text><text class="sub" x="88" y="104">the single trust root</text><text class="mini" x="54" y="119">signs every account claim</text><text class="mini" x="54" y="132">one signing key, held apart</text>
+          <rect class="tile" x="264" y="68" width="212" height="76" rx="8"/><rect x="278" y="84" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="290" y="100">A</text><text class="title" x="312" y="88">Account claim</text><text class="sub" x="312" y="104">one per isolation boundary</text><text class="mini" x="278" y="119">a signed token, not config</text><text class="mini" x="278" y="132">minted by the control plane</text>
+          <rect class="tile" x="488" y="68" width="212" height="76" rx="8"/><rect x="502" y="84" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="514" y="100">U</text><text class="title" x="536" y="88">User credential</text><text class="sub" x="536" y="104">one holder, one credential</text><text class="mini" x="502" y="119">named for the process</text><text class="mini" x="502" y="132">a browser gets a token</text>
+
+          <!-- ROW 1b: resolver -->
+          <text class="group-title" x="756" y="34" fill="#f5b13d">Where the claims live</text>
+          <rect class="group amber" x="740" y="42" width="400" height="118" rx="12"/>
+          <rect class="tile" x="760" y="68" width="174" height="76" rx="8"/><rect x="774" y="84" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="786" y="100">R</text><text class="title" x="808" y="88">Account resolver</text><text class="sub" x="808" y="104">signed tokens on disk</text><text class="mini" x="774" y="119">no account list in</text><text class="mini" x="774" y="132">the server config file</text>
+          <rect class="tile" x="946" y="68" width="174" height="76" rx="8"/><rect x="960" y="84" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="972" y="100">C</text><text class="title" x="994" y="88">Claim push</text><text class="sub" x="994" y="104">over the system API</text><text class="mini" x="960" y="119">add or revoke live</text><text class="mini" x="960" y="132">no server restart</text>
+
+          <path class="place" d="M370 160 V188" marker-end="url(#ah-green)"/>
+          <text class="edge-label" x="382" y="174">operator-signed claims define each account</text>
+          <path class="place" d="M940 160 V188" marker-end="url(#ah-green)"/>
+          <text class="edge-label" x="952" y="174">served when a client connects</text>
+
+          <!-- ROW 2: account plane -->
+          <text class="group-title" x="36" y="190" fill="#2fd4e8">Account plane &middot; one account per isolation boundary</text>
+          <rect class="group cyan" x="20" y="198" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="224" width="261" height="76" rx="8"/><rect x="54" y="240" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="66" y="256">S</text><text class="title" x="88" y="244">System account</text><text class="sub" x="88" y="260">server and claim administration</text><text class="mini" x="54" y="275">one holder: the accounts service</text><text class="mini" x="54" y="288">carries no business traffic</text>
+          <rect class="tile" x="313" y="224" width="261" height="76" rx="8"/><rect x="327" y="240" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="339" y="256">P</text><text class="title" x="361" y="244">Platform account</text><text class="sub" x="361" y="260">shared control-plane services</text><text class="mini" x="327" y="275">reference data, registry, traces</text><text class="mini" x="327" y="288">one account every tenant shares</text>
+          <rect class="tile" x="586" y="224" width="261" height="76" rx="8"/><rect x="600" y="240" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="612" y="256">T</text><text class="title" x="634" y="244">Tenant account</text><text class="sub" x="634" y="260">the hard isolation boundary</text><text class="mini" x="600" y="275">own streams, key-value, files</text><text class="mini" x="600" y="288">cannot see another tenant</text>
+          <rect class="tile" x="859" y="224" width="261" height="76" rx="8"/><rect x="873" y="240" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="885" y="256">N</text><text class="title" x="907" y="244">Tenant account, next</text><text class="sub" x="907" y="260">added while the platform runs</text><text class="mini" x="873" y="275">claim minted, pushed, then used</text><text class="mini" x="873" y="288">no restart, no config edit</text>
+
+          <path class="sync" d="M580 316 V344" marker-end="url(#ah-blue)"/>
+          <text class="edge-label" x="592" y="336">every subject is published inside one account</text>
+
+          <!-- ROW 3: subject families -->
+          <text class="group-title" x="36" y="346" fill="#3b8bff">Subject families &middot; the vocabulary the grants are written in</text>
+          <rect class="group blue" x="20" y="354" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="380" width="204" height="76" rx="8"/><rect x="54" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="66" y="412">E</text><text class="title" x="88" y="400">evt.</text><text class="sub" x="88" y="416">durable domain facts</text><text class="mini" x="54" y="431">evt.{context}.{service}.</text><text class="mini" x="54" y="444">stays inside its account</text>
+          <rect class="tile" x="259" y="380" width="204" height="76" rx="8"/><rect x="273" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="285" y="412">R</text><text class="title" x="307" y="400">rpc.</text><text class="sub" x="307" y="416">service to service</text><text class="mini" x="273" y="431">rpc.{context}.{svc}.{op}.v1</text><text class="mini" x="273" y="444">crosses only by a grant</text>
+          <rect class="tile" x="478" y="380" width="204" height="76" rx="8"/><rect x="492" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="504" y="412">A</text><text class="title" x="526" y="400">api.</text><text class="sub" x="526" y="416">browser to service</text><text class="mini" x="492" y="431">api.{context}.{svc}.{op}.v1</text><text class="mini" x="492" y="444">never given to a backend</text>
+          <rect class="tile" x="697" y="380" width="204" height="76" rx="8"/><rect x="711" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="723" y="412">N</text><text class="title" x="745" y="400">notify.</text><text class="sub" x="745" y="416">change notification</text><text class="mini" x="711" y="431">notify.{context}.{what}</text><text class="mini" x="711" y="444">replaces server-sent events</text>
+          <rect class="tile" x="916" y="380" width="204" height="76" rx="8"/><rect x="930" y="396" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="942" y="412">O</text><text class="title" x="964" y="400">obs.</text><text class="sub" x="964" y="416">debug side channel</text><text class="mini" x="930" y="431">obs.trace. and obs.pubsub.</text><text class="mini" x="930" y="444">never on a business path</text>
+
+          <path class="event" d="M580 472 V500" marker-end="url(#ah-amber)"/>
+          <text class="edge-label" x="592" y="492">only the subjects a grant names may cross</text>
+
+          <!-- ROW 4: cross-account contract -->
+          <text class="group-title" x="36" y="502" fill="#f5b13d">Cross-account contract &middot; the only path between two accounts</text>
+          <rect class="group amber" x="20" y="510" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="536" width="350" height="76" rx="8"/><rect x="54" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="66" y="568">D</text><text class="title" x="88" y="556">Reference data, down</text><text class="sub" x="88" y="572">the platform account exports, each tenant imports</text><text class="mini" x="54" y="587">the tenant calls a plain local subject; the remap is hidden</text><text class="mini" x="54" y="600">one shared corpus, not a copy for every tenant</text>
+          <rect class="tile" x="405" y="536" width="350" height="76" rx="8"/><rect x="419" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="431" y="568">U</text><text class="title" x="453" y="556">Telemetry and stream views, up</text><text class="sub" x="453" y="572">each tenant exports, the platform account imports</text><text class="mini" x="419" y="587">the server writes the tenant name into the subject</text><text class="mini" x="419" y="600">read-only views; a client cannot forge the name</text>
+          <rect class="tile" x="770" y="536" width="350" height="76" rx="8"/><rect x="784" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="796" y="568">X</text><text class="title" x="818" y="556">Everything else is refused</text><text class="sub" x="818" y="572">no grant means no delivery, and no clue to guess from</text><text class="mini" x="784" y="587">create, update, purge and delete are never exported</text><text class="mini" x="784" y="600">no tenant can name another tenant's subject</text>
+
+          <!-- policy statement -->
+          <rect class="policy" x="150" y="666" width="860" height="64" rx="8"/><rect x="166" y="684" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="178" y="700">!</text><text class="title" x="200" y="688">Isolation is enforced by the server, not by application code</text><text class="sub" x="200" y="704">signed claims &middot; one account per boundary &middot; explicit export and import &middot; subject-safe identifiers only</text><text class="mini" x="166" y="720">a subject token never carries the tenant or the region: the account carries the tenant, the deployment carries the region</text>
+        </svg>
+      </div>
+      <figcaption><b>Read it downward.</b> The operator issues identity, the resolver holds it, the account plane spends it, the subject families name what is spoken, and the contract row is the only opening in the wall. Everything drawn here runs today in the Dictionary POC with four accounts and live tenant creation. <b>Not shown:</b> individual subjects, permission claim text and stream settings &mdash; those are <code>L4</code>.</figcaption>
+    </figure>
+
+    <aside class="notes">
+      <div class="note"><span class="tag">SCOPE</span><p><b>One question.</b> How does messaging keep tenants apart, and what may cross? Server placement and durable state are on sheet 2.</p></div>
+      <div class="note"><span class="tag">TRUST</span><p>The <b>operator</b> is the only root. It signs account claims; each account signs its own users. A server holds no list of accounts.</p></div>
+      <div class="note"><span class="tag">ACCOUNT</span><p>An <b>account is the isolation boundary</b>. It is not a region, and it is not a business context. Treat it as the tenant wall.</p></div>
+      <div class="note"><span class="tag">CONTEXT</span><p><code>{context}</code> is the company or business unit and sits in the subject. The tenant sits in the account. The region sits in the deployment.</p></div>
+      <div class="note"><span class="tag">IMPORT</span><p>A tenant reaches shared reference data through an <b>import</b>, then calls it as an ordinary local subject. It never learns the platform subject.</p></div>
+      <div class="note"><span class="tag">EXPORT</span><p>A tenant <b>exports</b> telemetry and read-only stream views. The server rewrites them under a monitor prefix that carries the tenant name.</p></div>
+      <div class="note"><span class="tag">DENY</span><p><b>No grant means no delivery.</b> Stream create, update, purge and delete are never exported, so a console can read but not damage.</p></div>
+      <div class="note"><span class="tag">CREDS</span><p>One credential per holder, named exactly as the process names itself. A name that does not match in the console is a signal to check.</p></div>
+      <div class="note"><span class="tag">BROWSER</span><p>A browser <b>never</b> holds a credentials file. It gets a short-lived token over a web socket through the web server.</p></div>
+      <div class="note"><span class="tag">LAB</span><p>Proven in the Dictionary POC: four accounts, per-account signing keys, live tenant creation, and the exact grant shape drawn here.</p></div>
+    </aside>
+  </div>
+
+  <div class="legend">
+    <div>
+      <h2>Legend</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; trust and identity issue</span></div>
+        <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan boundary</b> &mdash; account plane, the isolation wall</span></div>
+        <div class="key-item"><span class="sw sw-blue"></span><span><b>Blue boundary</b> &mdash; subject vocabulary</span></div>
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; claim storage and cross-account grants</span></div>
+        <div class="key-item"><span class="sw sw-tile"></span><span><b>Solid tile</b> &mdash; element built and running in the lab</span></div>
+        <div class="key-item"><span class="sw sw-policy"></span><span><b>Amber panel</b> &mdash; a rule that governs the whole sheet</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#34d399" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#34d399"/></svg><span><b>Green line</b> &mdash; identity or claim is granted</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#3b8bff" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#3b8bff"/></svg><span><b>Blue line</b> &mdash; a direct, answered exchange</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#f5b13d" stroke-width="1.6" stroke-dasharray="5 4"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#f5b13d"/></svg><span><b>Amber dashed line</b> &mdash; a message sent without waiting</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><path d="M26 2.4 L33 6 L26 9.6 z" fill="#b7bcc2"/></svg><span><b>Arrow head</b> &mdash; the direction of the relationship</span></div>
+        <div class="key-item"><span class="sw" style="background:none;border:none"></span><span><b>Line label</b> &mdash; names the relationship, never bare "uses"</span></div>
+        <div class="key-item"><span class="sw" style="background:none;border:none"></span><span><b>Letter badge</b> &mdash; a picture cue only; the words carry the meaning</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Words on this sheet</h2>
+      <ul class="abbr">
+        <li><b>NATS</b> the messaging system (a product name)</li>
+        <li><b>JWT</b> JSON Web Token, a signed claim</li>
+        <li><b>API</b> application programming interface</li>
+        <li><b>RPC</b> remote procedure call</li>
+        <li><b>POC</b> proof of concept (the Dictionary POC)</li>
+        <li><b>claim</b> a signed statement of who you are</li>
+        <li><b>creds</b> a credentials file: claim plus key</li>
+        <li><b>grant</b> an export matched by an import</li>
+        <li><b>subject</b> the address a message is sent to</li>
+        <li><b>remap</b> the server rewriting a subject</li>
+        <li><b>{context}</b> company or business unit token</li>
+        <li><b>{tenant}</b> the account name the server inserts</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Traceability: L3-05-001 to L3-05-014 (trust chain, account plane, subject families, cross-account grants). Parent: LB-V3-L2-01 requirement L2-D04. Related: LB-V3-L3-09 Security and Identity for permission policy and audit.</span>
+    <span class="brand">LB-V3-L3-05 &middot; 1/2 &middot; Trust and accounts</span>
+  </footer>
+</section>
+
+<!-- ============================ SHEET 2 ============================ -->
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L3-05 &middot; <span class="doc-title">Messaging / NATS</span> &middot; Sheet 2 of 2</div>
+    <h1>Server Topology, Durable State and Failure Behaviour</h1>
+    <p>Where the messaging servers run, how a site at the edge attaches, what durable state each account holds, how two regions are joined, and what happens when a link breaks. Solid tiles are built and running in the Dictionary POC on a single server. Dashed tiles are proposed for V3 and are not built today. Residency, recovery targets and country rules belong to LB-V3-L3-08; sizing and configuration values belong to L4.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1160 830" role="img" aria-label="Sheet two of LB-V3-L3-05 Messaging / NATS places the messaging runtime in five parts read downward. At the top an edge group holds proposed leaf nodes: a depot leaf, a fleet gateway leaf, a site credential limited to that site, and an explanation that a leaf is used instead of a plain client so the site keeps working while the wide-area link is down and replays afterwards. A leaf connection runs down into one regional cell, which holds three meshed servers forming a single cluster, a JetStream file store providing one domain per cell, a web socket entry point for browsers, and a monitoring endpoint read only by the operator console. Published messages are retained by the cell as durable state per account: the shipping aggregate log, the reference data change feed, the observability streams that are capped and dropped under load, the key-value buckets that are derived and rebuildable, and the object store for evidence documents. Two links leave for the between-cells group: core subjects cross an allowed gateway, and named streams are copied by mirror or source, with the whole group marked proposed and not built, including the requirement that every cell trust one operator and one resolver. Below a divider, a behaviour group records four failure responses: a client reconnects without limit, a gateway partition leaves each cell serving locally, a leaf buffers and replays in order, and a durable consumer resumes at its last acknowledgement using the retained log.">
+          <defs>
+            <marker id="ah2-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#3b8bff"/></marker>
+            <marker id="ah2-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f5b13d"/></marker>
+            <marker id="ah2-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#2fd4e8"/></marker>
+          </defs>
+
+          <!-- ROW 1: edge / leaf nodes -->
+          <text class="group-title" x="36" y="34" fill="#a78bfa">Edge &middot; leaf nodes at a site (proposed, not built today)</text>
+          <rect class="group purple" x="20" y="42" width="1120" height="118" rx="12"/>
+          <rect class="tile prop" x="40" y="68" width="261" height="76" rx="8"/><rect x="54" y="84" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="66" y="100">D</text><text class="title" x="88" y="88">Depot leaf node</text><text class="sub" x="88" y="104">a small server at the site</text><text class="mini" x="54" y="119">connects out to its region</text><text class="mini" x="54" y="132">proposed &middot; not built today</text>
+          <rect class="tile prop" x="313" y="68" width="261" height="76" rx="8"/><rect x="327" y="84" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="339" y="100">F</text><text class="title" x="361" y="88">Fleet gateway leaf</text><text class="sub" x="361" y="104">telematics and device feeds</text><text class="mini" x="327" y="119">tidied at the site, then sent</text><text class="mini" x="327" y="132">proposed &middot; not built today</text>
+          <rect class="tile prop" x="586" y="68" width="261" height="76" rx="8"/><rect x="600" y="84" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="612" y="100">C</text><text class="title" x="634" y="88">Site credential</text><text class="sub" x="634" y="104">the site holds its own claim</text><text class="mini" x="600" y="119">its subjects are site-limited</text><text class="mini" x="600" y="132">proposed &middot; not built today</text>
+          <rect class="tile" x="859" y="68" width="261" height="76" rx="8"/><rect x="873" y="84" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="885" y="100">W</text><text class="title" x="907" y="88">Why a leaf, not a client</text><text class="sub" x="907" y="104">the site works when the link drops</text><text class="mini" x="873" y="119">it buffers, then replays</text><text class="mini" x="873" y="132">one wide-area link per site</text>
+
+          <path class="sync" d="M580 160 V188" marker-end="url(#ah2-blue)"/>
+          <text class="edge-label" x="592" y="180">one leaf connection out to the cell</text>
+
+          <!-- ROW 2: inside one regional cell -->
+          <text class="group-title" x="36" y="190" fill="#2fd4e8">Inside one regional cell &middot; the same shape repeats in every region</text>
+          <rect class="group cyan" x="20" y="198" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="224" width="261" height="76" rx="8"/><rect x="54" y="240" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="66" y="256">N</text><text class="title" x="88" y="244">Three NATS servers</text><text class="sub" x="88" y="260">one cluster, links fully meshed</text><text class="mini" x="54" y="275">clients 4222, health 8222</text><text class="mini" x="54" y="288">three is a minimum, not a size</text>
+          <rect class="tile" x="313" y="224" width="261" height="76" rx="8"/><rect x="327" y="240" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="339" y="256">J</text><text class="title" x="361" y="244">JetStream store</text><text class="sub" x="361" y="260">files on disk, one domain per cell</text><text class="mini" x="327" y="275">a domain is a cell, not a tenant</text><text class="mini" x="327" y="288">one copy in lab, three proposed</text>
+          <rect class="tile" x="586" y="224" width="261" height="76" rx="8"/><rect x="600" y="240" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="612" y="256">B</text><text class="title" x="634" y="244">Web socket entry</text><text class="sub" x="634" y="260">browsers, through the web server</text><text class="mini" x="600" y="275">a short-lived token, no file</text><text class="mini" x="600" y="288">proven in the Dictionary POC</text>
+          <rect class="tile" x="859" y="224" width="261" height="76" rx="8"/><rect x="873" y="240" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="885" y="256">M</text><text class="title" x="907" y="244">Monitoring endpoint</text><text class="sub" x="907" y="260">server, link and stream health</text><text class="mini" x="873" y="275">read by the operator console</text><text class="mini" x="873" y="288">not a public endpoint</text>
+
+          <path class="event" d="M480 316 V344" marker-end="url(#ah2-amber)"/>
+          <text class="edge-label" x="492" y="336">published messages are kept as durable state</text>
+          <path class="sync" d="M1100 316 V330 H1060 V500" marker-end="url(#ah2-blue)"/>
+          <text class="edge-label" x="948" y="404">core subjects cross</text>
+          <text class="edge-label" x="948" y="416">an allowed gateway</text>
+
+          <!-- ROW 3: durable state per account -->
+          <text class="group-title" x="36" y="346" fill="#34d399">Durable state, held per account</text>
+          <rect class="group green" x="20" y="354" width="920" height="118" rx="12"/>
+          <rect class="tile" x="40" y="380" width="168" height="76" rx="8"/><rect x="54" y="396" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="66" y="412">S</text><text class="title" x="88" y="400">Shipping log</text><text class="sub" x="88" y="416">the aggregate log</text><text class="mini" x="54" y="431">evt.*.shipping.</text><text class="mini" x="54" y="444">kept so it can replay</text>
+          <rect class="tile" x="218" y="380" width="168" height="76" rx="8"/><rect x="232" y="396" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="244" y="412">R</text><text class="title" x="266" y="400">Refdata feed</text><text class="sub" x="266" y="416">changes, aged out</text><text class="mini" x="232" y="431">evt.*.refdata.</text><text class="mini" x="232" y="444">platform account</text>
+          <rect class="tile" x="396" y="380" width="168" height="76" rx="8"/><rect x="410" y="396" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="422" y="412">O</text><text class="title" x="444" y="400">Observability</text><text class="sub" x="444" y="416">traces and messages</text><text class="mini" x="410" y="431">one hour, capped</text><text class="mini" x="410" y="444">dropped under load</text>
+          <rect class="tile" x="574" y="380" width="168" height="76" rx="8"/><rect x="588" y="396" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="600" y="412">K</text><text class="title" x="622" y="400">Key-value</text><text class="sub" x="622" y="416">derived, rebuildable</text><text class="mini" x="588" y="431">ships, container, meta</text><text class="mini" x="588" y="444">a bucket is a stream</text>
+          <rect class="tile" x="752" y="380" width="168" height="76" rx="8"/><rect x="766" y="396" width="24" height="24" rx="7" fill="#27c07f"/><text class="glyph" x="778" y="412">F</text><text class="title" x="800" y="400">Object store</text><text class="sub" x="800" y="416">evidence documents</text><text class="mini" x="766" y="431">organizations-docs</text><text class="mini" x="766" y="444">big files stay out</text>
+
+          <path class="rep" d="M700 472 V500" marker-end="url(#ah2-cyan)"/>
+          <text class="edge-label" x="712" y="492">named streams copied by mirror or source</text>
+
+          <!-- ROW 4: between cells -->
+          <text class="group-title" x="36" y="502" fill="#f5b13d">Between cells &middot; every tile here is proposed and not built today</text>
+          <rect class="group amber" x="20" y="510" width="1120" height="118" rx="12"/>
+          <rect class="tile prop" x="40" y="536" width="350" height="76" rx="8"/><rect x="54" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="66" y="568">G</text><text class="title" x="88" y="556">Gateway</text><text class="sub" x="88" y="572">joins two clusters, without stretching one</text><text class="mini" x="54" y="587">carries only the core subjects a list allows</text><text class="mini" x="54" y="600">proposed &middot; not built today</text>
+          <rect class="tile prop" x="405" y="536" width="350" height="76" rx="8"/><rect x="419" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="431" y="568">M</text><text class="title" x="453" y="556">Mirror or source</text><text class="sub" x="453" y="572">copies one named stream into another cell</text><text class="mini" x="419" y="587">there is no cross-region copy by default</text><text class="mini" x="419" y="600">proposed &middot; not built today</text>
+          <rect class="tile prop" x="770" y="536" width="350" height="76" rx="8"/><rect x="784" y="552" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="796" y="568">T</text><text class="title" x="818" y="556">One operator, one resolver</text><text class="sub" x="818" y="572">every cell trusts the same signing authority</text><text class="mini" x="784" y="587">an account keeps one identity in every cell</text><text class="mini" x="784" y="600">proposed &middot; not built today</text>
+
+
+          <!-- ROW 5: failure behaviour -->
+          <text class="group-title" x="36" y="682" fill="#b7bcc2">Failure behaviour &middot; what happens when a link breaks</text>
+          <rect class="group" x="20" y="690" width="1120" height="118" rx="12"/>
+          <rect class="tile" x="40" y="716" width="261" height="76" rx="8"/><rect x="54" y="732" width="24" height="24" rx="7" fill="#737c87"/><text class="glyph" x="66" y="748">1</text><text class="title" x="88" y="736">Client reconnect</text><text class="sub" x="88" y="752">a service never gives up</text><text class="mini" x="54" y="767">retries are set to unlimited</text><text class="mini" x="54" y="780">the default stops after sixty</text>
+          <rect class="tile prop" x="313" y="716" width="261" height="76" rx="8"/><rect x="327" y="732" width="24" height="24" rx="7" fill="#737c87"/><text class="glyph" x="339" y="748">2</text><text class="title" x="361" y="736">Gateway partition</text><text class="sub" x="361" y="752">each cell serves its own clients</text><text class="mini" x="327" y="767">core messages do not queue</text><text class="mini" x="327" y="780">proposed &middot; not yet tested</text>
+          <rect class="tile prop" x="586" y="716" width="261" height="76" rx="8"/><rect x="600" y="732" width="24" height="24" rx="7" fill="#737c87"/><text class="glyph" x="612" y="748">3</text><text class="title" x="634" y="736">Leaf disconnect</text><text class="sub" x="634" y="752">the site buffers, then replays</text><text class="mini" x="600" y="767">order is kept per subject</text><text class="mini" x="600" y="780">proposed &middot; not yet tested</text>
+          <rect class="tile" x="859" y="716" width="261" height="76" rx="8"/><rect x="873" y="732" width="24" height="24" rx="7" fill="#737c87"/><text class="glyph" x="885" y="748">4</text><text class="title" x="907" y="736">Consumer restart</text><text class="sub" x="907" y="752">it resumes at its last mark</text><text class="mini" x="873" y="767">the kept log supplies the gap</text><text class="mini" x="873" y="780">proven in the Dictionary POC</text>
+        </svg>
+      </div>
+      <figcaption><b>Read it downward.</b> A site attaches to a cell, the cell keeps the durable state, and only named traffic leaves the cell for another region. <b>Built today:</b> one server, one cell, one copy of each stream. <b>Not built:</b> every dashed tile &mdash; clusters, gateways, mirrors and leaf nodes. <b>Not shown:</b> sizing, stream settings and country rules &mdash; those are <code>L4</code> and <code>LB-V3-L3-08</code>.</figcaption>
+    </figure>
+
+    <aside class="notes">
+      <div class="note"><span class="tag">SCOPE</span><p><b>One question.</b> Where do the servers run and what durable state do they hold? Residency and recovery targets are <code>LB-V3-L3-08</code>.</p></div>
+      <div class="note"><span class="tag">CELL</span><p>A <b>cell</b> is one region's runtime. The same shape repeats in each region. A cell is a place, not a tenant.</p></div>
+      <div class="note"><span class="tag">HA</span><p>Three servers is the <b>availability minimum</b>, not a capacity estimate. How big each one is stays open until sizing work is done.</p></div>
+      <div class="note"><span class="tag">DOMAIN</span><p>A JetStream <b>domain</b> marks a cell. It is not a tenancy boundary. The account is the tenancy boundary (sheet 1).</p></div>
+      <div class="note"><span class="tag">GATEWAY</span><p>A <b>gateway</b> joins two clusters. It does not stretch one cluster over a long link. Only listed core subjects cross it.</p></div>
+      <div class="note"><span class="tag">MIRROR</span><p>Durable history crosses a region only as a <b>named mirror or source</b>. There is no cross-region copy by default.</p></div>
+      <div class="note"><span class="tag">LEAF</span><p>A <b>leaf node</b> lets a depot keep working while the link is down, then replay. Nothing like this is built today.</p></div>
+      <div class="note"><span class="tag">STATE</span><p>Streams keep facts. Key-value keeps derived reads. The object store keeps large files. They are <b>not</b> interchangeable.</p></div>
+      <div class="note"><span class="tag">REPLAY</span><p>Streams keep a <b>limits</b> policy so history can be replayed. An interest policy would delete the history instead.</p></div>
+      <div class="note"><span class="tag">OPEN</span><p>Whether two regions get a gateway at all, and which subjects may cross it, is <b>not decided</b>. See the L3-05 register.</p></div>
+    </aside>
+  </div>
+
+  <div class="legend">
+    <div>
+      <h2>Legend</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-purple"></span><span><b>Purple boundary</b> &mdash; the edge, away from a data centre</span></div>
+        <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan boundary</b> &mdash; the runtime inside one region</span></div>
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; durable state that survives a restart</span></div>
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; links between two regions</span></div>
+        <div class="key-item"><span class="sw sw-grey"></span><span><b>Grey boundary</b> &mdash; behaviour, not a component</span></div>
+        <div class="key-item"><span class="sw sw-tile"></span><span><b>Solid tile</b> &mdash; built and running in the lab today</span></div>
+        <div class="key-item"><span class="sw sw-prop"></span><span><b>Dashed tile</b> &mdash; proposed for V3, not built today</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#3b8bff" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#3b8bff"/></svg><span><b>Blue line</b> &mdash; a live connection between servers</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#f5b13d" stroke-width="1.6" stroke-dasharray="5 4"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#f5b13d"/></svg><span><b>Amber dashed line</b> &mdash; a message kept as durable state</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#2fd4e8" stroke-width="1.8" stroke-dasharray="2 4"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#2fd4e8"/></svg><span><b>Cyan dotted line</b> &mdash; a copy of a stream, not the original</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><path d="M26 2.4 L33 6 L26 9.6 z" fill="#b7bcc2"/></svg><span><b>Arrow head</b> &mdash; the direction of the relationship</span></div>
+        <div class="key-item"><span class="sw" style="background:none;border:none"></span><span><b>Line label</b> &mdash; names the relationship and its transport</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Words on this sheet</h2>
+      <ul class="abbr">
+        <li><b>NATS</b> the messaging system (a product name)</li>
+        <li><b>JetStream</b> the part of NATS that stores messages</li>
+        <li><b>HA</b> high availability, keeping running through a fault</li>
+        <li><b>cell</b> one region's complete runtime</li>
+        <li><b>cluster</b> servers linked as one, in one place</li>
+        <li><b>gateway</b> a link joining two clusters</li>
+        <li><b>leaf node</b> a small server at a site, linked to a cell</li>
+        <li><b>domain</b> a JetStream name marking one cell</li>
+        <li><b>stream</b> a kept, replayable log of messages</li>
+        <li><b>consumer</b> a named reading position on a stream</li>
+        <li><b>mirror / source</b> a copy of one stream into another</li>
+        <li><b>ack</b> a reader confirming it handled a message</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Traceability: L3-05-015 to L3-05-028 (cell topology, durable state, inter-cell links, failure behaviour) and open items L3-05-O01 to L3-05-O06. Parent: LB-V3-L2-01 requirements L2-016, L2-017, L2-023, L2-026. Related: LB-V3-L3-08 Regions and Residency.</span>
+    <span class="brand">LB-V3-L3-05 &middot; 2/2 &middot; Topology and state</span>
+  </footer>
+</section>
+
+</body>
+</html>

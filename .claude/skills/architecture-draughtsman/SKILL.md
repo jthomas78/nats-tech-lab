@@ -144,7 +144,7 @@ Before assigning `AVAILABLE`, verify all of the following:
 ## Catalogue synchronization
 
 `LB-V3-L0-01` is the navigation root at
-`demos/01-dictionary/diagrams/proposed-linebooker-v3-l0-architecture-atlas.html`.
+`demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l0-architecture-atlas.html`.
 
 When authorized work adds, renames, re-parents, completes or supersedes an
 architecture document, update the authority's canonical catalogue first. Then:
