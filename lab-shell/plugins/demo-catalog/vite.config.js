@@ -4,6 +4,8 @@ import { federation } from '@module-federation/vite'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
+import { previewHarness } from '../../../shared/mfe-preview/vitePreview.js'
+
 /*
   The BR-AS15 proof plugin — built and served entirely on its own, by its own
   toolchain, with no import of the shell and no entry in the shell's build.
@@ -39,6 +41,11 @@ export default defineConfig({
          is the plugin API's job (Phase 2), not federation's. */
       dts: false,
     }),
+    /* Dev-only (`apply: 'serve'`), so it adds nothing to remoteEntry.js and
+       leaves this plugin's independence from the host intact. Serves every
+       contribution this plugin declares at /__preview on this same port, with
+       no shell running. The page lives in shared/mfe-preview/, not here. */
+    previewHarness(),
   ],
   resolve: {
     alias: {

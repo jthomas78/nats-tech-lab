@@ -59,6 +59,11 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
+    /* Plus the shared preview harness (shared/mfe-preview/). It is dev tooling
+       for the plugins rather than shell source, but it is shell-shaped enough
+       — it reads manifests and places contributions — to be worth covering,
+       and this is the only vitest runner in the app shell's area. */
+    include: ['src/**/*.spec.js', '../shared/mfe-preview/**/*.spec.js'],
   },
   server: {
     // 7110 — the same port the shell's own container publishes, so a

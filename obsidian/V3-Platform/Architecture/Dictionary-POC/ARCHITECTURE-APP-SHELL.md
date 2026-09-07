@@ -1528,6 +1528,47 @@ spec in `contributionRegistry.spec.js`. Rules-file detail:
 
 ---
 
+## Previewing a contribution outside the shell
+
+A plugin's contributions can be rendered without running the shell, the registry or
+NATS. `shared/mfe-preview/` is a dev-only Vite plugin that serves a `/__preview`
+route from the plugin's **own** dev server: it fetches that plugin's
+`public/manifest.json`, imports its entry module as plain ESM, calls `activate()`
+with a stub shell API of the same shape, and mounts every contribution into its own
+framed card. One line in a plugin's `vite.config.js` adopts it — `previewHarness()`
+in the `plugins` array. Full usage: `shared/mfe-preview/README.md`.
+
+The harness is `apply: 'serve'`, so it is absent from every build. It is therefore
+invisible to `remoteEntry.js` and cannot weaken BR-AS03 (independent deployment) or
+BR-AS15. That also means **`/__preview` does not exist on the Docker-served plugin
+ports 7111–7115** — those containers serve built static output. Use the plugin's dev
+server instead: `.claude/launch.json` carries `example-plugin-preview-7150` and
+`demo-catalog-preview-7151` for exactly this, deliberately outside the 7110–7115
+range the Compose stack binds.
+
+![Two figures. The first shows that a plugin's view is composed from three files: ordinary Vue components are imported by src/plugin.js, which exports a components map keyed by name and an activate function, while public/manifest.json separately declares the plugin's contributions, each naming a component by the same string; the two are joined only by that name match, and the same entry module is emitted two ways, built into remoteEntry.js for the shell and served as plain ESM by the dev server for the preview harness. The second figure compares, row by row against the shell's own seven-stage injection lifecycle, what the app shell does in production against what the preview harness does in development: registry over NATS versus a local manifest fetch, validation and allowlisting versus taking the manifest as written, metadata-only indexing versus listing everything at once, a lazy first-use gate versus no gate, Module Federation loadRemote versus a same-origin dynamic import, a frozen shell API versus a stub of the same shape, and two host render paths versus one PreviewStage page.](images/mfe-preview-vs-shell.png)
+
+> Editable source:
+> [mfe-preview-vs-shell.html](../../../../demos/01-dictionary/diagrams/mfe-preview-vs-shell.html)
+> — hand-authored inline SVG rather than a Draw.io workbook page, so
+> `./diagrams/export-png.sh` does **not** regenerate it. Re-export from
+> `demos/01-dictionary/` with:
+> `node diagrams/export-html-png.mjs diagrams/mfe-preview-vs-shell.html ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/mfe-preview-vs-shell.png 1024 --clip=".wrap"`
+> Re-run `node diagrams/audit-svg-layout.mjs diagrams/mfe-preview-vs-shell.html`
+> after any edit to the SVG.
+
+The comparison is the point: a clean preview is **not** evidence the shell will
+accept the plugin. The harness has no registry (so no signature check, no
+allowlist, no operator curation), no router — `RouterLink`/`RouterView` are inert
+stubs, since the shell owns the one router under BR-AS09 — no sibling plugins, so a
+host-owned extension point (BR-AS07) draws as an empty labelled box and a
+cross-owner point such as `demo-catalog/details-sidebar/v1` can only be exercised in
+the shell, and no lazy gate, so the two-stage lifecycle of BR-AS08 is not observable
+there. What it does prove is that a contribution renders, that the manifest's
+`component` name matches an exported key, and that a throw is contained to one card.
+
+---
+
 ## Related artifacts
 
 - [Application shell plan](../../../../.claude/plans/Application-Shell-Microfrontend-Plan.md)

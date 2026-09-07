@@ -1,0 +1,168 @@
+/*
+  Harness chrome only. Every colour is a token from shared/unifi-theme/unifi.css,
+  so the page is the same dark UniFi surface a contribution meets in the shell —
+  a plugin styled against those tokens must look here exactly as it looks there,
+  and anything that does not is the plugin's bug, not the harness's.
+*/
+
+body {
+  margin: 0;
+  background: var(--lab-bg);
+  color: var(--p-text-color);
+  font: 13px/20px Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.mfe-preview {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Topbar ------------------------------------------------------------------ */
+.mfe-preview-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 44px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--lab-panel-border);
+  background: var(--lab-panel-bg);
+}
+.mfe-preview-brand { display: flex; align-items: center; gap: 8px; }
+.mfe-preview-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--lab-accent);
+}
+.mfe-preview-ver { color: var(--p-text-disabled-color); font-size: 11px; }
+.mfe-preview-top-right { color: var(--p-text-muted-color); font-size: 11px; }
+
+/* Rail -------------------------------------------------------------------- */
+.mfe-preview-body { display: flex; flex: 1; min-height: 0; }
+.mfe-preview-rail {
+  width: 232px;
+  flex: none;
+  padding: 12px 8px 24px;
+  border-right: 1px solid var(--lab-panel-border);
+  background: var(--lab-panel-bg);
+  overflow-y: auto;
+}
+.mfe-preview-group { margin-bottom: 14px; }
+.mfe-preview-group-label {
+  display: block;
+  padding: 0 8px 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--p-text-disabled-color);
+}
+.mfe-preview-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mfe-preview-item:hover { background: var(--lab-nav-hover-bg, rgba(255, 255, 255, 0.04)); }
+.mfe-preview-item.is-active { background: var(--lab-nav-selected-bg, rgba(0, 111, 255, 0.16)); }
+.mfe-preview-item.is-inert .mfe-preview-item-id { color: var(--p-text-muted-color); }
+.mfe-preview-item-id { display: block; }
+.mfe-preview-item-sub { display: block; font-size: 11px; color: var(--p-text-disabled-color); }
+
+/* Main -------------------------------------------------------------------- */
+.mfe-preview-main { flex: 1; min-width: 0; padding: 20px 24px 48px; overflow: auto; }
+.mfe-preview-head { margin-bottom: 14px; }
+.mfe-preview-head h1 { font-size: 18px; margin: 6px 0 2px; }
+.mfe-preview-head p { margin: 0; color: var(--p-text-muted-color); font-size: 12px; }
+.mfe-preview-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--lab-accent);
+  border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--lab-accent);
+}
+
+/* Stages ------------------------------------------------------------------ */
+.mfe-preview-stage {
+  position: relative;
+  border: 1px dashed var(--lab-panel-border);
+  border-radius: 6px;
+  padding: 18px 16px 16px;
+  background: var(--lab-bg);
+}
+.mfe-preview-stage-label {
+  position: absolute;
+  top: -8px; left: 12px;
+  padding: 0 6px;
+  background: var(--lab-bg);
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--p-text-disabled-color);
+}
+/* An extension lands in a column of siblings, not across the page. */
+.mfe-preview-stage.is-region .mfe-preview-stage-inner { max-width: 720px; }
+/* Chrome strips: the real ones are 44px tall and right-aligned. */
+.mfe-preview-stage.is-topbar .mfe-preview-stage-inner,
+.mfe-preview-stage.is-footer .mfe-preview-stage-inner {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--lab-panel-border);
+  border-radius: 4px;
+  background: var(--lab-panel-bg);
+}
+.mfe-preview-stage.is-footer .mfe-preview-stage-inner { min-height: 34px; }
+
+/* Fake extension region handed to plugins through the stub shell API. */
+.mfe-preview-region {
+  border: 1px dashed var(--lab-panel-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: var(--p-text-muted-color);
+}
+.mfe-preview-region-label {
+  display: block;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--p-text-disabled-color);
+}
+.mfe-preview-region p { margin: 6px 0 0; font-size: 12px; }
+
+/* Notices ----------------------------------------------------------------- */
+.mfe-preview-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  border-left: 3px solid var(--lab-accent);
+  background: var(--lab-panel-bg);
+  font-size: 12px;
+}
+.mfe-preview-banner.is-bad { border-left-color: var(--danger, #d9534f); }
+.mfe-preview-banner.is-warn { border-left-color: var(--warn, #9a7b1e); }
+.mfe-preview-banner strong { display: block; }
+.mfe-preview-note,
+.mfe-preview-empty {
+  color: var(--p-text-muted-color);
+  font-size: 12px;
+}
+.mfe-preview-link { color: var(--lab-accent); }
+
+.mfe-preview-details { margin-top: 14px; }
+.mfe-preview-details summary {
+  cursor: pointer;
+  color: var(--p-text-muted-color);
+  font-size: 12px;
+}
+.mfe-preview-details pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--lab-panel-border);
+  border-radius: 4px;
+  background: var(--lab-panel-bg);
+  font-size: 11px;
+  overflow-x: auto;
+}

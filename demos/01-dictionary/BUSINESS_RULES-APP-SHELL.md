@@ -376,11 +376,11 @@ substitute for it. **The user reviewed the running plugin on 2026-08-28,
 after the mockup-fidelity pass, and signed off**; the rule stands for any
 future shell contract change that would need re-proving.
 
-**Port:** 7103. 7100/7101/7102 are taken by the existing frontends, and
-CLAUDE.md's allocation rule assigns frontend dev servers from 7100–7199;
-the entry goes in the demo's README port table in the same change. Note
-`lab-shell`'s own dev port (5170) sits outside that band and is either
-aligned or explicitly exempted as part of Phase 1a.
+**Port:** 7110. 7100/7101/7102 are taken by the existing frontends and
+7106 by the docs site, and CLAUDE.md's allocation rule assigns frontend dev
+servers from 7100–7199; the entry goes in the demo's README port table in
+the same change. (7103 was the first plan of record; it moved to 7110 before
+the shell shipped, and 7111 onward now belong to the plugins.)
 
 ---
 

@@ -28,3 +28,19 @@ docker compose up --build
 
 The signing seed remains a runtime read-only mount. It and the NATS credential
 must never be copied into the plugin image.
+
+## Previewing a plugin's contributions
+
+Each plugin's dev server serves `/__preview` — every contribution it declares,
+rendered on its own port with no shell running:
+
+```bash
+cd lab-shell/plugins/example-plugin
+npm run dev            # http://localhost:7111/__preview
+```
+
+The page, the stub shell API and the sample props all live in
+`shared/mfe-preview/`; a plugin adopts it with the single `previewHarness()`
+line already present in every `vite.config.js` here. It is `apply: 'serve'`, so
+it changes nothing about the federated build. See
+`shared/mfe-preview/README.md`.

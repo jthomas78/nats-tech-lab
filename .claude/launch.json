@@ -22,7 +22,7 @@
       "port": 7103
     },
     {
-      "//": "Added Phase 38d-i. Same purpose as refdata-vs-docker (dev server against the dockerized stack) but on 7107, because docker-compose already publishes every port from 7100 to 7106 (nats-ui took 7103, the port refdata-vs-docker's own vite.docker.config.js pins with strictPort) and holds them whenever the stack is up. The base vite.config already proxies /api/auth to accounts-service (7202) and /api to refdata-service (7201), both host ports of the running stack, so no config override is needed here.",
+      "//": "Added Phase 38d-i. Same purpose as refdata-vs-docker (dev server against the dockerized stack) but on 7107, because docker-compose then published every port from 7100 to 7106 and held them whenever the stack is up, colliding with the 7103 that refdata-vs-docker's own vite.docker.config.js pins with strictPort. 7103 was freed when the nats-ui/nui/nats-tower review containers were removed, so refdata-vs-docker works again and this entry is now a spare. The base vite.config already proxies /api/auth to accounts-service (7202) and /api to refdata-service (7201), both host ports of the running stack, so no config override is needed here.",
       "name": "refdata-dev-docker-7107",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "7107", "--strictPort"],
@@ -70,11 +70,34 @@
       "port": 7111
     },
     {
+      "//": "Contribution preview harness (shared/mfe-preview). Every plugin dev server answers /__preview with its contributions rendered outside the shell. These two entries exist because the compose stack publishes the plugins' own ports (7110-7115) whenever it is up, and each plugin's vite.config pins its port with strictPort — so a CLI --port override on a port docker does not hold is the only way to reach the dev server. 7150+ rather than the next free port, because scripts/new-plugin.sh hands the next sequential port to a NEW plugin and would collide. With the stack down, `example-plugin` / a plain `npm run dev` in the plugin serves /__preview on its normal port instead.",
+      "name": "example-plugin-preview-7150",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "7150", "--strictPort"],
+      "cwd": "lab-shell/plugins/example-plugin",
+      "port": 7150
+    },
+    {
+      "name": "demo-catalog-preview-7151",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "7151", "--strictPort"],
+      "cwd": "lab-shell/plugins/demo-catalog",
+      "port": 7151
+    },
+    {
       "name": "docs",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "demos/01-dictionary/docs",
       "port": 7106
+    },
+    {
+      "//": "Same 7106 docker-compose collision the other -dev-* entries document. package.json's own dev script hardcodes --port 7106, so this bypasses it with npx vitepress directly. Use when the docs container is up; strictPort so the tab is unambiguously the dev server, not the container.",
+      "name": "docs-dev-7109",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vitepress", "dev", ".", "--port", "7109", "--strictPort"],
+      "cwd": "demos/01-dictionary/docs",
+      "port": 7109
     }
   ]
 }
