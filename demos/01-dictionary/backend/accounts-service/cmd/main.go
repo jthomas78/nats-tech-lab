@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -52,7 +53,19 @@ func run(log *slog.Logger) error {
 	natsCredsPath := envOr("NATS_CREDS_PATH", "")                  // sys.creds — $SYS.REQ.CLAIMS.* is only reachable authenticated as SYS
 	natsPlatformCredsPath := envOr("NATS_PLATFORM_CREDS_PATH", "") // platform.creds — Phase 16h: publishes notify.accounts.account.created for shipping-service's PLATFORM-account subscriber (BR-030); optional, publish is skipped if unset
 	operatorSigningKeyFile := envOr("OPERATOR_SIGNING_KEY_FILE", "")
-	credsDir := envOr("NATS_CREDS_DIR", "") // shared volume shipping-service also mounts
+	// BR-AC46 — a PATH-style list, read left to right, first directory wins.
+	// The seed (/etc/nats/creds) is mounted read-only; a runtime-minted
+	// tenant lands in the per-project writable directory listed after it.
+	credsDir := envOr("NATS_CREDS_DIR", "") // read side; shipping-service scans the same list
+	// The write side is one directory, and it is never the read-only seed.
+	// Defaults to the LAST entry of the read list, which is the convention in
+	// deploy/: seed first, writable last. Set it explicitly to be sure.
+	credsWriteDir := envOr("NATS_CREDS_WRITE_DIR", "")
+	if credsWriteDir == "" {
+		if dirs := credsDirs(credsDir); len(dirs) > 0 {
+			credsWriteDir = dirs[len(dirs)-1]
+		}
+	}
 	resolverSeedDir := envOr("RESOLVER_SEED_DIR", "")
 	// BR-AC19 — bootstrap-operator.sh's per-account signing key seeds, so the
 	// seeded accounts keep a stable identity across a `docker compose down -v`
@@ -224,7 +237,7 @@ func run(log *slog.Logger) error {
 	// don't publish, the same "optional, degrades gracefully" contract
 	// platformNC already has for notify.accounts.*.
 	tracer := natstrace.New(platformNC)
-	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, platformNC, auditLog)
+	handlers := accounts.NewHandlers(store, provisioner, credsWriteDir, log, platformNC, auditLog)
 	if natsMonitorURL != "" {
 		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
 	}
@@ -593,6 +606,22 @@ func seedDemoBusinessUnits(ctx context.Context, store *accounts.Store, refdataUR
 	return nil
 }
 
+// credsDirs splits a PATH-style NATS_CREDS_DIR into its directories, dropping
+// empty segments. The same two-line rule as shared/natstenants.CredsDirs,
+// deliberately duplicated rather than importing that module: this service is
+// the creds directory's *writer* and holds no per-tenant connections, so it
+// has no other reason to depend on the tenant-connection manager. Keep the
+// two in step — BR-AC46 governs both.
+func credsDirs(credsDir string) []string {
+	out := make([]string, 0, 2)
+	for _, dir := range strings.Split(credsDir, string(os.PathListSeparator)) {
+		if dir = strings.TrimSpace(dir); dir != "" {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
 // backfillBootstrapUsers builds the account public key → name map the
 // registry backfill files credentials under, then converges the registry
 // from the shared creds directory (BR-AC39). Idempotent by construction:
@@ -610,10 +639,16 @@ func backfillBootstrapUsers(ctx context.Context, store *accounts.Store, credsDir
 	for _, a := range all {
 		names[a.PublicKey] = a.Name
 	}
-	n, err := accounts.BackfillCredsDirUsers(ctx, store, credsDir, names, log)
-	if err != nil {
-		return err
+	// BR-AC46 — converge from every directory in the read list, not only the
+	// first. A tenant minted before a restart lives in the writable one.
+	total := 0
+	for _, dir := range credsDirs(credsDir) {
+		n, err := accounts.BackfillCredsDirUsers(ctx, store, dir, names, log)
+		if err != nil {
+			return err
+		}
+		total += n
 	}
-	log.Info("user registry converged from creds directory", "dir", credsDir, "credentials", n)
+	log.Info("user registry converged from creds directories", "dirs", credsDir, "credentials", total)
 	return nil
 }

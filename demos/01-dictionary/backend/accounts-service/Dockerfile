@@ -22,6 +22,14 @@ RUN CGO_ENABLED=0 go build -o /out/accounts-service ./cmd
 
 FROM alpine:3.21
 RUN adduser -D app
+# BR-AC46 -- the writable creds directory, pre-created and owned by `app`
+# BEFORE the USER switch. A named volume mounted at a path that exists in
+# the image is seeded from that path on first use, ownership included; a
+# volume mounted at a path the image does NOT have is created root:root 0755
+# and this non-root process cannot write to it (tested: "open
+# /var/lib/nats/creds/<tenant>.creds: permission denied" on mint). Compose
+# has no way to set a volume's owner, so the image has to carry it.
+RUN mkdir -p /var/lib/nats/creds && chown app:app /var/lib/nats/creds
 USER app
 COPY --from=build /out/accounts-service /usr/local/bin/accounts-service
 EXPOSE 8080

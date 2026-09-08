@@ -106,23 +106,74 @@ type Credentials struct {
 // map, excluding NonTenantCredsFiles. Re-scanned on every call rather than
 // cached — seeing a just-minted or just-suspended tenant immediately
 // matters more than avoiding a few stat calls, and the directory is small.
+//
+// BR-AC46 — credsDir is a PATH-style list. One or more directories separated
+// by os.PathListSeparator, scanned left to right, and **the first directory
+// holding a tenant wins**. That is what lets the bootstrap trust material be
+// mounted READ-ONLY while a runtime-minted tenant still lands somewhere
+// writable:
+//
+//	NATS_CREDS_DIR=/etc/nats/creds:/var/lib/nats/creds
+//	                ^ read-only seed  ^ per-project writable volume
+//
+// First-wins matches PATH and is the safe direction here: the seeded identity
+// of platform/acme/globex is the stable one (BR-AC19 keeps it across a
+// `docker compose down -v`), so a stray same-named file in the writable
+// volume must not shadow it.
+//
+// A listed directory that does not exist is skipped, because the writable
+// volume is legitimately empty on a first boot and a reader may mount only
+// the seed. It is an error only when NO listed directory could be read —
+// that is a misconfiguration, not an empty lab.
 func Discover(credsDir string) (map[string]Credentials, error) {
-	entries, err := os.ReadDir(credsDir)
-	if err != nil {
-		return nil, fmt.Errorf("scan creds dir %q: %w", credsDir, err)
+	dirs := CredsDirs(credsDir)
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("scan creds dir %q: no directory listed", credsDir)
 	}
 	out := make(map[string]Credentials)
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".creds") {
+	var firstErr error
+	read := 0
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("scan creds dir %q: %w", dir, err)
+			}
 			continue
 		}
-		name := strings.TrimSuffix(e.Name(), ".creds")
-		if isNonTenant(name) {
-			continue
+		read++
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".creds") {
+				continue
+			}
+			name := strings.TrimSuffix(e.Name(), ".creds")
+			if isNonTenant(name) {
+				continue
+			}
+			if _, seen := out[name]; seen {
+				continue // first directory in the list wins
+			}
+			out[name] = Credentials{CredsPath: filepath.Join(dir, e.Name())}
 		}
-		out[name] = Credentials{CredsPath: filepath.Join(credsDir, e.Name())}
+	}
+	if read == 0 {
+		return nil, firstErr
 	}
 	return out, nil
+}
+
+// CredsDirs splits a PATH-style NATS_CREDS_DIR into its directories, dropping
+// empty segments. Exported because accounts-service and the credential
+// backfill need the same split, and a second copy of this two-line rule is
+// exactly the duplication BR-D40 exists to stop.
+func CredsDirs(credsDir string) []string {
+	out := make([]string, 0, 2)
+	for _, dir := range strings.Split(credsDir, string(os.PathListSeparator)) {
+		if dir = strings.TrimSpace(dir); dir != "" {
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // LifecycleHandlers are the two idempotent operations SubscribeLifecycle

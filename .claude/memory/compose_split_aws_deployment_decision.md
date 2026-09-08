@@ -39,8 +39,6 @@ nothing to do with the compose split. (b) au-1's empty `KV_mfe-registry` is a **
 `REGISTRY_ALLOWED_ORIGINS` is 7161–7165, so the preload is withheld. **A port can hide in a data file, not just in
 compose** — that one IS a gap in the split.
 
-**Remaining genuine hazard:** `nats/creds` is mounted **read-write** into `accounts-service`. Fix is a read-only
-mount plus a per-domain writable path, not a per-cell trust tree.
 
 **Done 2026-09-08 — the global band exists.** `deploy/global/compose.control.yaml` holds `accounts-service`;
 `deploy/cell/compose.yaml`'s `include:` no longer lists it. `deploy/global/` sits at the **same depth** as
@@ -58,7 +56,24 @@ preload file before parsing (`registry/internal/preload/expand.go`; unset-with-n
 and unclosed `${` left alone). `registry.json`'s origin is `http://localhost:${PLUGIN_CATALOG_PORT:-7112}` and
 `compose.runtime.yaml` passes the var through. au-1 logs `seeded=1 withheld=0` where it withheld before.
 
-**Still to do:** mount `nats/creds` read-only; make
+**Fixed 2026-09-08 — BR-AC46, creds read-only.** The old hazard (`nats/creds` mounted read-write into
+`accounts-service`) is gone. `NATS_CREDS_DIR` is now a **PATH-style list**, `/etc/nats/creds:/var/lib/nats/creds`,
+first directory wins — seed first so BR-AC19's stable platform/acme/globex identity can never be shadowed. That
+shape is why it was cheap: `Discover(credsDir string)` keeps its signature, so shipping/refdata/pricing/
+organizations inherited the list with **zero call-site changes**. Write side is its own var,
+`NATS_CREDS_WRITE_DIR`, one directory, never the seed; `Handlers.CredsDir` renamed `CredsWriteDir` so the trap
+cannot be re-set. Writable half is a per-project named volume `nats-creds-minted` (rw in the writer, `:ro` in all
+four scanners), so two cells do not share minted tenants.
+
+**The gotcha worth remembering: a correct compose file can still fail on volume ownership.** A named volume
+mounted at a path the image does not contain is created `root:root 0755`; `accounts-service` runs as `app`
+(uid 1000) and the first mint died with `permission denied` while `docker compose config` looked perfect. Docker
+seeds a volume from the image's directory **including ownership**, so the fix is `mkdir` + `chown app:app` before
+the `USER app` line in the Dockerfile — Compose cannot set a volume's owner. Found by minting a tenant, not by
+reading resolved config. Also: **BR-D41 was already taken** (refdata admin isolation) — check the highest existing
+ID per prefix before naming a rule.
+
+**Still to do:** make
 `RegisterRefdataNotify` start-order independent; retire the old flat `demos/01-dictionary/docker-compose.yml`;
 write the hub NATS `gateway {}` config (`nats/nats.conf` has no `cluster {}`/`gateway {}`/`leafnodes {}` today, so
 every hub line is additive).

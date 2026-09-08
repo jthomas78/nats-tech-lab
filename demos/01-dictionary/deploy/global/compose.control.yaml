@@ -47,11 +47,14 @@
 services:
   # Phase 14b — mints/revokes NATS accounts at runtime via decentralized
   # JWTs (accounts/provisioner.go), replacing nats/bootstrap-operator.sh's
-  # one-shot nsc invocation with a live API. Shares the `./nats/creds` host
-  # directory with shipping-service (read-write here, read-only there) —
-  # newly-minted .creds files land in the same place bootstrap-operator.sh
-  # put the original platform/acme/globex.creds, so shipping-service's
-  # directory scan sees new tenants without a restart.
+  # one-shot nsc invocation with a live API.
+  #
+  # BR-AC46 — the creds directory is two directories now. `./nats/creds` is
+  # the read-only seed bootstrap-operator.sh wrote and the repo tracks;
+  # the `nats-creds-minted` volume is where a runtime-minted tenant lands.
+  # Every reader (shipping, refdata, pricing, organizations) mounts both,
+  # both read-only, and takes the same two-entry NATS_CREDS_DIR list, so a
+  # directory scan still sees a new tenant without a restart.
   #
   # Phase 19 folded the former auth-service (Phase 15c) into this same
   # binary: it mints short-lived, permission-restricted NATS user JWTs so
@@ -86,7 +89,16 @@ services:
       # directory, platform.creds included.
       NATS_PLATFORM_CREDS_PATH: /etc/nats/creds/platform.creds
       OPERATOR_SIGNING_KEY_FILE: /etc/nats/keys/operator-signing-key.nk
-      NATS_CREDS_DIR: /etc/nats/creds
+      # BR-AC46 — the READ side, a PATH-style list, first directory wins.
+      # /etc/nats/creds is the read-only seed; /var/lib/nats/creds is the
+      # writable volume. The seed comes first on purpose: BR-AC19 keeps
+      # platform/acme/globex on a stable identity, and a stale minted copy
+      # must never shadow it.
+      NATS_CREDS_DIR: /etc/nats/creds:/var/lib/nats/creds
+      # The WRITE side is one directory, and it is never the seed. This is
+      # the only service that writes here at all: it creates a tenant's
+      # .creds on mint, removes it on suspend and re-writes it on reactivate.
+      NATS_CREDS_WRITE_DIR: /var/lib/nats/creds
       RESOLVER_SEED_DIR: /etc/nats/resolver
       # BR-AC19 — bootstrap-operator.sh's per-account signing key seeds, in the
       # same directory as the operator's. Adopted at startup so platform/acme/
@@ -134,7 +146,12 @@ services:
     ports:
       - "${ACCOUNTS_PORT:-7202}:8080"
     volumes:
-      - ../../nats/creds:/etc/nats/creds
+      # Read-only. A signing seed or a bootstrap credential must not be
+      # rewritable by the process that reads it, and this directory is
+      # checked into the repo -- a runtime write here would dirty the tree.
+      - ../../nats/creds:/etc/nats/creds:ro
+      # The writable half. See NATS_CREDS_WRITE_DIR above.
+      - nats-creds-minted:/var/lib/nats/creds
       - ../../nats/keys:/etc/nats/keys:ro
       - ../../nats/resolver:/etc/nats/resolver:ro
     # No depends_on, and that is not laziness. nats, postgres and
@@ -149,6 +166,14 @@ services:
     # idiom the cell band's nginx frontends already use, and natsconn's
     # MaxReconnects(-1) already covers the NATS side forever.
     restart: on-failure
+
+volumes:
+  # BR-AC46 — declared identically in ../cell/compose.runtime.yaml, so a
+  # merged run (-f compose.yaml -f ../global/compose.control.yaml) reconciles
+  # to one volume rather than two. Standalone in its own -p lb-global project
+  # it is that project's own volume, which is the same local-only caveat the
+  # networks below carry.
+  nats-creds-minted:
 
 networks:
   # Declared, not external, so this file stands alone as the mesh hub's own

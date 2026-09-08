@@ -80,8 +80,15 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 type Handlers struct {
 	Store       *Store
 	Provisioner *Provisioner
-	CredsDir    string // shared nats-creds volume; new <name>.creds files are written here
-	Log         *slog.Logger
+	// CredsWriteDir is the ONE writable creds directory: new <name>.creds
+	// files are written here and revoked ones removed from here. BR-AC46 made
+	// the *read* side (NATS_CREDS_DIR) a PATH-style list so the bootstrap
+	// trust material can be mounted read-only, which means the write side
+	// needs its own name — a field called CredsDir that must not be the seed
+	// directory is a trap. Empty disables the file side entirely; the account
+	// is still minted and revoked server-side, which is the real boundary.
+	CredsWriteDir string
+	Log           *slog.Logger
 	// NotifyNC is a PLATFORM-account connection (Phase 16h/BR-AC08) used only
 	// to publish notify.accounts.account.created after a successful create —
 	// nil-safe (publish is skipped) so this service still runs if that
@@ -106,8 +113,8 @@ type Handlers struct {
 	RefdataURL string
 }
 
-func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
-	return &Handlers{Store: store, Provisioner: provisioner, CredsDir: credsDir, Log: log, NotifyNC: notifyNC, AuditLog: auditLog}
+func NewHandlers(store *Store, provisioner *Provisioner, credsWriteDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
+	return &Handlers{Store: store, Provisioner: provisioner, CredsWriteDir: credsWriteDir, Log: log, NotifyNC: notifyNC, AuditLog: auditLog}
 }
 
 // Refdata builds the writer-side refdata-service client from RefdataURL.
@@ -465,8 +472,8 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.CredsDir != "" {
-		credsPath := filepath.Join(h.CredsDir, in.Name+".creds")
+	if h.CredsWriteDir != "" {
+		credsPath := filepath.Join(h.CredsWriteDir, in.Name+".creds")
 		if err := os.WriteFile(credsPath, credsBytes, 0o600); err != nil {
 			h.Log.Error("write creds file", "path", credsPath, "err", err)
 			h.recordAudit(r.Context(), AuditEntry{Account: in.Name, Action: AuditActionCreated, Actor: actor, SourceIP: sourceIP,
@@ -644,13 +651,13 @@ func (h *Handlers) suspendAccount(w http.ResponseWriter, r *http.Request) {
 	h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionSuspended, Actor: actor, SourceIP: sourceIP, Outcome: AuditOutcomeSuccess})
 	h.publishAccountSuspended(r.Context(), name)
 
-	if h.CredsDir != "" {
+	if h.CredsWriteDir != "" {
 		// Best-effort: remove the shared .creds file so shipping-service's
 		// directory scan (composition.go) stops offering a now-revoked
 		// tenant in the switch dropdown. Not fatal if it fails (e.g. seeded
 		// accounts have no file here) — the account is already revoked
 		// server-side, which is the actual security boundary.
-		_ = os.Remove(filepath.Join(h.CredsDir, name+".creds"))
+		_ = os.Remove(filepath.Join(h.CredsWriteDir, name+".creds"))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": StatusSuspended})
@@ -752,8 +759,8 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "account reactivated but failed to mint new creds")
 		return
 	}
-	if h.CredsDir != "" {
-		credsPath := filepath.Join(h.CredsDir, acc.Name+".creds")
+	if h.CredsWriteDir != "" {
+		credsPath := filepath.Join(h.CredsWriteDir, acc.Name+".creds")
 		if err := os.WriteFile(credsPath, credsBytes, 0o600); err != nil {
 			h.Log.Error("write creds file", "path", credsPath, "err", err)
 			h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP,

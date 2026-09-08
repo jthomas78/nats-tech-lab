@@ -218,11 +218,37 @@ The two real causes:
    service logs it. This one **is** a gap in the split: a port can hide in a
    data file, not only in compose.
 
-**The remaining genuine hazard, unchanged.** `nats/creds` is still mounted
-**read-write** into `accounts-service`. That is one writable host directory,
-and with a sovereign cell running its own control plane it becomes two
-writers. It has not been observed to bite. The fix is a read-only mount plus a
-per-domain writable path, not a per-cell trust tree.
+**That hazard, now fixed (BR-AC46, 2026-09-08).** `nats/creds` used to be
+mounted **read-write** into `accounts-service` — one writable host directory,
+and two writers as soon as a sovereign cell ran its own control plane. It was
+never observed to bite, and the fix was the one named here: a read-only mount
+plus a separate writable path, not a per-cell trust tree.
+
+The read side became a **PATH-style list**, `/etc/nats/creds:/var/lib/nats/creds`,
+read left to right, first directory wins. That choice is why it cost almost
+nothing: `Discover(credsDir string)` keeps its signature, so all four scanning
+services (shipping, refdata, pricing, organizations) inherited the list without
+a single call site changing. The write side is its own variable,
+`NATS_CREDS_WRITE_DIR`, naming exactly one directory that is never the seed —
+and the handler field was renamed `CredsDir` → `CredsWriteDir`, because a field
+called `CredsDir` that must not be the seed directory is a trap.
+
+The writable half is a **named volume, per Compose project**, so `lb-za-1` and
+`lb-au-1` do not share minted tenants, the same way they do not share a
+Postgres. Only the seeded accounts are common.
+
+**A seventh load-bearing detail came out of this one: a correct compose file
+can still fail at runtime, on ownership.** A named volume mounted at a path the
+image does not contain is created `root:root 0755`, and `accounts-service` runs
+as `app` (uid 1000) — the resolved config was right, every mount flag was
+right, and the first mint failed with `permission denied`. Docker seeds a
+volume from the image's own directory *including its ownership*, so the fix is
+`mkdir` + `chown app:app` **before** the `USER app` line in the Dockerfile;
+Compose has no way to set a volume's owner. This was found by minting a tenant,
+not by reading `docker compose config` — which is the general lesson. Proven
+live afterwards: `credstest.creds` written `0600 app:app` into the volume,
+visible to `shipping-service` through its read-only mount of the same volume,
+`git status` on `nats/creds/` clean, and the file removed again on suspend.
 
 ## Action Items
 
@@ -234,7 +260,7 @@ per-domain writable path, not a per-cell trust tree.
 - [x] Write `deploy/global/compose.control.yaml`, drop the control band from `cell/compose.yaml`'s `include:`, and prove all four shapes resolve (cell alone under both env files, global alone, and cell + global merged). The merged config adds the 44-line `accounts-service` block and removes nothing.
 - [ ] ~~Give each cell its own trust tree~~ — **withdrawn.** The shared trust tree is correct; see the corrected diagnosis above.
 - [x] Parameterise `demos/01-dictionary/registry.json`'s hardcoded `http://localhost:7112/remoteEntry.js`. Done as **BR-AS74**: `mfe-registry-service` expands `${VAR}`/`${VAR:-default}` in the mounted preload file before parsing it (`registry/internal/preload/expand.go`, 9 specs in `expand_test.go`), the file's origin became `http://localhost:${PLUGIN_CATALOG_PORT:-7112}/remoteEntry.js`, and `compose.runtime.yaml` passes `PLUGIN_CATALOG_PORT` through. Proven live: au-1's registry now logs `seeded=1 withheld=0` where it withheld the only preloaded plugin before.
-- [ ] Mount `nats/creds` read-only and give `accounts-service` a per-domain writable path.
+- [x] Mount `nats/creds` read-only and give `accounts-service` a per-domain writable path. Done as **BR-AC46**: read-only seed bind everywhere (the writer included), a per-project `nats-creds-minted` volume read-write in `accounts-service` and read-only in all four scanners, `NATS_CREDS_DIR` as a PATH-style list, `NATS_CREDS_WRITE_DIR` for the single write target, and an `app`-owned `/var/lib/nats/creds` baked into the image. 10 specs in `shared/natstenants/discover_pathlist_test.go`; all four compose shapes still resolve; proven live in both cells.
 - [ ] Make `RegisterRefdataNotify` start-order independent, so an observation count does not depend on which container won.
 - [ ] Retire `demos/01-dictionary/docker-compose.yml`.
 - [ ] Write the hub NATS `gateway {}` config (additive to `nats/nats.conf`, which has no `cluster {}`/`gateway {}`/`leafnodes {}` today).

@@ -1529,6 +1529,37 @@ The reversible lifecycle that does exist is the tenant one (suspend / reactivate
 - **Test:** `accounts/reaper_test.go` (BR-AC45) — reaps once immediately rather than waiting out the first interval; keeps reaping on the interval; stops on context cancellation and stays stopped; retries on the next tick after two failed ones; and does not run at all when retention is disabled. Asserted against an in-memory `ExpiredSessionReaper` rather than Postgres, since the cadence is the thing under test and a database would only make it flaky.
 - **Not covered:** coordination between replicas — two accounts-service instances would each run their own reaper. The `DELETE` is idempotent and row-scoped so the outcome is correct, but the work is duplicated; a single-writer lease is a scaling concern this POC does not have.
 
+### BR-AC46 (IMPLEMENTED 2026-09-08) — The creds directory is a read-only seed plus one writable directory, and the read side is a PATH-style list
+
+`accounts-service` is the only process that writes a `.creds` file: it writes one when a tenant is minted, removes it on suspend, and writes it again on reactivate. Four other services (`shipping`, `refdata`, `pricing`, `organizations`) only scan the directory to discover tenants. Before this rule all five shared **one read-write bind mount of `nats/creds/`** — a directory the repository tracks, holding the operator-minted seed credentials and, next to them, the per-account signing seeds.
+
+**The seed directory is mounted read-only, everywhere, including in the writer.** Two reasons, and either alone is sufficient. First, the process that reads a signing seed must not be able to rewrite it. Second, `nats/creds/` is checked into git, so a runtime write dirties the working tree — a minted tenant would show up as a source change.
+
+**`NATS_CREDS_DIR` is therefore a list, not a directory.** It reads left to right, first match wins, separated by the platform's path separator — the same contract as `PATH`:
+
+```
+NATS_CREDS_DIR=/etc/nats/creds:/var/lib/nats/creds
+```
+
+- **The seed comes first on purpose.** BR-AC19 keeps `platform`/`acme`/`globex` on a stable identity across `docker compose down -v`; a stale minted copy of one of those names must never shadow the seeded file.
+- **A listed directory that does not exist is skipped, not fatal.** A deployment that has no writable directory yet is a cold start, not a misconfiguration. It is only an error when *no* listed directory can be read at all — that is a broken mount, and failing fast beats a service that reports zero tenants.
+- **An empty list is an error.** It means nobody said where credentials live.
+- `Discover(credsDir string)` keeps its signature, so this changes no call site. All four scanning services inherit the list through `natstenants.NewManager`.
+
+**The write side is a separate variable, and it is never the seed.** `NATS_CREDS_WRITE_DIR` names exactly one directory. It defaults to the **last** entry of the read list, which is the convention the deploy files follow — seed first, writable last — but a deployment should set it explicitly. The field on the handler is named `CredsWriteDir` rather than `CredsDir` for the same reason: a field called `CredsDir` that must never be the seed directory is a trap waiting for the next reader.
+
+**Start-up convergence reads every directory in the list**, not only the first — a tenant minted before a restart lives in the writable one.
+
+**The writable directory must exist in the image, owned by the service user.** A named volume mounted at a path the image does not have is created `root:root 0755`, and this service runs as `app` (uid 1000); the mint then fails with `open /var/lib/nats/creds/<tenant>.creds: permission denied`. Docker seeds a volume from the image's directory *including its ownership*, so `mkdir` + `chown app:app` before the `USER app` line in the Dockerfile is what makes the volume writable. Compose has no way to set a volume's owner, so the image has to carry it. This was found by testing the mint, not by reading the resolved config — the config was correct and the write still failed.
+
+**The writable directory is per-project, so it is per-cell.** `lb-za-1` and `lb-au-1` do not share minted tenants, the same way they do not share a Postgres. Only the seeded accounts are common to both.
+
+- **Enforced in:** `shared/natstenants/tenants.go` — `Discover` (union across the list, first-wins, skip-unreadable, error when none readable) and the exported `CredsDirs` splitter; `accounts-service/cmd/main.go` — the read/write split, a locally duplicated `credsDirs` helper (this service holds no per-tenant connections, so depending on `shared/natstenants` for three lines would be backwards), and `backfillBootstrapUsers` looping over every listed directory; `accounts-service/accounts/handler.go` — `Handlers.CredsWriteDir`, used by the create, suspend and reactivate paths; `accounts-service/Dockerfile` — the pre-created, `app`-owned `/var/lib/nats/creds`; `deploy/global/compose.control.yaml` and `deploy/cell/compose.runtime.yaml` — the read-only seed bind, the `nats-creds-minted` volume (read-write in the writer, read-only in all four readers), and the two-entry list in every one of the five services.
+- **Test:** `shared/natstenants/discover_pathlist_test.go` — a single directory still behaves exactly as before; two directories union; the first directory wins on a duplicate stem; a listed directory that does not exist is skipped; service credentials are excluded no matter which directory they are found in; an unreadable-everywhere list errors; an empty list errors. Plus a `CredsDirs` group: splits on the separator, drops empty segments, leaves a single directory unchanged, and returns empty for an empty string.
+- **Verified live:** minting `credstest` in `lb-za-1` wrote `credstest.creds` (`0600 app:app`) into the volume, `shipping-service` saw it through its read-only mount of the same volume, `git status` on `nats/creds/` stayed clean, and suspending the tenant removed the file again.
+- **Not covered:** two `accounts-service` replicas writing one volume. The writes are per-file so the outcome is correct, but nothing coordinates them; single-writer is an assumption this POC already makes elsewhere.
+
+
 ### BR-AS01 (Phase 1a, IMPLEMENTED 2026-08-28) — `accounts-service` serves the application shell's curated frontend plugin registry
 
 The rule itself belongs to the application shell and is stated in full in
