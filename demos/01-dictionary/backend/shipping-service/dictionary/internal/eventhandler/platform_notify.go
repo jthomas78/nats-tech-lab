@@ -103,6 +103,34 @@ func parseRefdataChangedSubject(subject string) (kvContext, typeKey string, ok b
 // notify._platform.> added to its allow-pub list (bootstrap-operator.sh) —
 // without that grant, Publish below fails silently (best-effort, logged).
 //
+// BR-063 — the consumer is DeliverLastPerSubjectPolicy, not
+// DeliverNewPolicy. New meant "only changes published after this consumer
+// exists", and refdata-service does not wait for shipping-service: both start
+// at once, refdata seeds its corpus and publishes a change per type, and
+// whether this bridge saw any of it depended on which container won the race.
+// Two cells running identical images off one compose file reported different
+// observation counts (au-1 2272, za-1 1136) for that reason alone.
+//
+// LastPerSubject rather than All, because a notification's meaning is "this
+// typeKey is not what you last read, go re-read it". One instruction per
+// subject discharges that in full; replaying the same subject's whole history
+// repeats one instruction N times and grows without bound as the stream does.
+// LastPerSubject is bounded by the size of the corpus (contexts x typeKeys)
+// instead, and gives the same result on every start — which is the point.
+//
+// The catch-up happens once per process, not on every internal retry:
+// nats.go applies an ordered consumer's deliver policy only to the INITIAL
+// request, and resumes from its own cursor after a mid-life reset (server
+// restart, consumer deleted underneath it). So the retry loop below does not
+// re-replay.
+//
+// A restart therefore republishes one notify per known subject, and the Admin
+// UI sees a burst. That is informationally correct rather than noise: while
+// this service was down it could not know what changed, so "re-read
+// everything you have" is exactly the true statement. Each republish also
+// emits its BR-045 obs.pubsub.* observation, so the burst is doubled on the
+// side-channel — bounded by the corpus, and accepted.
+//
 // Nil-safe on both platformJS and platformNC (same convention as
 // publishNotify's nc check) — a nil either way means this bridge has nothing
 // to consume or nowhere to publish, so it's simply not started rather than
@@ -112,15 +140,36 @@ func RegisterRefdataNotify(ctx context.Context, platformJS jetstream.JetStream, 
 		return
 	}
 	n := notifier(platformNC, log)
+	caughtUp := false
+	caughtUpCount := 0
 	runPlatformNotifyBridge(ctx, platformJS, refdataChangeStreamName, jetstream.OrderedConsumerConfig{
 		FilterSubjects: []string{"evt.*.refdata.>"},
-		DeliverPolicy:  jetstream.DeliverNewPolicy,
+		// BR-063 — the last change per subject, not only changes newer than
+		// this consumer. See the doc comment above for why New was wrong and
+		// why All would be worse.
+		DeliverPolicy: jetstream.DeliverLastPerSubjectPolicy,
 	}, log, func(msg jetstream.Msg) {
 		kvContext, typeKey, ok := parseRefdataChangedSubject(msg.Subject())
 		if !ok {
 			return
 		}
 		n.Publish(ctx, notify.RefdataChanged(kvContext, typeKey), msg.Data())
+
+		// BR-063 — say out loud how big the catch-up was and when it ended.
+		// The bug this rule fixes showed up as two cells reporting different
+		// counts off one compose file, and nothing in the log explained it.
+		// A deterministic bridge should be able to prove it is deterministic.
+		if caughtUp {
+			return
+		}
+		caughtUpCount++
+		md, err := msg.Metadata()
+		if err != nil || md.NumPending > 0 {
+			return
+		}
+		caughtUp = true
+		log.Info("refdata notify bridge caught up",
+			"stream", refdataChangeStreamName, "republished", caughtUpCount)
 	})
 }
 

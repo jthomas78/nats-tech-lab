@@ -48,11 +48,13 @@ func subscribeSync(nc *nats.Conn, subject string) chan []byte {
 }
 
 // publishUntilReceived repeatedly republishes on sourceSubject (harmless —
-// both bridges under test are pure republish, order/count-independent) until
+// the bridge under test is a pure republish, order/count-independent) until
 // notifyCh receives something, since the bridge's OrderedConsumer is set up
-// asynchronously in its own goroutine (DeliverNewPolicy: a publish that lands
-// before that setup completes is legitimately missed, same race
-// dictionary/internal/rest/sse.go's own watchRPCObs doc comment calls out).
+// asynchronously in its own goroutine. Since BR-063 a publish landing before
+// that setup completes is no longer missed — it arrives on catch-up — so this
+// helper now normally succeeds on its first attempt. It is kept because the
+// helper says "eventually", not "on the first try", and that is still the
+// honest contract for a bridge running in another goroutine.
 func publishUntilReceived(nc *nats.Conn, sourceSubject string, payload []byte, notifyCh chan []byte) []byte {
 	GinkgoHelper()
 	var payloadOut []byte
@@ -106,6 +108,84 @@ var _ = Describe("RegisterRefdataNotify (Phase 23)", func() {
 		Eventually(obsCh, 2*time.Second).Should(Receive(&envelope))
 		Expect(string(envelope)).To(ContainSubstring(`"subject":"notify._platform.refdata.acme.hazard-class.changed"`))
 		Expect(string(envelope)).To(ContainSubstring(`"direction":"publish"`))
+	})
+
+	// BR-063 — the bridge used to be created with DeliverNewPolicy, so every
+	// change refdata-service published before shipping-service's consumer
+	// existed was silently dropped. Both services start at once and neither
+	// waits for the other, so what the Admin UI observed depended on which
+	// container won the race: two cells running identical images off one
+	// compose file reported different counts (au-1 2272, za-1 1136).
+	Context("BR-063: start order (DeliverLastPerSubjectPolicy)", func() {
+		It("delivers a change published before the bridge starts", func() {
+			nc, js := newPlatformNotifyTestNATS()
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+
+			_, err := jstream.CreateStream(ctx, js, "REFDATA", []string{"evt.*.refdata.>"})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Published and acknowledged BEFORE the bridge exists. Under
+			// DeliverNewPolicy this message was unreachable forever.
+			jsCtx, err := js.Publish(ctx, "evt.acme.refdata.hazard-class.changed", []byte(`{"typeKey":"hazard-class"}`))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(jsCtx.Sequence).To(BeNumerically(">", 0))
+
+			notifyCh := subscribeSync(nc, "notify._platform.refdata.>")
+			eventhandler.RegisterRefdataNotify(ctx, js, nc, discardLogger())
+
+			var payload []byte
+			Eventually(notifyCh, 5*time.Second).Should(Receive(&payload))
+			Expect(string(payload)).To(ContainSubstring("hazard-class"))
+		})
+
+		It("delivers one catch-up message per subject, not the whole history", func() {
+			nc, js := newPlatformNotifyTestNATS()
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+
+			_, err := jstream.CreateStream(ctx, js, "REFDATA", []string{"evt.*.refdata.>"})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Three changes to one type, one to another. A replay of the whole
+			// stream would republish four notifications; the catch-up owes a
+			// subscriber two, because "hazard-class changed" three times is
+			// still one instruction to re-read hazard-class.
+			for _, body := range []string{"v1", "v2", "v3"} {
+				_, err := js.Publish(ctx, "evt.acme.refdata.hazard-class.changed", []byte(body))
+				Expect(err).NotTo(HaveOccurred())
+			}
+			_, err = js.Publish(ctx, "evt.acme.refdata.port.changed", []byte("p1"))
+			Expect(err).NotTo(HaveOccurred())
+
+			notifyCh := subscribeSync(nc, "notify._platform.refdata.>")
+			eventhandler.RegisterRefdataNotify(ctx, js, nc, discardLogger())
+
+			Eventually(func() int { return len(notifyCh) }, 5*time.Second).Should(Equal(2))
+			Consistently(func() int { return len(notifyCh) }, 700*time.Millisecond).Should(Equal(2))
+
+			var bodies []string
+			for len(notifyCh) > 0 {
+				bodies = append(bodies, string(<-notifyCh))
+			}
+			// The LAST change per subject, not the first.
+			Expect(bodies).To(ConsistOf("v3", "p1"))
+		})
+
+		It("still delivers a change published after the bridge starts", func() {
+			nc, js := newPlatformNotifyTestNATS()
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+
+			_, err := jstream.CreateStream(ctx, js, "REFDATA", []string{"evt.*.refdata.>"})
+			Expect(err).NotTo(HaveOccurred())
+
+			notifyCh := subscribeSync(nc, "notify._platform.refdata.>")
+			eventhandler.RegisterRefdataNotify(ctx, js, nc, discardLogger())
+
+			payload := publishUntilReceived(nc, "evt.globex.refdata.port.changed", []byte(`{"typeKey":"port"}`), notifyCh)
+			Expect(string(payload)).To(ContainSubstring("port"))
+		})
 	})
 
 	It("does not publish or panic when platformJS or platformNC is nil", func() {

@@ -73,8 +73,20 @@ the `USER app` line in the Dockerfile — Compose cannot set a volume's owner. F
 reading resolved config. Also: **BR-D41 was already taken** (refdata admin isolation) — check the highest existing
 ID per prefix before naming a rule.
 
-**Still to do:** make
-`RegisterRefdataNotify` start-order independent; retire the old flat `demos/01-dictionary/docker-compose.yml`;
+**Fixed 2026-09-08 - BR-063, start order.** `RegisterRefdataNotify`'s ordered consumer was `DeliverNewPolicy` =
+"only messages published after this consumer exists". Nothing sequences refdata-service and shipping-service, so
+every change refdata published while the bridge was still retrying (REFDATA did not exist yet) was unreachable
+**forever** - and how many that was depended on which container won. That is the whole explanation for au-1 2272
+vs za-1 1136 off one compose file. Now `DeliverLastPerSubjectPolicy`. Not `All`: a notification means "go re-read
+this typeKey", which one message discharges, so replay repeats one instruction N times and grows with the stream;
+LastPerSubject is bounded by the corpus (contexts x typeKeys) and gives the same answer every start. Key library
+fact: **nats.go applies an ordered consumer's deliver policy only to the INITIAL request** and resumes from its
+cursor after a mid-life reset, so a retry loop and a catch-up are safe together - no re-replay. Bridge now logs
+`refdata notify bridge caught up republished=N` when NumPending first hits 0. Live: both cells `republished=8`,
+and 8 again after a restart. refdata-service's own `notifybridge` is left on `DeliverNewPolicy` on purpose - it
+runs in-process with its publisher (no cross-container race) and is documented as lossy by design.
+
+**Still to do:** retire the old flat `demos/01-dictionary/docker-compose.yml`;
 write the hub NATS `gateway {}` config (`nats/nats.conf` has no `cluster {}`/`gateway {}`/`leafnodes {}` today, so
 every hub line is additive).
 
