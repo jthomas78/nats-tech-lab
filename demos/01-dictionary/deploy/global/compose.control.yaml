@@ -1,0 +1,164 @@
+# GENERATED-BY-HAND, then kept by hand. Split out of
+# demos/01-dictionary/docker-compose.yml on 2026-09-08, and moved out of
+# deploy/cell/ into this global band on the same day.
+#
+# THE CONTROL PLANE. One hub per trust domain. The mesh has one; a sovereign
+# cell is its own. accounts-service mints tenant NATS accounts and writes
+# their JWTs into the resolver directory, and mints the short-lived browser
+# user JWTs. It runs no NATS server of its own -- it connects to one.
+#
+# Why it is not in deploy/cell/ any more: a cell is a region, and a region
+# does not get its own operator. The trust tree is minted once (ADR-054
+# rule 5) and every regional server resolves against it, so the thing that
+# mints accounts is a property of the trust domain, not of the region. Two
+# cells running two provisioners against one resolver directory is the same
+# writer twice, not high availability.
+#
+#   the mesh        -- run this file once, in its own project. NOTE: locally
+#                      this needs the cell's networks made external first,
+#                      because Compose namespaces a network by project, so a
+#                      lb-global project cannot see lb-za-1's `nats`. In AWS
+#                      that problem does not exist (the hub reaches a regional
+#                      server over a real network, not a Docker bridge), so
+#                      the honest local shape today is the sovereign one
+#                      below, run against one cell:
+#                        docker compose -p lb-global \
+#                          --env-file ../environments/local-za-1.env \
+#                          -f compose.control.yaml up -d
+#
+#   a sovereign     -- a cell in its own trust domain (Botswana, per L2-020)
+#   cell               adds it back beside its own cell files:
+#                        docker compose -p lb-bw-1 \
+#                          --env-file ../environments/local-bw-1.env \
+#                          -f compose.yaml -f ../global/compose.control.yaml up -d
+#
+# Same file both ways. No second copy, no fork. The env file is the only
+# thing that differs -- that is the whole trick, same as the cell band.
+#
+# deploy/global/ sits at the same depth under deploy/ as deploy/cell/, so
+# every relative path below (build context, the nats/ mounts) is unchanged
+# by the move.
+#
+# Every host port is a variable. deploy/environments/local-za-1.env and
+# local-au-1.env supply the per-cell offsets, so two projects can run at the
+# same time. container_name is gone for the same reason: a fixed name can
+# only exist once on one Docker engine.
+
+services:
+  # Phase 14b — mints/revokes NATS accounts at runtime via decentralized
+  # JWTs (accounts/provisioner.go), replacing nats/bootstrap-operator.sh's
+  # one-shot nsc invocation with a live API. Shares the `./nats/creds` host
+  # directory with shipping-service (read-write here, read-only there) —
+  # newly-minted .creds files land in the same place bootstrap-operator.sh
+  # put the original platform/acme/globex.creds, so shipping-service's
+  # directory scan sees new tenants without a restart.
+  #
+  # Phase 19 folded the former auth-service (Phase 15c) into this same
+  # binary: it mints short-lived, permission-restricted NATS user JWTs so
+  # the Sea Freight Flow browser can connect directly to NATS over WebSocket
+  # (api.*/notify.* only, see auth/token.go) instead of REST + SSE for every
+  # read and write. That package used to be its own service reading
+  # accounts-service's Postgres read-only as a cross-service coupling
+  # (Main-POC-Plan.md Phase 15c's "known POC trade-offs"); it now reads the
+  # same Store this service already owns, in-process — see
+  # BUSINESS_RULES-ACCOUNTS.md's merge note.
+  accounts-service:
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/accounts-service/Dockerfile
+    networks:
+      - backend
+      - frontend
+    environment:
+      DATABASE_URL: postgres://accounts:accounts@postgres:5432/accounts?sslmode=disable
+      NATS_URL: nats://nats:4222
+      # $SYS.REQ.CLAIMS.* (mint/revoke) is only reachable authenticated as
+      # the SYS account.
+      NATS_CREDS_PATH: /etc/nats/creds/sys.creds
+      # Phase 16h/BR-AC08 — a second, PLATFORM-account connection used only to
+      # publish notify.accounts.account.created, so shipping-service can
+      # provision a newly-minted tenant's resources immediately (BR-030)
+      # instead of waiting for an operator to switch the Admin UI to it.
+      # Already readable here: ./nats/creds below mounts the whole shared
+      # directory, platform.creds included.
+      NATS_PLATFORM_CREDS_PATH: /etc/nats/creds/platform.creds
+      OPERATOR_SIGNING_KEY_FILE: /etc/nats/keys/operator-signing-key.nk
+      NATS_CREDS_DIR: /etc/nats/creds
+      RESOLVER_SEED_DIR: /etc/nats/resolver
+      # BR-AC19 — bootstrap-operator.sh's per-account signing key seeds, in the
+      # same directory as the operator's. Adopted at startup so platform/acme/
+      # globex keep a stable identity across `docker compose down -v` rather
+      # than being handed a fresh random key whenever accounts Postgres is empty.
+      ACCOUNT_SIGNING_KEYS_DIR: /etc/nats/keys
+      # Spike-only shared secret (see accounts/middleware.go) — same
+      # plaintext-fixture precedent as nats/creds/*.creds; WorkOS-backed
+      # human auth is a later phase (.claude/memory/accounts_service_plan.md).
+      ACCOUNTS_AUTH_SECRET: accounts-spike-pass
+      # Phase 19 (folded in from auth-service) — returned verbatim in
+      # connectInfo as the address the browser itself should dial. Phase 45
+      # made that a *path* rather than an absolute URL: each frontend's nginx
+      # proxies /nats to the websocket listener below, and the browser
+      # resolves the path against the origin it was served from
+      # (shared/nats/resolveWsUrl.js). The previous `ws://localhost:9222`
+      # was correct only when the browser and the stack shared a machine —
+      # remotely, `localhost` is the viewer's own box, and a ws:// dial from
+      # an https:// page is blocked as mixed content. An absolute ws://wss://
+      # value still works if a deployment prefers a dedicated NATS hostname.
+      NATS_WS_URL: /nats
+      # Phase 2 / BR-AC12 — proxies the NATS server's /jsz monitoring endpoint
+      # (same pattern as shipping-service's NATS_MONITOR_URL) to serve the
+      # GET /api/accounts/usage endpoint used by the Admin UI's usage column.
+      NATS_MONITOR_URL: http://nats:8222
+      HTTP_ADDR: ":8080"
+      # Phase 22: used by accounts-service to register/hide BU contexts in
+      # refdata-service when BUs are created or their visibility is toggled.
+      REFDATA_URL: http://refdata-service:8080
+      # Phase 52 (BR-AC44/BR-AC45) — the session reaper. Every browser connect
+      # writes a registry row (BR-AC38) and nothing used to delete one.
+      #
+      # Two knobs, deliberately separate. RETENTION is the operator knob: how
+      # long an expired session row survives past its own expires_at. 24h is
+      # roughly how long the row stays explainable — beyond it the /connz
+      # closed ring feeding the panel's Last outcome column has rolled over.
+      # INTERVAL is a load knob only: one minimum-TTL period, ~1% overshoot
+      # against a 24h window.
+      #
+      # Both shown at their defaults rather than omitted, so the values are
+      # discoverable here instead of only in accounts/reaper.go. Setting
+      # RETENTION to 0 DISABLES the reaper; it does not mean reap-on-expiry.
+      ACCOUNTS_SESSION_RETENTION: 24h
+      ACCOUNTS_REAPER_INTERVAL: 15m
+    ports:
+      - "${ACCOUNTS_PORT:-7202}:8080"
+    volumes:
+      - ../../nats/creds:/etc/nats/creds
+      - ../../nats/keys:/etc/nats/keys:ro
+      - ../../nats/resolver:/etc/nats/resolver:ro
+    # No depends_on, and that is not laziness. nats, postgres and
+    # refdata-service live in the cell band. A depends_on naming a service
+    # that is not in the project is a hard error -- `invalid compose project`
+    # -- and `required: false` does NOT relax it (tested, Compose v5.4.0: it
+    # only relaxes a service that exists but has not started). So the hub
+    # cannot name them at all.
+    #
+    # restart: on-failure replaces the ordering. A cold start that beats
+    # postgres exits and is retried until Postgres answers. This is the same
+    # idiom the cell band's nginx frontends already use, and natsconn's
+    # MaxReconnects(-1) already covers the NATS side forever.
+    restart: on-failure
+
+networks:
+  # Declared, not external, so this file stands alone as the mesh hub's own
+  # project. Merged into a cell's project with -f, Compose reconciles these
+  # two names against the cell's identical pair rather than making new ones.
+  #
+  # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
+  # joins `backend`; anything the browser talks to joins `frontend`. Compose
+  # namespaces both by project, so lb-za-1 and lb-au-1 get their own pair and
+  # cannot see each other -- which is exactly the region isolation we want to
+  # prove locally.
+  backend:
+  frontend:

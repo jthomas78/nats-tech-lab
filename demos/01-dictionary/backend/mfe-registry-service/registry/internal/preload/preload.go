@@ -31,6 +31,11 @@ func Run(ctx context.Context, path string, svc Service, log *slog.Logger) (domai
 	if err != nil {
 		return result, fmt.Errorf("registry preload: %w", err)
 	}
+	// BR-AS74 -- expand ${VAR}/${VAR:-default} before parsing. See expand.go.
+	raw, err = ExpandEnv(raw, os.LookupEnv)
+	if err != nil {
+		return result, fmt.Errorf("registry preload %q: %w", path, err)
+	}
 	file, err := domain.ParsePreload(raw)
 	if err != nil {
 		return result, fmt.Errorf("registry preload %q: %w", path, err)

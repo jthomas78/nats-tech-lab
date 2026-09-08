@@ -1138,6 +1138,16 @@ Stated plainly so nobody reads a signature for more than it is:
 - **BR-AS41 — Preload never reverts curation.** A preloaded entry is written only for an id with no
   existing row. An id the operator has edited, disabled or removed is never re-created or overwritten
   by a service restart.
+- **BR-AS74 — The preload file is configuration, so its variables are expanded.** Every `${VAR}` and
+  `${VAR:-default}` in the mounted preload file is substituted from the service's environment before
+  the file is parsed. A `${VAR}` with no value and no default **fails boot** rather than seeding a
+  literal `"${VAR}"` origin that the allowlist would then withhold with a confusing cause. Only the
+  braced form is expanded: a bare `$name` and an unclosed `${` are left byte for byte, so a plugin
+  description may hold a dollar sign. Added 2026-09-08 by the cell split ([ADR-055](../../obsidian/V3-Platform/Architecture/ADR/lab/ADR-055-lab-platform-compose-split-cell-and-global.md)):
+  `registry.json` named `http://localhost:7112/remoteEntry.js` literally, `REGISTRY_ALLOWED_ORIGINS`
+  in au-1 was `7161–7165`, so the only preloaded plugin was withheld and the second cell's registry
+  stayed empty. **A host port can hide in a data file, not only in compose** — that is the rule this
+  encodes, and it is why the origin is a variable now.
 - **BR-AS42 — Every write names its true actor.** `admin` for a curation, `preload` for a seeded
   insert, the publisher key for an announcement. The audit trail answers "who put this here" without
   reference to any other source.
@@ -1221,6 +1231,7 @@ identities, origins and README content from host assets.
 | BR-AS39 — announcement never activates | `registry/announce_test.go` and `registry/announce_transport_test.go`: pending rows persist, and the browser read withholds them until operator enablement |
 | BR-AS40 — dynamic updates remain in-origin | `registry/announce_test.go` and `registry/announce_transport_test.go`: in-origin updates and cross-origin requeue; static always wins |
 | BR-AS41 — preload never reverts curation | `registry/preload_test.go` and `registry/phase8_integration_test.go`: real Postgres restarts preserve edits, disabled/removed rows, and revision; duplicate ids seed once |
+| BR-AS74 — the preload file's variables are expanded | `registry/internal/preload/expand_test.go`: set variable, `:-` default, set-beats-default, every occurrence, empty default, boot failure on unset-with-no-default; and what it leaves alone — a bare `$name`, an unclosed `${`, a file with no variables |
 | BR-AS42 — true actor | Domain write-builder specs plus `phase8_integration_test.go` and `announce_transport_test.go`: `preload`/publisher actors, and ignored observations append an audit row without a registry write or notify |
 | BR-AS43 — no self-asserted trust tier | `preload_test.go` refuses manifest fields and file revisions; `announce_transport_test.go` exercises each forbidden field through NATS |
 | BR-AS44 — native frame survives registry failure | `catalogRuntime.spec.js` mounts the actual App/Home/Plugins for unreachable, malformed and degraded reads, asserts the reason, no catalog link and zero plugin loads |

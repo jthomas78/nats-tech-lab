@@ -1,0 +1,135 @@
+# GENERATED-BY-HAND, then kept by hand. Split out of
+# demos/01-dictionary/docker-compose.yml on 2026-09-08.
+#
+# The stateful half of one cell: the NATS server and the Postgres instances.
+# This is the file that owns data. Bring it down with -v and you lose the cell.
+#
+# Every host port is a variable. deploy/environments/local-za-1.env and
+# local-au-1.env supply the per-cell offsets, so two cells can run at the
+# same time. container_name is gone for the same reason: a fixed name can
+# only exist once on one Docker engine.
+
+services:
+  nats:
+    image: nats:2.14.3-alpine3.22
+    # nats-server runs as root and creates log_file at 0640 by default —
+    # unreadable by shipping-service's own container, which deliberately
+    # runs as a non-root, non-root-group user (see its Dockerfile) rather
+    # than being loosened to read this one file. Pre-creating the file at
+    # 0644 before nats-server starts sidesteps that: nats-server opens an
+    # existing log file for append without resetting its mode.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - mkdir -p /logs && touch /logs/nats.log && chmod 644 /logs/nats.log && exec nats-server -c /etc/nats/nats.conf
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222" # monitoring
+      # Kept published for direct host access from a browser page or CLI
+      # (debugging, ad hoc tooling). The demo's own three frontends do not
+      # use it — since Phase 45 they reach the listener through their own
+      # nginx at /nats (same origin), which is what makes them work behind
+      # a remote TLS proxy.
+      - "${NATS_WS_PORT:-9222}:9222" # websocket
+    networks:
+      - backend
+      # Phase 45 — reachable by the frontend nginx containers so they can
+      # proxy /nats. This does not put the browser on the bus: nginx exposes
+      # exactly one location for it, and nothing else on `frontend` gains a
+      # NATS credential by being able to resolve the hostname.
+      - frontend
+    volumes:
+      - nats-data:/data
+      - nats-logs:/logs
+      - ../../nats/nats.conf:/etc/nats/nats.conf:ro
+      - ../../nats/operator.jwt:/etc/nats/operator.jwt:ro
+
+  # One Postgres instance for all six owned services (Phase 53, ADR-052).
+  # Database-per-service and role-per-service: postgres/init.sql creates
+  # one role and one database per service and revokes CONNECT on each
+  # database from everyone but its owner, so the "no shared datastore
+  # between services" guarantee the old six instances stood for is now
+  # enforced by credentials rather than by process boundary. Tenancy is
+  # unaffected — tenant = NATS account, never a Postgres object.
+  # Temporal keeps its own instance below (third-party auto-setup image).
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      # Superuser for the instance only; no service connects as it.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    networks:
+      - backend
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ../../postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      # Over TCP on purpose: the image's init-phase server listens on the
+      # unix socket only, so a socket-based pg_isready would pass before
+      # init.sql has run. Logging in as the last role init.sql creates
+      # proves the whole script finished.
+      test: ["CMD-SHELL", "PGPASSWORD=organizations psql -h 127.0.0.1 -U organizations -d organizations -qtAc 'select 1'"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  temporal-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    networks:
+      - backend
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+    ports:
+      - "${TEMPORAL_GRPC_PORT:-7233}:7233" # Temporal frontend/gRPC
+    networks:
+      - backend
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080" # Temporal Web UI
+    networks:
+      - backend
+      - frontend
+    depends_on:
+      - temporal
+
+networks:
+  # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
+  # joins `backend`; anything the browser talks to joins `frontend`. Compose
+  # namespaces both by project, so lb-za-1 and lb-au-1 get their own pair and
+  # cannot see each other -- which is exactly the region isolation we want to
+  # prove locally.
+  backend:
+  frontend:
+
+volumes:
+  nats-data:
+  nats-logs:
+  pg-data:
+  temporal-postgres-data:

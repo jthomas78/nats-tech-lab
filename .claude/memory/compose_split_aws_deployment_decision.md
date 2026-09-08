@@ -5,7 +5,65 @@ metadata:
   type: project
 ---
 
-**Decided 2026-09-07. Nothing implemented yet — no compose change, no ADR, no IaC.** The target shape is
+**Cell split DONE 2026-09-08 ([[ADR-055]] = `ADR/lab/ADR-055-lab-platform-compose-split-cell-and-global.md`).**
+`demos/01-dictionary/deploy/cell/` now holds `compose.yaml` (include-only) + `compose.infra.yaml` /
+`compose.control.yaml` / `compose.runtime.yaml` / `compose.dedicated.yaml`, plus
+`deploy/environments/local-za-1.env` and `local-au-1.env`. All 25 host ports are `${VAR:-default}`; every
+`container_name:` and `name: poc` is gone. **Proved:** the resolved `docker compose config` is byte-identical
+to the old flat file under `local-za-1.env`, and the two cells publish 25 ports each with zero overlap.
+au-1 offsets are **+50 inside CLAUDE.md's two fixed bands** (za-1 low half, au-1 high half) and **+100 for the
+conventional ports** — a flat +100 was wrong, it walks 7100 into the 7200 backend band.
+Three constraints found during the work, all recorded in ADR-055: the plugin fixtures cannot be separated
+(YAML anchor `&plugin_dependencies` does not cross files, and `service:mfe-plugin-host` is a same-project build
+context); paths are now relative to `deploy/cell/` (`../../../..` for the repo root, `../../nats/...` for mounts);
+`nats-logs` is declared in two tier files identically because `nats` writes it and `observability-service` reads it.
+**Both cells RAN side by side 2026-09-08 and it works:** 17 containers each, 25 published ports each with
+zero overlap, two distinct NATS `server_id`s, 28 JetStream streams per cell with independent counts, and a
+marker row written into za-1's Postgres was absent from au-1's.
+
+**CORRECTED 2026-09-08 — the "shared trust material" defect recorded here earlier was WRONG.** The shared NATS
+trust tree is **correct, not a defect**: one operator plus one set of account JWTs across many regional servers is
+how NATS multi-region works, and it is ADR-054 rule 5 (operator minted once, Linebooker-held). Disproved by four
+checks: both cells' `/data/jwt` hold four **byte-identical** JWTs (4526/7785/1560/4502); no cross-cell connections
+(`172.19.x` vs `172.21.x`); identical 8-subject `PUBSUB` shape; each account JWT imports the two tenants and never
+itself. Do not re-propose a per-cell trust tree — it would also force a per-cell `nats.conf`, because
+`nats/bootstrap-operator.sh` **rewrites `nats.conf` in place** (an awk splice replaces the `system_account:` /
+`resolver_preload:` tail).
+
+**The two real causes of the anomalies.** (a) `PUBSUB` 2272 vs 1136 is a **container start-order race**:
+`RegisterRefdataNotify` in `backend/shipping-service/dictionary/internal/eventhandler/platform_notify.go` bridges
+`evt.*.refdata.>` to `notify._platform.refdata.>` with `DeliverPolicy: jetstream.DeliverNewPolicy`; za-1 seeded
+before the bridge attached (no republishes), au-1's bridge attached first (every seed republished). Pre-existing,
+nothing to do with the compose split. (b) au-1's empty `KV_mfe-registry` is a **hardcoded port in a data file**:
+`demos/01-dictionary/registry.json` names `http://localhost:7112/remoteEntry.js` literally, au-1's
+`REGISTRY_ALLOWED_ORIGINS` is 7161–7165, so the preload is withheld. **A port can hide in a data file, not just in
+compose** — that one IS a gap in the split.
+
+**Remaining genuine hazard:** `nats/creds` is mounted **read-write** into `accounts-service`. Fix is a read-only
+mount plus a per-domain writable path, not a per-cell trust tree.
+
+**Done 2026-09-08 — the global band exists.** `deploy/global/compose.control.yaml` holds `accounts-service`;
+`deploy/cell/compose.yaml`'s `include:` no longer lists it. `deploy/global/` sits at the **same depth** as
+`deploy/cell/`, so no relative path changed. Rule learned: **a `depends_on` cannot name a service in another
+project** — Compose fails with `invalid compose project`, and `required: false` does NOT relax it (tested,
+Compose v5.4.0; it only relaxes a service that exists but has not started). So the control file names no cell
+service, the five cell services that named `accounts-service` no longer do, and `restart: on-failure` replaces the
+ordering both ways. **One hub per trust domain. The mesh has one. A sovereign cell is its own** — Botswana runs the
+*same* file in its own project (`-f compose.yaml -f ../global/compose.control.yaml`), because `L2-020` gives it no
+gateway path, so per `nats-network-topology-2.html` it is a second trust domain, not a third cluster. The two
+drawings never disagreed: one draws the mesh, the other draws what a sovereign cell needs.
+
+**Fixed 2026-09-08 — BR-AS74.** `mfe-registry-service` now expands `${VAR}`/`${VAR:-default}` in the mounted
+preload file before parsing (`registry/internal/preload/expand.go`; unset-with-no-default fails boot; bare `$name`
+and unclosed `${` left alone). `registry.json`'s origin is `http://localhost:${PLUGIN_CATALOG_PORT:-7112}` and
+`compose.runtime.yaml` passes the var through. au-1 logs `seeded=1 withheld=0` where it withheld before.
+
+**Still to do:** mount `nats/creds` read-only; make
+`RegisterRefdataNotify` start-order independent; retire the old flat `demos/01-dictionary/docker-compose.yml`;
+write the hub NATS `gateway {}` config (`nats/nats.conf` has no `cluster {}`/`gateway {}`/`leafnodes {}` today, so
+every hub line is additive).
+
+**Decided 2026-09-07.** The target shape is
 `demos/01-dictionary/diagrams/multi-cluster-and-region/multi-region-control-plane-topology-3.html`
 (revision 3: global band = platform control services + trust material + management backbone; below it, N regional cells).
 

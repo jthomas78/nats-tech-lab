@@ -12,7 +12,7 @@
       "remote": {
         "kind": "federated",
         "name": "demo_catalog",
-        "url": "http://localhost:7112/remoteEntry.js",
+        "url": "http://localhost:${PLUGIN_CATALOG_PORT:-7112}/remoteEntry.js",
         "module": "plugin"
       },
       "extensionPoints": [

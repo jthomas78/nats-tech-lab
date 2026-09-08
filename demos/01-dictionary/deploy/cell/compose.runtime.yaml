@@ -1,0 +1,506 @@
+# GENERATED-BY-HAND, then kept by hand. Split out of
+# demos/01-dictionary/docker-compose.yml on 2026-09-08.
+#
+# The stateless half of one cell: business services and the frontends that
+# serve them. Nothing here owns data. Replace any of it without a migration.
+#
+# Every host port is a variable. deploy/environments/local-za-1.env and
+# local-au-1.env supply the per-cell offsets, so two cells can run at the
+# same time. container_name is gone for the same reason: a fixed name can
+# only exist once on one Docker engine.
+
+services:
+  shipping-service:
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/shipping-service/Dockerfile
+    networks:
+      - backend
+      - frontend
+    environment:
+      NATS_URL: nats://nats:4222
+      # Phase 14a — operator mode: every tenant account is now a .creds file,
+      # not a bare user/password. NATS_CREDS_DIR is the directory
+      # rest.Handlers.SwitchTenant scans for <tenant>.creds files.
+      NATS_CREDS_DIR: /etc/nats/creds
+      NATS_ADMIN_CREDS_PATH: /etc/nats/creds/shipping-admin.creds
+      DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
+      HTTP_ADDR: ":8080"
+    ports:
+      - "${SHIPPING_PORT:-7200}:8080"
+    volumes:
+      - ../../nats/creds:/etc/nats/creds:ro
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  refdata-service:
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/refdata-service/Dockerfile
+    networks:
+      - backend
+      - frontend
+    environment:
+      # Own database and own role on the shared instance (Phase 53,
+      # ADR-052) — no table is shared with `shipping-service`, and the
+      # `refdata` role cannot CONNECT to any other service's database (Phase 11,
+      # Dictionary-Service-Plan.md Q1).
+      DATABASE_URL: postgres://refdata:refdata@postgres:5432/refdata?sslmode=disable
+      # Same NATS server as `shipping-service` — used only for the KV cache
+      # (refdata-{context}) and the bounded REFDATA change-event stream,
+      # never as this service's source of truth (Q6).
+      NATS_URL: nats://nats:4222
+      # Phase 14a — refdata-service's rpc.* adapter is cross-tenant
+      # (BR-D08), so it always connects as PLATFORM, never a per-tenant
+      # account, over this one connection.
+      NATS_CREDS_PATH: /etc/nats/creds/platform.creds
+      # Phase 32 (BR-D40) — additive per-tenant connections for the new
+      # api.* surface: one NATS connection per known tenant, discovered from
+      # the same shared creds directory pricing-service/organizations-service
+      # already read (read-only here — refdata-service never mints creds
+      # itself).
+      NATS_CREDS_DIR: /etc/nats/creds
+      HTTP_ADDR: ":8080"
+    ports:
+      - "${REFDATA_PORT:-7201}:8080"
+    volumes:
+      - ../../nats/creds:/etc/nats/creds:ro
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  # The curated micro-frontend registry: which micro-frontends the platform
+  # will let an application shell load, from which origins, at which revision.
+  # Was a bounded context inside accounts-service until the split.
+  #
+  # Note there is no port mapping for an API: browsers use api.*; publishers
+  # announce on a separate rpc.* subject. Both frontends use NATS, unchanged
+  # when it moved out. 7206 exposes /healthz and nothing else.
+  mfe-registry-service:
+    build:
+      # Context is the repo root so the build can copy the shared modules
+      # alongside the service source.
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/mfe-registry-service/Dockerfile
+    networks:
+      - backend
+      - frontend
+    environment:
+      DATABASE_URL: postgres://mfe_registry:mfe_registry@postgres:5432/mfe_registry?sslmode=disable
+      NATS_URL: nats://nats:4222
+      # PLATFORM: the registry's subjects are all _platform-context, and core
+      # NATS never crosses an account boundary — a connection on any other
+      # account would register endpoints no browser could reach. Its own
+      # credential, not platform.creds: the grant is narrow enough to state
+      # (see nats/bootstrap-operator.sh) and a shared one would say nothing.
+      NATS_CREDS_PATH: /etc/nats/creds/mfe-registry-service.creds
+      HTTP_ADDR: ":8080"
+      # Phase 2a (application shell) — the origins this platform will let a
+      # shell fetch plugin code from (BR-AS20). Configuration, never a stored
+      # row: the allowlist is the envelope the registry itself sits inside, so
+      # a compromised write path must not be able to widen it. Empty permits
+      # nothing. 7111 is the example plugin's remote — the same origin whether
+      # it is served by its container (example-plugin-frontend, below) or by
+      # its dev server, which is why one value covers both. The catalog owns
+      # 7112; the independent failure fixtures own 7113–7115. Each origin
+      # has a running service and a manifest in the mounted preload file.
+      REGISTRY_ALLOWED_ORIGINS: "http://localhost:${PLUGIN_EXAMPLE_PORT:-7111},http://localhost:${PLUGIN_CATALOG_PORT:-7112},http://localhost:${PLUGIN_SLOW_PORT:-7113},http://localhost:${PLUGIN_THROWS_PORT:-7114},http://localhost:${PLUGIN_INCOMPATIBLE_PORT:-7115}"
+      # Browser localhost is not this container's localhost. These translate
+      # existing grants only; missing mappings leave drift as not checked.
+      REGISTRY_FETCH_ORIGINS: >-
+        {"http://localhost:${PLUGIN_EXAMPLE_PORT:-7111}":"http://example-plugin-frontend:8080",
+         "http://localhost:${PLUGIN_CATALOG_PORT:-7112}":"http://demo-catalog-frontend:8080",
+         "http://localhost:${PLUGIN_SLOW_PORT:-7113}":"http://example-plugin-slow-frontend:8080",
+         "http://localhost:${PLUGIN_THROWS_PORT:-7114}":"http://example-plugin-activate-throws-frontend:8080",
+         "http://localhost:${PLUGIN_INCOMPATIBLE_PORT:-7115}":"http://example-plugin-incompatible-frontend:8080"}
+      # Phase 15 (BR-AS61) — the frontend half of the health plane is no
+      # longer configured here, and REGISTRY_HEALTH_ORIGINS is gone with it.
+      # It named the address the registry was allowed to dial for each
+      # plugin's /healthz; since decision 14 nothing dials one. A plugin
+      # checks itself and publishes on a subject derived from its own id, so
+      # there is no map to get wrong, nothing to leave out, and no plugin that
+      # is "not configured" for health.
+      #
+      # REGISTRY_FETCH_ORIGINS above is deliberately UNTOUCHED. It looks like
+      # the same idea and is not: the manifest drift check (BR-AS45) really
+      # does fetch, over HTTP, from the registry, and still needs to be told
+      # where. The two were separate settings precisely so one could be
+      # retired without the other.
+      #
+      # Backend: REGISTRY_HEALTH_TARGETS is gone too, and for a different
+      # reason than the frontend map above. That one was retired because
+      # nothing dials a plugin any more. This one still describes a real
+      # outbound probe — it just described it in the wrong place. It mapped a
+      # plugin id to the services it depends on, which is a fact about the
+      # PLUGIN, kept in the DEPLOYMENT: shipping a plugin meant editing this
+      # file, and forgetting was silent (an unlisted plugin read "not
+      # configured" forever, indistinguishable from one nobody had reviewed —
+      # which is exactly what happened to example-plugin-unreachable).
+      #
+      # A plugin now declares `backendServices` in its own signed manifest and
+      # an operator approves it in the Admin UI; only the approved list is
+      # ever dialled, so a publisher still cannot point the registry at a
+      # service it does not own (BR-AS62). See
+      # registry/internal/domain/backendservices.go.
+      REGISTRY_PRELOAD_FILE: /etc/registry/registry.json
+      # BR-AS74 — the preload file is mounted read-only and is the same bytes
+      # in every cell, so its plugin origin is a ${VAR:-default} like every
+      # other host port (ADR-055) and is expanded from this environment at
+      # boot. Without it the file's literal 7112 survived the cell split:
+      # au-1's allowlist above is 7161–7165, the origin did not match, and the
+      # only preloaded plugin was withheld — an empty registry from a port
+      # hidden in a *data* file rather than in compose.
+      PLUGIN_CATALOG_PORT: "${PLUGIN_CATALOG_PORT:-7112}"
+    ports:
+      - "${MFE_REGISTRY_PORT:-7206}:8080"
+    volumes:
+      - ../../nats/creds:/etc/nats/creds
+      - ../../registry.json:/etc/registry/registry.json:ro
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  # App-shell Phase 13d — publisher trust seeding, as a one-shot.
+  #
+  # Reuses mfe-registry-service's image (a second binary in it, not a second
+  # image) and overrides the entrypoint. It reads nats/keys/publishers.json —
+  # the public halves bootstrap-operator.sh minted in 13c — and writes the
+  # publisher rows through api._platform.mfe-registry.publishers.write.v1, the
+  # same operator endpoint the Registry Publishers panel uses. No boot-time
+  # bypass of the revision check or the audit trail (decision 7).
+  #
+  # It runs on every `up`, so it converges rather than replays: it reads
+  # first, writes only what is missing, and never reverses an operator
+  # decision — a revoked key stays revoked (BR-AS68). Neither accounts-service
+  # nor mfe-registry-service has a healthcheck, so service_started is all
+  # Compose can offer here; the seeder does its own bounded, logged wait on
+  # the registry's read subject rather than racing it and dying.
+  #
+  # This is the ordering gate decision 6 requires: the publisher processes
+  # hang off it with
+  #   depends_on: { registry-publisher-seed: { condition: service_completed_successfully } }
+  # so no publisher can start before the trust table it will be judged
+  # against exists. Without that they race the seed and exit on `not-owned`.
+  registry-publisher-seed:
+    build:
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/mfe-registry-service/Dockerfile
+    entrypoint: ["seed-publishers"]
+    networks:
+      - backend
+    environment:
+      NATS_URL: nats://nats:4222
+      # The operator credential is minted by accounts-service, which owns the
+      # trust chain, even though the subjects called are served by the
+      # registry — the same split cmd/seed-registry's own doc comment records.
+      ACCOUNTS_URL: http://accounts-service:8080
+      PUBLISHERS_FILE: /etc/registry/publishers.json
+    # Was restart: "no". The control plane moved to deploy/global/, so this
+    # seed can no longer wait on accounts-service by name -- a depends_on on a
+    # service outside the project is a hard error. It retries instead: the
+    # seed is idempotent, so a run that beats the hub fails, is restarted, and
+    # succeeds once ACCOUNTS_URL answers.
+    restart: on-failure
+    volumes:
+      - ../../nats/keys/publishers.json:/etc/registry/publishers.json:ro
+    depends_on:
+      nats:
+        condition: service_started
+      mfe-registry-service:
+        condition: service_started
+
+  # Phase 25 — pricing/rate domain ported from Linebooker
+  # (RateSheet/FeeScale/FixedRate). No NATS wiring yet: Postgres + REST
+  # only, since whether shipping-service ever consults it is still
+  # undecided (Phase 25e, see BUSINESS_RULES-PRICING.md).
+  pricing-service:
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/pricing-service/Dockerfile
+    networks:
+      - backend
+      - frontend
+    environment:
+      DATABASE_URL: postgres://pricing:pricing@postgres:5432/pricing?sslmode=disable
+      HTTP_ADDR: ":8080"
+      # Phase 25f — api.* adapter: one NATS connection per known tenant,
+      # discovered from NATS_CREDS_DIR, same shared directory
+      # shipping-service/accounts-service read (read-only here — unlike
+      # accounts-service, pricing-service never mints creds itself).
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_DIR: /etc/nats/creds
+    ports:
+      - "${PRICING_PORT:-7203}:8080"
+    volumes:
+      - ../../nats/creds:/etc/nats/creds:ro
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  # Phase 26 — Shipper/Transporter registration, ported from Linebooker
+  # (BusinessEntity/TransporterProfileEntity/TransporterDocumentEntity/
+  # FleetAssetEntity). Own Postgres + REST, same isolation level as
+  # accounts-service/pricing-service. It holds a tenant-scoped NATS
+  # connection per known tenant (same NATS_CREDS_DIR mount as
+  # pricing-service), used for BR-TP14's vehicleTypeCode rpc.* validation
+  # against refdata-service, and — as of Phase 26g — a micro-service
+  # registration per connection so it's discoverable in the Admin UI's
+  # Services panel. The Admin UI still reaches its data over REST: the
+  # api.* endpoints that will replace that are Phase 26h, and REST stays
+  # afterwards as a dual transport (pricing-service's pattern).
+  organizations-service:
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/organizations-service/Dockerfile
+    networks:
+      - backend
+      - frontend
+    environment:
+      DATABASE_URL: postgres://organizations:organizations@postgres:5432/organizations?sslmode=disable
+      HTTP_ADDR: ":8080"
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_DIR: /etc/nats/creds
+      # BR-TP52 — seals tracking-credential payloads (AES-256-GCM) before
+      # they reach the organizations-secrets KV bucket. 64 hex chars = 32
+      # bytes. A lab-only fixed value: a real deployment injects this from a
+      # secret manager and never commits it. Unset disables tracking
+      # credentials entirely rather than storing them in the clear, and a
+      # malformed value stops the service rather than running degraded.
+      ORGANIZATIONS_SECRETS_KEY: "6c61622d6f6e6c792d6b65792d646f2d6e6f742d7573652d696e2d70726f6421"
+      # BR-TP58 — the vetting worker's Temporal endpoint. Phase 38b built the
+      # saga but never gave the service a Temporal connection, so the
+      # organizations-vetting task queue had no pollers and no profile could
+      # leave AwaitingDocumentation.
+      TEMPORAL_ADDRESS: temporal:7233
+      # Selects activities.MockGitVerifier's outcome — pass | fail | timeout.
+      # There is no real GIT/insurance system in this lab; this is what keeps
+      # BR-TP22's compensation branch reachable by hand. Default: pass.
+      ORGANIZATIONS_GIT_OUTCOME: pass
+      # BR-TP28 — how often the GIT monitor re-checks a vetted transporter's
+      # cover. Short for a lab: a drop nobody can watch happen is not a
+      # demonstration. Production would measure this in hours.
+    ports:
+      - "${ORGANIZATIONS_PORT:-7204}:8080"
+    volumes:
+      - ../../nats/creds:/etc/nats/creds:ro
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+
+  # Phase 30c — cross-account NATS/JetStream diagnostics and the trace store,
+  # extracted from shipping-service (Main-POC-Plan.md's Phase 30 Goal: none
+  # of it is shipping domain logic, and shipping-service only ever held it
+  # for the cross-account connections it happened to already have). Owns no
+  # datastore of its own — NATS only, no Postgres — and its cross-account
+  # reach comes from BR-AC31/BR-AC32's per-tenant service imports, resolved
+  # through the one restricted `observability.creds` connection below, not a
+  # per-tenant credential fan-out.
+  observability-service:
+    build:
+      # Phase 43d/43e: context is the repo root so the build can copy the
+      # shared modules (natsnotify, natstrace) alongside the service source.
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/observability-service/Dockerfile
+    networks:
+      - backend
+      - frontend
+    environment:
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_PATH: /etc/nats/creds/observability.creds
+      HTTP_ADDR: ":8080"
+      # Phase 17c — Connections/AccountActivity proxy the NATS server's HTTP
+      # monitoring port (distinct from NATS_URL's client port 4222).
+      NATS_MONITOR_URL: http://nats:8222
+      # Admin UI Log panel — same nats-logs volume shipping-service mounts
+      # read-only, not a second write path.
+      NATS_LOG_PATH: /var/log/nats/nats.log
+      # Phase 30d — GET /api/accounts for tenantLabel resolution
+      # (accounts_client.go), replacing shipping-service's original
+      # LocalAddr-matching trick. Best-effort: connections/account-activity
+      # still work with no labels if accounts-service is unreachable.
+      ACCOUNTS_URL: http://accounts-service:8080
+      ACCOUNTS_AUTH_SECRET: accounts-spike-pass
+    ports:
+      - "${OBSERVABILITY_PORT:-7205}:8080"
+    volumes:
+      - ../../nats/creds/observability.creds:/etc/nats/creds/observability.creds:ro
+      - nats-logs:/var/log/nats:ro
+    depends_on:
+      nats:
+        condition: service_started
+
+  admin-frontend:
+    build:
+      # Context is the repo root so the build can copy the shared UniFi
+      # theme preset (shared/unifi-theme) alongside the app source.
+      context: ../../../..
+      dockerfile: demos/01-dictionary/frontend/admin/Dockerfile
+    restart: on-failure # nginx resolves upstream hostnames at startup; retry if accounts-service DNS isn't ready yet
+    ports:
+      - "${ADMIN_UI_PORT:-7100}:80"
+    networks:
+      - frontend
+    # accounts-service is not listed: it is in deploy/global/ now, outside
+    # this project. restart: on-failure above already guards the DNS race.
+    depends_on:
+      - shipping-service
+      - organizations-service
+
+  shipping-frontend:
+    build:
+      context: ../../../..
+      dockerfile: demos/01-dictionary/frontend/seafreight-app/Dockerfile
+    # nginx proxies /api/auth/ to accounts-service, which is in deploy/global/
+    # now -- outside this project, so it cannot be named in depends_on. Retry
+    # on the startup DNS race instead, same as admin-frontend and
+    # refdata-frontend already do.
+    restart: on-failure
+    ports:
+      - "${SHIPPING_UI_PORT:-7101}:80"
+    networks:
+      - frontend
+    depends_on:
+      - shipping-service
+
+  refdata-frontend:
+    build:
+      context: ../../../..
+      dockerfile: demos/01-dictionary/frontend/refdata/Dockerfile
+    # Phase 32: nginx.conf now also proxies /api/auth/ to accounts-service,
+    # which nginx resolves at startup (a static proxy_pass, not a variable)
+    # — restart if that DNS name isn't ready yet, same race admin-frontend's
+    # own restart: on-failure already guards against.
+    restart: on-failure
+    ports:
+      - "${REFDATA_UI_PORT:-7102}:80"
+    networks:
+      - frontend
+    # accounts-service is in deploy/global/ now, outside this project.
+    depends_on:
+      - refdata-service
+
+  docs-frontend:
+    build:
+      # Self-contained build context (see docs/Dockerfile) — unlike the
+      # other frontends, this site imports nothing from shared/unifi-theme
+      # or demos/01-dictionary/shared, so the context is the docs/ dir
+      # itself rather than the repo root.
+      context: ../../docs
+      dockerfile: Dockerfile
+    ports:
+      - "${DOCS_UI_PORT:-7106}:80"
+    networks:
+      - frontend
+
+  # The application shell (lab-shell/) — the micro-frontend host. Its two
+  # nginx routes are the whole of its backend surface: the single exact
+  # /api/auth/shellConnectInfo mint route and the /nats WebSocket. It has no
+  # general /api/ rule, because the shell's registry read moved onto NATS in
+  # Phase 4 and left no HTTP boot fallback behind (see lab-shell/nginx.conf).
+  #
+  # 7110 rather than the next free 7107/7108: those are claimed by the dev
+  # -docker launch configs, and the shell's port is load-bearing in a way
+  # theirs are not — the example plugin's remote URL is curated data, and it
+  # is the shell's origin the plugin's CORS header names.
+  app-shell-frontend:
+    build:
+      # Context is the repo root so the build can copy the shared UniFi
+      # theme, the shared AppShell and demo-01's shared NATS URL resolver.
+      context: ../../../..
+      dockerfile: lab-shell/Dockerfile
+    restart: on-failure # nginx resolves upstream hostnames at startup; retry if accounts-service DNS isn't ready yet
+    ports:
+      - "${APP_SHELL_PORT:-7110}:80"
+    networks:
+      - frontend
+    # accounts-service is in deploy/global/ now, outside this project.
+    depends_on:
+      - mfe-registry-service
+
+  # Phase 28g — the OTLP exporter pair (ARCHITECTURE-COMMUNICATIONS.md § 6).
+  # Both behind the `otlp` profile so a bare `docker compose up` is
+  # unaffected: `docker compose --profile otlp up` starts them together,
+  # `docker compose up` (no profile) leaves both off. This is the "no-code
+  # toggling" the design calls for — two services added or removed, not an
+  # env flag threaded through five service binaries.
+  #
+  # Jaeger keeps its own widely-recognized conventional ports (16686 UI,
+  # 4318 OTLP/HTTP receiver) rather than the 7100-7199/7200-7299 pool —
+  # same rationale CLAUDE.md already gives NATS/Postgres for staying on
+  # their own conventional ports.
+  jaeger:
+    image: jaegertracing/all-in-one:1.68.0
+    profiles: ["otlp"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686" # web UI
+      - "${JAEGER_OTLP_PORT:-4318}:4318"   # OTLP/HTTP receiver
+    networks:
+      - backend
+
+  otlp-bridge:
+    build:
+      # Repo root, so the build can copy shared/natsconn (see the Dockerfile).
+      context: ../../../..
+      dockerfile: demos/01-dictionary/backend/otlp-bridge/Dockerfile
+    profiles: ["otlp"]
+    networks:
+      - backend
+    environment:
+      NATS_URL: nats://nats:4222
+      # otlp-bridge only ever reads (JetStream consume on TRACES) — reusing
+      # platform.creds rather than minting a dedicated credential mirrors
+      # refdata-service's own PLATFORM connection (docker-compose.yml above)
+      # rather than adding new NATS account provisioning for a demo-only
+      # exporter.
+      NATS_CREDS_PATH: /etc/nats/creds/platform.creds
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      # OTLP_BRIDGE_REPLAY=true re-exports the whole TRACES retained window
+      # (the "start the collector late" case) instead of live-tailing —
+      # see otlp-bridge/cmd/main.go's openConsumer doc comment.
+      OTLP_BRIDGE_REPLAY: "false"
+    volumes:
+      - ../../nats/creds/platform.creds:/etc/nats/creds/platform.creds:ro
+    depends_on:
+      nats:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+networks:
+  # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
+  # joins `backend`; anything the browser talks to joins `frontend`. Compose
+  # namespaces both by project, so lb-za-1 and lb-au-1 get their own pair and
+  # cannot see each other -- which is exactly the region isolation we want to
+  # prove locally.
+  backend:
+  frontend:
+
+volumes:
+  nats-logs:

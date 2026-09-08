@@ -1,0 +1,24 @@
+# One cell, one command. This file only includes the others.
+#
+#   docker compose -p lb-za-1 --env-file ../environments/local-za-1.env up -d
+#   docker compose -p lb-au-1 --env-file ../environments/local-au-1.env up -d
+#
+# The two cells run these same files. Only the env file differs. That is the
+# whole trick, and it is what proves the split is real.
+#
+# compose.dedicated.yaml is deliberately absent -- the plugin fixtures are not
+# part of a cell. Add them with an extra -f when you want them.
+#
+# ../global/compose.control.yaml is deliberately absent too, for a stronger
+# reason. The control plane is not a per-cell thing: one hub per trust domain,
+# and the mesh has one. A region does not mint its own accounts. Run that file
+# once in its own project for the mesh, or -- for a sovereign cell that IS its
+# own trust domain -- add it back beside this one:
+#
+#   docker compose -p lb-bw-1 --env-file ../environments/local-bw-1.env \
+#     -f compose.yaml -f ../global/compose.control.yaml up -d
+#
+# See deploy/global/compose.control.yaml's header, and ADR-055.
+include:
+  - compose.infra.yaml
+  - compose.runtime.yaml
