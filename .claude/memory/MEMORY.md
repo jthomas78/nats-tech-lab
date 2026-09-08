@@ -61,6 +61,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [linebooker_bid_tender_allocation_rules](linebooker_bid_tender_allocation_rules.md) — Bid/Tender unconnected tracks; lowest-bid wins at expiry
 - [linebooker_transport_execution_phase_naming](linebooker_transport_execution_phase_naming.md) — 4 stages: dispatch→collection→in-transit→delivery
 - [linebooker_payments_settlement_phase](linebooker_payments_settlement_phase.md) — PaymentEntity, InvoiceSplitType, EarlySettlementRequest (factoring)
+- [linebooker_truck_types_open_work](linebooker_truck_types_open_work.md) — truck/vehicle types are only a one-off preview seeder (114 rows, 4-deep hierarchy), not wired into refdata `Seed()`; open work flagged 2026-09-08
 
 ## Phase history (completed — consult for background only)
 - [phase8_registry_preload_announce](phase8_registry_preload_announce.md) — preload/announce wiring done; fail-closed publisher; staged catalog; legacy lifecycle edge
