@@ -101,7 +101,7 @@ pre .hi  { color: var(--text); }
   </header>
 
   <section class="sec">
-    <h2>The matrix</h2>
+    <h2>The matrix &mdash; what was actually wired</h2>
     <div class="tbl-wrap">
       <table>
         <thead>
@@ -223,6 +223,148 @@ pre .hi  { color: var(--text); }
         </tbody>
       </table>
     </div>
+  </section>
+
+  <section class="sec">
+    <h2>Every permutation &mdash; topology &times; account model</h2>
+    <p class="sub">Five topologies, two account models, ten rows. Every <b>cluster</b> below is
+      <b>3 NATS instances</b>. The one question the table answers first: <b>can <code>ODOMETER</code> be
+      created in both regions?</b> Rows marked <span class="badge b-bad">inferred</span> follow from a rule
+      already measured elsewhere but were not built as drawn.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Topology</th><th>WAN link</th><th>Accounts</th>
+            <th><code>ODOMETER</code> in both regions?</th>
+            <th>One publish stored twice?</th><th>AU read</th>
+            <th>Meta group / if a region dies</th><th>Evidence</th>
+          </tr>
+        </thead>
+        <tbody>
+
+        <tr>
+          <td><b>P1</b></td><td>2 regions, 1 cluster each</td><td><b>none</b></td><td>one shared</td>
+          <td><span class="badge b-good">yes</span> &mdash; two islands. Nothing links them, so nothing can
+            refuse.</td>
+          <td><span class="badge b-good">no</span> &mdash; a publish cannot reach the other side at all</td>
+          <td>local</td>
+          <td>2 groups of 3, quorum 2 each. Independent.</td>
+          <td><span class="badge b-bad">inferred</span> two disconnected systems by definition</td>
+        </tr>
+        <tr>
+          <td><b>P2</b></td><td>2 regions, 1 cluster each</td><td><b>none</b></td><td>one per region</td>
+          <td><span class="badge b-good">yes</span></td>
+          <td><span class="badge b-good">no</span></td>
+          <td>local</td>
+          <td>2 groups of 3, quorum 2 each</td>
+          <td><span class="badge b-bad">inferred</span></td>
+        </tr>
+
+        <tr>
+          <td><b>P3</b></td><td>2 regions, 1 cluster each</td><td><b>gateway</b></td><td>one shared</td>
+          <td><span class="badge b-bad">NO</span> &mdash; refused <code>stream name already in use
+            (10058)</code>. One <code>ODOMETER</code> for the whole supercluster.</td>
+          <td><span class="badge b-good">no</span></td>
+          <td><b>WAN</b> &mdash; AU owns nothing</td>
+          <td>1 group of 6, majority 4. Split 3/3 &rarr; no leader, <code>stream add</code> &rarr;
+            <code>10008</code>. A change freeze, not an outage.</td>
+          <td><span class="badge b-good">measured</span> <code>demo 02 lab/00-the-problem.sh</code></td>
+        </tr>
+        <tr>
+          <td><b>P4</b></td><td>2 regions, 1 cluster each</td><td><b>gateway</b></td><td>one per region</td>
+          <td><span class="badge b-good">YES</span> &mdash; same name, same subject, no code change</td>
+          <td><span class="badge b-good">no</span></td>
+          <td><b>local</b></td>
+          <td>1 group of 6, majority 4. Same freeze on a 3/3 split &mdash; the account does not change
+            quorum.</td>
+          <td><span class="badge b-good">measured</span> <code>demo 02 lab/03-odometer.sh</code> stage B</td>
+        </tr>
+
+        <tr>
+          <td><b>P5</b></td><td>2 regions + arbiter, arbiter = <b>1 instance</b></td><td><b>gateway</b></td>
+          <td>one shared</td>
+          <td><span class="badge b-bad">NO</span> &mdash; <code>10058</code>. An arbiter fixes quorum, not the
+            namespace.</td>
+          <td><span class="badge b-good">no</span></td>
+          <td><b>WAN</b></td>
+          <td>1 group of <b>7</b>, majority 4. Lose a region &rarr; 4 left, <b>survives</b> &mdash; but with
+            <b>zero slack</b>: one more node down and it freezes. Lose the arbiter alone &rarr; 6, fine.</td>
+          <td><span class="badge b-good">measured</span> quorum: demo 03 Figure C &middot;
+            <span class="badge b-bad">inferred</span> stream result, from P3</td>
+        </tr>
+        <tr>
+          <td><b>P6</b></td><td>2 regions + arbiter, arbiter = <b>1 instance</b></td><td><b>gateway</b></td>
+          <td>one per region</td>
+          <td><span class="badge b-good">YES</span></td>
+          <td><span class="badge b-good">no</span></td>
+          <td><b>local</b></td>
+          <td>as P5 &mdash; 1 group of 7, majority 4, no slack after a region is lost</td>
+          <td><span class="badge b-good">measured</span> quorum &middot;
+            <span class="badge b-bad">inferred</span> stream result, from P4</td>
+        </tr>
+
+        <tr>
+          <td><b>P7</b></td><td>2 regions + arbiter, arbiter = <b>3 instances</b></td><td><b>gateway</b></td>
+          <td>one shared</td>
+          <td><span class="badge b-bad">NO</span> &mdash; <code>10058</code></td>
+          <td><span class="badge b-good">no</span></td>
+          <td><b>WAN</b></td>
+          <td>1 group of <b>9</b>, majority 5. Lose a region &rarr; 6 left, survives <b>with one node of
+            slack</b>. Lose the whole arbiter site &rarr; 6, fine. That slack is the only thing the extra
+            two instances buy.</td>
+          <td><span class="badge b-bad">inferred</span> arbiter of 3 was never built; only 3+3+1 was</td>
+        </tr>
+        <tr>
+          <td><b>P8</b></td><td>2 regions + arbiter, arbiter = <b>3 instances</b></td><td><b>gateway</b></td>
+          <td>one per region</td>
+          <td><span class="badge b-good">YES</span></td>
+          <td><span class="badge b-good">no</span></td>
+          <td><b>local</b></td>
+          <td>as P7 &mdash; 1 group of 9, majority 5, one node of slack after a region is lost</td>
+          <td><span class="badge b-bad">inferred</span></td>
+        </tr>
+
+        <tr>
+          <td><b>P9</b></td><td>1 hub cluster + 2 leaf clusters</td><td><b>leafnode</b></td><td>one shared</td>
+          <td><span class="badge b-good">YES</span> &mdash; two separate JetStream systems, each with its own
+            domain. Neither can see the other's streams, so neither can refuse.</td>
+          <td><span class="badge b-warn">YES</span> &mdash; the <b>real</b> double capture. Both filters match
+            the same publish.</td>
+          <td>local</td>
+          <td>3 groups of 3, quorum 2 each. The other side never notices.</td>
+          <td><span class="badge b-good">measured</span> demo 03 Figure D</td>
+        </tr>
+        <tr>
+          <td><b>P10</b></td><td>1 hub cluster + 2 leaf clusters</td><td><b>leafnode</b></td>
+          <td>one per region</td>
+          <td><span class="badge b-good">YES</span></td>
+          <td><span class="badge b-good">no</span> &mdash; the account wall removes the overlap as well</td>
+          <td>local</td>
+          <td>3 groups of 3, quorum 2 each</td>
+          <td><span class="badge b-bad">inferred</span> from P9 plus the measured account wall</td>
+        </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <ul>
+      <li><b>Only one thing decides whether <code>ODOMETER</code> can exist twice: is there a second
+        namespace?</b> A gateway does <b>not</b> make one &mdash; P3, P5, P7 are all refused with
+        <code>10058</code>. A second <b>account</b> makes one (P4, P6, P8). No link at all makes one (P1, P2).
+        A <b>leaf</b> link makes one, because a domain may change across it (P9, P10).</li>
+      <li><b>The arbiter is orthogonal.</b> It changes <b>quorum</b> only. Compare P3 with P5 and P7: the
+        stream answer never moves. Compare P5 with P7: 1 instance survives a region loss with no slack,
+        3 instances survive with one node to spare. That is the whole difference.</li>
+      <li><b>An arbiter site is still a JetStream peer.</b> Keep data off it with placement
+        (<code>--cluster za|au</code>), or it will host streams you did not plan for.</li>
+      <li><b>Replicas never cross a region.</b> All of a stream's replicas live inside one cluster, in every
+        row above. An arbiter does not give you a third copy of your data.</li>
+      <li><b>P4 is the recommendation</b> for two regions: one shared domain <code>lb</code>, a gateway, and
+        one account per region. P8 is P4 plus quorum insurance. P9 is the only row that double-captures, and
+        it does so because you gave up the shared subject space.</li>
+    </ul>
   </section>
 
   <section class="sec">
