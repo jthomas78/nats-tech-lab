@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Combination matrix — demos 02 and 03</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --good: #2dd4bf; --warn: #f0b429;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1560px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+h3 { margin: 0; font-size: 13px; line-height: 19px; font-weight: 600; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code, td code, th code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; max-width: 78ch; }
+li b { color: var(--text); font-weight: 600; }
+
+table { border-collapse: collapse; width: 100%; font-size: 12px; line-height: 17px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--muted); }
+th { color: var(--dim); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+td b { color: var(--text); font-weight: 600; }
+.tbl-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow-x: auto; }
+
+.badge { font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
+         border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
+.b-good { color: var(--good); } .b-bad { color: var(--bad); } .b-warn { color: var(--warn); } .b-base { color: var(--dim); }
+
+.note { background: var(--nested); border: 1px solid var(--border); border-left: 2px solid var(--warn);
+        border-radius: 4px; padding: 11px 14px; color: var(--muted); font-size: 12px; line-height: 18px; max-width: 82ch; }
+.note b { color: var(--text); }
+
+pre { margin: 0; background: var(--nested); border: 1px solid var(--border); border-radius: 4px;
+      padding: 10px 12px; overflow-x: auto; font-family: var(--mono); font-size: 11px; line-height: 17px; color: var(--muted); }
+pre .ok  { color: var(--good); }
+pre .no  { color: var(--bad); }
+pre .hi  { color: var(--text); }
+
+/* --- diagram primitives --- */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.nb.clu { stroke-dasharray: none; stroke-opacity: 0.32; }
+.nb.dead { stroke: var(--bad); stroke-opacity: 0.55; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.grp.g { fill: var(--good); } .grp.r { fill: var(--bad); }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.ro   { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
+.ro.g { fill: var(--good); } .ro.r { fill: var(--bad); } .ro.h { fill: var(--text); }
+.gw   { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.lf   { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.dead { fill: none; stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 4 4; }
+.mir  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+
+/* matrix page: the table is the point, let it breathe */
+.tbl-wrap table { font-size: 11.5px; line-height: 16px; }
+.tbl-wrap th, .tbl-wrap td { padding: 9px 9px; }
+.tbl-wrap tbody tr:nth-child(odd) td { background: color-mix(in srgb, var(--text) 2%, transparent); }
+.tbl-wrap td:first-child { color: var(--dim); font-family: var(--mono); }
+.badge { display: inline-block; margin-bottom: 2px; }
+</style>
+</head><body>
+<div class="wrap">
+
+  <header class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Demos 02 + 03 &middot; every combination run &middot; nats-server 2.14.6</div>
+      <h1>Combination matrix &mdash; what we wired, and what came out</h1>
+      <p class="sub">One row per topology actually built and measured in demos 02 and 03. Four things were
+        varied: the <b>link</b> between clusters, the <b>JetStream domain</b>, the <b>accounts</b>, and the
+        <b>stream / subject shape</b>. Everything else was held still. Unmeasured rows say so.</p>
+    </div>
+  </header>
+
+  <section class="sec">
+    <h2>The matrix</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Link</th><th>Domain</th><th>Accounts</th><th>Stream / subjects</th>
+            <th>Two real regional streams?</th><th>One publish stored twice?</th><th>AU read</th>
+            <th>If ZA is lost</th><th>Where it was run</th>
+          </tr>
+        </thead>
+        <tbody>
+
+        <tr>
+          <td><b>1</b></td><td>gateway</td><td>one, <code>lb</code></td><td>one shared</td>
+          <td>same name, same subject</td>
+          <td><span class="badge b-bad">no</span><br>refused <code>10058</code></td>
+          <td><span class="badge b-good">no</span></td>
+          <td><b>WAN</b> &mdash; AU owns nothing</td>
+          <td>AU has <b>no</b> stream at all</td>
+          <td><code>demo 02 lab/00-the-problem.sh</code></td>
+        </tr>
+
+        <tr>
+          <td><b>2</b></td><td>gateway</td><td>one, <code>lb</code></td><td>one shared</td>
+          <td>different names, <b>overlapping</b> subjects (<code>evt.&gt;</code> / <code>evt.&gt;</code>,
+            and <code>evt.za.&gt;</code> / <code>evt.&gt;</code>)</td>
+          <td><span class="badge b-bad">no</span><br>refused <code>10065</code></td>
+          <td><span class="badge b-good">no</span></td>
+          <td>n/a &mdash; never created</td>
+          <td>n/a</td>
+          <td>demo 02, scratch, 2026-09-11</td>
+        </tr>
+
+        <tr>
+          <td><b>3</b></td><td>gateway</td><td>one, <code>lb</code></td><td>one shared</td>
+          <td><b>Option 1</b> &mdash; region token in the subject <i>and</i> the name
+            (<code>ODOMETER_ZA</code> / <code>ODOMETER_AU</code>)</td>
+          <td><span class="badge b-good">yes</span></td>
+          <td><span class="badge b-good">no</span> &mdash; but a publisher typo <b>misroutes</b> across the
+            WAN, silently</td>
+          <td>local</td>
+          <td>AU keeps its own stream</td>
+          <td><code>demo 02 lab/01-option-1-subjects.sh</code></td>
+        </tr>
+
+        <tr>
+          <td><b>4</b></td><td>gateway</td><td>one, <code>lb</code></td>
+          <td><b>one per region</b><br><code>LINEBOOKER_ZA</code> / <code>_AU</code></td>
+          <td><b>Option 3</b> &mdash; same name, same subject, no code change</td>
+          <td><span class="badge b-good">yes</span></td>
+          <td><span class="badge b-good">no</span></td>
+          <td><b>local</b></td>
+          <td>AU keeps its own stream</td>
+          <td><code>demo 02 lab/03-odometer.sh</code> stage B</td>
+        </tr>
+
+        <tr>
+          <td><b>5</b></td><td>gateway</td><td><b>one per cluster</b><br><code>za</code> / <code>au</code></td>
+          <td>one shared</td>
+          <td>same name, same subject</td>
+          <td><span class="badge b-bad">no</span> &mdash; the two domain names do <b>not</b> split JetStream
+            over a gateway</td>
+          <td><span class="badge b-good">no</span> &mdash; both cells report <code>1</code>, but it is the
+            <b>same</b> stream</td>
+          <td><b>WAN</b></td>
+          <td>AU has nothing</td>
+          <td>demo 03 Figure B (6 servers) + demo 02 scratch (4 servers)
+            <br><span class="badge b-bad">broken</span> AU never elects a meta leader; placement fails
+            <code>10005</code></td>
+        </tr>
+
+        <tr>
+          <td><b>6</b></td><td>gateway <b>3+3+1</b><br>arbiter in a 3rd site</td><td>one</td>
+          <td>either model</td>
+          <td>unchanged</td>
+          <td>as rows 1&ndash;4 above</td>
+          <td>as rows 1&ndash;4 above</td>
+          <td>as rows 1&ndash;4 above</td>
+          <td><span class="badge b-good">quorum survives</span> 1 group of 7, majority 4, leader re-elected
+            both directions</td>
+          <td>demo 03 Figure C</td>
+        </tr>
+
+        <tr>
+          <td><b>7</b></td><td><b>leafnode</b><br>hub + 2 leaf regions</td>
+          <td><b>one per region</b></td><td>one shared</td>
+          <td>same name, same subject</td>
+          <td><span class="badge b-good">yes</span> &mdash; two separate JetStream systems</td>
+          <td><span class="badge b-warn">YES</span> &mdash; the <b>real</b> double capture. Neither system can
+            see the other's subjects, so neither can refuse the overlap.</td>
+          <td>local</td>
+          <td>the other side never notices &mdash; separate RAFT, quorum 2 of 3 each</td>
+          <td>demo 03 Figure D
+            <br><span class="badge b-warn">cost</span> nothing replicates by itself</td>
+        </tr>
+
+        <tr>
+          <td><b>8</b></td><td>any of the above</td><td>unchanged</td><td>unchanged</td>
+          <td><b>Option 2</b> &mdash; a <code>mirror</code> or <code>source</code> stream</td>
+          <td><span class="badge b-good">yes</span></td>
+          <td><span class="badge b-good">yes, on purpose</span> &mdash; a mirror has no subject filter of its
+            own, so the overlap check never applies</td>
+          <td>local, and <code>direct get</code> is served by the nearest copy</td>
+          <td>the mirror survives, lagging</td>
+          <td>demo 02, measured</td>
+        </tr>
+
+        <tr>
+          <td><b>9</b></td><td>gateway</td><td>one, <code>lb</code></td>
+          <td><b>two</b> + explicit export / import of the subject</td>
+          <td>each account holds <code>evt.&gt;</code></td>
+          <td><span class="badge b-good">yes</span></td>
+          <td><span class="badge b-warn">yes</span> &mdash; the overlap check is <b>per account</b>. You have
+            to build the crossing on purpose.</td>
+          <td>local</td>
+          <td>unknown</td>
+          <td><span class="badge b-bad">not measured</span> the one open claim</td>
+        </tr>
+
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>The second axis &mdash; replicas, inside one cluster</h2>
+    <p class="sub">Replicas are not a region setting. <b>Every replica of a stream lives inside one
+      cluster.</b> <code>Replicas: 3</code> means three copies in <code>za</code>, not one in each region.
+      That is why row 1's AU read stays a WAN query no matter what you set here.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Replicas</th><th>Stop the server holding it</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td><b>1</b> (the default)</td><td><code>stream is offline (10118)</code> &mdash; data stuck</td>
+            <td>cheapest</td></tr>
+          <tr><td><b>3</b></td><td>new leader in about a second &mdash; data fine</td>
+            <td>every write goes to three servers; 3&times; the disk</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub">Run: <code>demo 02 lab/02-replicas.sh</code>. Choose it on purpose, per stream.</p>
+  </section>
+
+  <section class="sec">
+    <h2>What the matrix says in one paragraph</h2>
+    <ul>
+      <li><b>A domain cannot split a supercluster.</b> Row 5. A domain name may only change across a
+        <b>leaf-node</b> link, and a gateway is not one. Use the same domain everywhere &mdash;
+        <code>lb</code>.</li>
+      <li><b>Inside one account, over a gateway, a publish can never be stored twice.</b> Rows 1, 2, 3 and 5.
+        Same name is refused, overlapping subjects are refused, disjoint subjects mean only one filter
+        matches.</li>
+      <li><b>A second copy needs a second namespace.</b> Rows 7, 8 and 9 &mdash; a second JetStream system, a
+        mirror, or a second account with an explicit crossing.</li>
+      <li><b>The account is what lets a region own its own data.</b> Row 4 is the recommendation. Placement
+        (<code>--cluster za|au</code>) then decides which cluster holds it.</li>
+      <li><b>Row 6 and row 7 are not rivals.</b> The arbiter keeps one shared subject space and rescues the
+        quorum. Hub-and-leaf gives up the shared space and removes the shared quorum. Pick by what you would
+        rather own: less config, or less coupling.</li>
+    </ul>
+    <div class="note"><b>Still open.</b> Row 9 is the only unmeasured claim in the matrix. Also untested:
+      whether <code>source</code> / <code>mirror</code> survives across two gateway-joined clusters with
+      different domains (row 5's topology), the hub as a real JetStream store rather than a pass-through,
+      leaf reconnect behaviour with many regions, and mirror catch-up time at production volume.</div>
+    <p class="sub">Full write-ups:
+      <a style="color:var(--accent)" href="meta-quorum-options.html">meta-quorum-options.html</a> (demo 03,
+      figures A&ndash;D) and
+      <a style="color:var(--accent)" href="../../02-multi-region/diagrams/gateway-double-capture-options-2.html">gateway-double-capture-options-2.html</a>
+      (demo 02, the three ways out).</p>
+  </section>
+
+</div>
+</body>
+</html>
