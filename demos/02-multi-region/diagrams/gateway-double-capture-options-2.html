@@ -570,6 +570,20 @@ one publish in ZA                                <span class="x">za = 1   au = 1
           <td>Only one filter matches. A wrong prefix <b>misroutes</b>, it does not duplicate. <i>Measured.</i></td>
         </tr>
         <tr>
+          <td><b>Gateway</b>, <b>one</b> account, a separate <code>domain</code> per cluster
+            <span style="color:#B7BCC2">&mdash; the shape Figure&nbsp;1 of the old page drew</span></td>
+          <td><span class="tag no">no</span></td>
+          <td>A gateway is not a leaf link, so the two domain names do <b>not</b> make two JetStream systems.
+            <i>Measured 2026-09-11</i> on four scratch servers (za&times;2, au&times;2, one <code>ACME</code>
+            account, <code>domain: za</code> / <code>domain: au</code>): <code>stream add SHIPPING</code> in
+            <b>both</b> cells returned the <b>same</b> stream &mdash; one <code>Created</code> time, cluster
+            <code>za</code>. One publish in za left both cells reporting <b>1</b>, which is the old caption
+            &mdash; but it is <b>one</b> stream read from two doors, not two copies. Worse: the four servers
+            formed <b>one</b> meta group of 4, za elected a leader and <b>au never did</b>
+            (<code>leader: null</code>, za listing au's servers as <code>Server name unknown &hellip;
+            offline: true</code>). AU stores nothing and has no JetStream of its own.</td>
+        </tr>
+        <tr>
           <td>Gateway, <b>two</b> accounts, plus an explicit export/import of the subject</td>
           <td><span class="tag meh">yes</span></td>
           <td>The overlap check is <b>per account</b>, so each account may hold <code>evt.&gt;</code>. You have

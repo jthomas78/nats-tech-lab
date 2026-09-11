@@ -299,6 +299,21 @@ Ignore these inside this folder:
   stream matches. So there is no configuration of one account over a gateway
   that produces a double capture. The check is per-account, so two accounts
   *can* each hold `evt.>` — that is why `lab/03-odometer.sh` stage B works.
+- **A separate `domain` per cluster over a gateway does NOT give two JetStream
+  systems, and does NOT double capture.** Measured 2026-09-11 on four scratch
+  servers (za x2, au x2, one `ACME` account, `domain: za` and `domain: au`,
+  joined by a gateway) — the exact shape drawn in Figure 1 of
+  `diagrams/gateway-double-capture-options.html`. `stream add SHIPPING` with
+  filter `evt.acme.shipping.>` in **both** cells returned the **same** stream:
+  one `Created` time, cluster `za`. One publish in za left both cells reporting
+  **1 message** — which is what that old caption claimed — but it is **one**
+  stream reached through two doors, not two copies. `--js-domain au` returned
+  za's stream too. And the topology was broken on top of that: all four servers
+  formed **one** meta group of size 4, za elected `t5-za-1`, **au never elected
+  a leader** (`/jsz?meta=1` → `leader: null`) and za listed au's two servers as
+  `Server name unknown … offline: true`. This reproduces the 2026-09-09 finding
+  above from the other direction. **A gateway is not a leaf link, so a domain
+  name cannot split a supercluster.**
 - **A wrong subject prefix MISROUTES; it does not duplicate.** Measured
   2026-09-11: a client connected to **au** publishing `evt.za.trip`, with
   `T_ZA evt.za.>` in cluster za and `T_AU evt.au.>` in cluster au, stored the

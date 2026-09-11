@@ -69,6 +69,10 @@ li b { color: var(--text); font-weight: 600; }
     bucket, nothing stored twice. The &ldquo;25&nbsp;km&rdquo; came from a projector replay bug
     (<code>defer sub.Unsubscribe()</code> deletes a durable pull consumer). The conclusion &mdash; one account
     per region &mdash; did not change, but every reason on this page did.<br>
+    Figure&nbsp;1's exact shape &mdash; one account, a separate <code>domain</code> per cluster, joined by a
+    gateway &mdash; was rebuilt and measured on 2026-09-11. Both cells do report <b>1</b>, as the caption says,
+    but it is the <b>same</b> stream in cluster <code>za</code> seen through two doors. The two domain names do
+    not split JetStream over a gateway; AU never elected a meta leader and stored nothing.<br>
     Read <a style="color:#006FFF" href="gateway-double-capture-options-2.html">gateway-double-capture-options-2.html</a>
     instead. This file is kept only as a record of what was believed.
   </div>
