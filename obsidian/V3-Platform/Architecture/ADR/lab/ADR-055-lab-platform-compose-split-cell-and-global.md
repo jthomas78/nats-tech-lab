@@ -17,7 +17,7 @@ applies: [54]
 **Date:** 2026-09-08
 **Deciders:** Jeremy (repo owner)
 **Governed by:** [ADR-054](../v3/ADR-054-v3-platform-portability-rules-multi-region.md) — the Proposed Linebooker V3 portability rules. This ADR is rule 1 (one image, config from environment) and the multi-region shape applied to the lab's local stack.
-**Related:** `demos/01-dictionary/diagrams/multi-cluster-and-region/multi-region-control-plane-topology-3.html` (figure 4 maps each file to its Helm/Argo counterpart); `demos/01-dictionary/diagrams/multi-cluster-and-region/nats-network-topology-2.html` (figure 2 maps each file to the NATS parts it creates); [ADR-052](ADR-052-lab-data-one-postgres-instance-database-per-service.md); `CLAUDE.md` § "Docker Host Port Allocation"; `.claude/memory/compose_split_aws_deployment_decision.md`
+**Related:** `demos/02-multi-region/diagrams/multi-cluster-and-region/multi-region-control-plane-topology-3.html` (figure 4 maps each file to its Helm/Argo counterpart); `demos/02-multi-region/diagrams/multi-cluster-and-region/nats-network-topology-2.html` (figure 2 maps each file to the NATS parts it creates); [ADR-052](ADR-052-lab-data-one-postgres-instance-database-per-service.md); `CLAUDE.md` § "Docker Host Port Allocation"; `.claude/memory/compose_split_aws_deployment_decision.md`
 
 ## Context
 
@@ -173,9 +173,12 @@ ports each with **zero** overlap.
 
 - Two cells can run side by side on one laptop, which is what the AWS work
   needs proved first.
-- The old flat `demos/01-dictionary/docker-compose.yml` is now a second
-  definition of the same stack. It must be deleted, or reduced to a one-line
-  pointer, before anyone edits either copy.
+- The old flat `demos/01-dictionary/docker-compose.yml` was a second
+  definition of the same stack. **Deleted 2026-09-08**, once a sorted
+  service-name diff proved the split was a complete replacement (27 services
+  each way, no difference in either direction). The tooling that *wrote* that
+  file moved with it: `scripts/new-plugin.sh` now writes the dedicated band,
+  the runtime band and one port variable per cell.
 - `CLAUDE.md`'s port table becomes a **band** rule rather than a fixed list —
   a port belongs to a cell, not to the repo.
 - The global band exists but is only half of it. `deploy/global/` still needs
@@ -262,6 +265,15 @@ visible to `shipping-service` through its read-only mount of the same volume,
 - [x] Parameterise `demos/01-dictionary/registry.json`'s hardcoded `http://localhost:7112/remoteEntry.js`. Done as **BR-AS74**: `mfe-registry-service` expands `${VAR}`/`${VAR:-default}` in the mounted preload file before parsing it (`registry/internal/preload/expand.go`, 9 specs in `expand_test.go`), the file's origin became `http://localhost:${PLUGIN_CATALOG_PORT:-7112}/remoteEntry.js`, and `compose.runtime.yaml` passes `PLUGIN_CATALOG_PORT` through. Proven live: au-1's registry now logs `seeded=1 withheld=0` where it withheld the only preloaded plugin before.
 - [x] Mount `nats/creds` read-only and give `accounts-service` a per-domain writable path. Done as **BR-AC46**: read-only seed bind everywhere (the writer included), a per-project `nats-creds-minted` volume read-write in `accounts-service` and read-only in all four scanners, `NATS_CREDS_DIR` as a PATH-style list, `NATS_CREDS_WRITE_DIR` for the single write target, and an `app`-owned `/var/lib/nats/creds` baked into the image. 10 specs in `shared/natstenants/discover_pathlist_test.go`; all four compose shapes still resolve; proven live in both cells.
 - [x] Make `RegisterRefdataNotify` start-order independent, so an observation count does not depend on which container won. Done as **BR-063**: the bridge's ordered consumer moved from `DeliverNewPolicy` to `DeliverLastPerSubjectPolicy`, so a change published before the consumer exists is caught up rather than lost forever, and the catch-up is bounded by the corpus (contexts x typeKeys) instead of the stream's whole history — `All` would also have been deterministic but repeats one invalidation N times and grows without bound. The bridge now logs its own catch-up size. Proven live: both cells log `republished=8`, identical, and identical again after a restart — the same measurement that read au-1 2272 / za-1 1136 before. 3 specs in `platform_notify_test.go`; the package's suite dropped 11.7s -> 1.4s because the helper that existed to retry past the race no longer has to.
-- [ ] Retire `demos/01-dictionary/docker-compose.yml`.
+- [x] Retire `demos/01-dictionary/docker-compose.yml`. **Done 2026-09-08.**
+      Deleted, after repointing every reader: 17 Dockerfile pointer comments,
+      `CLAUDE.md`, six READMEs, 11 architecture and business-rule path
+      mentions, two `PERFORMANCE.md` historical runs (annotated as retired,
+      not rewritten), `scripts/templates/plugin-compose.yml.tpl`,
+      `scripts/new-plugin.sh`, `scripts/testdata/new-plugin.golden`,
+      `shared/mfe-plugin-host/deployment_test.go`, the two lab-shell registry
+      specs, and `cmd/registry-acceptance` (which now defaults to
+      `--compose-dir deploy/cell` and carries the project name and env file on
+      every compose call).
 - [ ] Write the hub NATS `gateway {}` config (additive to `nats/nats.conf`, which has no `cluster {}`/`gateway {}`/`leafnodes {}` today).
 - [ ] Move migrations out of service start into a one-shot job (they race at three tasks).

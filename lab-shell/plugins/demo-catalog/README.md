@@ -4,8 +4,9 @@ An independent federated plugin on **7112**. It owns `/demos`, `/demos/:id`
 and `demo-catalog/details-sidebar/v1`. The demo README is compiled here through
 `?raw`; changing it requires only this plugin to be rebuilt.
 
-From this directory: `npm ci && npm run build`. From `demos/01-dictionary/`:
-`docker compose up --build -d demo-catalog-frontend`.
+From this directory: `npm ci && npm run build`. Then from
+`demos/01-dictionary/deploy/cell/`:
+`docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml -f compose.dedicated.yaml up -d --build demo-catalog-frontend`.
 
 `activate(shellApi)` stores the frozen v1 API in plugin scope. Descendant views
 use the local `ExtensionRegion` wrapper; neither views nor entry import host

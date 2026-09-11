@@ -14,8 +14,8 @@ suite. See `.claude/plans/Main-POC-Plan.md` for scope.
 - **The dockerized backend**, published on `http://localhost:7200`:
 
   ```bash
-  # from repo root
-  docker compose -f demos/01-dictionary/docker-compose.yml up --build -d
+  cd demos/01-dictionary/deploy/cell
+  docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --build
   # wait until ready
   curl -sf http://localhost:7200/healthz && echo ok
   ```
@@ -55,8 +55,9 @@ done
 Reset the event stream between scenarios for clean, independent baselines:
 
 ```bash
-docker compose -f demos/01-dictionary/docker-compose.yml down -v && \
-docker compose -f demos/01-dictionary/docker-compose.yml up -d
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml down -v && \
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d
 ```
 
 Capture machine-readable results for `PERFORMANCE.md`:

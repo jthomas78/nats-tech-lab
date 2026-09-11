@@ -36,8 +36,30 @@ import { describe, expect, it } from 'vitest'
    which is the whole point — they are the lab's fixture, not the app's. */
 const repoFile = (rel) => readFileSync(resolve(process.cwd(), '..', rel), 'utf8')
 
-const registry = JSON.parse(repoFile('demos/01-dictionary/registry.json'))
-const compose = repoFile('demos/01-dictionary/docker-compose.yml')
+/* ADR-055 retired the one flat docker-compose.yml on 2026-09-08 and split it
+   into bands. Both halves of a plugin's wiring are needed here and they now
+   live in different files: the plugin services and their release volumes in
+   the cell's dedicated band, the registry's origin allowlist in its runtime
+   band. They are read together, because that is how Compose reads them.
+
+   Every published host port is a ${VAR:-default} fed by one env file per cell,
+   so the variables are expanded against cell za-1 before anything is matched.
+   za-1 holds the base ports, which is what these fixtures were written for. */
+const envFile = repoFile('demos/01-dictionary/deploy/environments/local-za-1.env')
+const cellEnv = Object.fromEntries(
+  [...envFile.matchAll(/^([A-Z0-9_]+)=(.*)$/gm)].map((m) => [m[1], m[2].trim()]),
+)
+const expand = (text) =>
+  text.replace(/\$\{([A-Z0-9_]+):-([^}]*)\}/g, (_, name, fallback) => cellEnv[name] ?? fallback)
+const compose = expand(
+  repoFile('demos/01-dictionary/deploy/cell/compose.dedicated.yaml') +
+    '\n' +
+    repoFile('demos/01-dictionary/deploy/cell/compose.runtime.yaml'),
+)
+/* The preload fixture states the catalog's port as a variable too, so it can
+   never disagree with the compose file that publishes it. Expanded with the
+   same cell, for the same reason. */
+const registry = JSON.parse(expand(repoFile('demos/01-dictionary/registry.json')))
 const publishers = JSON.parse(repoFile('demos/01-dictionary/nats/keys/publishers.json'))
 
 /* The announced half. Each id is a directory under lab-shell/plugins/ holding

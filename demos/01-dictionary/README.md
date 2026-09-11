@@ -58,7 +58,7 @@ platform) as a real site rather than raw markdown. Two ways to run it:
 
 - **Local dev** — `npm install && npm run dev` from `docs/` for
   http://localhost:7106 with hot reload.
-- **`docker compose up`** — the `docs-frontend` service builds the static
+- **The Docker stack** — the `docs-frontend` service builds the static
   site and serves it via nginx, same as the other three frontends, also
   on http://localhost:7106.
 
@@ -93,26 +93,40 @@ The demo screen maps vertically to the pipeline:
 
 ## Run it
 
+The stack is split into bands (ADR-055): a **cell** is one region, and the
+**global** band is the control plane. One command starts both. Every host port
+is a variable, and the env file supplies them — `za-1` holds the base ports, so
+the addresses below are the ones you already know.
+
 ```bash
-cd demos/01-dictionary
-docker compose up --build    # builds the Go backend + both Vue frontends, then starts all services
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --build
 ```
+
+Add `-f compose.dedicated.yaml` when you also want the micro-frontend plugin
+fixtures; they are not part of a cell. Run a second cell at the same time with
+`-p lb-au-1` and `../environments/local-au-1.env`, which shifts every host port
+by +50.
+
+This demo is **one region**. There is no cluster, no gateway and no JetStream
+domain here — its NATS is a single server called `nats`. Multi-region work lives
+in `demos/02-multi-region/`.
 
 Then open **http://localhost:7100** for the Admin / NATS debug UI,
 **http://localhost:7101** for Port Management, or **http://localhost:7102** for Tech Lab Operator.
 
 ```bash
-docker compose down          # stop and remove containers
-docker compose down -v       # also drop NATS and Postgres data volumes
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml down       # stop and remove containers
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml down -v    # also drop NATS and Postgres data volumes
 ```
 
-**Optional — Jaeger (Phase 28g):** a `docker compose up` above never starts
-Jaeger or `otlp-bridge`; both sit behind the `otlp` profile so toggling them
-costs no code (see `ARCHITECTURE-COMMUNICATIONS.md` § 6). Bring them up
-alongside the rest of the stack with:
+**Optional — Jaeger (Phase 28g):** the command above never starts Jaeger or
+`otlp-bridge`; both sit behind the `otlp` profile so toggling them costs no code
+(see `ARCHITECTURE-COMMUNICATIONS.md` § 6). Bring them up alongside the rest of
+the stack with:
 
 ```bash
-docker compose --profile otlp up -d jaeger otlp-bridge
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml --profile otlp up -d jaeger otlp-bridge
 ```
 
 Then open **http://localhost:16686** and search by service (`shipping`,
@@ -174,8 +188,8 @@ production bundle, which DevTools can't inspect). Requires four terminals.
 `postgres` container holds every service's database, including refdata-service's for step 5:
 
 ```bash
-cd demos/01-dictionary
-docker compose up nats postgres
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d nats postgres
 ```
 
 **2. Backend** — the code defaults to the *standard* ports (`localhost:4222`,
@@ -273,7 +287,8 @@ green without ever proving the guarantee. To actually run it, start
 Temporal and point the suite at it:
 
 ```bash
-docker compose up -d temporal
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d temporal
 ```
 
 ```bash
@@ -298,7 +313,8 @@ statement about Go code, it is a statement about the database.
 They **skip silently** when `ORGANIZATIONS_TEST_DATABASE_URL` is unset:
 
 ```bash
-docker compose up -d postgres
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d postgres
 ```
 
 ```bash

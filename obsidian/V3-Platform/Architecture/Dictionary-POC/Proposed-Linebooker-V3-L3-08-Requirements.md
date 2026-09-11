@@ -106,7 +106,7 @@ document.
 - The cell contents, the sovereign-cell example and the gateway posture are
   carried down from `LB-V3-L2-01` sheet 2 and its register entries L2-015 to
   L2-020, L2-022, L2-023, L2-026 and L2-028.
-- `.claude/plans/Multi-Region-Plan.md` remains DRAFT and is the working source
+- `demos/02-multi-region/docs/Multi-Region-Plan.md` remains DRAFT and is the working source
   for the mirror-over-gateway preference recorded on sheet 1.
 - Region is a deployment axis. It never appears in a subject token or a
   `{context}` value, so a subject in one cell is byte-identical to its

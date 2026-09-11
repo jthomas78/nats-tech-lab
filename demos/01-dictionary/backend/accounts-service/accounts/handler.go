@@ -75,7 +75,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 // Handlers wires the Store, Provisioner, and shared creds-output directory
-// (the volume shipping-service also mounts, see docker-compose.yml) into
+// (the volume shipping-service also mounts, see deploy/cell/compose.runtime.yaml) into
 // the HTTP layer.
 type Handlers struct {
 	Store       *Store

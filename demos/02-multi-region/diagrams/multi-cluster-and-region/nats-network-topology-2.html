@@ -238,7 +238,7 @@ li b { color: var(--text); font-weight: 600; }
         <rect class="tile" x="6" y="396" width="420" height="76" rx="8"/>
         <text class="tm" x="18" y="424">deploy/cell/compose.dedicated.yaml</text>
         <text class="ts" x="18" y="446">optional tenant workloads</text>
-        <text class="td" x="18" y="462">own project &mdash; lb-za-1-tenant-a</text>
+        <text class="td" x="18" y="462">own project &mdash; poc-tenant-a</text>
         <rect class="tile" x="506" y="396" width="462" height="76" rx="8"/>
         <rect x="516" y="406" width="22" height="22" rx="7" fill="var(--tx3)"/>
         <text class="ig" x="527" y="421" text-anchor="middle">T</text>
@@ -258,7 +258,7 @@ li b { color: var(--text); font-weight: 600; }
     control.</b> Writing account JWTs into the resolver directory feels like a NATS server job, and it is not: with
     <code>resolver: full</code> the server owns the directory and the reconciler only puts files in it, which is why the
     control plane can be down while every region keeps authenticating. <b>Projects, not files, separate the
-    instances.</b> <code>lb-za-1</code> and <code>lb-au-1</code> run the same two files and differ only by
+    instances.</b> <code>poc</code> and <code>lb-au-1</code> run the same two files and differ only by
     <code>deploy/environments/local/za-1.env</code> versus <code>au-1.env</code>. Each project owns its own volumes,
     credentials and internal network, and one external Docker network named <code>platform</code> carries the gateway
     links and nothing else &mdash; so <code>za</code> cannot reach <code>au</code>'s Postgres.</figcaption>

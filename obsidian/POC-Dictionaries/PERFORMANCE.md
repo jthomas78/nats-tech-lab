@@ -218,6 +218,11 @@ path relative to this pre-guard baseline.
 
 See [`perf/README.md`](perf/README.md) for full detail and knobs. In short:
 
+> The flat `demos/01-dictionary/docker-compose.yml` used for this run was
+> retired on 2026-09-08 in favour of `deploy/cell/` + `deploy/global/`
+> (ADR-055). The commands below are kept as the record of how this run was
+> made; for a run today see `demos/01-dictionary/perf/README.md`.
+
 ```bash
 brew install k6
 docker compose -f demos/01-dictionary/docker-compose.yml up --build -d

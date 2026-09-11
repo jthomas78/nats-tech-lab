@@ -24,7 +24,7 @@ narrows it: shared Postgres by default, and standard Postgres always);
 adapters, not the only one);
 [Proposed-Linebooker-V3-Architecture-Authority.md](../../Dictionary-POC/Proposed-Linebooker-V3-Architecture-Authority.md)
 (the L0-L4 hierarchy these rules govern);
-`demos/01-dictionary/diagrams/multi-cluster-and-region/` (the drawings that
+`demos/02-multi-region/diagrams/multi-cluster-and-region/` (the drawings that
 apply them)
 
 ## Context

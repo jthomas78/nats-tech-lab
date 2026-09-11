@@ -46,7 +46,7 @@ option), with a bounded number of retries and backoff
 `ErrRPCUnavailable`. All REST-client coupling
 (`REFDATA_SERVICE_URL`/`refdataServiceURL()`/`http://localhost:7201`,
 `baseURL`/`httpc`, `fetchViaAPI`/`fetchTypeViaAPI`/`fetchVersionedViaAPI`) was
-deleted from `refdataconsumer` and from `docker-compose.yml`. Frontend/edge
+deleted from `refdataconsumer` and from the compose file. Frontend/edge
 REST traffic is unaffected. See § 7 for the full design record and
 `BUSINESS_RULES-REFDATA.md`'s BR-D28 for the enforced rule and its tests.
 
@@ -993,7 +993,7 @@ shows otherwise.
 >   it currently holds in memory; if the collector is down, or Jaeger is
 >   started *after* something odd is noticed, those spans are gone. A
 >   `DeliverAll` consumer re-exports the retained window on demand.
-> - **Toggling costs no code.** Two `docker-compose.yml` services added or
+> - **Toggling costs no code.** Two Compose services added or
 >   removed. Not an env flag threaded through five binaries.
 > - **One copy of the OTLP mapping.** `natstrace` was duplicated five times
 >   before Phase 35 extracted it into `shared/natstrace`; the bridge is the
@@ -1015,7 +1015,8 @@ shows otherwise.
 > utility has no domain layer), `internal/otlpmap` doing the pure
 > field-for-field mapping and `cmd/main.go` wiring the `TRACES` consumer,
 > the size/interval batcher, and the ack-only-on-2xx HTTP POST.
-> `docker-compose.yml`'s `jaeger` + `otlp-bridge` pair sits behind Compose's
+> `deploy/cell/compose.runtime.yaml`'s `jaeger` + `otlp-bridge` pair sits behind
+> Compose's
 > `otlp` profile, exactly the "two services added or removed" toggle this
 > section calls for. **One correction made against a live rejection, not
 > assumed up front:** trace/span ids are passed through as the same hex
@@ -1200,7 +1201,7 @@ PROPOSED).
   REST's own not-found handling, now made explicit at the wire level instead.
 - **All REST-client coupling is removed from `internal/refdataconsumer`**,
   not just deprioritized: the `REFDATA_SERVICE_URL` env var
-  (`docker-compose.yml`), the `refdataServiceURL()` function and its
+  (`deploy/cell/compose.runtime.yaml`), the `refdataServiceURL()` function and its
   hardcoded `http://localhost:7201` default (`dictionary/composition.go`),
   the `baseURL`/`httpc` fields, and the `fetchViaAPI` / `fetchTypeViaAPI` /
   `fetchVersionedViaAPI` / REST-based `Locales` methods on `Consumer` are all

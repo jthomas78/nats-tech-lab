@@ -1,4 +1,4 @@
-# Build context is the REPO ROOT (see demos/01-dictionary/docker-compose.yml)
+# Build context is the REPO ROOT (see demos/01-dictionary/deploy/cell/compose.dedicated.yaml)
 # so the shared UniFi theme preset (@unifi-theme) can be copied in.
 #
 # This image is the containerised form of BR-AS15's claim: the plugin is built
@@ -87,18 +87,18 @@ COPY --from=build /repo/lab-shell/plugins/acme-widget/dist /srv
       "component": "footer-item",
       "order": 10
     }
-  ]
+  ],
+  "backendServices": []
 }
 
 ---
     build:
-      context: ../..
+      context: ../../../..
       dockerfile: lab-shell/plugins/acme-widget/Dockerfile
       additional_contexts:
         mfe-plugin-host: service:mfe-plugin-host
-    container_name: lb-acme-widget
     ports:
-      - "7116:8080"
+      - "${PLUGIN_ACME_WIDGET_PORT:-7116}:8080"
     labels:
       com.nats-tech-lab.mfe.source: announced
     # `backend` only. A plugin container used to join `frontend` as well so
@@ -110,8 +110,8 @@ COPY --from=build /repo/lab-shell/plugins/acme-widget/dist /srv
     environment:
       HTTP_ADDR: ":8080"
       ASSET_ROOT: /srv
-      ASSET_ALLOWED_ORIGIN: http://localhost:7110
-      PLUGIN_PUBLIC_ORIGIN: http://localhost:7116
+      ASSET_ALLOWED_ORIGIN: http://localhost:${APP_SHELL_PORT:-7110}
+      PLUGIN_PUBLIC_ORIGIN: http://localhost:${PLUGIN_ACME_WIDGET_PORT:-7116}
       HEALTH_SELF_URL: http://127.0.0.1:8080/healthz
       NATS_URL: nats://nats:4222
       NATS_CREDS_PATH: /etc/nats/creds/plugin.creds
@@ -121,8 +121,8 @@ COPY --from=build /repo/lab-shell/plugins/acme-widget/dist /srv
       PUBLISHER_SIGNING_SEED_PATH: /etc/plugin/signing.nk
       RELEASE_STATE_PATH: /var/lib/announcer/release.json
     volumes:
-      - ./nats/creds/plugins/acme-widget.creds:/etc/nats/creds/plugin.creds:ro
-      - ./nats/keys/publisher-acme-widget.nk:/etc/plugin/signing.nk:ro
+      - ../../nats/creds/plugins/acme-widget.creds:/etc/nats/creds/plugin.creds:ro
+      - ../../nats/keys/publisher-acme-widget.nk:/etc/plugin/signing.nk:ro
       - acme-widget-release:/var/lib/announcer
     stop_grace_period: 30s
     restart: unless-stopped

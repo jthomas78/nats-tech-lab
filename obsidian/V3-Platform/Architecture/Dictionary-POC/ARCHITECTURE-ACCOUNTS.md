@@ -105,8 +105,7 @@ attempting a list on `shipping-admin` doesn't fail fast — the request hangs
 until the client timeout, because a denied publish to `$JS.API.STREAM.LIST`
 simply never produces a reply. The credential resolves from
 `NATS_PLATFORM_CREDS_PATH`, falling back to `platform.creds` inside
-`NATS_CREDS_DIR` (which is why `docker-compose.yml` sets no explicit var for
-it); with neither configured — local dev outside operator mode —
+`NATS_CREDS_DIR` (which is why the compose file sets no explicit var for it); with neither configured — local dev outside operator mode —
 `PlatformFullJS` is nil, so every consumer treats PLATFORM as an account that
 may legitimately be absent rather than as an error.
 
@@ -1124,7 +1123,8 @@ optimisation of this statement.
 #### Two knobs, because cadence is not retention
 
 Conflating them yields a reaper that is either useless or destructive. Both
-are set at their defaults in `docker-compose.yml` so they are discoverable
+are set at their defaults in `deploy/global/compose.control.yaml` so they are
+discoverable
 where the stack is configured rather than only in Go.
 
 | Variable | Default | Governs | Why |

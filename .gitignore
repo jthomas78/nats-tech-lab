@@ -36,3 +36,4 @@ tmp/
 # Draw.io autosave backups
 .$*.drawio.bkp
 *.drawio.bkp
+demos/03-multi-cluster-and-accounts/js/

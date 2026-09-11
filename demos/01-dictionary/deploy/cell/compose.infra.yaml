@@ -122,7 +122,7 @@ services:
 networks:
   # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
   # joins `backend`; anything the browser talks to joins `frontend`. Compose
-  # namespaces both by project, so lb-za-1 and lb-au-1 get their own pair and
+  # namespaces both by project, so poc and lb-au-1 get their own pair and
   # cannot see each other -- which is exactly the region isolation we want to
   # prove locally.
   backend:

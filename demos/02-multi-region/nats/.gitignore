@@ -1,0 +1,8 @@
+# Minted by bootstrap.sh, not written by hand. One command re-makes them all,
+# so there is no reason to carry them in git -- and a .creds file in a repo is
+# a habit worth not forming, even for a lab.
+operator.jwt
+resolver-preload.generated.conf
+creds/
+resolver/
+.nsc-store/

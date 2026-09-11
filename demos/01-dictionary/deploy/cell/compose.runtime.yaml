@@ -500,7 +500,7 @@ services:
       NATS_URL: nats://nats:4222
       # otlp-bridge only ever reads (JetStream consume on TRACES) — reusing
       # platform.creds rather than minting a dedicated credential mirrors
-      # refdata-service's own PLATFORM connection (docker-compose.yml above)
+      # refdata-service's own PLATFORM connection (above, in this file)
       # rather than adding new NATS account provisioning for a demo-only
       # exporter.
       NATS_CREDS_PATH: /etc/nats/creds/platform.creds
@@ -520,7 +520,7 @@ services:
 networks:
   # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
   # joins `backend`; anything the browser talks to joins `frontend`. Compose
-  # namespaces both by project, so lb-za-1 and lb-au-1 get their own pair and
+  # namespaces both by project, so poc and lb-au-1 get their own pair and
   # cannot see each other -- which is exactly the region isolation we want to
   # prove locally.
   backend:
@@ -530,7 +530,7 @@ volumes:
   # BR-AC46 — where accounts-service writes a runtime-minted tenant's
   # .creds. The seed directory on the host is mounted read-only
   # everywhere now, so the writable half is a volume, and it is
-  # per-project: lb-za-1 and lb-au-1 do not share minted tenants,
+  # per-project: poc and lb-au-1 do not share minted tenants,
   # the same way they do not share a Postgres. Declared identically
   # in ../global/compose.control.yaml so a merged run reconciles to
   # one volume (the nats-logs precedent).

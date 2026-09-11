@@ -345,7 +345,7 @@ while assembling a response.
 
 That consumption works because **both services connect to the same NATS
 server** — `NATS_URL=nats://nats:4222` for both `shipping-service` and
-`refdata-service` in `docker-compose.yml`. What they no longer share is an
+`refdata-service` in `deploy/cell/compose.runtime.yaml`. What they no longer share is an
 *account*: `refdata-service` authenticates on **PLATFORM**, while
 `shipping-service` opens one connection per tenant account (plus its
 restricted PLATFORM admin connection). So the `refdata-{context}` buckets live

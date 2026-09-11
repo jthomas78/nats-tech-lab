@@ -68,7 +68,7 @@ var _ = Describe("Migrated plugin deployment", func() {
 		})
 
 		It("keeps exactly one service per announced plugin except the announcer-only 404 fixture", func() {
-			compose := readRepositoryFile("demos", "01-dictionary", "docker-compose.yml")
+			compose := readRepositoryFile("demos", "01-dictionary", "deploy", "cell", "compose.dedicated.yaml")
 			announcers := []string{}
 			for _, line := range strings.Split(compose, "\n") {
 				trimmed := strings.TrimSpace(line)
@@ -85,14 +85,16 @@ var _ = Describe("Migrated plugin deployment", func() {
 		// never on a docker network to begin with: it uses the published host
 		// port, which the last assertion here still pins to exactly one.
 		It("joins migrated plugins to the backend network only, without proxy, extra host, or extra port", func() {
-			compose := readRepositoryFile("demos", "01-dictionary", "docker-compose.yml")
+			compose := readRepositoryFile("demos", "01-dictionary", "deploy", "cell", "compose.dedicated.yaml")
 			for _, plugin := range migratedPlugins {
 				service := composeService(compose, plugin+"-frontend")
 				Expect(service).NotTo(ContainSubstring("- frontend"), plugin)
 				Expect(service).To(ContainSubstring("- backend"), plugin)
 				Expect(service).NotTo(ContainSubstring("proxy_pass"), plugin)
 				Expect(service).NotTo(ContainSubstring("extra_hosts"), plugin)
-				Expect(strings.Count(service, "- \"711")).To(Equal(1), plugin)
+				// One published port, still. ADR-055 made it a ${VAR:-default},
+				// so the literal 711x moved into the default half.
+				Expect(strings.Count(service, "- \"${PLUGIN_")).To(Equal(1), plugin)
 			}
 		})
 	})
@@ -166,8 +168,12 @@ var _ = Describe("Migrated plugin deployment", func() {
 var _ = Describe("Plugin scaffolder", func() {
 	Context("decision 9 — generated plugins match the migrated production shape", func() {
 		It("keeps the Compose template synchronized with the real example service", func() {
-			compose := readRepositoryFile("demos", "01-dictionary", "docker-compose.yml")
+			compose := readRepositoryFile("demos", "01-dictionary", "deploy", "cell", "compose.dedicated.yaml")
 			actual := composeService(compose, "example-plugin-frontend")
+			// Order matters: the port VARIABLE is normalized before the id,
+			// because PLUGIN_EXAMPLE_PORT does not contain "example-plugin"
+			// but does contain the digits 7111 in its default.
+			actual = strings.ReplaceAll(actual, "PLUGIN_EXAMPLE_PORT", "__PLUGIN_PORT_VAR__")
 			actual = strings.ReplaceAll(actual, "example-plugin", "__PLUGIN_ID__")
 			actual = strings.ReplaceAll(actual, "7111", "__PLUGIN_PORT__")
 			anchor := "    depends_on: &plugin_dependencies\n"
@@ -182,11 +188,29 @@ var _ = Describe("Plugin scaffolder", func() {
 
 		It("matches the golden fixture derived from example-plugin", func() {
 			root := GinkgoT().TempDir()
-			for _, dir := range []string{"lab-shell/plugins", "demos/01-dictionary/nats", "scripts/templates"} {
+			for _, dir := range []string{
+				"lab-shell/plugins",
+				"demos/01-dictionary/nats",
+				"demos/01-dictionary/deploy/cell",
+				"demos/01-dictionary/deploy/environments",
+				"scripts/templates",
+			} {
 				Expect(os.MkdirAll(filepath.Join(root, dir), 0o700)).To(Succeed())
 			}
 			copyTree(filepath.Join(repositoryRoot(), "lab-shell/plugins/example-plugin"), filepath.Join(root, "lab-shell/plugins/example-plugin"))
-			for _, file := range []string{"demos/01-dictionary/docker-compose.yml", "demos/01-dictionary/nats/bootstrap-operator.sh", "demos/01-dictionary/README.md", "scripts/templates/plugin-compose.yml.tpl"} {
+			// ADR-055 split the one flat file into bands, so a scaffolded
+			// plugin now touches five files: the dedicated band for the
+			// service and its volume, the runtime band for the registry's
+			// allowlist and fetch map, and one env file per cell for the port.
+			for _, file := range []string{
+				"demos/01-dictionary/deploy/cell/compose.dedicated.yaml",
+				"demos/01-dictionary/deploy/cell/compose.runtime.yaml",
+				"demos/01-dictionary/deploy/environments/local-za-1.env",
+				"demos/01-dictionary/deploy/environments/local-au-1.env",
+				"demos/01-dictionary/nats/bootstrap-operator.sh",
+				"demos/01-dictionary/README.md",
+				"scripts/templates/plugin-compose.yml.tpl",
+			} {
 				copyFile(filepath.Join(repositoryRoot(), file), filepath.Join(root, file))
 			}
 
@@ -195,7 +219,7 @@ var _ = Describe("Plugin scaffolder", func() {
 			output, err := command.CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), string(output))
 
-			compose := readFile(filepath.Join(root, "demos/01-dictionary/docker-compose.yml"))
+			compose := readFile(filepath.Join(root, "demos/01-dictionary/deploy/cell/compose.dedicated.yaml"))
 			generated := strings.Join([]string{
 				readFile(filepath.Join(root, "lab-shell/plugins/acme-widget/Dockerfile")),
 				readFile(filepath.Join(root, "lab-shell/plugins/acme-widget/public/manifest.json")),
@@ -205,9 +229,22 @@ var _ = Describe("Plugin scaffolder", func() {
 			Expect(generated).To(Equal(strings.TrimSuffix(golden, "\n")))
 
 			Expect(readFile(filepath.Join(root, "demos/01-dictionary/nats/bootstrap-operator.sh"))).To(ContainSubstring("  acme-widget\n"))
-			Expect(compose).To(ContainSubstring("http://localhost:7116"))
-			Expect(compose).To(ContainSubstring(`"acme-widget":[]`))
+			Expect(compose).To(ContainSubstring("http://localhost:${PLUGIN_ACME_WIDGET_PORT:-7116}"))
+			Expect(compose).To(ContainSubstring("  acme-widget-release:\n"))
 			Expect(readFile(filepath.Join(root, "demos/01-dictionary/README.md"))).To(ContainSubstring("| Acme Widget plugin | http://localhost:7116 |"))
+
+			// Both halves of the registry wiring, in the runtime band. An
+			// allowlist without a fetch map, or either without the other, is
+			// silent: the plugin comes up and its entries are refused.
+			runtime := readFile(filepath.Join(root, "demos/01-dictionary/deploy/cell/compose.runtime.yaml"))
+			Expect(runtime).To(ContainSubstring(`REGISTRY_ALLOWED_ORIGINS: "http://localhost:${PLUGIN_ACME_WIDGET_PORT:-7116},`))
+			Expect(runtime).To(ContainSubstring(`"http://localhost:${PLUGIN_ACME_WIDGET_PORT:-7116}":"http://acme-widget-frontend:8080"`))
+
+			// One port variable per cell, and au-1 is offset by +50. A plugin
+			// that exists in one cell and not the other is the failure ADR-055
+			// exists to prevent.
+			Expect(readFile(filepath.Join(root, "demos/01-dictionary/deploy/environments/local-za-1.env"))).To(ContainSubstring("PLUGIN_ACME_WIDGET_PORT=7116\n"))
+			Expect(readFile(filepath.Join(root, "demos/01-dictionary/deploy/environments/local-au-1.env"))).To(ContainSubstring("PLUGIN_ACME_WIDGET_PORT=7166\n"))
 		})
 	})
 })

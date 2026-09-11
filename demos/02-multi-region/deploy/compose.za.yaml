@@ -1,0 +1,170 @@
+# Demo 02 -- multi-region cluster mechanics.
+#
+# NATS servers, nothing else. No Postgres, no Temporal, no services, no
+# frontends.
+#
+# Two clusters of three:
+#
+#   za-1 za-2 za-3   cluster za   project lb-za-1
+#   au-1 au-2 au-3   cluster au   project lb-au-1  (both share JetStream domain lb)
+#
+# Three per cluster, not one. JetStream picks a leader by RAFT vote, and a
+# vote needs a majority. One server cannot lose a node and keep going; three
+# can lose one. R1 vs R3 has no meaning below three servers.
+#
+# ONE REGION, ONE COMPOSE PROJECT. A region is its own deployment in the real
+# world, so it is its own project here: `docker compose -p lb-au-1 ... down`
+# takes Australia off the air and leaves South Africa running. That is the
+# whole point of the demo, and one project could not do it.
+#
+# THREE NETWORKS, NOT ONE, and all three are EXTERNAL because two projects
+# share them. `deploy/up.sh` creates them.
+#
+#   lb-za    za-1 za-2 za-3            routes, port 6222
+#   lb-au    au-1 au-2 au-3            routes, port 6222
+#   lb-wan   all six, `.gw` names      gateways, port 7222 -- nothing else
+#
+# One flat network would let za-1 reach au-1 on every port, so the gateway
+# would prove nothing.
+#
+# Each server carries a DIFFERENT name on each network, and that is what
+# pins each kind of traffic to its own road:
+#
+#   za-1.rt   exists on lb-za only   -> route URLs use this
+#   za-1.gw   exists on lb-wan only  -> gateway URLs use this
+#
+# The suffix is not decoration. A container on two networks answers its
+# plain name (`za-1`) with an address on EITHER network, and Docker does
+# not promise which. Measured: with plain names the routes came up on the
+# wan, so cluster traffic was crossing the region boundary. The `.rt` /
+# `.gw` split removes the choice.
+#
+# Honest limit: Docker still publishes the plain name `za-1` on the wan, so
+# au can resolve it. NATS refuses a route between servers whose cluster
+# names differ, so that leak cannot join the two clusters. It is cosmetic.
+#
+# DO NOT use `docker network disconnect lb-wan lab2-za-1` to fake a WAN cut.
+# Measured 2026-09-09: disconnecting a network from a RUNNING container also
+# drops that container's published host ports. Client port 4621 and monitor
+# port 8621 go dead, so every reading you take is a Docker artifact, not NATS
+# behaviour. The first run of this experiment reported "both regions died";
+# it was wrong, and core NATS pub/sub had "failed" too, which is impossible
+# from a JetStream meta split.
+#
+# To lose the meta majority honestly, stop one region's containers instead:
+#   docker stop lab2-au-1 lab2-au-2 lab2-au-3
+# ZA then sees 3 of 6 peers, its ports stay up, and you measure the real
+# result: JetStream MANAGEMENT fails (10008) while core NATS and existing
+# streams keep reading and writing.
+#
+# Container names keep the `lab2-` prefix so the lab scripts can address one
+# server by name (`docker stop lab2-za-2`) without knowing its project.
+#
+# Host ports are in their own range so this can run beside demo 01:
+#   demo 01 owns 4222 and 8222
+#   demo 02 owns 4621-4623 + 8621-8623 (za), 4721-4723 + 8721-8723 (au)
+
+name: lb-za-1
+
+x-nats: &nats
+  image: nats:2.14.3-alpine3.22
+  restart: unless-stopped
+  command: ["-c", "/etc/nats/nats.conf"]
+
+services:
+
+  za-1:
+    <<: *nats
+    container_name: lab2-za-1
+    networks:
+      region:
+        aliases:
+          - za-1.rt
+      wan:
+        aliases:
+          - za-1.gw
+    environment:
+      NATS_SERVER_NAME: za-1
+      NATS_CLUSTER_NAME: za
+      NATS_JS_DOMAIN: lb
+      NATS_ROUTE_1: nats://za-1.rt:6222
+      NATS_ROUTE_2: nats://za-2.rt:6222
+      NATS_ROUTE_3: nats://za-3.rt:6222
+    ports:
+      - "4621:4222"
+      - "8621:8222"
+    volumes:
+      - ../nats/nats.conf:/etc/nats/nats.conf:ro
+      - ../nats/gateway-remotes-za.conf:/etc/nats/gateway-remotes.conf:ro
+      - ../nats/operator.jwt:/etc/nats/operator.jwt:ro
+      - ../nats/resolver-preload.generated.conf:/etc/nats/resolver-preload.generated.conf:ro
+      - za-1-data:/data
+
+  za-2:
+    <<: *nats
+    container_name: lab2-za-2
+    networks:
+      region:
+        aliases:
+          - za-2.rt
+      wan:
+        aliases:
+          - za-2.gw
+    environment:
+      NATS_SERVER_NAME: za-2
+      NATS_CLUSTER_NAME: za
+      NATS_JS_DOMAIN: lb
+      NATS_ROUTE_1: nats://za-2.rt:6222
+      NATS_ROUTE_2: nats://za-3.rt:6222
+      NATS_ROUTE_3: nats://za-1.rt:6222
+    ports:
+      - "4622:4222"
+      - "8622:8222"
+    volumes:
+      - ../nats/nats.conf:/etc/nats/nats.conf:ro
+      - ../nats/gateway-remotes-za.conf:/etc/nats/gateway-remotes.conf:ro
+      - ../nats/operator.jwt:/etc/nats/operator.jwt:ro
+      - ../nats/resolver-preload.generated.conf:/etc/nats/resolver-preload.generated.conf:ro
+      - za-2-data:/data
+
+  za-3:
+    <<: *nats
+    container_name: lab2-za-3
+    networks:
+      region:
+        aliases:
+          - za-3.rt
+      wan:
+        aliases:
+          - za-3.gw
+    environment:
+      NATS_SERVER_NAME: za-3
+      NATS_CLUSTER_NAME: za
+      NATS_JS_DOMAIN: lb
+      NATS_ROUTE_1: nats://za-3.rt:6222
+      NATS_ROUTE_2: nats://za-1.rt:6222
+      NATS_ROUTE_3: nats://za-2.rt:6222
+    ports:
+      - "4623:4222"
+      - "8623:8222"
+    volumes:
+      - ../nats/nats.conf:/etc/nats/nats.conf:ro
+      - ../nats/gateway-remotes-za.conf:/etc/nats/gateway-remotes.conf:ro
+      - ../nats/operator.jwt:/etc/nats/operator.jwt:ro
+      - ../nats/resolver-preload.generated.conf:/etc/nats/resolver-preload.generated.conf:ro
+      - za-3-data:/data
+
+networks:
+  # This region's own network. Routes (6222) never leave it.
+  region:
+    name: lb-za
+    external: true
+  # The only road between the regions. Gateways (7222) only.
+  wan:
+    name: lb-wan
+    external: true
+
+volumes:
+  za-1-data:
+  za-2-data:
+  za-3-data:

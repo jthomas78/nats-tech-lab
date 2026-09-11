@@ -39,8 +39,10 @@ truth), and CQRS projections.**
 Read the tree with `ls` — it changes faster than this file. Not visible from the
 tree:
 
-- Each demo has its own `docker-compose.yml` and does **not** share a network with
-  the lab shell or other demos.
+- Each demo owns its Compose files and does **not** share a network with the lab
+  shell or other demos. Demo 01's live under `demos/01-dictionary/deploy/` and are
+  split into bands (ADR-055) — see "Running demo 01" below. **There is no flat
+  `demos/01-dictionary/docker-compose.yml` any more**; it was retired 2026-09-08.
 - A demo's top-level `README.md` is the **intro text rendered in the lab shell** —
   edit it with that audience in mind.
 - `lab-shell/` is the demo menu / intro pages; per-demo UIs live under
@@ -213,12 +215,50 @@ ginkgo watch ./...    # re-run on change
 silently without their `*_TEST_DATABASE_URL` env var, and `go test` still prints
 `ok` — green is not proof they ran.
 
-### Backend services
+### Running demo 01
 
-`docker compose up --build` from `demos/01-dictionary/` starts every backend
-service together. `refdata-service` and `shipping-service` share a default port
-outside Docker — see `demos/01-dictionary/backend/refdata-service/README.md` for
-standalone run instructions, and `ARCHITECTURE-DICTIONARY.md` for architecture.
+The stack is three bands under `demos/01-dictionary/deploy/` (ADR-055):
+
+- `cell/` — one region. `compose.yaml` includes `compose.infra.yaml` (NATS,
+  Postgres, Temporal) and `compose.runtime.yaml` (the services and frontends).
+- `cell/compose.dedicated.yaml` — the micro-frontend plugin fixtures. Not part of
+  a cell; add it with an extra `-f` when you want them.
+- `global/compose.control.yaml` — the control plane (`accounts-service`). One per
+  trust domain, not one per region.
+
+A cell's NATS is **one server**, service name `nats`. There is no cluster, no
+gateway and no JetStream `domain` here. **All multi-region work — clustering,
+gateways, superclusters and JetStream domains — lives in `demos/02-multi-region/`
+and must not be added back to demo 01** (reverted 2026-09-09). Demo 01 is one
+region, one cell, and stays that way.
+
+Every host port is a variable, supplied by `deploy/environments/local-<cell>.env`.
+`za-1` holds the base ports; `au-1` shifts them by +50, so both cells can run at
+once. Run from `demos/01-dictionary/deploy/cell/`:
+
+```bash
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --build
+```
+
+`refdata-service` and `shipping-service` share a default port outside Docker — see
+`demos/01-dictionary/backend/refdata-service/README.md` for standalone run
+instructions, and `ARCHITECTURE-DICTIONARY.md` for architecture.
+
+### Running demo 02
+
+**`demos/02-multi-region/` has its own `CLAUDE.md`. Read that, not this file,
+for anything inside that folder.** It is a sealed unit — six NATS servers and one
+small Go binary, no Postgres, no services, no frontends. Most rules here (the
+frontend design system, the 7100–7299 port range, Ginkgo, `BUSINESS_RULES-*.md`,
+the `ARCHITECTURE*.md` set, the plan files, `shared/natsconn`) do **not** apply
+there, and its own file says so explicitly.
+
+Three rules worth knowing from outside: all multi-region work — clustering,
+gateways, superclusters, JetStream domains — lives there and must never be added
+back to demo 01; `odometer/` is that demo's only JetStream + CQRS example; and
+demo 02 uses the **host** `nats`/`nsc` CLIs, not a container (the toolbox was
+removed 2026-09-09 on the user's instruction). Demo 01's own tooling rules are
+unaffected.
 
 ## Demo 01 — Dictionary POC
 

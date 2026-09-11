@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meta quorum — who is still alive to take a write?</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --good: #2dd4bf; --warn: #f0b429;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+h3 { margin: 0; font-size: 13px; line-height: 19px; font-weight: 600; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code, td code, th code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; max-width: 78ch; }
+li b { color: var(--text); font-weight: 600; }
+
+table { border-collapse: collapse; width: 100%; font-size: 12px; line-height: 17px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--muted); }
+th { color: var(--dim); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+td b { color: var(--text); font-weight: 600; }
+.tbl-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow-x: auto; }
+
+.badge { font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
+         border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
+.b-good { color: var(--good); } .b-bad { color: var(--bad); } .b-warn { color: var(--warn); } .b-base { color: var(--dim); }
+
+.note { background: var(--nested); border: 1px solid var(--border); border-left: 2px solid var(--warn);
+        border-radius: 4px; padding: 11px 14px; color: var(--muted); font-size: 12px; line-height: 18px; max-width: 82ch; }
+.note b { color: var(--text); }
+
+pre { margin: 0; background: var(--nested); border: 1px solid var(--border); border-radius: 4px;
+      padding: 10px 12px; overflow-x: auto; font-family: var(--mono); font-size: 11px; line-height: 17px; color: var(--muted); }
+pre .ok  { color: var(--good); }
+pre .no  { color: var(--bad); }
+pre .hi  { color: var(--text); }
+
+/* --- diagram primitives --- */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.nb.clu { stroke-dasharray: none; stroke-opacity: 0.32; }
+.nb.dead { stroke: var(--bad); stroke-opacity: 0.55; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.grp.g { fill: var(--good); } .grp.r { fill: var(--bad); }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.ro   { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
+.ro.g { fill: var(--good); } .ro.r { fill: var(--bad); } .ro.h { fill: var(--text); }
+.gw   { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.lf   { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.dead { fill: none; stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 4 4; }
+.mir  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Demo 03 &middot; measured 2026-09-11 &middot; hand-built lab, nats-server 2.14.6</div>
+      <h1>Who is still alive to take a write?</h1>
+      <p class="sub">Demo 02's <a style="color:var(--accent)" href="../../02-multi-region/diagrams/gateway-double-capture-options.html">double-capture page</a>
+      asks <b style="color:var(--text)">where the bytes land</b>. This page asks a different question:
+      when a region goes dark, <b style="color:var(--text)">who can still accept a JetStream management call</b>.
+      Four topologies. Every number below was measured on this machine, not drawn from the docs.</p>
+    </div>
+  </header>
+
+  <div class="note">
+    <b>Read this first.</b> A JetStream <b>meta group</b> is every JetStream server in one JetStream system.
+    It holds the list of streams, and it votes. A <b>stream group</b> is the replicas of one stream and always
+    lives inside one cluster. Losing meta quorum does <b>not</b> stop data — it stops <i>change</i>.
+    Measured in this lab: with <code>au</code> stopped, core pub/sub worked, reads worked, and a publish to an
+    existing stream took <code>ODOMETER</code> from 1 to 2 messages. Only <code>nats stream add</code> failed,
+    with <code>JetStream system temporarily unavailable (10008)</code>. A WAN cut is a change freeze, not an outage.
+  </div>
+
+  <!-- ============================ FIGURE A ============================ -->
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 300" role="img" aria-label="Figure A. Two clusters, za and au, three servers each, joined by a gateway. All six servers form a single JetStream meta group of six peers, so the majority needed is four. Stopping the three au servers leaves za with three of six, below the majority, so no meta leader can be elected and stream add fails with error 10008.">
+        <defs>
+          <marker id="a-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+        </defs>
+
+        <text class="grp" x="22" y="26">ONE META GROUP &mdash; 6 PEERS &mdash; MAJORITY 4</text>
+        <rect class="nb" x="14" y="34" width="932" height="252" rx="4"/>
+
+        <rect class="nb clu" x="30" y="52" width="390" height="200" rx="4"/>
+        <text class="grp" x="42" y="70">CLUSTER za &mdash; NO DOMAIN</text>
+        <rect class="n" x="44"  y="86" width="112" height="40" rx="3"/>
+        <text class="lbl" x="100" y="104" text-anchor="middle">za-1</text><text class="lbl2" x="100" y="118" text-anchor="middle">4231 / 6231</text>
+        <rect class="n" x="168" y="86" width="112" height="40" rx="3"/>
+        <text class="lbl" x="224" y="104" text-anchor="middle">za-2</text><text class="lbl2" x="224" y="118" text-anchor="middle">4232 / 6232</text>
+        <rect class="n" x="292" y="86" width="112" height="40" rx="3"/>
+        <text class="lbl" x="348" y="104" text-anchor="middle">za-3</text><text class="lbl2" x="348" y="118" text-anchor="middle">4233 / 6233</text>
+        <text class="ro h" x="44" y="156">meta leader = za-3</text>
+        <text class="ro"   x="44" y="172">cluster_size  = 6</text>
+        <text class="ro"   x="44" y="188">routes        = gossiped, 1 configured is enough</text>
+
+        <rect class="nb clu" x="540" y="52" width="390" height="200" rx="4"/>
+        <text class="grp" x="552" y="70">CLUSTER au &mdash; NO DOMAIN</text>
+        <rect class="n" x="554" y="86" width="112" height="40" rx="3"/>
+        <text class="lbl" x="610" y="104" text-anchor="middle">au-1</text><text class="lbl2" x="610" y="118" text-anchor="middle">4241 / 6241</text>
+        <rect class="n" x="678" y="86" width="112" height="40" rx="3"/>
+        <text class="lbl" x="734" y="104" text-anchor="middle">au-2</text><text class="lbl2" x="734" y="118" text-anchor="middle">4242 / 6242</text>
+        <rect class="n" x="802" y="86" width="112" height="40" rx="3"/>
+        <text class="lbl" x="858" y="104" text-anchor="middle">au-3</text><text class="lbl2" x="858" y="118" text-anchor="middle">4243 / 6243</text>
+        <text class="ro h" x="554" y="156">meta leader = za-3  (the same one)</text>
+        <text class="ro"   x="554" y="172">cluster_size  = 6</text>
+        <text class="ro"   x="554" y="188">gateways      = 3 out / 3 in</text>
+
+        <line class="gw" x1="420" y1="106" x2="540" y2="106" marker-start="url(#a-gw)" marker-end="url(#a-gw)"/>
+        <text class="edge" x="480" y="98" text-anchor="middle">gateway 723x &harr; 724x</text>
+
+        <text class="ro r" x="30" y="272">stop au &rarr; za holds 3 of 6 &rarr; below majority &rarr; no meta leader &rarr; nats stream add = 10008</text>
+      </svg>
+    </div>
+    <figcaption><b>A &mdash; the baseline, and the trap.</b> The gateway does not just carry messages. It
+    <b>merges the two meta groups into one</b>. Before it, two groups of 3 with majority 2. After it, one group
+    of 6 with majority 4. Three survivors is less than four, so the surviving region cannot elect a meta leader
+    and every JetStream management call fails. Measured: existing streams kept reading <i>and</i> writing
+    throughout &mdash; only change was blocked.</figcaption>
+  </figure>
+
+  <!-- ============================ FIGURE B ============================ -->
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 320" role="img" aria-label="Figure B. The same two clusters over a gateway, but each cluster is given its own JetStream domain. The meta group still reports size six. The za meta leader lists the three au peers as Server name unknown at this time and marks them offline. The au side never elects a meta leader at all, and placing a stream on au from za fails with error 10005.">
+        <defs>
+          <marker id="b-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+        </defs>
+
+        <text class="grp r" x="22" y="26">STILL ONE META GROUP &mdash; SIZE 6 &mdash; BUT HALF-BLIND</text>
+        <rect class="nb dead" x="14" y="34" width="932" height="240" rx="4"/>
+
+        <rect class="nb clu" x="30" y="52" width="390" height="196" rx="4"/>
+        <text class="grp" x="42" y="70">CLUSTER za &mdash; <tspan class="grp" style="fill:var(--warn)">domain: za</tspan></text>
+        <rect class="n" x="44"  y="84" width="112" height="34" rx="3"/><text class="lbl" x="100" y="106" text-anchor="middle">za-1</text>
+        <rect class="n" x="168" y="84" width="112" height="34" rx="3"/><text class="lbl" x="224" y="106" text-anchor="middle">za-2</text>
+        <rect class="n" x="292" y="84" width="112" height="34" rx="3"/><text class="lbl" x="348" y="106" text-anchor="middle">za-3</text>
+        <text class="ro h" x="44" y="144">leader = za-2   size = 6</text>
+        <text class="ro r" x="44" y="162">peers it sees on the au side:</text>
+        <text class="ro r" x="44" y="178">&quot;Server name unknown at this time&quot; OFF</text>
+        <text class="ro r" x="44" y="194">&quot;Server name unknown at this time&quot; OFF</text>
+        <text class="ro r" x="44" y="210">&quot;Server name unknown at this time&quot; OFF</text>
+        <text class="ro"   x="44" y="230">all three are running and healthy</text>
+
+        <rect class="nb clu" x="540" y="52" width="390" height="196" rx="4"/>
+        <text class="grp" x="552" y="70">CLUSTER au &mdash; <tspan class="grp" style="fill:var(--warn)">domain: au</tspan></text>
+        <rect class="n" x="554" y="84" width="112" height="34" rx="3"/><text class="lbl" x="610" y="106" text-anchor="middle">au-1</text>
+        <rect class="n" x="678" y="84" width="112" height="34" rx="3"/><text class="lbl" x="734" y="106" text-anchor="middle">au-2</text>
+        <rect class="n" x="802" y="84" width="112" height="34" rx="3"/><text class="lbl" x="858" y="106" text-anchor="middle">au-3</text>
+        <text class="ro r" x="554" y="144">leader = None   size = 6</text>
+        <text class="ro r" x="554" y="162">leader = None   size = 6</text>
+        <text class="ro r" x="554" y="178">leader = None   size = 6</text>
+        <text class="ro"   x="554" y="200">au never elected a meta leader at all,</text>
+        <text class="ro"   x="554" y="216">with nothing stopped and nothing broken</text>
+
+        <line class="dead" x1="420" y1="100" x2="540" y2="100"/>
+        <text class="edge" x="480" y="92" text-anchor="middle">gateway</text>
+        <text class="blk"  x="480" y="118" text-anchor="middle" style="font-family:var(--mono);font-size:12px;fill:var(--bad)">&#10007;</text>
+
+        <text class="ro r" x="30" y="262">nats stream add Z --cluster au  &rarr;  no suitable peers for placement (10005)</text>
+        <text class="ro"   x="30" y="292">A domain may only change across a LEAF-NODE link. A gateway is not a leaf link.</text>
+      </svg>
+    </div>
+    <figcaption><b>B &mdash; the popular advice that does not work.</b> The idea is sound: stop sharing a meta
+    group and each region votes alone. The <i>method</i> is wrong. Setting a domain suppresses JetStream traffic
+    on the system account, so the two clusters stop learning each other's server names &mdash; but they are
+    still bound into one RAFT group by the gateway. You end up with a shared meta group <i>and</i> a broken
+    link. Demo 02 hit this independently in September 2026 and recorded it; this is the second, deliberate
+    reproduction.</figcaption>
+  </figure>
+
+  <!-- ============================ FIGURE C ============================ -->
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 380" role="img" aria-label="Figure C. The arbiter pattern. Cluster za with three servers and cluster au with three servers are joined by a gateway, and a third single-server cluster named arb sits in an independent location, joined to both by gateways. The meta group is seven peers so the majority is four. Killing either region leaves four peers and a new meta leader is elected successfully.">
+        <defs>
+          <marker id="c-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+        </defs>
+
+        <text class="grp g" x="22" y="26">ONE META GROUP &mdash; 7 PEERS &mdash; MAJORITY 4</text>
+        <rect class="nb" x="14" y="34" width="932" height="306" rx="4"/>
+
+        <rect class="nb clu" x="30" y="52" width="360" height="160" rx="4"/>
+        <text class="grp" x="42" y="70">CLUSTER za &mdash; REGION 1</text>
+        <rect class="n" x="44"  y="84" width="96" height="34" rx="3"/><text class="lbl" x="92"  y="106" text-anchor="middle">za-1</text>
+        <rect class="n" x="148" y="84" width="96" height="34" rx="3"/><text class="lbl" x="196" y="106" text-anchor="middle">za-2</text>
+        <rect class="n" x="252" y="84" width="96" height="34" rx="3"/><text class="lbl" x="300" y="106" text-anchor="middle">za-3</text>
+        <text class="ro h" x="44" y="146">leader = za-3   size = 7</text>
+        <text class="ro"   x="44" y="164">kill au &rarr; 4 of 7 survive &rarr; still leader za-3</text>
+        <text class="ro g" x="44" y="182">stream add SURVIVE  &rarr;  created</text>
+
+        <rect class="nb clu" x="570" y="52" width="360" height="160" rx="4"/>
+        <text class="grp" x="582" y="70">CLUSTER au &mdash; REGION 2</text>
+        <rect class="n" x="584" y="84" width="96" height="34" rx="3"/><text class="lbl" x="632" y="106" text-anchor="middle">au-1</text>
+        <rect class="n" x="688" y="84" width="96" height="34" rx="3"/><text class="lbl" x="736" y="106" text-anchor="middle">au-2</text>
+        <rect class="n" x="792" y="84" width="96" height="34" rx="3"/><text class="lbl" x="840" y="106" text-anchor="middle">au-3</text>
+        <text class="ro h" x="584" y="146">kill za instead &rarr; 4 of 7 survive</text>
+        <text class="ro"   x="584" y="164">new leader elected = au-3</text>
+        <text class="ro g" x="584" y="182">stream add SURVIVE2 &rarr;  created</text>
+
+        <line class="gw" x1="390" y1="100" x2="570" y2="100" marker-start="url(#c-gw)" marker-end="url(#c-gw)"/>
+        <text class="edge" x="480" y="92" text-anchor="middle">gateway</text>
+
+        <rect class="nb clu" x="380" y="238" width="200" height="92" rx="4"/>
+        <text class="grp" x="392" y="256">CLUSTER arb &mdash; REGION 3</text>
+        <rect class="n" x="394" y="266" width="172" height="34" rx="3"/><text class="lbl" x="480" y="288" text-anchor="middle">arb-1</text>
+        <text class="ro" x="394" y="320">1 server. It votes. It is not a region.</text>
+
+        <line class="gw" x1="300" y1="212" x2="410" y2="238" marker-start="url(#c-gw)" marker-end="url(#c-gw)"/>
+        <line class="gw" x1="660" y1="212" x2="550" y2="238" marker-start="url(#c-gw)" marker-end="url(#c-gw)"/>
+        <text class="edge" x="322" y="238">gateway</text>
+        <text class="edge" x="600" y="238">gateway</text>
+
+        <text class="ro r" x="30" y="362">TRAP: a one-node cluster still needs a route. With none it dies: [FTL] JetStream cluster requires configured routes</text>
+      </svg>
+    </div>
+    <figcaption><b>C &mdash; the arbiter, and it really works.</b> Seven peers, majority four. I killed all three
+    <code>au</code> servers, then restored them and killed all three <code>za</code> servers instead &mdash; the
+    side that held the leader. Both times four peers survived, a leader was elected, and
+    <code>stream add</code> succeeded. The arbiter must sit somewhere <b>independent of both regions</b>; one
+    living in the ZA data centre is worth nothing. Its <code>cluster</code> block needs a route pointed at
+    itself: <code>routes: [ nats://127.0.0.1:6540 ]</code>.</figcaption>
+  </figure>
+
+  <!-- ============================ FIGURE D ============================ -->
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 410" role="img" aria-label="Figure D. A three-server hub cluster with its own JetStream domain sits above two regional three-server clusters, each with its own domain, connected by leaf-node links. There are three separate meta groups of three, not one group of nine. Killing the entire hub leaves both regions with full JetStream, and a mirror backfills its gap when the hub returns.">
+        <defs>
+          <marker id="d-lf" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="d-mir" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+        </defs>
+
+        <text class="grp g" x="330" y="26">META GROUP 1 &mdash; SIZE 3</text>
+        <rect class="nb clu" x="322" y="34" width="316" height="124" rx="4"/>
+        <text class="grp" x="334" y="52">CLUSTER hub &mdash; <tspan class="grp" style="fill:var(--warn)">domain: hub</tspan></text>
+        <rect class="n" x="336" y="64" width="90" height="32" rx="3"/><text class="lbl" x="381" y="85" text-anchor="middle">hub-1</text>
+        <rect class="n" x="434" y="64" width="90" height="32" rx="3"/><text class="lbl" x="479" y="85" text-anchor="middle">hub-2</text>
+        <rect class="n" x="532" y="64" width="90" height="32" rx="3"/><text class="lbl" x="577" y="85" text-anchor="middle">hub-3</text>
+        <text class="ro h" x="336" y="118">leader = hub-2   size = 3</text>
+        <text class="ro"   x="336" y="134">6 leaf links in, spread across the three</text>
+        <text class="ro"   x="336" y="150">leafnodes { listen: 7560 }   &mdash; no gateway here</text>
+
+        <line class="lf" x1="400" y1="158" x2="250" y2="252" marker-start="url(#d-lf)" marker-end="url(#d-lf)"/>
+        <line class="lf" x1="560" y1="158" x2="710" y2="252" marker-start="url(#d-lf)" marker-end="url(#d-lf)"/>
+        <text class="edge" x="276" y="200">leaf link (WAN)</text>
+        <text class="edge" x="610" y="200">leaf link (WAN)</text>
+
+        <text class="grp g" x="28" y="246">META GROUP 2 &mdash; SIZE 3</text>
+        <rect class="nb clu" x="20" y="252" width="420" height="130" rx="4"/>
+        <text class="grp" x="32" y="270">CLUSTER za &mdash; <tspan class="grp" style="fill:var(--warn)">domain: za</tspan></text>
+        <rect class="n" x="34"  y="282" width="120" height="32" rx="3"/><text class="lbl" x="94"  y="303" text-anchor="middle">za-1</text>
+        <rect class="n" x="164" y="282" width="120" height="32" rx="3"/><text class="lbl" x="224" y="303" text-anchor="middle">za-2</text>
+        <rect class="n" x="294" y="282" width="120" height="32" rx="3"/><text class="lbl" x="354" y="303" text-anchor="middle">za-3</text>
+        <text class="ro h" x="34" y="336">leader = za-2   size = 3   quorum = 2</text>
+        <text class="ro g" x="34" y="354">hub dead &rarr; stream add R3 &rarr; created</text>
+        <text class="ro g" x="34" y="370">hub dead &rarr; local pub/sub &rarr; received</text>
+
+        <text class="grp g" x="528" y="246">META GROUP 3 &mdash; SIZE 3</text>
+        <rect class="nb clu" x="520" y="252" width="420" height="130" rx="4"/>
+        <text class="grp" x="532" y="270">CLUSTER au &mdash; <tspan class="grp" style="fill:var(--warn)">domain: au</tspan></text>
+        <rect class="n" x="534" y="282" width="120" height="32" rx="3"/><text class="lbl" x="594" y="303" text-anchor="middle">au-1</text>
+        <rect class="n" x="664" y="282" width="120" height="32" rx="3"/><text class="lbl" x="724" y="303" text-anchor="middle">au-2</text>
+        <rect class="n" x="794" y="282" width="120" height="32" rx="3"/><text class="lbl" x="854" y="303" text-anchor="middle">au-3</text>
+        <text class="ro h" x="534" y="336">leader = au-1   size = 3   quorum = 2</text>
+        <text class="ro g" x="534" y="354">hub dead &rarr; stream add R3 &rarr; created</text>
+        <text class="ro"   x="534" y="370">stream ODO exists here AND in za at once</text>
+
+        <line class="mir" x1="440" y1="348" x2="520" y2="348" marker-end="url(#d-mir)"/>
+        <text class="edge" x="480" y="340" text-anchor="middle">mirror</text>
+        <text class="edge" x="480" y="396" text-anchor="middle">"external": { "api": "$JS.au.API" } &mdash; nothing copies by itself</text>
+      </svg>
+    </div>
+    <figcaption><b>D &mdash; hub and leaf regions. The strongest isolation measured.</b> Three meta groups of
+    three, not one of nine. I killed <code>hub-1</code> (which held four of the six leaf links) and the links
+    moved themselves to <code>hub-2</code> with nothing broken. Then I killed the <b>entire hub</b> and both
+    regions kept full JetStream &mdash; <code>R3</code> stream creation, publishing, local pub/sub, all fine.
+    While the hub was down I published 3 more events into <code>au</code>; the <code>za</code> mirror sat at 2,
+    and when the hub returned it went to 5 on its own. The catch-up claim is true.</figcaption>
+  </figure>
+
+  <!-- ============================ SCOREBOARD ============================ -->
+  <section class="sec">
+    <h2>Scoreboard &mdash; all measured, 2026-09-11</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Topology</th><th>Meta groups</th><th>One region dies</th>
+            <th>The middle dies</th><th>Cross-region data</th><th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>A. Gateway 3+3</b><br>today's demo 03 lab</td>
+            <td>1 group of <b>6</b><br>majority 4</td>
+            <td><b>Freezes.</b> 3 of 6, no leader,<br><code>stream add</code> &rarr; <code>10008</code></td>
+            <td>&mdash;</td>
+            <td>Automatic, one shared<br>subject space</td>
+            <td><span class="badge b-base">Baseline</span></td>
+          </tr>
+          <tr>
+            <td><b>B. Gateway + per-cluster<br><code>domain</code></b></td>
+            <td>1 group of <b>6</b>,<br>half-blind</td>
+            <td><b>Worse.</b> <code>au</code> has no leader<br>even with nothing stopped</td>
+            <td>&mdash;</td>
+            <td>Placement fails,<br><code>10005</code></td>
+            <td><span class="badge b-bad">Does not work</span></td>
+          </tr>
+          <tr>
+            <td><b>C. Gateway 3+3+1</b><br>arbiter in a 3rd location</td>
+            <td>1 group of <b>7</b><br>majority 4</td>
+            <td><b>Survives.</b> Measured both<br>directions, leader re-elected</td>
+            <td>6 of 7 &mdash; fine</td>
+            <td>Automatic, one shared<br>subject space</td>
+            <td><span class="badge b-good">Works</span></td>
+          </tr>
+          <tr>
+            <td><b>D. Hub cluster +<br>2 leaf regions</b></td>
+            <td><b>3</b> groups of 3<br>quorum 2 each</td>
+            <td><b>Other side never notices.</b><br>Separate RAFT entirely</td>
+            <td>Both regions keep<br>full JetStream</td>
+            <td><b>Explicit</b> <code>mirror</code> /<br><code>source</code> you write down</td>
+            <td><span class="badge b-good">Best isolation</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub">C and D are not rivals. C keeps one shared subject space and rescues the quorum. D gives up
+    the shared space and removes the shared quorum. Pick by which you would rather own: <b>less config</b>, or
+    <b>less coupling</b>.</p>
+  </section>
+
+  <!-- ============================ CONFIG TRAPS ============================ -->
+  <section class="sec">
+    <h2>Five config traps, each one measured the hard way</h2>
+    <ul>
+      <li><b>Every JetStream cluster member needs at least one route &mdash; including the seed.</b>
+        The <code>forming-a-cluster</code> docs page shows a routeless seed because that page does not enable
+        JetStream. With JetStream on, a routeless seed dies:
+        <code>[FTL] Can't start JetStream: JetStream cluster requires configured routes or solicited leafnode
+        for the system account</code>. <b>One</b> route is enough &mdash; gossip finds the rest.
+        <code>Duplicate Route</code> in the log is gossip finding a peer twice, and is normal.</li>
+      <li><b>A one-node arbiter still has a <code>cluster</code> block, so it still needs a route.</b>
+        Point it at itself: <code>routes: [ nats://127.0.0.1:6540 ]</code>. Without it the arbiter is the only
+        server of the seven that fails to start.</li>
+      <li><b>A one-node hub must have NO <code>cluster</code> block at all.</b> I gave it the self-route trick
+        from the arbiter and it believed in a peer that does not exist &mdash;
+        <code>leader=None, cluster_size=2, num_routes=0</code>. Delete the whole block; JetStream then runs
+        standalone and is healthy. (A three-node hub is a normal cluster and is better anyway.)</li>
+      <li><b>Every region server lists ALL of the hub's leaf ports.</b> This is what made the hub-node failure
+        self-heal &mdash; four orphaned links moved to another hub node by themselves. One URL makes one hub node
+        a single point of failure for that server.
+        <pre>leafnodes {
+  remotes: [
+    { urls: [ "nats-leaf://lb:lb@127.0.0.1:7560",
+              "nats-leaf://lb:lb@127.0.0.1:7561",
+              "nats-leaf://lb:lb@127.0.0.1:7562" ], account: LB }
+  ]
+}</pre></li>
+      <li><b>A cross-domain mirror needs the API prefix.</b> Without <code>external.api</code> the mirror looks
+        only in its own domain and sits at 0 messages forever, with no error.
+        <pre>{ "name": "AU_COPY", "num_replicas": 3,
+  "mirror": { "name": "ODO",
+              "external": { "api": "<span class="hi">$JS.au.API</span>" } } }</pre></li>
+    </ul>
+  </section>
+
+  <!-- ============================ ARBITER PLACEMENT ============================ -->
+  <section class="sec">
+    <h2>The arbiter is not automatically safe</h2>
+    <p class="sub">A voting server with JetStream enabled is also a <i>storage</i> server. I measured where data
+    actually lands.</p>
+    <pre>8 x  stream add P1..P8 --replicas 1   (no --cluster, client on za)
+  <span class="ok">&rarr; all 8 landed in cluster za. None on arb.</span>   placement prefers the client's local cluster
+
+stream add ARB1 --replicas 1 --cluster arb
+  <span class="no">&rarr; SUCCEEDS.</span>  Placement Cluster: arb   Leader: arb-1
+
+stream add ARB3 --replicas 3 --cluster arb
+  <span class="ok">&rarr; no suitable peers for placement (10005)</span>   one node cannot hold R3
+
+client connects DIRECTLY to arb:4540, stream add DIRECT
+  <span class="no">&rarr; SUCCEEDS.</span>  cluster=arb  leader=arb-1</pre>
+    <ul>
+      <li><b>Good news:</b> ordinary traffic will not drift onto the arbiter. Placement follows the client.</li>
+      <li><b>Bad news:</b> an explicit <code>--cluster arb</code>, or any client that connects straight to the
+        arbiter's client port, creates a real <code>R1</code> stream there &mdash; unreplicated data in your
+        smallest, least protected location.</li>
+      <li><b>So:</b> keep clients off the arbiter's client port, or fence it with placement rules. Do not assume
+        "it only votes".</li>
+    </ul>
+  </section>
+
+  <!-- ============================ GATEWAY LAB FINDINGS ============================ -->
+  <section class="sec">
+    <h2>What the gateway lab also proved</h2>
+    <ul>
+      <li><b>The meta group is not per account.</b> Measured with 3 JetStream accounts live:
+        <code>accounts with JS: 3, meta groups: 1, leader: za-2, size: 6</code>.
+        An account is a wall for <b>data</b>, not a wall for <b>availability</b> &mdash; a freeze hits every
+        account at the same moment.</li>
+      <li><b>Inside one account, a stream name is unique across the whole supercluster.</b> Creating
+        <code>ODOMETER</code> a second time from the far side gives
+        <code>stream name already in use with a different configuration (10058)</code>. The nastier half:
+        <code>stream info</code> from the far side then <b>succeeds</b> and hands back a working handle to the
+        <i>other region's</i> stream. It looks local. It is not.</li>
+      <li><b>Accounts are the only hard wall.</b> The same name <code>ODOMETER</code> in <code>LB_ZA</code> and
+        <code>LB_AU</code> both create cleanly, with different <code>Placement Cluster</code> and independent
+        message counts.</li>
+      <li><b>Placement decides where bytes sit. It does not separate systems.</b>
+        <code>--cluster za|au</code> is about storage, not about survival.</li>
+      <li><b>A WAN cut is a change freeze, not an outage.</b> With <code>au</code> stopped: core pub/sub worked,
+        reads worked, and a publish to the existing <code>ODOMETER</code> took it from 1 to 2 messages. Only
+        <code>stream add</code> failed. Restarting <code>au</code> returned the leader and unblocked it.</li>
+    </ul>
+  </section>
+
+  <!-- ============================ METHOD TRAPS ============================ -->
+  <section class="sec">
+    <h2>How to measure this without fooling yourself</h2>
+    <ul>
+      <li><b>Never fake a WAN cut with <code>docker network disconnect</code>.</b> Measured 2026-09-09:
+        disconnecting a network from a <i>running</i> container also drops that container's published host
+        ports. Every reading afterwards is a Docker artifact. The first run of that experiment reported "both
+        regions died" and even core NATS pub/sub appeared to fail &mdash; impossible from a meta split.
+        <b>Stop the far region's processes instead.</b></li>
+      <li><b>Interest across a leaf link needs about 5 seconds to spread.</b> My first cross-region pub/sub test
+        waited 2 seconds, read <code>0 received</code>, and nearly got written up as a failure. The same test at
+        5 seconds read <code>3 of 3</code>.</li>
+      <li><b>The <code>created</code> timestamp is not proof of identity.</b> Two genuinely different streams in
+        two accounts both reported <code>created 2026-09-10 15:15:15</code>. Use <b>Placement Cluster</b> and
+        <b>message count</b> to tell them apart.</li>
+      <li><b>Prefix scratch configs so cleanup cannot reach the real lab.</b> A tidy-up
+        <code>pkill -f "nats-server -c za-"</code> matched the user's identically-named files and killed the
+        live lab &mdash; twice. Scratch files now carry a <code>t-</code> prefix, so the kill pattern is
+        <code>pkill -f "nats-server -c t-"</code> and cannot match.</li>
+      <li><b>Read the meta group, not the logs.</b> <code>curl "localhost:8231/jsz?meta=1"</code> gives
+        <code>leader</code>, <code>cluster_size</code> and the peer list with online flags. Quote the
+        <code>?</code> &mdash; zsh globs it. Also useful: <code>/varz</code>, <code>/routez</code>,
+        <code>/gatewayz</code>, <code>/leafz</code>, <code>/accountz</code>,
+        <code>/jsz?accounts=1</code>.</li>
+    </ul>
+  </section>
+
+  <!-- ============================ OPEN ============================ -->
+  <section class="sec">
+    <h2>Open, and honest about it</h2>
+    <ul>
+      <li><b>Figure D buys isolation with bookkeeping.</b> Nothing replicates by itself. Every cross-region copy
+        is a <code>mirror</code> or <code>source</code> that somebody writes down and maintains. That is a real
+        cost and it is not visible in the diagram's tidy boxes.</li>
+      <li><b>Not measured:</b> whether <code>source</code>/<code>mirror</code> survives across two
+        <i>gateway</i>-joined clusters with different domains (Figure B's topology). Given placement already
+        fails with <code>10005</code> there, I would not trust it without a test.</li>
+      <li><b>Not measured:</b> the hub as a real JetStream store rather than a pass-through; leaf reconnect
+        behaviour with many regions; mirror catch-up time at production volume.</li>
+      <li><b>Correction owed elsewhere.</b> Demo 02's <code>gateway-double-capture-options.html</code> still
+        carries the subtitle <i>"A JetStream <code>domain</code> protects the API, not the subject space."</i>
+        Over a gateway, a per-cluster domain does not cleanly protect anything &mdash; see Figure B. That page
+        needs a dated note.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

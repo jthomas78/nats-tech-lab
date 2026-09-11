@@ -6,8 +6,21 @@ import { bootShell } from '../bootShell.js'
 import { createPluginLoader } from '../loader/pluginLoader.js'
 
 const root = resolve(import.meta.dirname, '../../..')
-const compose = readFileSync(resolve(root, '../demos/01-dictionary/docker-compose.yml'), 'utf8')
-const preload = JSON.parse(readFileSync(resolve(root, '../demos/01-dictionary/registry.json'), 'utf8'))
+/* ADR-055 (2026-09-08) split the flat docker-compose.yml into bands. The
+   plugin fixtures live in the cell's dedicated band, and their published host
+   ports are ${VAR:-default} pairs fed by one env file per cell. Expanded
+   against cell za-1, which holds the base ports these fixtures were written
+   for. */
+const repoFile = (rel) => readFileSync(resolve(root, '..', rel), 'utf8')
+const cellEnv = Object.fromEntries(
+  [...repoFile('demos/01-dictionary/deploy/environments/local-za-1.env')
+    .matchAll(/^([A-Z0-9_]+)=(.*)$/gm)].map((m) => [m[1], m[2].trim()]),
+)
+const expand = (text) =>
+  text.replace(/\$\{([A-Z0-9_]+):-([^}]*)\}/g, (_, name, fallback) => cellEnv[name] ?? fallback)
+const compose = expand(repoFile('demos/01-dictionary/deploy/cell/compose.dedicated.yaml'))
+/* The preload fixture states its port as a variable too — same expansion. */
+const preload = JSON.parse(expand(repoFile('demos/01-dictionary/registry.json')))
 const packages = ['example-plugin', 'example-plugin-slow', 'example-plugin-activate-throws', 'example-plugin-incompatible']
 const read = (name, path) => readFileSync(resolve(root, 'plugins', name, path), 'utf8')
 /* 13e moved the five examples out of the preload file and behind publisher

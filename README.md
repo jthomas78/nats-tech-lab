@@ -19,14 +19,30 @@ demos/
       shipping-service/ Go service (hexagonal layout)
     frontend/
       admin/            Vue 3 demo UI
-    docker-compose.yml  NATS + Postgres + shipping-service + admin
+    deploy/
+      cell/           One region: NATS, Postgres, the services, the frontends
+      global/         The control plane: accounts-service, one per trust domain
+      environments/   One env file per cell (local-za-1.env, local-au-1.env)
+  02-multi-region/      Cluster mechanics: gateways, account walls, Replicas 1 vs 3
+    CLAUDE.md           This folder's own agent rules -- it is a sealed unit
+    deploy/             compose.za.yaml (lb-za-1) + compose.au.yaml (lb-au-1),
+                        up.sh and contexts.sh
+    diagrams/           Topology drawings and the double-capture options
+    docs/               Multi-Region-Plan.md, the record of how it was worked out
+    lab/                One script per question
+    nats/               Server config and the minted trust chain
+    odometer/           The one JetStream + CQRS example (Go)
 ```
 
 ## Prerequisites
 
 - **Docker** (with the compose plugin) — runs the demos
 - **Node.js 20+** — runs the lab shell
-- **Go 1.27+** — only needed to develop/test the backend outside Docker
+- **Go 1.27+** — needed to develop/test the backend outside Docker, and to run
+  demo 02's odometer (`demos/02-multi-region/lab/03-odometer.sh`)
+- **`nats`, `nsc` and `jq`** — demo 02 only, and on the host by choice (there is
+  no tool container): `brew install nats-io/nats-tools/nats
+  nats-io/nats-tools/nsc jq`
 
 ## Launching
 
@@ -42,12 +58,18 @@ Browse the demo list, read the intro for a demo, then launch it.
 
 ### 2. Start a demo (example: 01-dictionary)
 
-Each demo runs its own isolated Docker stack:
+Each demo runs its own isolated Docker stack. Demo 01 is split into a cell
+band (one region) and a global band (the control plane) — see ADR-055. One
+command starts both:
 
 ```bash
-cd demos/01-dictionary
-docker compose up --build
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --build
 ```
+
+`za-1` holds every base port, so the addresses below are unchanged. A second
+cell runs the same files with `-p lb-au-1` and `local-au-1.env`, which shifts
+every host port by +50.
 
 | Service     | URL                    |
 | ----------- | ---------------------- |
@@ -66,9 +88,13 @@ must already be running.
 
 ### 3. Tear down
 
+From the same `demos/01-dictionary/deploy/cell` directory:
+
 ```bash
-docker compose down      # add -v to also drop NATS/Postgres data volumes
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml down
 ```
+
+Add `-v` to also drop the NATS and Postgres data volumes.
 
 ## Development without Docker
 
@@ -100,3 +126,23 @@ Phase 31 once the comparison was decided; see
 
 See `demos/01-dictionary/README.md` for the full intro (also rendered inside
 the lab shell).
+
+Demo 01 is **one region, one NATS server**. It has no cluster, no gateway and
+no JetStream domain — all of that lives in demo 02.
+
+## Demo 02 — Multi-Region Cluster Mechanics
+
+Six NATS servers and nothing else. Two clusters of three (`za`, `au`) joined by
+a gateway, in two Compose projects (`lb-za-1`, `lb-au-1`) on three networks.
+It answers three questions: does a tenant account wall hold across a gateway,
+what does `Replicas: 1` cost when a server dies, and — the one that decides the
+design — is the cross-region double capture real? The third is measured by the
+**odometer**: drive 12.5 km once, and one shared account makes the fleet total
+50 km while one account per region keeps it at 12.5 km.
+
+```bash
+cd demos/02-multi-region/deploy
+./up.sh
+```
+
+See `demos/02-multi-region/README.md`.

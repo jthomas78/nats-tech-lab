@@ -79,6 +79,8 @@ type options struct {
 	natsURL     string
 	accountsURL string
 	composeDir  string
+	project     string
+	envFile     string
 	reset       bool
 	timeout     time.Duration
 }
@@ -87,7 +89,16 @@ func run() error {
 	var opt options
 	flag.StringVar(&opt.natsURL, "nats-url", envOr("NATS_URL", "nats://localhost:4222"), "NATS URL, as published on the host")
 	flag.StringVar(&opt.accountsURL, "accounts-url", envOr("ACCOUNTS_URL", "http://localhost:7202"), "accounts-service base URL, which mints the operator credential")
-	flag.StringVar(&opt.composeDir, "compose-dir", envOr("COMPOSE_DIR", "."), "directory holding docker-compose.yml")
+	// ADR-055 split the one flat docker-compose.yml into bands on 2026-09-08.
+	// The default is relative, so running this from demos/01-dictionary still
+	// works the way every plan entry and README says it does.
+	flag.StringVar(&opt.composeDir, "compose-dir", envOr("COMPOSE_DIR", "deploy/cell"), "directory holding the cell's compose files")
+	// The project name and the env file are not optional extras any more: a
+	// cell's published ports come from its env file, and two cells can run at
+	// once, so a compose command with neither would address the wrong stack or
+	// no stack at all.
+	flag.StringVar(&opt.project, "project", envOr("COMPOSE_PROJECT_NAME", "poc"), "Compose project name of the running cell")
+	flag.StringVar(&opt.envFile, "env-file", envOr("COMPOSE_ENV_FILE", "../environments/local-za-1.env"), "env file for that cell, relative to --compose-dir")
 	flag.BoolVar(&opt.reset, "reset", false, "clear the registry schema and re-seed before starting (destructive: the plugin registry only)")
 	flag.DurationVar(&opt.timeout, "timeout", 45*time.Second, "how long any single expected state change may take")
 	flag.Parse()
@@ -96,11 +107,21 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(dir, "docker-compose.yml")); err != nil {
-		return fmt.Errorf("no docker-compose.yml in %s — run this from demos/01-dictionary or pass --compose-dir", dir)
+	if _, err := os.Stat(filepath.Join(dir, "compose.yaml")); err != nil {
+		return fmt.Errorf("no compose.yaml in %s — run this from demos/01-dictionary or pass --compose-dir", dir)
 	}
 
 	h := &harness{dir: dir, timeout: opt.timeout}
+	// Every compose call carries the same prefix. compose.dedicated.yaml is
+	// included by hand because the plugin fixtures are not part of a cell --
+	// compose.yaml does not include them, and this sequence stops and starts
+	// them by name.
+	h.composeBase = []string{
+		"-p", opt.project,
+		"--env-file", opt.envFile,
+		"-f", "compose.yaml",
+		"-f", "compose.dedicated.yaml",
+	}
 	// Scratch holds the generated rotation seed and the re-origined manifest.
 	// Inside the repo on purpose: a Docker bind mount source has to be a path
 	// the Docker daemon can see, and macOS's os.MkdirTemp lands under
@@ -143,10 +164,13 @@ type harness struct {
 	// operator credential is refused there by the server. Reading health the
 	// way a browser reads it is the honest way round anyway: the alternative
 	// would have been to widen a grant so a test could reach it.
-	shell   *nats.Conn
-	dir     string
-	scratch string
-	timeout time.Duration
+	shell *nats.Conn
+	dir   string
+	// composeBase is the project/env-file/-f prefix every compose command
+	// needs after the ADR-055 split. See run().
+	composeBase []string
+	scratch     string
+	timeout     time.Duration
 	// containers created by `docker compose run`, torn down by cleanup even
 	// when a step fails — a stray detached sidecar would keep announcing into
 	// the next run and make its first assertion lie.
@@ -182,11 +206,13 @@ func (h *harness) check(desc string, ok bool, detail string) error {
 // ------------------------------------------------------------ compose control
 
 func (h *harness) compose(args ...string) (string, error) {
-	cmd := exec.Command("docker", append([]string{"compose"}, args...)...)
+	full := append([]string{"compose"}, h.composeBase...)
+	full = append(full, args...)
+	cmd := exec.Command("docker", full...)
 	cmd.Dir = h.dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("docker compose %s: %w\n%s", strings.Join(args, " "), err, out)
+		return string(out), fmt.Errorf("docker compose %s: %w\n%s", strings.Join(full[1:], " "), err, out)
 	}
 	return string(out), nil
 }

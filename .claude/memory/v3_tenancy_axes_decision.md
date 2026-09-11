@@ -30,3 +30,31 @@ metadata:
 - Is refdata global or regional? — see [[linebooker_v2_refdata_candidates]].
 
 **How to apply:** this is a design agreement from discussion only — nothing implemented, and no plan phase covers memberships, users, or region (per [[design_discussion_vs_implementation_signal]], do not start building those). **Partial exception as of 2026-08-13:** the **terminology** for this axis ("Shipper" replacing "Customer") is settled — that was confirmed directly with the user via [[linebooker_shipper_vs_customer_naming]], independent of any plan's approval status. The **discriminator shape** (`PartnerType` = `SHIPPER` | `TRANSPORTER` on a `TradingPartner` aggregate) is only *proposed*, in the Phase 26 plan section of `.claude/plans/Main-POC-Plan.md`, which is still PROPOSED and awaiting sign-off — don't treat that shape as settled until the phase itself is signed off (per [[linebooker_trading_partner_phase_v1_scope]]). Neither this nor Phase 26 touches subject-scoped organisation isolation (still open below); Phase 26 deliberately builds no tenant-membership layer. Record the whole model in `ARCHITECTURE-ACCOUNTS.md` when the user is ready.
+
+## Narrowing update — 2026-09-08 (business clarification)
+
+The business confirmed how tenants are actually drawn today: `linebooker-south-africa`
+and `linebooker-australia` are each a tenant domain, each with its **own tenders**,
+serving many companies and transporters in that region.
+
+**This narrows open decision 1 without closing it, and does not overturn anything above.**
+
+- The core claim stands. A tenant is still the marketplace-operating business. These two
+  are named after countries but they *are* businesses, and `thornlands` remains a live
+  case of two tenants sharing one region.
+- What is new is only a fact about **today's** tenants: they happen to be one-per-region.
+  So the "one tenant account across two clusters" case does not arise now.
+- **Do not promote that to an invariant.** It is not structural. A future white-label
+  tenant could span regions, and code that assumes otherwise would have to be unpicked.
+- The rejection of the ChatGPT `account = ZA/NA/AU` model is **not** reopened. The
+  account is per marketplace; that it currently maps one-to-one onto a region is a
+  coincidence of the commercial roadmap, not the reason for the account.
+
+**Consequence:** this settled the multi-region stream decision — see
+[[gateway_double_capture_and_option3]], where option 3 reduces to "one account per
+tenant", which is what the repo already does. It also surfaced the first real sideways
+cross-region flow, [[cross_region_load_handoff]] — and confirmed axis 3, since Acme
+turned out to be an *organisation* inside a tenant, not a tenant.
+
+The naming hazard above is now urgent rather than theoretical: `bootstrap-operator.sh`
+still seeds `ACME` / `GLOBEX`, which are customer names sitting in the tenant slot.

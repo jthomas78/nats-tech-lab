@@ -92,7 +92,7 @@ element, not the document.
   behaviour are built. Clustering, gateways, mirrors, sources and leaf nodes are
   not built anywhere in the repository; they are drawn as proposed and marked
   dashed.
-- `.claude/plans/Multi-Region-Plan.md` remains DRAFT and is the working source
+- `demos/02-multi-region/docs/Multi-Region-Plan.md` remains DRAFT and is the working source
   for `L3-05-O01` to `L3-05-O03`.
 
 ## Change log

@@ -20,7 +20,7 @@ suite is finalised in Phase 104. See
 | Date | 2026-07-13 |
 | Host | Apple M3 Pro, 12 cores, 18 GB RAM |
 | OS | macOS 26.4.1 (Darwin 25.4.0) |
-| Stack | `docker compose -f demos/01-dictionary/docker-compose.yml` (all default config) |
+| Stack | `docker compose -f demos/01-dictionary/docker-compose.yml` (all default config) — that flat file was retired 2026-09-08 for `deploy/cell` + `deploy/global` (ADR-055); the equivalent today is cell `za-1`, which holds the same base ports |
 | Backend | host `:7200`, `CONTEXT=global` |
 | Postgres | `postgres:16-alpine`, `max_connections=100` (default) |
 | k6 version | v2.1.0 |
@@ -240,10 +240,12 @@ reproducible against the current codebase. Baselines #2 and #3 still run:
 
 ```bash
 brew install k6
-docker compose -f demos/01-dictionary/docker-compose.yml up --build -d
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --build
 
-cd demos/01-dictionary
-# reset the stream between scenarios: docker compose down -v && docker compose up -d
+cd ../..
+# reset the stream between scenarios, from deploy/cell:
+#   docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml down -v && docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d
 MAX_EVENTS=10000 k6 run perf/scenarios/hydration-single-ship.js  # single-ship curve
 for v in 10 100 250 500; do                                      # throughput ladder
   VUS=$v k6 run --summary-export=throughput-$v.json \

@@ -1,6 +1,6 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
-# Phase 43d/43e: context is the repo root (see docker-compose.yml) so the build
+# Phase 43d/43e: context is the repo root (see deploy/cell/compose.runtime.yaml) so the build
 # can COPY the shared modules this service depends on alongside its own source
 # — the same pattern the other backend services already use. Before 43d this
 # service depended on nothing under shared/ and built from its own directory;

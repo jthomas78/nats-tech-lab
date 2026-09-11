@@ -1,6 +1,6 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
-# Context is the repo root (see docker-compose.yml), the same pattern the other
+# Context is the repo root (see deploy/cell/compose.runtime.yaml), the same pattern the other
 # backend services use, so the build can COPY the shared modules this service
 # depends on — a Dockerfile cannot reach outside its build context. This
 # service built from its own directory until it adopted shared/natsconn.

@@ -9,6 +9,7 @@ use (
 	./demos/01-dictionary/backend/pricing-service
 	./demos/01-dictionary/backend/refdata-service
 	./demos/01-dictionary/backend/shipping-service
+	./demos/02-multi-region/odometer
 	./shared/browserrpc
 	./shared/jstream
 	./shared/mfe-plugin-host

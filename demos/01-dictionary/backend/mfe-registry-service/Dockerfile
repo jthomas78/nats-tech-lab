@@ -1,6 +1,6 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
-# Build context is the repo root (see docker-compose.yml) so this can COPY the
+# Build context is the repo root (see deploy/cell/compose.runtime.yaml) so this can COPY the
 # shared modules alongside the service source — the same pattern every other
 # service block already uses.
 COPY shared/browserrpc ./shared/browserrpc

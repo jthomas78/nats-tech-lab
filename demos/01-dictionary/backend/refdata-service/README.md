@@ -5,7 +5,8 @@ countries, Incoterms, units of measure, hazard classes, and shipping-domain
 enums like `ship-status` — with per-locale labels, typed cross-references,
 and a versioned NATS-KV read cache in front of its own Postgres database
 (`refdata`, owned by the `refdata` role, on the shared `postgres` instance in
-`docker-compose.yml` — no other service's role can `CONNECT` to it; ADR-052).
+`deploy/cell/compose.infra.yaml` — no other service's role can `CONNECT` to it;
+ADR-052).
 No table is shared with `shipping-service`.
 
 It is plain Postgres CRUD, not event-sourced: nothing here ever needs to
@@ -23,10 +24,10 @@ protocol, event-sourced vs. plain CRUD, KV bucket layout), see
 
 ## Run it
 
-**As part of the full demo stack** (from `demos/01-dictionary/`):
+**As part of the full demo stack** (from `demos/01-dictionary/deploy/cell/`):
 
 ```bash
-docker compose up --build
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --build
 ```
 
 This starts `refdata-service` alongside Postgres, NATS, the shipping
@@ -40,16 +41,16 @@ service's data.
 idempotent — it inserts new keys and leaves existing ones alone — but it
 only runs when the process actually starts. A long-running container from
 before a `seed.go` change (e.g. new `string` keys) keeps serving the old
-catalog indefinitely; `docker compose up` with no flags won't rebuild an
+catalog indefinitely; a `docker compose up` with no flags won't rebuild an
 image that already exists. After changing `seed.go`, rebuild and recreate
 the container, then restart `shipping-service` too so its KV cache/`refdataconsumer`
 picks up the new entries:
 
 ```bash
-cd demos/01-dictionary
-docker compose build refdata-service
-docker compose up -d --force-recreate refdata-service
-docker compose restart shipping-service
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml build refdata-service
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --force-recreate refdata-service
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml restart shipping-service
 ```
 
 Symptom if you skip this: the shipping UI's language switch changes only a
@@ -62,8 +63,8 @@ Requires Postgres (the shared `postgres` container, port `5432`, database
 compose:
 
 ```bash
-cd demos/01-dictionary
-docker compose up nats postgres
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d nats postgres
 ```
 
 Then, in a separate terminal:
@@ -101,8 +102,8 @@ layer backfills and that consumers like the shipping backend's
 ### Docker compose SQL (once the stack is up)
 
 ```bash
-cd demos/01-dictionary
-docker compose exec postgres psql -U refdata -d refdata
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml exec postgres psql -U refdata -d refdata
 
 # then, inside psql:
 SELECT * FROM refdata.dictionary_types;
@@ -115,7 +116,7 @@ SELECT * FROM refdata.dictionary_set_versions;
 Or one-shot, without an interactive session:
 
 ```bash
-docker compose exec postgres psql -U refdata -d refdata -c \
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml exec postgres psql -U refdata -d refdata -c \
   "SELECT code, locale, label FROM refdata.dictionary_localizations WHERE type_key='ship-status' ORDER BY code, locale;"
 ```
 

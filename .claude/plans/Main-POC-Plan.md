@@ -19,7 +19,7 @@ nats-tech-lab/
     01-dictionary/        # First demo: Dictionary POC
       backend/            # Go service (hexagonal layout, borrowed from Fizmath Plaza)
       frontend/           # Vue 3 demo UI (isolated, own docker-compose)
-      docker-compose.yml  # Spins up: Postgres + NATS + backend + frontend
+      deploy/             # Compose, split into bands (ADR-055): cell/, global/, environments/
       README.md           # Intro text shown in lab shell
 ```
 
@@ -177,10 +177,18 @@ A form to create/update a dictionary entry fires a command to the backend, which
 
 ## Docker Compose Strategy
 
-Each demo has its own `docker-compose.yml`. Lab shell has its own. They do not share networks.
+Each demo owns its own Compose files. Lab shell has its own. They do not share networks.
+
+Demo 01's were split into bands on 2026-09-08 (ADR-055) and the one flat
+`docker-compose.yml` was deleted. Launch it from `demos/01-dictionary/deploy/cell`:
+
+```bash
+docker compose -p lb-za-1 --env-file ../environments/local-za-1.env \
+  -f compose.yaml -f ../global/compose.control.yaml up -d --build
+```
 
 ```yaml
-# demos/01-dictionary/docker-compose.yml services:
+# demos/01-dictionary/deploy/cell/ services:
   nats:       nats:latest with JetStream enabled
   postgres:   postgres:16
   backend:    built from ./backend
@@ -1221,7 +1229,7 @@ Watch for the startup-ordering trap this surfaces: `shipping-service` currently 
 - [ ] 24b: pure-crypto `sys.creds` bootstrap step ahead of `accounts-service`'s first NATS dial
 - [ ] 24b: `Provisioner` gains a restricted-permission user-minting path; `shipping-admin`'s **and `observability`'s** exact permission sets ported from `bootstrap-operator.sh`'s `nsc edit user` calls (see risk note above — `observability`'s list has grown well past `shipping-admin`'s since this phase was scoped)
 - [ ] 24b: `ensureSigningKey`/`seedPreexistingAccounts` mint-and-write `platform`/`acme`/`globex` creds on adoption/establishment
-- [ ] 24b: `docker-compose.yml` — named volume replacing the `./nats/creds` bind mount across every consumer, **including `observability-service`'s `observability.creds` mount** (added in Phase 30c, after this sub-phase's original scope was written)
+- [ ] 24b: `deploy/cell/compose.runtime.yaml` — named volume replacing the `./nats/creds` bind mount across every consumer, **including `observability-service`'s `observability.creds` mount** (added in Phase 30c, after this sub-phase's original scope was written)
 - [ ] 24b: `BUSINESS_RULES-ACCOUNTS.md` — new rule documenting the populate-on-boot mechanism and the `sys.creds` special case
 - [ ] 24b: Live verification — `docker compose down -v && up --build` with `./nats/creds` no longer existing as a bind mount at all; confirm every service connects, **including `observability-service` and every NATS/SYSTEM Admin UI panel it backs (Phase 30's own live-verification checklist)**
 
@@ -1304,6 +1312,20 @@ already scoped.
       set, and now that the reaper bounds the table the unbounded list is no
       longer the growth risk it was. Revisit if a measurement — not a
       hypothesis — shows the list outgrowing one response.
+
+---
+
+### Phase 64 — PROPOSED (awaiting approval) — Local NATS Supercluster: Three Clusters, Nine Servers, Gateway Mesh
+
+Full requirements, design decisions and checklist live in
+[Multi-Region-Plan.md](../../demos/02-multi-region/docs/Multi-Region-Plan.md) § 3-4, where the multi-region
+requirements already sat. Summary: turn the topology drawing into a running
+local stack — `hub`/`za`/`au` clusters, three servers each, full gateway mesh,
+real R3 inside each cluster — on one Docker engine, because the user's stated
+goal is to replicate the structure locally rather than deploy to cloud. NATS
+servers only; services and frontends unchanged. Withdraws the "AWS solves the
+network problem" deferral written into the compose band headers, so ADR-055's
+rationale needs revising.
 
 ---
 

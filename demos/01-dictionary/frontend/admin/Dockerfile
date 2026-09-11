@@ -1,4 +1,4 @@
-# Build context is the REPO ROOT (see docker-compose.yml) so both the
+# Build context is the REPO ROOT (see deploy/cell/compose.runtime.yaml) so both the
 # repo-root shared UniFi theme preset (@unifi-theme) and the demo-local
 # shared refdata composables (@refdata) can be copied in alongside the app.
 FROM node:24-alpine AS build

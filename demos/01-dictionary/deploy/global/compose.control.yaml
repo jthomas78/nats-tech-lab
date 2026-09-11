@@ -17,7 +17,7 @@
 #   the mesh        -- run this file once, in its own project. NOTE: locally
 #                      this needs the cell's networks made external first,
 #                      because Compose namespaces a network by project, so a
-#                      lb-global project cannot see lb-za-1's `nats`. In AWS
+#                      lb-global project cannot see poc's `nats`. In AWS
 #                      that problem does not exist (the hub reaches a regional
 #                      server over a real network, not a Docker bridge), so
 #                      the honest local shape today is the sovereign one
@@ -182,7 +182,7 @@ networks:
   #
   # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
   # joins `backend`; anything the browser talks to joins `frontend`. Compose
-  # namespaces both by project, so lb-za-1 and lb-au-1 get their own pair and
+  # namespaces both by project, so poc and lb-au-1 get their own pair and
   # cannot see each other -- which is exactly the region isolation we want to
   # prove locally.
   backend:

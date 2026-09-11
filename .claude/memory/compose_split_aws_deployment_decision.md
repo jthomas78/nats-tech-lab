@@ -5,6 +5,16 @@ metadata:
   type: project
 ---
 
+**PROJECT RENAMED 2026-09-09: the ZA cell is `-p poc`, not `-p lb-za-1`.** Demo 01 is the Dictionary
+POC and gets its own name back — `poc` was the project name in the retired flat `docker-compose.yml`, and
+`lb-poc` never existed. Everything below that says `lb-za-1` is the pre-rename record — read it as `poc`.
+
+**AND THEN 2026-09-09: `poc` is demo 01's ONLY project.** `up-mesh.sh`, `lb-hub` and the whole mesh
+were removed from demo 01 the same day; demo 01 is one region on one NATS server. `lb-au-1` still
+exists as a demo 01 env file for running a second cell side by side, but there is no gateway between
+them any more. The multi-region names `lb-za-1` and `lb-au-1` now belong to `demos/02-multi-region/`.
+See [[multi-region-lives-in-demo-02]].
+
 **Cell split DONE 2026-09-08 ([[ADR-055]] = `ADR/lab/ADR-055-lab-platform-compose-split-cell-and-global.md`).**
 `demos/01-dictionary/deploy/cell/` now holds `compose.yaml` (include-only) + `compose.infra.yaml` /
 `compose.control.yaml` / `compose.runtime.yaml` / `compose.dedicated.yaml`, plus
@@ -86,12 +96,15 @@ cursor after a mid-life reset, so a retry loop and a catch-up are safe together 
 and 8 again after a restart. refdata-service's own `notifybridge` is left on `DeliverNewPolicy` on purpose - it
 runs in-process with its publisher (no cross-container race) and is documented as lossy by design.
 
-**Still to do:** retire the old flat `demos/01-dictionary/docker-compose.yml`;
-write the hub NATS `gateway {}` config (`nats/nats.conf` has no `cluster {}`/`gateway {}`/`leafnodes {}` today, so
+**Done 2026-09-08:** the old flat `demos/01-dictionary/docker-compose.yml` is deleted. `scripts/new-plugin.sh` now
+writes two compose files (dedicated band for the service and its release volume, runtime band for
+`REGISTRY_ALLOWED_ORIGINS` and `REGISTRY_FETCH_ORIGINS`) plus a `PLUGIN_<ID>_PORT` variable in every cell env file.
+
+**Still to do:** write the hub NATS `gateway {}` config (`nats/nats.conf` has no `cluster {}`/`gateway {}`/`leafnodes {}` today, so
 every hub line is additive).
 
 **Decided 2026-09-07.** The target shape is
-`demos/01-dictionary/diagrams/multi-cluster-and-region/multi-region-control-plane-topology-3.html`
+`demos/02-multi-region/diagrams/multi-cluster-and-region/multi-region-control-plane-topology-3.html`
 (revision 3: global band = platform control services + trust material + management backbone; below it, N regional cells).
 
 **The split — files and projects are two different axes.**
@@ -101,7 +114,7 @@ every hub line is additive).
 
 **Chosen sequence: prove it locally first, then AWS.** Rejected alternative was going straight at one AWS region, which means fighting NATS storage, secrets and IaC simultaneously with no proof the split is correct. Local first is ~one session and forces the migration-job and variable-port work that AWS needs anyway. **Write the ADR during the split, not after.**
 
-**Hard blocker on a second local region:** `demos/01-dictionary/docker-compose.yml` hard-codes every host port (`4222`, `8222`, `9222`, `5432`, `72xx`, `71xx`). Two regions cannot both bind `4222`. Every host port becomes `${VAR:-default}` with `deploy/environments/local-za-1.env` / `local-au-1.env` supplying the offsets — see [[frontend_port_structure]] and [[project-ports-tenant-scoping]] for the existing port allocation rules.
+**Hard blocker on a second local region (resolved by the split; the file is gone since 2026-09-08):** the old flat `demos/01-dictionary/docker-compose.yml` hard-coded every host port (`4222`, `8222`, `9222`, `5432`, `72xx`, `71xx`). Two regions cannot both bind `4222`. Every host port becomes `${VAR:-default}` with `deploy/environments/local-za-1.env` / `local-au-1.env` supplying the offsets — see [[frontend_port_structure]] and [[project-ports-tenant-scoping]] for the existing port allocation rules.
 
 **Decided 2026-09-08 — Option A: Compose locally, Helm/Kubernetes in production.** Rejected alternative was one definition
 for both (Compose in production via ECS, or Kind/k3d locally so the laptop also runs Helm). Chosen because the local

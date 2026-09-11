@@ -1,4 +1,4 @@
-# Build context is the REPO ROOT (see demos/01-dictionary/docker-compose.yml)
+# Build context is the REPO ROOT (see demos/01-dictionary/deploy/cell/compose.runtime.yaml)
 # so the repo-root shared UniFi theme preset (@unifi-theme), the shared
 # AppShell (@ui-shell) and demo-01's shared NATS URL resolver (@nats-shared)
 # can be copied in alongside the shell's own source.

@@ -14,10 +14,12 @@ never heard of it; it learns the URL from the registry document at boot.
 The plugin ships as its own image and comes up with the stack:
 
 ```bash
-docker compose up -d example-plugin-frontend
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml -f compose.dedicated.yaml up -d example-plugin-frontend
 ```
 
-from `demos/01-dictionary/`. Port **7111**, and the shell is on **7110** — both
+The extra `-f compose.dedicated.yaml` is required: the plugin fixtures are not
+part of a cell. Port **7111**, and the shell is on **7110** — both
 are containers now, and the dev servers below publish the same two ports so a
 curated remote URL is correct either way.
 

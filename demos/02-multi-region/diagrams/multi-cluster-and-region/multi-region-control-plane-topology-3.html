@@ -606,7 +606,7 @@ li b { color: var(--text); font-weight: 600; }
 
   <figure>
     <div class="fig-body">
-      <svg viewBox="0 0 974 430" role="img" aria-label="How the same split is expressed in Docker Compose locally. A top band shows four compose files as three deploy units plus one entry point: compose.infra.yaml carrying NATS and Postgres, compose.control.yaml carrying the provisioner and resolver, compose.runtime.yaml carrying accounts, refdata and the business services, and compose.yaml which includes the other three so one command brings up a whole region. A middle band shows three compose projects as the run units: lb-global running only the control file once globally, and lb-za-1 and lb-au-1 both running the same infra and runtime files with different env files and different host ports. All three projects attach to one external Docker network named platform, carrying only the resolver endpoint and the gateway links, so region za cannot reach region au Postgres.">
+      <svg viewBox="0 0 974 430" role="img" aria-label="How the same split is expressed in Docker Compose locally. A top band shows four compose files as three deploy units plus one entry point: compose.infra.yaml carrying NATS and Postgres, compose.control.yaml carrying the provisioner and resolver, compose.runtime.yaml carrying accounts, refdata and the business services, and compose.yaml which includes the other three so one command brings up a whole region. A middle band shows three compose projects as the run units: lb-global running only the control file once globally, and poc and lb-au-1 both running the same infra and runtime files with different env files and different host ports. All three projects attach to one external Docker network named platform, carrying only the resolver endpoint and the gateway links, so region za cannot reach region au Postgres.">
         <defs>
           <marker id="b-join" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <polygon points="0,1 8,4 0,7" fill="var(--tx3)"/>
@@ -655,12 +655,12 @@ li b { color: var(--text); font-weight: 600; }
         <text class="tm" x="32" y="243">-f compose.control.yaml</text>
         <text class="td" x="32" y="261">one control plane, ever</text>
 
-        <text class="gl" x="332" y="176" fill="var(--stroke)">PROJECT lb-za-1 &mdash; CELL</text>
+        <text class="gl" x="332" y="176" fill="var(--stroke)">PROJECT poc &mdash; CELL</text>
         <rect class="bnd" x="332" y="182" width="310" height="100" rx="12" stroke="var(--stroke)"/>
         <rect class="tile" x="346" y="196" width="282" height="72" rx="8"/>
         <rect x="356" y="206" width="22" height="22" rx="7" fill="var(--stroke)"/>
         <text class="ig" x="367" y="221" text-anchor="middle">Z</text>
-        <text class="tf" x="386" y="221">-p lb-za-1</text>
+        <text class="tf" x="386" y="221">-p poc</text>
         <text class="tm" x="358" y="243">-f infra -f runtime &middot; za-1.env</text>
         <text class="tm" x="358" y="261">NATS_PORT=4222 &middot; PG_PORT=5432</text>
 
@@ -692,7 +692,7 @@ li b { color: var(--text); font-weight: 600; }
     <figcaption><b>Three files, three projects &mdash; and they are not the same three.</b> The <b>file</b> split is the
     <em>release</em> boundary: infra is stateful and upgrades on its own schedule, control is global, runtime is stateless and
     ships whenever. The <b>project</b> split is the <em>cell</em> boundary: one project per control plane, one per region.
-    That is why <code>lb-za-1</code> and <code>lb-au-1</code> run the <b>same two files</b> and differ only by their env file.
+    That is why <code>poc</code> and <code>lb-au-1</code> run the <b>same two files</b> and differ only by their env file.
     <code>compose.yaml</code> exists so a developer can still type one command for a whole region &mdash; use Compose's
     <code>include:</code>, or the older <code>-f a.yaml -f b.yaml</code> form; both merge into one project. Every host port
     comes from a variable, never a literal &mdash; that is the one change today's flat
@@ -711,7 +711,7 @@ li b { color: var(--text); font-weight: 600; }
         <tr><td><code>deploy/global/compose.control.yaml</code></td><td>One Helm release in the management cluster</td><td>One of it, platform-wide</td></tr>
         <tr><td><code>deploy/cell/compose.runtime.yaml</code></td><td>One Helm release <b>per cell</b></td><td>Stateless, scaled and released per cell</td></tr>
         <tr><td><code>za-1.env</code> / <code>au-1.env</code></td><td><code>values-za-1.yaml</code> / <code>values-au-1.yaml</code></td><td>Same job: the only place a region name appears</td></tr>
-        <tr><td><code>-p lb-za-1</code></td><td>The cell's namespace and its Argo CD <code>Application</code></td><td>One project ≈ one reconciled unit</td></tr>
+        <tr><td><code>-p poc</code></td><td>The cell's namespace and its Argo CD <code>Application</code></td><td>One project ≈ one reconciled unit</td></tr>
         <tr><td>external network <code>platform</code></td><td>Gateway routes + the resolver endpoint</td><td>The only sanctioned cross-cell path</td></tr>
         <tr><td><code>NATS_PORT=4222</code> / <code>4322</code></td><td>Nothing &mdash; the variable disappears</td><td>Separate clusters, so both use <code>4222</code>; the port split is a laptop artifact</td></tr>
       </tbody>

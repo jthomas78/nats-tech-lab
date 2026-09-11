@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>NATS Multi-Region — Pattern Cards</title>
+<style>
+  :root{
+    --bg:#0d0f11; --bg2:#131416; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px; font-feature-settings:"cv05","ss01";
+  }
+  .page{
+    width:210mm; height:297mm; overflow:hidden; padding:15mm 13mm 11mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);
+  }
+  .page:last-child{page-break-after:auto}
+
+  /* ---------- cover ---------- */
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:47px;line-height:54px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:78%;margin-top:16px}
+  .cover-q{
+    margin-top:26px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:16px 20px;max-width:92%;
+  }
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:14px;line-height:23px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 30px;margin-top:10px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:16px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  /* ---------- card chrome ---------- */
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{
+    margin-top:16px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:16px 20px 18px;
+    display:grid;grid-template-columns:56px 1fr;gap:4px 14px;
+  }
+  .num{font-size:30px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:34px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:25px;line-height:31px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+  .decision{
+    margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    padding:14px 18px;display:grid;grid-template-columns:78px 1fr;gap:14px;align-items:start;
+  }
+  .decision .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fam);padding-top:3px}
+  .decision p{font-size:14px;line-height:22px}
+  .decision b{color:var(--tx)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:13px 16px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:10px}
+  .panel.pro{border-left:2px solid var(--green)}
+  .panel.con{border-left:2px solid var(--red)}
+  .panel.pro > .lbl{color:var(--green)}
+  .panel.con > .lbl{color:var(--red)}
+  .panel.note{border-left:2px solid var(--amber)}
+  .panel.note > .lbl{color:var(--amber)}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"›";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  .flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:2px}
+  .step{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:6px 10px;
+    font-size:11px;color:var(--tx);line-height:15px}
+  .step.hi{border-color:var(--fam);color:var(--fam)}
+  .arw{color:var(--stroke);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 8px 0;font-weight:500}
+  td{padding:5px 8px 5px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .verdict{
+    margin-top:auto;padding-top:14px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;
+  }
+  .pill{border:1px solid var(--fam);color:var(--fam);border-radius:5px;padding:6px 11px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .verdict p{font-size:12.5px;line-height:19px}
+  .verdict .side{font-size:10.5px;color:var(--tx3);letter-spacing:.06em;white-space:nowrap}
+  .spacer{flex:1}
+  /* Two cards carry more material than the others; step their body type down a
+     notch rather than cutting content, so every card still fits exactly one page. */
+  .page.tight li{font-size:11.1px;line-height:16px;margin-bottom:5px}
+  .page.tight .lede{font-size:12px;line-height:18px}
+  .page.tight .panel{padding:11px 15px}
+  .page.tight td{font-size:11px}
+  .src{font-size:10px;line-height:15px;color:var(--tx3);padding:11px 13px;break-inside:avoid}
+  .src li{font-size:10px;line-height:15px;margin-bottom:5px}
+  .src .lbl{margin-bottom:7px}
+  .srcwrap{column-count:2;column-gap:12px}
+  .srcwrap .panel{margin:0 0 12px!important}
+  .src a{color:var(--tx3);text-decoration:none}
+
+  /* ---------- inline SVG figures ----------
+     Same primitives as diagrams/gateway-vs-wan-cut.html, re-pointed at the
+     card palette so a figure on a card and the same figure on the web page
+     read as one drawing. Every figure sets its own viewBox and scales to the
+     panel width, so a card never has to reserve a fixed height. */
+  .fig{display:block;width:100%;height:auto;margin:2px 0 0}
+  .fig .clu{fill:var(--bg2);stroke:var(--line2);stroke-width:1}
+  .fig .srv{fill:var(--panel2);stroke:var(--stroke);stroke-width:1}
+  .fig .srv.hi{stroke:var(--fam);fill:color-mix(in srgb,var(--fam) 10%,var(--panel2))}
+  .fig .srv.off{stroke:var(--red);fill:color-mix(in srgb,var(--red) 10%,var(--panel2))}
+  .fig .lbl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:var(--tx)}
+  .fig .grp{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx3);letter-spacing:.07em}
+  .fig .edge{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx2)}
+  .fig .gwline{fill:none;stroke:var(--blue);stroke-width:1.6}
+  .fig .cut{fill:none;stroke:var(--red);stroke-width:1.6}
+  .fig .none{fill:none;stroke:var(--stroke);stroke-width:1.4;stroke-dasharray:3 4;stroke-opacity:.6}
+  .fig .leaf{fill:none;stroke:var(--fam);stroke-width:1.4;stroke-dasharray:5 3}
+  .fig .chipOK{fill:color-mix(in srgb,var(--green) 14%,var(--panel2));stroke:var(--green);stroke-width:1;stroke-opacity:.7}
+  .fig .chipNO{fill:color-mix(in srgb,var(--red) 12%,var(--panel2));stroke:var(--red);stroke-width:1;stroke-opacity:.7}
+  .fig .chipF {fill:color-mix(in srgb,var(--fam) 12%,var(--panel2));stroke:var(--fam);stroke-width:1;stroke-opacity:.7}
+  .fig .chipT{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;fill:var(--tx)}
+  .fig .chipT.ok{fill:var(--green)} .fig .chipT.no{fill:var(--red)} .fig .chipT.fam{fill:var(--fam)}
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Multi-region reference · demos/02-multi-region</span></div>
+  <h1 class="cover">Two Regions,<br>One NATS <span class="hl">Supercluster</span></h1>
+  <p class="cover-sub">Ten patterns measured on a six-server lab — three in South Africa, three in Australia,
+    joined by a gateway. Each card states the mechanism, what it costs, and the number the lab actually
+    printed. Nothing here is from a blog post.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The question every card serves</div>
+    <p>A truck drives <b>12.5&nbsp;km, once</b>, in South Africa. Two regions are listening.
+      What does the odometer say afterwards — and what happens to both regions when the link
+      between them dies?</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:14px">
+    <div class="lbl" style="color:var(--amber)">The rule that orders the deck</div>
+    <p>A gateway buys <b>reach</b> and sells you a <b>shared namespace and a shared failure domain</b>.
+      Only the <b>account</b> is a wall. Everything else on these pages — subjects, placement, domains —
+      is a convention, a location, or a name.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The ten patterns</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>01 · One supercluster takes one JetStream domain</div>
+      <div class="fam"><span class="sw" style="background:var(--teal)"></span>06 · Replicas and quorum — 1, 3, 5</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>02 · The stream-name collision — error 10058</div>
+      <div class="fam"><span class="sw" style="background:var(--teal)"></span>07 · What replication costs — the acknowledgement</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>03 · Placement — where a stream lives</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>08 · The shared failure domain — a WAN cut</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>04 · A region token in the subject — the convention</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>09 · Escaping the shared failure domain</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>05 · One account per region — the wall</div>
+      <div class="fam"><span class="sw" style="background:var(--red)"></span>10 · Measuring without fooling yourself</div>
+    </div>
+    <div class="cover-meta"><span>Measured on NATS 2.14 · six servers · September 2026</span><span>10 patterns · 1 selection guide</span></div>
+  </div>
+</section>
+
+<!-- ============ 01 DOMAIN ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Namespace · Card 01 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">01</div><div class="fam-lbl">Namespace</div>
+    <h2>One supercluster takes one JetStream domain</h2>
+    <p class="lede">A gateway joins two clusters into one <b>supercluster</b>. A supercluster is one JetStream
+      system, and a JetStream system has exactly one <code>domain</code> name. Every server carries the same
+      one. Here it is <code>lb</code>.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Can a per-region <code>domain</code> (<code>za</code>, <code>au</code>) be used to keep two regions
+      apart? <b>No. It is not a legal configuration</b>, and the servers do not tell you.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <svg class="fig" viewBox="0 0 900 150" role="img" aria-label="Two clusters on one supercluster share one domain name; only a leaf link may change it.">
+      <rect class="clu" x="20" y="14" width="644" height="112" rx="4"/>
+      <text class="grp" x="32" y="30">ONE SUPERCLUSTER &middot; ONE JETSTREAM SYSTEM &middot; ONE DOMAIN NAME</text>
+      <rect class="clu" x="36" y="40" width="270" height="74" rx="3"/>
+      <rect class="clu" x="374" y="40" width="270" height="74" rx="3"/>
+      <text class="grp" x="46" y="56">CLUSTER ZA</text>
+      <text class="grp" x="384" y="56">CLUSTER AU</text>
+      <rect class="srv hi" x="46"  y="62" width="74" height="28" rx="3"/><text class="lbl" x="64"  y="81">za-1</text>
+      <rect class="srv hi" x="132" y="62" width="74" height="28" rx="3"/><text class="lbl" x="150" y="81">za-2</text>
+      <rect class="srv hi" x="218" y="62" width="74" height="28" rx="3"/><text class="lbl" x="236" y="81">za-3</text>
+      <rect class="srv hi" x="384" y="62" width="74" height="28" rx="3"/><text class="lbl" x="402" y="81">au-1</text>
+      <rect class="srv hi" x="470" y="62" width="74" height="28" rx="3"/><text class="lbl" x="488" y="81">au-2</text>
+      <rect class="srv hi" x="556" y="62" width="74" height="28" rx="3"/><text class="lbl" x="574" y="81">au-3</text>
+      <text class="edge" x="171" y="106" text-anchor="middle">domain lb</text>
+      <text class="edge" x="509" y="106" text-anchor="middle">domain lb</text>
+      <path class="gwline" d="M308 76 H372"/>
+      <text class="edge" x="340" y="70" text-anchor="middle">gateway</text>
+      <path class="leaf" d="M666 76 H714"/>
+      <text class="edge" x="690" y="94" text-anchor="middle">leaf link</text>
+      <rect class="clu" x="714" y="46" width="166" height="60" rx="3"/>
+      <text class="grp" x="724" y="62">LEAF NODE</text>
+      <rect class="chipF" x="724" y="70" width="146" height="26" rx="3"/>
+      <text class="chipT fam" x="797" y="87" text-anchor="middle">domain edge</text>
+      <text class="edge" x="797" y="124" text-anchor="middle">the ONLY legal change</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li>A domain names a <b>JetStream system</b>, not a region and not a tenant. The same name is required
+        on every server of a cluster <b>and</b> of a supercluster.</li>
+      <li>The name may only change across a <b>leaf-node</b> link. A gateway is not a leaf link.</li>
+      <li>Setting <code>domain</code> also suppresses JetStream traffic on the system account — which is what
+        silently breaks a supercluster that uses two names.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it does give you</div><ul>
+      <li>An <b>address</b>. <code>$JS.lb.API.&gt;</code> lets a leaf node reach a named JetStream from outside it.</li>
+      <li>Clean addressing when you really do run separate JetStream systems joined by leaf nodes — see Card 09.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it does NOT give you</div><ul>
+      <li><b>Not a tenant boundary.</b> That is the account — Card 05.</li>
+      <li><b>Not a location.</b> That is placement — Card 03.</li>
+      <li><b>Not availability.</b> A domain does not change the meta group — Card 08.</li>
+      <li><b>No error if you get it wrong.</b> Two domains in one supercluster produce silence, not a message.</li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">Measured, then reversed — 2026-09-09</div>
+    <ul><li>This repo shipped <code>za</code> / <code>au</code> / <code>hub</code> domains, on the belief that a
+      domain was a per-cluster boundary. It broke JetStream instead. The correction is dated in
+      <code>docs/Multi-Region-Plan.md</code> at D9 and D11.</li>
+      <li>The lab now runs <b>one domain, <code>lb</code>, on all six servers</b>, and separates regions with
+        accounts and placement.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Treat <code>domain</code> as an <b>address for leaf nodes</b>, nothing else. If you are reaching for it to
+      split two clusters that share a gateway, you are solving the wrong problem with the wrong tool.</p>
+    <span class="side">boundary strength: none</span></div>
+</section>
+
+<!-- ============ 02 COLLISION ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Namespace · Card 02 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">02</div><div class="fam-lbl">Namespace</div>
+    <h2>The stream-name collision — error 10058</h2>
+    <p class="lede">Inside one account, a stream name is unique across the <b>whole supercluster</b>. South Africa
+      creates <code>ODOMETER</code>. Australia asks for <code>ODOMETER</code> and is refused. There is no second
+      stream, and no warning that there is not.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Two regions both want a stream with the same, obvious, domain-correct name. Which axis do you spend to
+      get it — the <b>subject</b> (Card 04), or the <b>account</b> (Card 05)?</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism — measured by <code>lab/00-the-problem.sh</code></div>
+    <svg class="fig" viewBox="0 0 900 156" role="img" aria-label="With one account across a gateway ZA creates ODOMETER and AU is refused with error 10058.">
+      <rect class="clu" x="24" y="16" width="306" height="80" rx="4"/>
+      <rect class="clu" x="570" y="16" width="306" height="80" rx="4"/>
+      <text class="grp" x="34"  y="33">CLUSTER ZA &middot; account LINEBOOKER</text>
+      <text class="grp" x="580" y="33">CLUSTER AU &middot; account LINEBOOKER</text>
+      <rect class="srv" x="36"  y="44" width="80" height="30" rx="3"/><text class="lbl" x="58"  y="64">za-1</text>
+      <rect class="srv" x="130" y="44" width="80" height="30" rx="3"/><text class="lbl" x="152" y="64">za-2</text>
+      <rect class="srv" x="224" y="44" width="80" height="30" rx="3"/><text class="lbl" x="246" y="64">za-3</text>
+      <rect class="srv" x="582" y="44" width="80" height="30" rx="3"/><text class="lbl" x="604" y="64">au-1</text>
+      <rect class="srv" x="676" y="44" width="80" height="30" rx="3"/><text class="lbl" x="698" y="64">au-2</text>
+      <rect class="srv" x="770" y="44" width="80" height="30" rx="3"/><text class="lbl" x="792" y="64">au-3</text>
+      <path class="gwline" d="M332 59 H568"/>
+      <text class="edge" x="450" y="51" text-anchor="middle">gateway 7222</text>
+      <text class="edge" x="450" y="78" text-anchor="middle">ONE supercluster = ONE namespace</text>
+      <rect class="chipOK" x="78" y="114" width="198" height="26" rx="3"/>
+      <text class="chipT ok" x="177" y="131" text-anchor="middle">ODOMETER  created</text>
+      <rect class="chipNO" x="608" y="114" width="230" height="26" rx="3"/>
+      <text class="chipT no" x="723" y="131" text-anchor="middle">REFUSED &mdash; 10058</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li>The exact text: <code>stream name already in use with a different configuration (10058)</code>.</li>
+      <li>Worse than the error: <code>stream info</code> from AU then <b>succeeds</b> and returns ZA's stream —
+        same <code>cluster</code>, same <code>created</code> timestamp. AU has a working handle to somebody
+        else's data.</li>
+      <li>One <code>purge</code> in ZA empties "both". They were always one object.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Why this is the dangerous one</div><ul>
+      <li><b>The failure is at create time, once, in a script nobody reads twice.</b> After that everything
+        looks healthy.</li>
+      <li>Each region still runs its own writer and its own projector. They now share one log, so one business
+        event is applied <b>once per region</b>.</li>
+      <li>A message count cannot show this. Only a <b>business total</b> can — 25&nbsp;km for a 12.5&nbsp;km
+        trip. See Card 05.</li>
+      <li>If AU goes off the air, AU loses its data — because AU never had any.</li>
+    </ul></div>
+    <div class="panel note"><div class="lbl">What does not fix it</div><ul>
+      <li><b>A domain.</b> Card 01.</li>
+      <li><b>Placement.</b> <code>--cluster au</code> chooses where a stream lives. It cannot make a second
+        stream with a name the account has already used.</li>
+      <li><b>Bigger clusters, more replicas, a hub.</b> None of these touch the namespace.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>A shared account across a gateway is a <b>shared name space, a shared log and a shared bug</b>.
+      Discover it on day one with a deliberate collision test, not in month six with a wrong invoice.</p>
+    <span class="side">detection: create-time only</span></div>
+</section>
+
+<!-- ============ 03 PLACEMENT ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Location · Card 03 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">03</div><div class="fam-lbl">Location</div>
+    <h2>Placement — where a stream physically lives</h2>
+    <p class="lede">In a supercluster, JetStream will otherwise choose for you. <code>--cluster za</code> pins the
+      stream and every one of its replicas to the South African servers. It is the right tool for
+      <i>where</i>, and it is not a boundary.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Where must this data <b>sit</b> — for latency, for data residency, for the blast radius of one region
+      failing?</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <svg class="fig" viewBox="0 0 900 158" role="img" aria-label="Placement pins every replica inside one cluster; replicas never cross the gateway.">
+      <rect class="clu" x="24" y="14" width="326" height="78" rx="4"/>
+      <rect class="clu" x="550" y="14" width="326" height="78" rx="4"/>
+      <text class="grp" x="34"  y="31">CLUSTER ZA</text>
+      <text class="grp" x="560" y="31">CLUSTER AU</text>
+      <rect class="srv hi" x="36"  y="42" width="94" height="30" rx="3"/><text class="lbl" x="62"  y="62">za-1</text>
+      <rect class="srv hi" x="140" y="42" width="94" height="30" rx="3"/><text class="lbl" x="166" y="62">za-2</text>
+      <rect class="srv hi" x="244" y="42" width="94" height="30" rx="3"/><text class="lbl" x="270" y="62">za-3</text>
+      <rect class="srv" x="562" y="42" width="94" height="30" rx="3"/><text class="lbl" x="588" y="62">au-1</text>
+      <rect class="srv" x="666" y="42" width="94" height="30" rx="3"/><text class="lbl" x="692" y="62">au-2</text>
+      <rect class="srv" x="770" y="42" width="94" height="30" rx="3"/><text class="lbl" x="796" y="62">au-3</text>
+      <path class="gwline" d="M352 57 H548"/>
+      <text class="edge" x="450" y="35" text-anchor="middle">gateway</text>
+      <path class="cut" d="M440 84 L460 106 M460 84 L440 106"/>
+      <text class="edge" x="450" y="146" text-anchor="middle">replicas never cross this line</text>
+      <rect class="chipF" x="60" y="106" width="252" height="26" rx="3"/>
+      <text class="chipT fam" x="186" y="123" text-anchor="middle">R3  --cluster za  &rarr;  placed</text>
+      <rect class="chipNO" x="588" y="106" width="252" height="26" rx="3"/>
+      <text class="chipT no" x="714" y="123" text-anchor="middle">R5 anywhere  &rarr;  10005</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li><b>A stream's replicas never span clusters.</b> Placement is not "prefer" — it is the fence the Raft
+        group is built inside. Asking for more replicas than one cluster holds fails with
+        <code>no suitable peers for placement (10005)</code>, even when the supercluster has plenty of servers.</li>
+      <li>Omitting <code>--cluster</code> does not spread a stream. It lets the meta leader pick <b>one</b> cluster,
+        possibly the far one.</li>
+      <li>Check it, do not assume it: <code>nats stream info &lt;name&gt; --json | jq .cluster.name</code>.
+        The lab's <code>lab/streams.sh</code> prints this for all six contexts.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>Real and physical.</b> Data residency and read latency are decided here, not by naming.</li>
+      <li>Cheap — one flag, per stream, no trust-chain change.</li>
+      <li>Makes a region's failure legible: you know exactly which streams went with it.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>Not a security or correctness boundary.</b> Anyone in the account can read a ZA-placed stream from AU.</li>
+      <li>Does not solve the name collision — Card 02.</li>
+      <li>Silent by omission: forget the flag and placement happens anyway, somewhere.</li>
+      <li>Caps your replica count at the size of one cluster.</li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">Say it once, clearly</div>
+    <ul><li><b>Domain = which JetStream system. Placement = which cluster. Account = who may see it.</b>
+      Three different words, three different jobs, and only the third one is a wall.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Set <code>--cluster</code> explicitly on every stream in a supercluster. It costs one flag and it removes
+      an entire class of "why is our data in Sydney" question.</p>
+    <span class="side">boundary strength: none · location: exact</span></div>
+</section>
+
+<!-- ============ 04 SUBJECT TOKEN ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Separation, soft · Card 04 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">04</div><div class="fam-lbl">Separation, by convention</div>
+    <h2>A region token in the subject</h2>
+    <p class="lede">Keep one account. Put the region in the subject, so the two streams no longer overlap:
+      ZA filters <code>evt.za.&gt;</code>, AU filters <code>evt.au.&gt;</code>. It works. It is a naming
+      convention, not a boundary.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Are you willing to pay for separation in <b>subjects and stream names</b> — every publisher, every
+      consumer, every filter — to avoid changing the trust chain?</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism — measured by <code>lab/01-option-1-subjects.sh</code></div>
+    <svg class="fig" viewBox="0 0 900 140" role="img" aria-label="A message published on evt.za crosses the gateway and AU drops it because no filter matches.">
+      <rect class="clu" x="24" y="24" width="306" height="70" rx="4"/>
+      <rect class="clu" x="570" y="24" width="306" height="70" rx="4"/>
+      <text class="grp" x="34"  y="41">CLUSTER ZA</text>
+      <text class="grp" x="580" y="41">CLUSTER AU</text>
+      <rect class="chipOK" x="38" y="52" width="278" height="30" rx="3"/>
+      <text class="chipT ok" x="177" y="71" text-anchor="middle">ODOMETER_ZA   evt.za.&gt;</text>
+      <rect class="chipNO" x="584" y="52" width="278" height="30" rx="3"/>
+      <text class="chipT no" x="723" y="71" text-anchor="middle">ODOMETER_AU   evt.au.&gt;</text>
+      <path class="gwline" d="M332 66 H552"/>
+      <path d="M562 66 l-12 -5 v10 z" fill="var(--blue)"/>
+      <text class="edge" x="444" y="42" text-anchor="middle">publish evt.za.&hellip; &mdash; it DOES cross</text>
+      <text class="edge" x="444" y="86" text-anchor="middle">nothing blocks it</text>
+      <text class="edge" x="177" y="114" text-anchor="middle" fill="var(--green)">1 message stored</text>
+      <text class="edge" x="723" y="114" text-anchor="middle" fill="var(--red)">0 &mdash; no filter matched, dropped</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li><b>The region token is paid TWICE.</b> Once in the subject, and once in the stream <b>name</b> —
+        because Card 02 still applies inside one account.</li>
+      <li>The message <b>did</b> cross the gateway. Nothing blocked it. AU simply had no filter that matched
+        and threw it away.</li>
+      <li>What physically held the two streams apart was <code>--cluster</code>, not the subject.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>No trust-chain change.</b> No new accounts, no new credentials, no re-issue.</li>
+      <li>Stops the double capture today, with a filter edit.</li>
+      <li>Easy to reason about in a small system with few publishers.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>A typo restores the bug, silently.</b> One publisher with the wrong prefix and the double capture is
+        back with no error anywhere.</li>
+      <li>Spends two of this repo's settled design rules: region is <b>not</b> a subject token, and streams are
+        named for the domain, not the deployment.</li>
+      <li>Touches every publisher, consumer and filter — a wide, boring migration.</li>
+      <li>Still leaves <b>two write sides in one account</b>, with no story for merging them.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>It stops the double capture and fixes nothing else. Reasonable as a <b>stop-gap</b> while accounts are
+      being minted; a poor destination, because its safety depends on everybody spelling things correctly
+      forever.</p>
+    <span class="side">boundary strength: convention</span></div>
+</section>
+
+<!-- ============ 05 ACCOUNT ============ -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Separation, hard · Card 05 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">05</div><div class="fam-lbl">Separation, server-enforced</div>
+    <h2>One account per region — the only real wall</h2>
+    <p class="lede">Give South Africa <code>LINEBOOKER_ZA</code> and Australia <code>LINEBOOKER_AU</code>.
+      Both may now hold a stream called <code>ODOMETER</code>, because they are two namespaces. The server
+      checks the account on every message. Nothing depends on a name being right.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Is a region a <b>tenant boundary</b> — data that must not leak, and must not be counted twice — or only a
+      deployment detail?</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism — measured by <code>lab/03-odometer.sh</code>, in kilometres</div>
+    <svg class="fig" viewBox="0 0 900 142" role="img" aria-label="One account per region: the account wall sits on the gateway and each side keeps its own odometer.">
+      <rect class="clu" x="24" y="14" width="306" height="76" rx="4"/>
+      <rect class="clu" x="570" y="14" width="306" height="76" rx="4"/>
+      <text class="grp" x="34"  y="31">CLUSTER ZA &middot; LINEBOOKER_ZA</text>
+      <text class="grp" x="580" y="31">CLUSTER AU &middot; LINEBOOKER_AU</text>
+      <rect class="srv hi" x="36"  y="42" width="80" height="28" rx="3"/><text class="lbl" x="58"  y="61">za-1</text>
+      <rect class="srv hi" x="130" y="42" width="80" height="28" rx="3"/><text class="lbl" x="152" y="61">za-2</text>
+      <rect class="srv hi" x="224" y="42" width="80" height="28" rx="3"/><text class="lbl" x="246" y="61">za-3</text>
+      <rect class="srv hi" x="582" y="42" width="80" height="28" rx="3"/><text class="lbl" x="604" y="61">au-1</text>
+      <rect class="srv hi" x="676" y="42" width="80" height="28" rx="3"/><text class="lbl" x="698" y="61">au-2</text>
+      <rect class="srv hi" x="770" y="42" width="80" height="28" rx="3"/><text class="lbl" x="792" y="61">au-3</text>
+      <path class="gwline" d="M332 56 H568"/>
+      <path class="cut" d="M450 26 V86"/>
+      <text class="edge" x="450" y="20" text-anchor="middle">account wall &mdash; server-enforced</text>
+      <rect class="chipOK" x="52" y="100" width="250" height="26" rx="3"/>
+      <text class="chipT ok" x="177" y="117" text-anchor="middle">odometer 12.5 km</text>
+      <rect class="chipOK" x="598" y="100" width="250" height="26" rx="3"/>
+      <text class="chipT ok" x="723" y="117" text-anchor="middle">odometer 0 km</text>
+    </svg>
+    <table style="margin-top:2px">
+      <thead><tr><th>Accounts</th><th>Odometer in ZA</th><th>Odometer in AU</th><th>The fleet believes</th></tr></thead>
+      <tbody>
+        <tr><td>one <code>LINEBOOKER</code>, both regions</td><td class="bad">25 km</td><td class="bad">25 km</td><td class="bad"><b>50 km</b></td></tr>
+        <tr><td><code>LINEBOOKER_ZA</code> + <code>LINEBOOKER_AU</code></td><td class="good">12.5 km</td><td class="good">0 km</td><td class="good"><b>12.5 km</b></td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:11px">
+      <li>Same subject, same code, same single publish. <b>Only the account changed.</b></li>
+      <li>A gateway carries interest, and it <b>never crosses an account</b>. That is the whole guarantee.</li>
+      <li>The tenant axis in this repo is the account, so a region-per-account decision must be taken with the
+        tenancy model open, not separately.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>Checked by the server on every message.</b> Not a convention, not a filter, not a review comment.</li>
+      <li>The obvious, domain-correct stream name works in both regions.</li>
+      <li>Subjects stay clean — no region token, so the settled subject taxonomy survives.</li>
+      <li>A leak becomes structurally impossible rather than unlikely.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>Trust-chain work.</b> New accounts, new credentials, new exports/imports for anything that
+        genuinely must cross.</li>
+      <li>Cross-region sharing is now <b>explicit</b> — you must design it, per subject.</li>
+      <li>Two write sides remain two write sides. The account makes them honest, not merged.</li>
+      <li><b>It does not help availability at all.</b> Card 08.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>The destination. A count of messages can never tell you the business is wrong; a total can. 25&nbsp;km for
+      a 12.5&nbsp;km trip is what pays for the migration.</p>
+    <span class="side">boundary strength: hard</span></div>
+</section>
+
+<!-- ============ 06 REPLICAS ============ -->
+<section class="page" style="--fam:var(--teal)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Durability · Card 06 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">06</div><div class="fam-lbl">Durability</div>
+    <h2>Replicas and quorum — 1, 3, 5</h2>
+    <p class="lede">A three-server cluster is <b>not</b> three copies. A stream stores the number of copies you
+      ask for, and the default is <b>one</b>. Ask for one, lose one server, and the stream is gone.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Per stream: how many server failures must this data survive? Every extra copy is real disk and real
+      latency — Card 07.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured on a 3-server cluster by <code>lab/02-replicas.sh</code></div>
+    <svg class="fig" viewBox="0 0 900 152" role="img" aria-label="The same three servers at Replicas 1 and Replicas 3, and what stopping the holder does.">
+      <text class="grp" x="24" y="22">REPLICAS 1 &mdash; ONE COPY</text>
+      <rect class="srv off" x="24"  y="30" width="96" height="28" rx="3"/><text class="lbl" x="50"  y="49">za-1</text>
+      <rect class="srv" x="134" y="30" width="96" height="28" rx="3"/><text class="lbl" x="160" y="49">za-2</text>
+      <rect class="srv" x="244" y="30" width="96" height="28" rx="3"/><text class="lbl" x="270" y="49">za-3</text>
+      
+      <path class="cut" d="M356 44 H400"/><path d="M410 44 l-12 -5 v10 z" fill="var(--red)"/>
+      <rect class="chipNO" x="420" y="31" width="330" height="26" rx="3"/>
+      <text class="chipT no" x="585" y="48" text-anchor="middle">stop it &rarr; stream is offline (10118)</text>
+      <text class="grp" x="24" y="110">REPLICAS 3 &mdash; THREE COPIES, QUORUM 2</text>
+      <rect class="srv hi" x="24"  y="118" width="96" height="28" rx="3"/><text class="lbl" x="50"  y="137">za-1</text>
+      <rect class="srv off" x="134" y="118" width="96" height="28" rx="3"/><text class="lbl" x="152" y="137">za-2 L</text>
+      <rect class="srv hi" x="244" y="118" width="96" height="28" rx="3"/><text class="lbl" x="270" y="137">za-3</text>
+      <path class="gwline" d="M356 132 H400" style="stroke:var(--green)"/><path d="M410 132 l-12 -5 v10 z" fill="var(--green)"/>
+      <rect class="chipOK" x="420" y="119" width="330" height="26" rx="3"/>
+      <text class="chipT ok" x="585" y="136" text-anchor="middle">stop the leader &rarr; new one in ~1s</text>
+      
+      
+    </svg>
+    <table style="margin-top:2px">
+      <thead><tr><th>Replicas</th><th>Quorum</th><th>Survives</th><th>Stop the leader and…</th></tr></thead>
+      <tbody>
+        <tr><td><b>1</b></td><td>—</td><td class="bad">nothing</td><td class="bad"><code>stream is offline (10118)</code></td></tr>
+        <tr><td><b>3</b></td><td>2</td><td class="good">1 server</td><td class="good">new leader in ~1s, messages intact</td></tr>
+        <tr><td><b>5</b></td><td>3</td><td class="mid">2 servers</td><td class="bad">refused — <code>no suitable peers for placement (10005)</code></td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:11px">
+      <li><b>Use odd numbers only</b> — 1, 3, 5. An even count adds cost and buys no extra tolerance, because
+        quorum is <code>floor(n/2)+1</code>. NATS caps a stream at 5.</li>
+      <li>R5 needs five servers <b>in one cluster</b>. It will not borrow peers from the other region — a
+        stream's replicas never span clusters (Card 03). Six servers across two clusters still gives 10005.</li>
+      <li>Replication is <b>per stream</b>. Nothing is global, and the default is the unsafe one.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">When R1 is honestly right</div><ul>
+      <li>Data you can regenerate — a cache, a derived projection, a scratch stream.</li>
+      <li>Development and lab work, where a rebuild costs a command.</li>
+      <li>Very high write rates where the source of truth is elsewhere.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">When R1 is a hidden outage</div><ul>
+      <li>Anything a business decision reads. <code>10118</code> is not a slow response — it is
+        <b>no response, until that one server returns</b>.</li>
+      <li>Anything you cannot replay from an upstream system.</li>
+      <li>KV buckets. A bucket is a stream, so it has replicas too — and <code>stream ls</code> hides it.
+        Check with <code>nats kv ls</code>.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p><b>R3 is the working default</b> for anything that matters; R1 is a deliberate, documented exception.
+      R5 only where a five-server cluster already exists and the data justifies the write cost.</p>
+    <span class="side">default: 1 · use: 3</span></div>
+</section>
+
+<!-- ============ 07 ACK COST ============ -->
+<section class="page" style="--fam:var(--teal)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Durability · Card 07 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">07</div><div class="fam-lbl">Durability, priced</div>
+    <h2>What replication costs — the acknowledgement</h2>
+    <p class="lede">R3 does not only slow the publish. <b>Both kinds of acknowledgement are writes</b>, so both
+      slow down: the publisher's PubAck, and the consumer's <code>Ack()</code>, because a consumer's position is
+      replicated too.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>You are sizing a throughput budget. Do you cost the extra copies as <b>disk</b>, or as
+      <b>round-trips on both sides of the stream</b>? It is both.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured with <code>nats bench</code>, one cluster, same hardware</div>
+    <svg class="fig" viewBox="0 0 900 128" role="img" aria-label="Both the publisher PubAck and the consumer Ack pay the same quorum round-trip.">
+      <text class="grp" x="24" y="20">WRITE PATH &mdash; THE PUBACK IS THE WRITE</text>
+      <rect class="srv" x="24"  y="28" width="104" height="28" rx="3"/><text class="lbl" x="44"  y="47">publisher</text>
+      <rect class="srv hi" x="186" y="28" width="104" height="28" rx="3"/><text class="lbl" x="216" y="47">leader</text>
+      <rect class="srv" x="348" y="28" width="194" height="28" rx="3"/><text class="lbl" x="400" y="47">2 followers</text>
+      <path class="gwline" d="M128 42 H176"/><path d="M186 42 l-12 -5 v10 z" fill="var(--blue)"/>
+      <path class="gwline" d="M290 42 H338"/><path d="M348 42 l-12 -5 v10 z" fill="var(--blue)"/>
+      <text class="edge" x="562" y="38">quorum 2 &rarr; PubAck</text>
+      <text class="edge" x="562" y="52">P50 212 &micro;s &rarr; 331 &micro;s</text>
+      <text class="grp" x="24" y="88">ACK PATH &mdash; THE CONSUMER ACK IS ALSO A WRITE</text>
+      <rect class="srv" x="24"  y="96" width="104" height="28" rx="3"/><text class="lbl" x="42"  y="115">consumer</text>
+      <rect class="srv hi" x="186" y="96" width="104" height="28" rx="3"/><text class="lbl" x="206" y="115">position</text>
+      <rect class="srv" x="348" y="96" width="194" height="28" rx="3"/><text class="lbl" x="400" y="115">2 followers</text>
+      <path class="gwline" d="M128 110 H176"/><path d="M186 110 l-12 -5 v10 z" fill="var(--blue)"/>
+      <path class="gwline" d="M290 110 H338"/><path d="M348 110 l-12 -5 v10 z" fill="var(--blue)"/>
+      <text class="edge" x="562" y="106">same quorum round-trip</text>
+      <text class="edge" x="562" y="120">30.7 &micro;s &rarr; 36.2 &micro;s</text>
+    </svg>
+    <table style="margin-top:2px">
+      <thead><tr><th>Path</th><th>R1</th><th>R3</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td><b>Synchronous publish</b> (wait for PubAck)</td><td>4,272 msg/s · P50 212&nbsp;µs</td><td>2,761 msg/s · P50 331&nbsp;µs</td><td class="mid">~35% slower</td></tr>
+        <tr><td><b>Consumer fetch + Ack()</b></td><td>196,864 msg/s · avg 30.71&nbsp;µs</td><td>121,532 msg/s · avg 36.24&nbsp;µs</td><td class="mid">~38% slower</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:11px">
+      <li>The consumer's <code>Ack()</code> is not free bookkeeping. It moves the consumer's position, that
+        position lives in a replicated Raft group, so it pays the same quorum round-trip.</li>
+      <li>Batch and <code>AckAll</code> where the domain allows it — the fix for ack cost is fewer acks, not
+        fewer replicas.</li>
+      <li>These are lab numbers on one machine. The <b>ratio</b> is the transferable part, not the rate.</li>
+    </ul>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">The trap that made this card necessary</div>
+    <ul>
+      <li><code>nats pub</code> is a <b>core</b> publish. It is fire-and-forget: no PubAck, no wait, and
+        <b>no error when JetStream cannot store the message</b>. It prints "Published" during an outage and
+        looks like success.</li>
+      <li>An early quorum test here was misread for exactly this reason. The truth only appeared in the
+        message <b>count</b>: 1 during the outage, 2 after recovery.</li>
+      <li>Real code must use a <b>JetStream publish and check the ack</b>. In benchmarks, use
+        <code>nats bench --js</code> with a synchronous publish, or you are timing the network card.</li>
+    </ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Budget roughly <b>a third less throughput</b> for R3 on both the write and the ack path. If that is
+      unaffordable for a stream, the honest answer is a different stream design — not R1 on data you cannot lose.</p>
+    <span class="side">R1 → R3 ≈ −35% both ways</span></div>
+</section>
+
+<!-- ============ 08 WAN CUT ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Availability · Card 08 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">08</div><div class="fam-lbl">Availability</div>
+    <h2>The shared failure domain — a WAN cut</h2>
+    <p class="lede">A gateway makes all six servers <b>one JetStream meta group</b>. Majority of six is four.
+      Cut the link 3&nbsp;/&nbsp;3 and neither side can elect a meta leader. Accounts do not change this,
+      and neither does a domain.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>What exactly stops when the WAN goes? The honest answer is <b>much narrower</b> than "both regions are
+      down" — but it is not nothing.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured — AU stopped, ZA holding 3 of 6 peers, <code>leader = NONE</code></div>
+    <svg class="fig" viewBox="0 0 900 154" role="img" aria-label="Six servers form one meta group; a three-three split leaves neither side a majority of four.">
+      <text class="grp" x="450" y="18" text-anchor="middle">ONE JETSTREAM META GROUP &middot; 6 PEERS &middot; MAJORITY = 4</text>
+      <rect class="srv" x="24"  y="28" width="88" height="28" rx="3"/><text class="lbl" x="46"  y="47">za-1</text>
+      <rect class="srv" x="126" y="28" width="88" height="28" rx="3"/><text class="lbl" x="148" y="47">za-2</text>
+      <rect class="srv" x="228" y="28" width="88" height="28" rx="3"/><text class="lbl" x="250" y="47">za-3</text>
+      <rect class="srv" x="584" y="28" width="88" height="28" rx="3"/><text class="lbl" x="606" y="47">au-1</text>
+      <rect class="srv" x="686" y="28" width="88" height="28" rx="3"/><text class="lbl" x="708" y="47">au-2</text>
+      <rect class="srv" x="788" y="28" width="88" height="28" rx="3"/><text class="lbl" x="810" y="47">au-3</text>
+      <path class="none" d="M318 42 H428 M472 42 H580"/>
+      <path class="cut" d="M438 31 L462 55 M462 31 L438 55"/>
+      <text class="edge" x="450" y="72" text-anchor="middle">WAN cut &mdash; all six servers are UP, only the link is gone</text>
+      <text class="edge" x="170" y="94" text-anchor="middle">3 of 6 &mdash; 3 &lt; 4</text>
+      <text class="edge" x="730" y="94" text-anchor="middle">3 of 6 &mdash; 3 &lt; 4</text>
+      <rect class="chipNO" x="40" y="102" width="260" height="24" rx="3"/>
+      <text class="chipT no" x="170" y="118" text-anchor="middle">leader = NONE</text>
+      <rect class="chipNO" x="600" y="102" width="260" height="24" rx="3"/>
+      <text class="chipT no" x="730" y="118" text-anchor="middle">stream add &rarr; 10008</text>
+      <rect class="chipOK" x="286" y="128" width="328" height="24" rx="3"/>
+      <text class="chipT ok" x="450" y="144" text-anchor="middle">existing streams: read AND write, both sides</text>
+    </svg>
+    <table style="margin-top:2px">
+      <thead><tr><th>Operation on the isolated side</th><th>Works?</th><th>Measured</th></tr></thead>
+      <tbody>
+        <tr><td>Core NATS publish / subscribe</td><td class="good"><b>yes</b></td><td>message delivered</td></tr>
+        <tr><td>Read an existing stream</td><td class="good"><b>yes</b></td><td><code>msgs=10</code></td></tr>
+        <tr><td><b>Write</b> to an existing stream</td><td class="good"><b>yes</b></td><td>10 → 15, all acked</td></tr>
+        <tr><td>Create / delete / edit a stream or consumer</td><td class="bad"><b>no</b></td><td><code>JetStream system temporarily unavailable (10008)</code></td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:11px">
+      <li>Existing streams keep serving because <b>a stream's replicas all live inside one cluster</b> (Card 03).
+        That Raft group still has its own majority. Only the <b>meta</b> group is split.</li>
+      <li>So a WAN cut is a <b>change freeze, not an outage</b>. Plan it that way: no deploys that create
+        streams or consumers, no scaling, no new tenants — but traffic keeps flowing.</li>
+      <li>Recovery needs no intervention. Restart the far side and the meta leader returns in seconds.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">What the gateway really sold you</div><ul>
+      <li><b>Reach</b>, paid for with a <b>shared control plane</b>. The link between regions is a hard
+        dependency for all stream management.</li>
+      <li>The failure is <b>symmetric</b> at 3+3 — nobody wins, so there is no "primary" to fail over to.</li>
+      <li>An account per region does not help. It is a data wall, not an availability wall.</li>
+    </ul></div>
+    <div class="panel pro"><div class="lbl">Check it in one command</div><ul>
+      <li><code>curl -s localhost:8621/jsz?meta=1 | jq '.meta_cluster'</code> — gives
+        <code>leader</code> and <code>cluster_size</code>.</li>
+      <li><code>leader: null</code> with a healthy <code>cluster_size</code> is exactly this state.</li>
+      <li>Alert on it. It is invisible from the data plane until somebody deploys.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Say "<b>management freezes</b>", never "the region is down". The difference decides whether you page
+      somebody at 02:00 or write a ticket for the morning.</p>
+    <span class="side">data plane: unaffected</span></div>
+</section>
+
+<!-- ============ 09 ESCAPES ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Availability · Card 09 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">09</div><div class="fam-lbl">Availability, by design</div>
+    <h2>Escaping the shared failure domain</h2>
+    <p class="lede">A 3&nbsp;+&nbsp;3 gateway is the worst arithmetic there is: an exact tie. Four shapes avoid
+      it, and they are ordinary design choices, not tricks.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Must <b>either</b> side keep managing streams through a cut? If yes, the topology has to change — no
+      setting will do it.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Four ways out, weakest first</div>
+    <svg class="fig" viewBox="0 0 900 174" role="img" aria-label="Three topologies and their quorum arithmetic through a WAN cut.">
+      <text class="grp" x="24" y="18">3 + 3 &mdash; AN EXACT TIE</text>
+      <rect class="srv off" x="24" y="24" width="22" height="22" rx="3"/><rect class="srv off" x="52" y="24" width="22" height="22" rx="3"/><rect class="srv off" x="80" y="24" width="22" height="22" rx="3"/>
+      <path class="cut" d="M120 27 L138 43 M138 27 L120 43"/>
+      <rect class="srv off" x="152" y="24" width="22" height="22" rx="3"/><rect class="srv off" x="180" y="24" width="22" height="22" rx="3"/><rect class="srv off" x="208" y="24" width="22" height="22" rx="3"/>
+      <text class="edge" x="248" y="40">3 of 6 &middot; 3 &lt; 4</text>
+      <rect class="chipNO" x="376" y="24" width="320" height="22" rx="3"/>
+      <text class="chipT no" x="536" y="39" text-anchor="middle">neither side can manage streams</text>
+      <text class="grp" x="24" y="80">3 + 2 &mdash; UNEVEN, ON PURPOSE</text>
+      <rect class="srv hi" x="24" y="86" width="22" height="22" rx="3"/><rect class="srv hi" x="52" y="86" width="22" height="22" rx="3"/><rect class="srv hi" x="80" y="86" width="22" height="22" rx="3"/>
+      <path class="cut" d="M120 89 L138 105 M138 89 L120 105"/>
+      <rect class="srv off" x="152" y="86" width="22" height="22" rx="3"/><rect class="srv off" x="180" y="86" width="22" height="22" rx="3"/>
+      <text class="edge" x="220" y="102">3 of 5 &middot; 3 &ge; 3</text>
+      <rect class="chipOK" x="376" y="86" width="320" height="22" rx="3"/>
+      <text class="chipT ok" x="536" y="101" text-anchor="middle">the 3-side keeps its leader</text>
+      <text class="grp" x="24" y="138">3 + 3 + A HUB SITE</text>
+      <rect class="srv hi" x="24" y="144" width="22" height="22" rx="3"/><rect class="srv hi" x="52" y="144" width="22" height="22" rx="3"/><rect class="srv hi" x="80" y="144" width="22" height="22" rx="3"/>
+      <path class="cut" d="M120 147 L138 163 M138 147 L120 163"/>
+      <rect class="srv hi" x="152" y="144" width="22" height="22" rx="3"/><rect class="srv hi" x="180" y="144" width="22" height="22" rx="3"/><rect class="srv hi" x="208" y="144" width="22" height="22" rx="3"/>
+      <rect class="srv hi" x="248" y="144" width="22" height="22" rx="3"/>
+      <text class="edge" x="284" y="160">hub &middot; 4 of 7</text>
+      <rect class="chipOK" x="376" y="144" width="320" height="22" rx="3"/>
+      <text class="chipT ok" x="536" y="159" text-anchor="middle">a majority survives one lost link</text>
+    </svg>
+    <table style="margin-top:2px">
+      <thead><tr><th>Shape</th><th>Arithmetic</th><th>Through a WAN cut</th></tr></thead>
+      <tbody>
+        <tr><td><b>Uneven regions</b> — 3 + 2</td><td>5 peers, majority 3</td><td class="mid">the 3-side keeps its leader and stays fully writable; only the small side freezes</td></tr>
+        <tr><td><b>A third cluster (gateway hub)</b></td><td>3 sites, one link lost</td><td class="good">a majority survives; the usual production answer</td></tr>
+        <tr><td><b>Nothing at all</b> — the data plane</td><td>per-stream Raft, inside one cluster</td><td class="good">already survives; see Card 08</td></tr>
+        <tr><td><b>Leaf nodes with their own domain</b></td><td>separate meta groups</td><td class="good">genuinely independent JetStream systems — nothing to split</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:11px">
+      <li><b>No gateway at all</b> is the fifth, degenerate case: two labs that cannot talk. Nothing collides and
+        nothing survives a cut, because there is nothing to cut. It is not a boundary you designed.</li>
+      <li>A leaf link is the <b>only</b> place a JetStream domain may change (Card 01). This is what domains are
+        actually for, and why they cannot help across a gateway.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Prefer a hub</div><ul>
+      <li>Three sites, odd count, no tie. A lost link leaves a majority.</li>
+      <li>The hub carries no tenant data — it exists to hold a vote and to relay.</li>
+      <li>Named as future work in <code>docs/Multi-Region-Plan.md</code>; this lab has no hub.</li>
+    </ul></div>
+    <div class="panel note"><div class="lbl">Uneven sizes are a real answer</div><ul>
+      <li>3 + 2 is not "one region is worse". It is <b>a decision about which side keeps working</b>, made
+        in advance and written down.</li>
+      <li>Say which side that is in the runbook, before the cut, not during it.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Pick the arithmetic on purpose. Two equal regions joined by one gateway is the one shape that guarantees
+      <b>nobody</b> can manage streams during a cut.</p>
+    <span class="side">avoid: 3 + 3</span></div>
+</section>
+
+<!-- ============ 10 METHOD ============ -->
+<section class="page" style="--fam:var(--red)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Method · Card 10 / 10</span></div>
+  <div class="titleblock">
+    <div class="num">10</div><div class="fam-lbl">Method</div>
+    <h2>Measuring without fooling yourself</h2>
+    <p class="lede">Three of the conclusions in this deck were <b>wrong the first time</b>. Each was wrong for the
+      same reason: the test tool lied, and the result looked plausible. This card is the list of traps, so they
+      are not walked into again.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Before you believe a distributed-systems measurement: what is the <b>control probe</b> that must still
+      work? If it also failed, your harness is broken, not the system.</p></div>
+
+  <div class="grid2" style="margin-top:12px">
+    <div class="panel con"><div class="lbl">Trap 01 · Docker ate the ports</div><ul>
+      <li><code>docker network disconnect lb-wan &lt;container&gt;</code> on a <b>running</b> container also drops
+        that container's <b>published host ports</b>.</li>
+      <li>Result: 4621 and 8621 go dead and everything looks catastrophic. Reported as "both regions died".
+        It was a Docker artefact.</li>
+      <li><b>The giveaway:</b> core NATS pub/sub also "failed" — impossible from a JetStream meta split.
+        That is the control probe.</li>
+      <li><b>Do this instead:</b> <code>docker stop lab2-au-1 lab2-au-2 lab2-au-3</code>. Ports stay up,
+        majority is genuinely lost.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Trap 02 · "Published" is not "stored"</div><ul>
+      <li><code>nats pub</code> is a <b>core</b> publish. No PubAck, no wait, no error when JetStream cannot
+        store it.</li>
+      <li>It printed "Published" all through an outage and made a broken quorum look healthy.</li>
+      <li><b>The giveaway:</b> the message <b>count</b>. 1 during the outage, 2 after recovery.</li>
+      <li><b>Do this instead:</b> assert on <code>stream info</code> counts, never on a publisher's own output.</li>
+    </ul></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Trap 03 · The shell did not split the flag</div><ul>
+      <li><b>zsh does not word-split unquoted variables.</b>
+        <code>C="--context lab2-za"; nats $C ls</code> fails with
+        <code>unknown long flag '--context lab2-za'</code>.</li>
+      <li>Cascades into confusing <code>jq: parse error</code> noise that hides the real cause.</li>
+      <li><b>Do this instead:</b> use an array — <code>C=(--context lab2-za)</code> — or wrap the experiment in
+        <code>bash &lt;&lt;'EOF' … EOF</code>.</li>
+    </ul></div>
+    <div class="panel note"><div class="lbl">The habits that caught all three</div><ul>
+      <li><b>Always carry a control probe</b> that must survive the fault. Core pub/sub here.</li>
+      <li><b>Assert on state, not on tool output.</b> Counts, <code>cluster.name</code>,
+        <code>created</code> timestamps, files on disk.</li>
+      <li><b>Prove the recovery too.</b> A test that only shows the break can be a broken test.</li>
+      <li><b>Re-run the whole lab after every fix.</b> All five stages, then <code>lab/streams.sh</code> and
+        <code>nats kv ls</code> to prove nothing was left behind.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>A measurement you cannot explain the <b>mechanism</b> of is a rumour. Write the corrections down, dated,
+      next to the claim they replace — this deck exists because three of them were not.</p>
+    <span class="side">3 wrong results · all harness</span></div>
+</section>
+
+<!-- ============ CHOOSING ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r">Selection · one screen</span></div>
+  <div class="titleblock">
+    <div class="num">→</div><div class="fam-lbl">Choosing</div>
+    <h2>The whole deck, on one page</h2>
+    <p class="lede">Two regions, one gateway. Three questions get asked in this order, and each has exactly one
+      correct tool.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Question 1 — do the two regions collide?</div>
+    <table style="margin-top:2px">
+      <thead><tr><th>Topology</th><th>Streams collide?</th><th>Survives a WAN cut?</th></tr></thead>
+      <tbody>
+        <tr><td>No gateway</td><td class="good">no</td><td class="good">yes — nothing to cut, and nothing shared</td></tr>
+        <tr><td>Gateway, <b>one</b> account</td><td class="bad">yes — <code>10058</code></td><td class="mid">management freezes on both sides</td></tr>
+        <tr><td>Gateway, <b>one account per region</b></td><td class="good">no</td><td class="mid">management still freezes</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grid3">
+    <div class="panel"><div class="lbl" style="color:var(--green)">Q2 · Who may see it?</div><ul>
+      <li><b>The account.</b> Card 05.</li>
+      <li>Server-enforced on every message. The only wall in this deck.</li>
+      <li>A subject token (Card 04) is a convention and fails silently on a typo.</li>
+    </ul></div>
+    <div class="panel"><div class="lbl" style="color:var(--purple)">Q3 · Where does it live?</div><ul>
+      <li><b>Placement.</b> <code>--cluster za|au</code>. Card 03.</li>
+      <li>Set it explicitly, always. Replicas never span clusters.</li>
+      <li><code>domain</code> is not this, and is not a boundary. Card 01.</li>
+    </ul></div>
+    <div class="panel"><div class="lbl" style="color:var(--teal)">Q4 · What survives?</div><ul>
+      <li><b>Replicas.</b> R3 default, R1 by exception. Card 06.</li>
+      <li>Costs ~35% on publish <i>and</i> on ack. Card 07.</li>
+      <li>A WAN cut freezes management only. Cards 08–09.</li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">Six sentences to remember</div>
+    <ul>
+      <li><b>A gateway makes one supercluster, and a supercluster is one JetStream system with one domain.</b></li>
+      <li><b>Inside one account, a stream name is unique across the whole supercluster.</b></li>
+      <li><b>Only the account is a wall.</b> Subjects are conventions, placement is a location, a domain is an address.</li>
+      <li><b>The default is Replicas 1.</b> Three servers is not three copies.</li>
+      <li><b>A WAN cut is a change freeze, not an outage</b> — unless the regions are unevenly sized, in which case only the smaller one freezes.</li>
+      <li><b>A business total finds bugs a message count cannot.</b> 25 km for a 12.5 km trip.</li>
+    </ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Gateway plus one account per region plus explicit placement plus R3. Then decide, in advance and in
+      writing, which side keeps managing streams when the link drops.</p>
+    <span class="side">10 cards · 1 default shape</span></div>
+</section>
+
+<!-- ============ SOURCES ============ -->
+<section class="page">
+  <div class="chead"><span>Multi-region · nats-tech-lab</span><span class="r" style="--fam:var(--tx3);color:var(--tx3)">Provenance</span></div>
+  <h2 style="margin-top:18px;font-size:22px;line-height:28px">Where every number came from</h2>
+  <p class="lede" style="max-width:80%;margin-bottom:12px">This deck is a lab record, not a literature review.
+    Every figure was printed by a script in this repository, on six NATS 2.14 servers, in September 2026.</p>
+  <div class="srcwrap">
+  <div class="panel src">
+    <div class="lbl">Cards 01–02 · Namespace</div>
+    <ul>
+      <li><code>demos/02-multi-region/lab/00-the-problem.sh</code> — the 10058 collision, and AU reading ZA's stream</li>
+      <li><code>demos/02-multi-region/nats/nats.conf</code> — the single <code>lb</code> domain, with the story</li>
+      <li><code>demos/02-multi-region/docs/Multi-Region-Plan.md</code> D9 / D11 — the dated correction</li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">Cards 03–05 · Placement, subjects, accounts</div>
+    <ul>
+      <li><code>lab/01-option-1-subjects.sh</code> — the region token, and what it costs</li>
+      <li><code>lab/01-the-wall.sh</code> — does an account hold across a gateway?</li>
+      <li><code>lab/03-odometer.sh</code> + <code>odometer/</code> — the 12.5 km / 25 km measurement</li>
+      <li><code>lab/streams.sh</code> — every stream, every account, which cluster it sits on</li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">Cards 06–07 · Replicas and ack cost</div>
+    <ul>
+      <li><code>lab/02-replicas.sh</code> — R1 offline (10118), R3 re-elects, both passes on one stream name</li>
+      <li><code>nats bench</code>, JetStream mode, synchronous publish and consumer fetch/ack</li>
+      <li>10005 <code>no suitable peers</code> — R5 on three servers, and R5 across the supercluster</li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">Cards 08–10 · WAN cut and method</div>
+    <ul>
+      <li>Clean fault injection: <code>docker stop lab2-au-1 lab2-au-2 lab2-au-3</code></li>
+      <li><code>curl -s localhost:8621/jsz?meta=1</code> — <code>meta_cluster.leader</code>, <code>cluster_size</code></li>
+      <li><code>demos/02-multi-region/deploy/compose.za.yaml</code> — the dated warning against
+        <code>docker network disconnect</code></li>
+      <li><code>demos/02-multi-region/diagrams/gateway-vs-wan-cut.html</code> — the same finding, drawn</li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">Companion documents</div>
+    <ul>
+      <li><code>demos/02-multi-region/README.md</code> — the lab intro, three questions</li>
+      <li><code>demos/02-multi-region/CLAUDE.md</code> § "Measured facts — do not re-guess these"</li>
+      <li><code>diagrams/gateway-double-capture-options.html</code> — the option comparison, drawn</li>
+    </ul>
+  </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="cover-meta" style="border-top:1px solid var(--line);padding-top:12px">
+    <span>NATS Multi-Region — Pattern Cards</span><span>nats-tech-lab · September 2026</span></div>
+</section>
+
+</body>
+</html>

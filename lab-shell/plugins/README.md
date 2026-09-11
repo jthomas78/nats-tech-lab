@@ -20,10 +20,10 @@ the new plugin's real surface.
 After scaffolding, regenerate the operator fixtures before starting the stack:
 
 ```bash
-cd demos/01-dictionary
-docker compose down -v
-./nats/bootstrap-operator.sh --force
-docker compose up --build
+cd demos/01-dictionary/deploy/cell
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml down -v
+../../nats/bootstrap-operator.sh --force
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --build
 ```
 
 The signing seed remains a runtime read-only mount. It and the NATS credential

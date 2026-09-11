@@ -37,11 +37,14 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [connz_limit_is_page_size_not_capacity](connz_limit_is_page_size_not_capacity.md) — `/connz` limit 1024 is page size; ceiling is `/varz` max_connections
 - [refdata_database_per_service](refdata_database_per_service.md) — ONE Postgres instance for all services (ADR-052); db+role per service, port 5432 only
 - [refdata_cross_tenant_stream_import](refdata_cross_tenant_stream_import.md) — open bug: tenants import `evt.*.refdata.*.changed` unbounded, see each other's metadata
-- [v3_tenancy_axes_decision](v3_tenancy_axes_decision.md) — tenant = marketplace-operating business, not region; 5 axes
+- [v3_tenancy_axes_decision](v3_tenancy_axes_decision.md) — tenant = marketplace-operating business, not region; 5 axes; narrowed 2026-09-08: today's tenants are one-per-region, but that is not an invariant
 - [phase16_tenancy_taxonomy](phase16_tenancy_taxonomy.md) — 13-point record; 16a–16f DONE; gap: refdata reads don't track own tenant
 - [tenant_service_separation_decision](tenant_service_separation_decision.md) — accounts-service is its own service/DB; Admin UI merges both
 - [project-ports-tenant-scoping](project-ports-tenant-scoping.md) — pending: ports/refdata should scope to tenant not BU; hack uses `_default_bu`
-- [compose_split_aws_deployment_decision](compose_split_aws_deployment_decision.md) — cell split DONE 2026-09-08 (ADR-055), global band not written: deploy/cell tier files x per-cell env files, prove multi-region locally before AWS, Compose local + Helm/EKS production; AWS work list
+- [odometer_is_demo_02s_only_cqrs_example](odometer_is_demo_02s_only_cqrs_example.md) — **[demo 02]** 2026-09-09: demo 02's ONE CQRS example; KV-only, no `{context}` in the subject (on purpose); measured 12.5 km trip = 50 km fleet total on a shared account, 12.5 km on split accounts
+- [multi_region_lives_in_demo_02](multi_region_lives_in_demo_02.md) — **[demo 02]** 2026-09-09: clustering/gateways/domains REMOVED from demo 01 (one server, project `poc`); demo 02 = 2 projects lb-za-1 + lb-au-1 on lb-za/lb-au/lb-wan; no hub yet
+- [compose_split_aws_deployment_decision](compose_split_aws_deployment_decision.md) — ZA cell project is `-p poc` (renamed 2026-09-09, NOT lb-za-1); cell split DONE 2026-09-08 (ADR-055), global band not written: deploy/cell tier files x per-cell env files, prove multi-region locally before AWS, Compose local + Helm/EKS production; AWS work list
+- [local_mesh_replication_is_the_goal](local_mesh_replication_is_the_goal.md) — **[demo 02]** GOAL: run the full hub+za+au mesh locally, not in cloud; nats.conf has no cluster/gateway block yet
 
 ## Reference material
 - [aws_console_as_shell_app](aws_console_as_shell_app.md) — AWS Console as app-shell mental model; documented MFE discovery pattern + where our contribution points go further
@@ -87,3 +90,10 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [phase38e_organizations_rename](phase38e_organizations_rename.md) — `trading-partner-service`→`organizations-service`; "trading partner" stays as vocab, BR-TP* keep numbers
 - [accounts_overview_pulse_design](accounts_overview_pulse_design.md) — DONE Phase 45; ring buffer + duration selector (BR-043) + gated search (BR-044)
 - [app-shell-deployment-gaps](app-shell-deployment-gaps.md) — green suites prove nothing about Dockerfile COPYs, NATS grants, or creds regeneration
+- [jetstream_domain_per_cluster_is_mandatory](jetstream_domain_per_cluster_is_mandatory.md) — **[demo 02]** a gateway makes one supercluster; without `domain` per cluster both cells' `SHIPPING` streams silently merge
+- [hub_means_one_nats_cluster_not_the_control_plane](hub_means_one_nats_cluster_not_the_control_plane.md) — **[demo 02]** `hub` is used two ways in this repo; in the plan and drawing it is one transport tile, not the control-plane band
+- [gateway_double_capture_and_option3](gateway_double_capture_and_option3.md) — **[demo 02]** RESOLVED: the double capture was a test artefact; option 3 = one account per tenant = what we already do; options 1 and 2 dropped
+- [cross_region_load_handoff](cross_region_load_handoff.md) — **[demo 02]** a load crossing regions is two loads + one handoff (integration, not replication); origin owns journey completion via a per-dropoff POD checklist
+- [Demo 02 uses the host nats/nsc CLI](demo02_host_cli_and_lab2_contexts.md) — **[demo 02]** no toolbox container; every context name starts `lab2-`
+- [One supercluster takes ONE JetStream domain](demo02_jetstream_domains_do_not_split_a_supercluster.md) — **[demo 02]** per-region domains silently broke JetStream; now `lb` everywhere, regions split by placement + accounts
+- [A WAN cut freezes JetStream management only](demo02_wan_cut_freezes_jetstream_management_only.md) — **[demo 02]** lost meta majority = no stream create/delete; core NATS and existing streams keep running. Never fake a cut with `docker network disconnect`

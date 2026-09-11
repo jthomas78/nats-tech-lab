@@ -884,7 +884,7 @@ The docker-compose stack added `accounts-service` and its Postgres in Phase 14b 
 instance then; since Phase 53 / ADR-052 the `accounts` database and role on the shared
 `postgres` instance).
 See the [docker-compose network topology](images/docker-compose-network.png) diagram for
-the full picture, or `demos/01-dictionary/docker-compose.yml` for the source.
+the full picture, or `demos/01-dictionary/deploy/` for the source.
 
 Key additions:
 - **accounts database** (`accounts` role, on `postgres`, host port 5432) — database-per-service,

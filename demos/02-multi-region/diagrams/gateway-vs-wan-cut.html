@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gateway or no gateway — collisions and WAN cuts</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --ok: #27c07f; --bad: #f87171; --warn: #9a7b1e; --gw: #4d94ff; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head-txt { display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-head { padding: 11px 14px 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.fig-num { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: 0.08em; }
+.fig-body { padding: 8px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 620px; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.verdicts { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 14px 12px; }
+.v { display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 3px; padding: 5px 9px 5px 8px; background: var(--nested); }
+.v .k { font-family: var(--mono); font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.v .a { font-size: 12px; font-weight: 600; }
+.v.good .a { color: var(--ok); }
+.v.bad  .a { color: var(--bad); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.good .dot { background: var(--ok); }
+.bad  .dot { background: var(--bad); }
+
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+caption { text-align: left; padding-bottom: 8px; color: var(--muted); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+thead th { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim); font-weight: 500; }
+tbody th { font-weight: 600; color: var(--text); }
+td.y { color: var(--ok); } td.n { color: var(--bad); }
+tr:last-child td, tr:last-child th { border-bottom: none; }
+.tbl { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 14px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+/* diagram primitives */
+.clu   { fill: var(--nested); stroke: currentColor; stroke-width: 1; stroke-opacity: 0.34; }
+.srv   { fill: var(--panel); stroke: currentColor; stroke-width: 1; stroke-opacity: 0.55; }
+.srv.off { stroke: var(--bad); stroke-opacity: 0.8; fill: color-mix(in srgb, var(--bad) 8%, var(--panel)); }
+.lbl   { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp   { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge  { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.gwline { fill: none; stroke: var(--gw); stroke-width: 1.6; }
+.cut    { fill: none; stroke: var(--bad); stroke-width: 1.6; }
+.none   { fill: none; stroke: var(--hop); stroke-width: 1.4; stroke-dasharray: 3 4; stroke-opacity: 0.5; }
+.chipOK { fill: color-mix(in srgb, var(--ok) 14%, var(--panel)); stroke: var(--ok); stroke-width: 1; stroke-opacity: 0.7; }
+.chipNO { fill: color-mix(in srgb, var(--bad) 12%, var(--panel)); stroke: var(--bad); stroke-width: 1; stroke-opacity: 0.7; }
+.chipT  { font-family: var(--mono); font-size: 10px; fill: var(--text); }
+.chipT.no { fill: var(--bad); }
+.chipT.ok { fill: var(--ok); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head-txt">
+    <div class="eyebrow">demos/02-multi-region &middot; measured 2026-09-09 &middot; NATS 2.14</div>
+    <h1>Gateway or no gateway &mdash; stream collisions and WAN cuts</h1>
+    <p class="sub">Two questions, asked of three topologies. <b>Do two regions fight over one stream
+    name?</b> And <b>what happens when the link between them dies?</b> The account fixes the first.
+    Nothing here fixes the second.</p>
+  </header>
+
+  <!-- ============ 1 ============ -->
+  <figure>
+    <div class="fig-head"><span class="fig-num">01</span><h2>No gateway &mdash; two separate systems</h2></div>
+    <div class="fig-body">
+      <svg viewBox="0 0 900 180" role="img" aria-label="Two clusters with no link between them. Each holds its own ODOMETER stream.">
+        <rect class="clu" x="60"  y="26" width="320" height="96" rx="4"/>
+        <rect class="clu" x="520" y="26" width="320" height="96" rx="4"/>
+        <text class="grp" x="70"  y="42">CLUSTER ZA</text>
+        <text class="grp" x="530" y="42">CLUSTER AU</text>
+
+        <rect class="srv" x="80"  y="58" width="70" height="32" rx="3"/><text class="lbl" x="98"  y="78">za-1</text>
+        <rect class="srv" x="190" y="58" width="70" height="32" rx="3"/><text class="lbl" x="208" y="78">za-2</text>
+        <rect class="srv" x="300" y="58" width="70" height="32" rx="3"/><text class="lbl" x="318" y="78">za-3</text>
+        <rect class="srv" x="540" y="58" width="70" height="32" rx="3"/><text class="lbl" x="558" y="78">au-1</text>
+        <rect class="srv" x="650" y="58" width="70" height="32" rx="3"/><text class="lbl" x="668" y="78">au-2</text>
+        <rect class="srv" x="760" y="58" width="70" height="32" rx="3"/><text class="lbl" x="778" y="78">au-3</text>
+
+        <path class="none" d="M382 74 H518"/>
+        <text class="edge" x="450" y="66" text-anchor="middle">no link</text>
+
+        <rect class="chipOK" x="130" y="136" width="180" height="24" rx="3"/>
+        <text class="chipT ok" x="220" y="152" text-anchor="middle">ODOMETER  created</text>
+        <rect class="chipOK" x="590" y="136" width="180" height="24" rx="3"/>
+        <text class="chipT ok" x="680" y="152" text-anchor="middle">ODOMETER  created</text>
+      </svg>
+    </div>
+    <div class="verdicts">
+      <span class="v good"><span class="dot"></span><span class="k">collide</span><span class="a">no</span></span>
+      <span class="v good"><span class="dot"></span><span class="k">WAN cut</span><span class="a">survives &mdash; nothing to cut</span></span>
+    </div>
+    <figcaption>Each cluster is its own JetStream system, so the name <code>ODOMETER</code> means two
+    different things. <b>Nothing crosses.</b> That is not a boundary you designed &mdash; it is two
+    labs that cannot talk. No shared traffic, ever.</figcaption>
+  </figure>
+
+  <!-- ============ 2 ============ -->
+  <figure>
+    <div class="fig-head"><span class="fig-num">02</span><h2>Gateway, ONE account &mdash; the name collides</h2></div>
+    <div class="fig-body">
+      <svg viewBox="0 0 900 180" role="img" aria-label="Two clusters joined by a gateway inside one account. ZA creates ODOMETER; AU is refused with error 10058.">
+        <rect class="clu" x="60"  y="26" width="320" height="96" rx="4"/>
+        <rect class="clu" x="520" y="26" width="320" height="96" rx="4"/>
+        <text class="grp" x="70"  y="42">CLUSTER ZA &middot; account LINEBOOKER</text>
+        <text class="grp" x="530" y="42">CLUSTER AU &middot; account LINEBOOKER</text>
+
+        <rect class="srv" x="80"  y="58" width="70" height="32" rx="3"/><text class="lbl" x="98"  y="78">za-1</text>
+        <rect class="srv" x="190" y="58" width="70" height="32" rx="3"/><text class="lbl" x="208" y="78">za-2</text>
+        <rect class="srv" x="300" y="58" width="70" height="32" rx="3"/><text class="lbl" x="318" y="78">za-3</text>
+        <rect class="srv" x="540" y="58" width="70" height="32" rx="3"/><text class="lbl" x="558" y="78">au-1</text>
+        <rect class="srv" x="650" y="58" width="70" height="32" rx="3"/><text class="lbl" x="668" y="78">au-2</text>
+        <rect class="srv" x="760" y="58" width="70" height="32" rx="3"/><text class="lbl" x="778" y="78">au-3</text>
+
+        <path class="gwline" d="M382 74 H518"/>
+        <text class="edge" x="450" y="66" text-anchor="middle">gateway 7222</text>
+        <text class="lbl2" x="450" y="106" text-anchor="middle">ONE supercluster = ONE namespace</text>
+
+        <rect class="chipOK" x="130" y="136" width="180" height="24" rx="3"/>
+        <text class="chipT ok" x="220" y="152" text-anchor="middle">ODOMETER  created</text>
+        <rect class="chipNO" x="570" y="136" width="220" height="24" rx="3"/>
+        <text class="chipT no" x="680" y="152" text-anchor="middle">REFUSED &mdash; 10058, name in use</text>
+      </svg>
+    </div>
+    <div class="verdicts">
+      <span class="v bad"><span class="dot"></span><span class="k">collide</span><span class="a">yes &mdash; 10058</span></span>
+      <span class="v bad"><span class="dot"></span><span class="k">WAN cut</span><span class="a">management freezes on both sides</span></span>
+    </div>
+    <figcaption>The gateway joins the clusters into one <b>supercluster</b>, and inside one account a
+    stream name is unique across the whole thing. ZA takes the name. AU is refused with
+    <code>stream name already in use with a different configuration (10058)</code>, and
+    <code>stream info</code> from AU then returns <b>ZA&rsquo;s</b> stream &mdash; same cluster, same
+    <code>created</code>. This is the double capture: 25&nbsp;km for a 12.5&nbsp;km trip.</figcaption>
+  </figure>
+
+  <!-- ============ 3 ============ -->
+  <figure>
+    <div class="fig-head"><span class="fig-num">03</span><h2>Gateway, ONE ACCOUNT PER REGION &mdash; the collision is gone</h2></div>
+    <div class="fig-body">
+      <svg viewBox="0 0 900 180" role="img" aria-label="Two clusters joined by a gateway, each with its own account. Both create their own ODOMETER stream.">
+        <rect class="clu" x="60"  y="26" width="320" height="96" rx="4"/>
+        <rect class="clu" x="520" y="26" width="320" height="96" rx="4"/>
+        <text class="grp" x="70"  y="42">CLUSTER ZA &middot; account LINEBOOKER_ZA</text>
+        <text class="grp" x="530" y="42">CLUSTER AU &middot; account LINEBOOKER_AU</text>
+
+        <rect class="srv" x="80"  y="58" width="70" height="32" rx="3"/><text class="lbl" x="98"  y="78">za-1</text>
+        <rect class="srv" x="190" y="58" width="70" height="32" rx="3"/><text class="lbl" x="208" y="78">za-2</text>
+        <rect class="srv" x="300" y="58" width="70" height="32" rx="3"/><text class="lbl" x="318" y="78">za-3</text>
+        <rect class="srv" x="540" y="58" width="70" height="32" rx="3"/><text class="lbl" x="558" y="78">au-1</text>
+        <rect class="srv" x="650" y="58" width="70" height="32" rx="3"/><text class="lbl" x="668" y="78">au-2</text>
+        <rect class="srv" x="760" y="58" width="70" height="32" rx="3"/><text class="lbl" x="778" y="78">au-3</text>
+
+        <path class="gwline" d="M382 74 H518"/>
+        <text class="edge" x="450" y="66" text-anchor="middle">gateway 7222</text>
+        <text class="lbl2" x="450" y="106" text-anchor="middle">account wall &mdash; server-enforced</text>
+
+        <rect class="chipOK" x="130" y="136" width="180" height="24" rx="3"/>
+        <text class="chipT ok" x="220" y="152" text-anchor="middle">ODOMETER  created</text>
+        <rect class="chipOK" x="590" y="136" width="180" height="24" rx="3"/>
+        <text class="chipT ok" x="680" y="152" text-anchor="middle">ODOMETER  created</text>
+      </svg>
+    </div>
+    <div class="verdicts">
+      <span class="v good"><span class="dot"></span><span class="k">collide</span><span class="a">no</span></span>
+      <span class="v bad"><span class="dot"></span><span class="k">WAN cut</span><span class="a">management STILL freezes</span></span>
+    </div>
+    <figcaption>Two accounts, two real streams, two <code>created</code> times. The odometer reads
+    12.5&nbsp;km in ZA and 0&nbsp;km in AU &mdash; correct. <b>But the WAN answer does not change.</b>
+    The account is a data wall, not an availability wall. See figure 04.</figcaption>
+  </figure>
+
+  <!-- ============ 4 ============ -->
+  <figure>
+    <div class="fig-head"><span class="fig-num">04</span><h2>What a WAN cut really costs &mdash; the arithmetic</h2></div>
+    <div class="fig-body">
+      <svg viewBox="0 0 900 226" role="img" aria-label="The six-server JetStream meta group needs four of six to agree. A WAN cut leaves three on each side, so neither side has a majority.">
+        <text class="grp" x="60" y="24">ONE JETSTREAM META GROUP &middot; 6 PEERS &middot; MAJORITY = 4</text>
+
+        <rect class="srv" x="80"  y="46" width="70" height="32" rx="3"/><text class="lbl" x="98"  y="66">za-1</text>
+        <rect class="srv" x="190" y="46" width="70" height="32" rx="3"/><text class="lbl" x="208" y="66">za-2</text>
+        <rect class="srv" x="300" y="46" width="70" height="32" rx="3"/><text class="lbl" x="318" y="66">za-3</text>
+        <rect class="srv" x="540" y="46" width="70" height="32" rx="3"/><text class="lbl" x="558" y="66">au-1</text>
+        <rect class="srv" x="650" y="46" width="70" height="32" rx="3"/><text class="lbl" x="668" y="66">au-2</text>
+        <rect class="srv" x="760" y="46" width="70" height="32" rx="3"/><text class="lbl" x="778" y="66">au-3</text>
+
+        <path class="cut" d="M450 30 V96" stroke-dasharray="5 4"/>
+        <path class="cut" d="M438 52 l24 22 M462 52 l-24 22"/>
+        <text class="edge" x="450" y="112" text-anchor="middle" fill="#f87171">WAN cut</text>
+        <text class="lbl2" x="450" y="128" text-anchor="middle">all six servers are UP &mdash; only the link is gone</text>
+
+        <text class="lbl" x="225" y="150" text-anchor="middle">3 of 6</text>
+        <text class="lbl" x="685" y="150" text-anchor="middle">3 of 6</text>
+        <text class="lbl2" x="225" y="166" text-anchor="middle">3 &lt; 4 &mdash; no majority</text>
+        <text class="lbl2" x="685" y="166" text-anchor="middle">3 &lt; 4 &mdash; no majority</text>
+
+        <rect class="chipNO" x="90" y="184" width="270" height="26" rx="3"/>
+        <text class="chipT no" x="225" y="201" text-anchor="middle">leader = NONE &middot; no new streams</text>
+        <rect class="chipNO" x="550" y="184" width="270" height="26" rx="3"/>
+        <text class="chipT no" x="685" y="201" text-anchor="middle">leader = NONE &middot; 10008 unavailable</text>
+      </svg>
+    </div>
+    <figcaption>Measured on this lab: <code>leader=NONE</code>. <b>The account plays no part here.</b>
+    A gateway makes all six servers one Raft group for JetStream <i>management</i>, and a majority of
+    six is four. Split 3&nbsp;/&nbsp;3 and neither side can elect a leader. <b>The split is narrower
+    than it sounds</b> &mdash; see the next table for what still works.</figcaption>
+  </figure>
+
+  <div class="tbl">
+    <table>
+      <caption>What still works on a region that has lost the majority. Measured on this lab.</caption>
+      <thead><tr><th scope="col">Operation</th><th scope="col">Works?</th><th scope="col">Measured</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Core NATS publish / subscribe</th><td class="y">yes</td><td>message delivered</td></tr>
+        <tr><th scope="row">Read an existing stream</th><td class="y">yes</td><td><code>msgs=10</code></td></tr>
+        <tr><th scope="row">Write to an existing stream</th><td class="y">yes</td><td>10 &rarr; 15 messages, acked</td></tr>
+        <tr><th scope="row">Create / delete / edit a stream</th><td class="n">no</td><td><code>JetStream system temporarily unavailable (10008)</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ table ============ -->
+  <div class="tbl">
+    <table>
+      <caption>The whole answer, in one place.</caption>
+      <thead>
+        <tr><th scope="col">Topology</th><th scope="col">Streams collide?</th><th scope="col">Survives a WAN cut?</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">No gateway</th>
+            <td class="y">no</td>
+            <td class="y">yes &mdash; nothing to cut</td></tr>
+        <tr><th scope="row">Gateway, one account</th>
+            <td class="n">yes &mdash; 10058</td>
+            <td class="n">management freezes both sides</td></tr>
+        <tr><th scope="row">Gateway, one account per region</th>
+            <td class="y">no</td>
+            <td class="n">management still freezes</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <section class="sec">
+    <h2>What to take away</h2>
+    <ul>
+      <li><b>The account fixes the collision. It does not fix the WAN.</b> Those are two different
+        problems and only one of them has a fix in this lab.</li>
+      <li><b>&ldquo;Freeze&rdquo; means management only.</b> Existing streams keep reading and writing
+        through a cut, because a stream&rsquo;s copies all live inside one cluster. What stops is
+        creating, deleting and editing streams and consumers. Plan a WAN cut as a
+        <i>change freeze</i>, not an outage.</li>
+      <li><b>Uneven regions do not both freeze.</b> Majority is counted over the whole meta group.
+        3&nbsp;+&nbsp;3 splits 3&nbsp;/&nbsp;3 and nobody wins. 3&nbsp;+&nbsp;2 splits so the side
+        with 3 of 5 keeps its leader and stays fully writable; only the smaller side freezes.</li>
+      <li><b>A gateway buys reach and costs a shared failure domain.</b> Six servers across two
+        regions is <i>one</i> JetStream meta group, so the link between them is a hard dependency for
+        all stream management.</li>
+      <li><b>The usual fix is a third cluster</b> &mdash; a gateway hub. With three sites a majority
+        survives losing one link. This lab has no hub;
+        <code>docs/Multi-Region-Plan.md</code> names one.</li>
+      <li><b>A JetStream <code>domain</code> is not on this list, on purpose.</b> A domain names a
+        JetStream system and must be identical on every server of a supercluster. Per-region domains
+        were tried here and silently broke JetStream. See <code>nats/nats.conf</code>.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

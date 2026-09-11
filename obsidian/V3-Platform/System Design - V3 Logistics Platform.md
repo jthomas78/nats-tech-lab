@@ -191,7 +191,7 @@ API contract / schema versioning is explicitly flagged as not-yet-discussed at t
 
 ## 10. Deployment Architecture
 
-Nothing is settled here for production. Current state, for context: each nats-tech-lab demo runs its own docker-compose.yml and does not share a network with the lab shell or other demos — a lab-isolation choice, not a statement about how V3 will be deployed. No environments (dev/staging/prod), orchestration platform, autoscaling groups, CDN, database topology, or disaster-recovery region have been decided. Section 2.1's Path A assumes GCP with per-region backend MIGs behind a global LB, contingent on Path A being chosen at all.
+Nothing is settled here for production. Current state, for context: each nats-tech-lab demo runs its own Compose stack and does not share a network with the lab shell or other demos — a lab-isolation choice, not a statement about how V3 will be deployed. No environments (dev/staging/prod), orchestration platform, autoscaling groups, CDN, database topology, or disaster-recovery region have been decided. Section 2.1's Path A assumes GCP with per-region backend MIGs behind a global LB, contingent on Path A being chosen at all.
 
 ## 11. Design Decisions & Trade-offs
 

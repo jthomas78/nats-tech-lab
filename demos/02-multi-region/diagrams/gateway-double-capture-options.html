@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gateway double-capture — and the three ways out</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+/* --- diagram primitives --- */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.nb.clu { stroke-dasharray: none; stroke-opacity: 0.32; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.blk  { font-family: var(--mono); font-size: 12px; fill: var(--bad);
+        paint-order: stroke; stroke: var(--bg); stroke-width: 3.5px; stroke-linejoin: round; }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.hop  { fill: none; stroke: var(--hop); stroke-width: 1.4; stroke-dasharray: 3 3; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Phase 64d &middot; Multi-Region-Plan D11 &middot; open decision</div>
+      <h1>One publish, two copies &mdash; and the three ways out</h1>
+      <p class="sub">The <code>za</code>/<code>au</code> gateway mesh is up, and a single publish in one
+      cell is stored in both. A JetStream <code>domain</code> protects the API, not the subject space.
+      Below: what happens today, then what each of the three candidate fixes actually changes.</p>
+    </div>
+  </header>
+
+  <!-- ============================ FIGURE A ============================ -->
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 340" role="img" aria-label="The problem today. One NATS account named acme spans both the za and au clusters over a gateway link on port 7222. Each cluster runs its own shipping-service, its own SHIPPING stream with the same subject filter, and its own Postgres and KV store. A single publish in za crosses the gateway because the au stream's identical filter also matches it, so the event is stored twice and written into both regions' databases.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="a-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+        </defs>
+
+        <text class="grp" x="22" y="28">ACCOUNT acme — ONE SUBJECT SPACE ACROSS THE WHOLE MESH</text>
+        <rect class="nb" x="14" y="36" width="932" height="286" rx="4"/>
+
+        <rect class="nb clu" x="30" y="52" width="380" height="258" rx="4"/>
+        <text class="grp" x="42" y="70">CLUSTER za — JS DOMAIN za</text>
+        <rect class="nb clu" x="550" y="52" width="380" height="258" rx="4"/>
+        <text class="grp" x="562" y="70">CLUSTER au — JS DOMAIN au</text>
+
+        <!-- za column -->
+        <rect class="n" x="120" y="84" width="200" height="44" rx="3"/>
+        <text class="lbl" x="220" y="103" text-anchor="middle">shipping-service</text>
+        <text class="lbl2" x="220" y="116" text-anchor="middle">publishes ONE message</text>
+
+        <ellipse class="n" cx="220" cy="170" rx="105" ry="9"/>
+        <path class="n" d="M115 170 L115 214 A105 9 0 0 0 325 214 L325 170"/>
+        <text class="lbl" x="220" y="188" text-anchor="middle">SHIPPING</text>
+        <text class="lbl2" x="220" y="201" text-anchor="middle">filter evt.acme.shipping.&gt;</text>
+
+        <rect class="n" x="120" y="250" width="200" height="44" rx="3"/>
+        <text class="lbl" x="220" y="269" text-anchor="middle">Postgres + KV (za)</text>
+        <text class="lbl2" x="220" y="282" text-anchor="middle">write side one</text>
+
+        <path class="flow" d="M220 128 L220 161" marker-end="url(#a-sync)"/>
+        <text class="edge" x="228" y="148">publish</text>
+        <path class="proj" d="M220 223 L220 242" marker-end="url(#a-store)"/>
+        <text class="edge" x="228" y="237">project</text>
+
+        <!-- gateway -->
+        <rect class="n" x="418" y="170" width="124" height="44" rx="3"/>
+        <text class="lbl" x="480" y="189" text-anchor="middle">gateway</text>
+        <text class="lbl2" x="480" y="202" text-anchor="middle">carries interest</text>
+
+        <path class="flow" d="M325 192 L410 192" marker-end="url(#a-sync)"/>
+        <text class="edge" x="333" y="186">1 publish</text>
+        <path class="err" d="M542 192 L627 192" marker-end="url(#a-bad)"/>
+        <text class="edge" x="550" y="186">filter matches</text>
+
+        <!-- au column -->
+        <rect class="n" x="640" y="84" width="200" height="44" rx="3"/>
+        <text class="lbl" x="740" y="103" text-anchor="middle">shipping-service</text>
+        <text class="lbl2" x="740" y="116" text-anchor="middle">publishes its own too</text>
+
+        <ellipse class="n" cx="740" cy="170" rx="105" ry="9"/>
+        <path class="n" d="M635 170 L635 214 A105 9 0 0 0 845 214 L845 170"/>
+        <text class="lbl" x="740" y="188" text-anchor="middle">SHIPPING</text>
+        <text class="lbl2" x="740" y="201" text-anchor="middle">filter evt.acme.shipping.&gt;</text>
+
+        <rect class="n" x="640" y="250" width="200" height="44" rx="3"/>
+        <text class="lbl" x="740" y="269" text-anchor="middle">Postgres + KV (au)</text>
+        <text class="lbl2" x="740" y="282" text-anchor="middle">write side two</text>
+
+        <path class="flow" d="M740 128 L740 161" marker-end="url(#a-sync)"/>
+        <text class="edge" x="748" y="148">publish</text>
+        <path class="err" d="M740 223 L740 242" marker-end="url(#a-bad)"/>
+        <text class="edge" x="748" y="237">+1 from za</text>
+      </svg>
+    </div>
+    <figcaption><b>Today &mdash; the double capture.</b> Purge <code>SHIPPING</code> in both cells
+    (<code>za = 0</code>, <code>au = 0</code>), publish <b>one</b> message in <code>za</code>, and both
+    cells report <code>1</code>. A gateway carries <i>account</i> interest, and a stream is just a
+    subscriber. <code>acme</code> is one account everywhere, both cells run a <code>SHIPPING</code> stream
+    with the same subject filter, so each stream is a valid listener for the other cluster's publish.
+    JetStream is not replicating anything &mdash; <b>we</b> created the second listener. Worse, each cell
+    also runs its own <code>shipping-service</code>, so one event is written into <b>both</b> regions'
+    Postgres and KV. Nobody chose that, and the two drift the moment a cell goes down.</figcaption>
+  </figure>
+
+  <!-- ============================ FIGURE B ============================ -->
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 340" role="img" aria-label="Option one, a region token in the subject. The account acme still spans both clusters and the gateway still carries interest, but the za stream now filters on evt.za and the au stream on evt.au, so the two filters no longer overlap. A publish from za reaches the gateway and is offered to au, where it finds no matching filter and is dropped. Each cell stores only its own region's data.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="b-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--hop)"/></marker>
+        </defs>
+
+        <text class="grp" x="22" y="28">OPTION 1 — ACCOUNT acme STILL SPANS BOTH; THE SUBJECTS CHANGE</text>
+        <rect class="nb" x="14" y="36" width="932" height="286" rx="4"/>
+
+        <rect class="nb clu" x="30" y="52" width="380" height="258" rx="4"/>
+        <text class="grp" x="42" y="70">CLUSTER za — JS DOMAIN za</text>
+        <rect class="nb clu" x="550" y="52" width="380" height="258" rx="4"/>
+        <text class="grp" x="562" y="70">CLUSTER au — JS DOMAIN au</text>
+
+        <rect class="n" x="120" y="84" width="200" height="44" rx="3"/>
+        <text class="lbl" x="220" y="103" text-anchor="middle">shipping-service</text>
+        <text class="lbl2" x="220" y="116" text-anchor="middle">publishes evt.za.…</text>
+
+        <ellipse class="n" cx="220" cy="170" rx="105" ry="9"/>
+        <path class="n" d="M115 170 L115 214 A105 9 0 0 0 325 214 L325 170"/>
+        <text class="lbl" x="220" y="188" text-anchor="middle">SHIPPING</text>
+        <text class="lbl2" x="220" y="201" text-anchor="middle">filter evt.za.&gt;</text>
+
+        <rect class="n" x="120" y="250" width="200" height="44" rx="3"/>
+        <text class="lbl" x="220" y="269" text-anchor="middle">Postgres + KV (za)</text>
+        <text class="lbl2" x="220" y="282" text-anchor="middle">za data only</text>
+
+        <path class="flow" d="M220 128 L220 161" marker-end="url(#b-sync)"/>
+        <text class="edge" x="228" y="148">publish</text>
+        <path class="proj" d="M220 223 L220 242" marker-end="url(#b-store)"/>
+        <text class="edge" x="228" y="237">project</text>
+
+        <rect class="n" x="418" y="170" width="124" height="44" rx="3"/>
+        <text class="lbl" x="480" y="189" text-anchor="middle">gateway</text>
+        <text class="lbl2" x="480" y="202" text-anchor="middle">still carries it</text>
+
+        <path class="flow" d="M325 192 L410 192" marker-end="url(#b-sync)"/>
+        <text class="edge" x="333" y="186">1 publish</text>
+        <path class="hop" d="M542 192 L627 192" marker-end="url(#b-hop)"/>
+        <text class="edge" x="550" y="186">no match</text>
+        <text class="blk" x="606" y="196" text-anchor="middle">&#10005;</text>
+
+        <rect class="n" x="640" y="84" width="200" height="44" rx="3"/>
+        <text class="lbl" x="740" y="103" text-anchor="middle">shipping-service</text>
+        <text class="lbl2" x="740" y="116" text-anchor="middle">publishes evt.au.…</text>
+
+        <ellipse class="n" cx="740" cy="170" rx="105" ry="9"/>
+        <path class="n" d="M635 170 L635 214 A105 9 0 0 0 845 214 L845 170"/>
+        <text class="lbl" x="740" y="188" text-anchor="middle">SHIPPING</text>
+        <text class="lbl2" x="740" y="201" text-anchor="middle">filter evt.au.&gt;</text>
+
+        <rect class="n" x="640" y="250" width="200" height="44" rx="3"/>
+        <text class="lbl" x="740" y="269" text-anchor="middle">Postgres + KV (au)</text>
+        <text class="lbl2" x="740" y="282" text-anchor="middle">au data only</text>
+
+        <path class="flow" d="M740 128 L740 161" marker-end="url(#b-sync)"/>
+        <text class="edge" x="748" y="148">publish</text>
+        <path class="proj" d="M740 223 L740 242" marker-end="url(#b-store)"/>
+        <text class="edge" x="748" y="237">project</text>
+      </svg>
+    </div>
+    <figcaption><b>Option 1 &mdash; a region token in the subject.</b> Nothing about the account or the
+    gateway changes. The message still crosses the link; it simply matches no filter on the far side and
+    is dropped. <b>Cost:</b> region becomes a subject token, which this repo ruled out on purpose
+    (<code>ARCHITECTURE-COMMUNICATIONS</code> &sect;2 &mdash; tenancy is the account boundary, region is a
+    deployment, and neither belongs in a subject). It also touches every publisher, every consumer and
+    every stream filter, and it leaves two independent write sides with no story for merging them.</figcaption>
+  </figure>
+
+  <!-- ============================ FIGURE C ============================ -->
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 340" role="img" aria-label="Option two, one authoritative stream plus a mirror. The account acme still spans both clusters. Only za runs a publisher and only za's SHIPPING stream is written to; it is the single source of truth and feeds the za Postgres and KV. The au cluster runs no publisher at all. Its stream is a read-only JetStream mirror fed one way across the gateway from za, and a projector builds a read model in the au Postgres and KV from that mirror.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="c-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="c-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+        </defs>
+
+        <text class="grp" x="22" y="28">OPTION 2 — ONE ACCOUNT, ONE WRITE SIDE, ONE STATED COPY</text>
+        <rect class="nb" x="14" y="36" width="932" height="286" rx="4"/>
+
+        <rect class="nb clu" x="30" y="52" width="380" height="258" rx="4"/>
+        <text class="grp" x="42" y="70">CLUSTER za — JS DOMAIN za</text>
+        <rect class="nb clu" x="550" y="52" width="380" height="258" rx="4"/>
+        <text class="grp" x="562" y="70">CLUSTER au — JS DOMAIN au</text>
+
+        <rect class="n" x="120" y="84" width="200" height="44" rx="3"/>
+        <text class="lbl" x="220" y="103" text-anchor="middle">shipping-service</text>
+        <text class="lbl2" x="220" y="116" text-anchor="middle">the only publisher</text>
+
+        <ellipse class="n" cx="220" cy="170" rx="105" ry="9"/>
+        <path class="n" d="M115 170 L115 214 A105 9 0 0 0 325 214 L325 170"/>
+        <text class="lbl" x="220" y="188" text-anchor="middle">SHIPPING</text>
+        <text class="lbl2" x="220" y="201" text-anchor="middle">authoritative</text>
+
+        <rect class="n" x="120" y="250" width="200" height="44" rx="3"/>
+        <text class="lbl" x="220" y="269" text-anchor="middle">Postgres + KV (za)</text>
+        <text class="lbl2" x="220" y="282" text-anchor="middle">source of truth</text>
+
+        <path class="flow" d="M220 128 L220 161" marker-end="url(#c-sync)"/>
+        <text class="edge" x="228" y="148">publish</text>
+        <path class="proj" d="M220 223 L220 242" marker-end="url(#c-store)"/>
+        <text class="edge" x="228" y="237">project</text>
+
+        <rect class="n" x="418" y="170" width="124" height="44" rx="3"/>
+        <text class="lbl" x="480" y="189" text-anchor="middle">gateway</text>
+        <text class="lbl2" x="480" y="202" text-anchor="middle">mirror rides it</text>
+
+        <path class="rep" d="M325 192 L410 192" marker-end="url(#c-rep)"/>
+        <text class="edge" x="333" y="186">mirror</text>
+        <path class="rep" d="M542 192 L627 192" marker-end="url(#c-rep)"/>
+        <text class="edge" x="550" y="186">one way</text>
+
+        <text class="lbl2" x="740" y="110" text-anchor="middle">— no publisher in au —</text>
+
+        <ellipse class="n" cx="740" cy="170" rx="105" ry="9"/>
+        <path class="n" d="M635 170 L635 214 A105 9 0 0 0 845 214 L845 170"/>
+        <text class="lbl" x="740" y="188" text-anchor="middle">SHIPPING (mirror)</text>
+        <text class="lbl2" x="740" y="201" text-anchor="middle">read-only copy</text>
+
+        <rect class="n" x="640" y="250" width="200" height="44" rx="3"/>
+        <text class="lbl" x="740" y="269" text-anchor="middle">Postgres + KV (au)</text>
+        <text class="lbl2" x="740" y="282" text-anchor="middle">read model only</text>
+
+        <path class="proj" d="M740 223 L740 242" marker-end="url(#c-store)"/>
+        <text class="edge" x="748" y="237">project</text>
+      </svg>
+    </div>
+    <figcaption><b>Option 2 &mdash; one authoritative stream, plus a mirror.</b> The account and the
+    gateway are untouched. What changes is ownership: exactly one cluster holds the writable
+    <code>SHIPPING</code>, and the other gets a JetStream <b>mirror</b> &mdash; a stated, one-way, bounded
+    copy. There is one write side, so there is nothing to reconcile. <b>Cost:</b> this is a design phase,
+    not a config knob &mdash; it needs a decision on which region is authoritative, what the other region
+    is allowed to do, and how a region fails over. It also does not, by itself, give the two cells
+    independent ownership.</figcaption>
+  </figure>
+
+  <!-- ============================ FIGURE D ============================ -->
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 412" role="img" aria-label="Option three, one account per tenant and region. The za cluster sits inside an account called acme-za and the au cluster inside a separate account called acme-au. A single gateway lane on port 7222 runs down the middle: it is the only road between the clusters, and every crossing uses it. Plain subjects never reach that road, because the account boundary blocks them on each side, so the identical stream filters in each cell no longer see each other's publishes. Underneath, a deliberate path shows what a crossing looks like: an export of chosen subjects in acme-za, a matching import plus mirror in acme-au, and the traffic between them riding the same gateway. The account is the door; the gateway is the road.">
+        <defs>
+          <marker id="d-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="d-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="d-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+        </defs>
+
+        <text class="grp" x="28" y="36">ACCOUNT acme-za</text>
+        <rect class="nb" x="20" y="44" width="400" height="336" rx="4"/>
+        <text class="grp" x="548" y="36">ACCOUNT acme-au</text>
+        <rect class="nb" x="540" y="44" width="400" height="336" rx="4"/>
+
+        <rect class="nb clu" x="32" y="58" width="376" height="250" rx="4"/>
+        <text class="grp" x="44" y="76">CLUSTER za — JS DOMAIN za</text>
+        <rect class="nb clu" x="552" y="58" width="376" height="250" rx="4"/>
+        <text class="grp" x="564" y="76">CLUSTER au — JS DOMAIN au</text>
+
+        <!-- the one road -->
+        <rect class="nb lane" x="430" y="86" width="100" height="300" rx="4"/>
+        <text class="grp" x="480" y="78" text-anchor="middle">GATEWAY :7222</text>
+        <text class="lbl2" x="480" y="106" text-anchor="middle">the road,</text>
+        <text class="lbl2" x="480" y="119" text-anchor="middle">not the door</text>
+
+        <!-- za column -->
+        <rect class="n" x="120" y="90" width="200" height="44" rx="3"/>
+        <text class="lbl" x="220" y="109" text-anchor="middle">shipping-service</text>
+        <text class="lbl2" x="220" y="122" text-anchor="middle">own creds, own cell</text>
+
+        <ellipse class="n" cx="220" cy="176" rx="105" ry="9"/>
+        <path class="n" d="M115 176 L115 220 A105 9 0 0 0 325 220 L325 176"/>
+        <text class="lbl" x="220" y="194" text-anchor="middle">SHIPPING</text>
+        <text class="lbl2" x="220" y="207" text-anchor="middle">same subjects as au</text>
+
+        <rect class="n" x="120" y="256" width="200" height="44" rx="3"/>
+        <text class="lbl" x="220" y="275" text-anchor="middle">Postgres + KV (za)</text>
+        <text class="lbl2" x="220" y="288" text-anchor="middle">za owns za</text>
+
+        <path class="flow" d="M220 134 L220 167" marker-end="url(#d-sync)"/>
+        <text class="edge" x="228" y="154">publish</text>
+        <path class="proj" d="M220 229 L220 248" marker-end="url(#d-store)"/>
+        <text class="edge" x="228" y="243">project</text>
+
+        <!-- au column -->
+        <rect class="n" x="640" y="90" width="200" height="44" rx="3"/>
+        <text class="lbl" x="740" y="109" text-anchor="middle">shipping-service</text>
+        <text class="lbl2" x="740" y="122" text-anchor="middle">own creds, own cell</text>
+
+        <ellipse class="n" cx="740" cy="176" rx="105" ry="9"/>
+        <path class="n" d="M635 176 L635 220 A105 9 0 0 0 845 220 L845 176"/>
+        <text class="lbl" x="740" y="194" text-anchor="middle">SHIPPING</text>
+        <text class="lbl2" x="740" y="207" text-anchor="middle">same subjects as za</text>
+
+        <rect class="n" x="640" y="256" width="200" height="44" rx="3"/>
+        <text class="lbl" x="740" y="275" text-anchor="middle">Postgres + KV (au)</text>
+        <text class="lbl2" x="740" y="288" text-anchor="middle">au owns au</text>
+
+        <path class="flow" d="M740 134 L740 167" marker-end="url(#d-sync)"/>
+        <text class="edge" x="748" y="154">publish</text>
+        <path class="proj" d="M740 229 L740 248" marker-end="url(#d-store)"/>
+        <text class="edge" x="748" y="243">project</text>
+
+        <!-- lane 1: plain subjects never reach the road -->
+        <path class="hop" d="M325 198 L416 198"/>
+        <text class="edge" x="334" y="192">plain subjects</text>
+        <text class="blk" x="420" y="202" text-anchor="middle">&#10005;</text>
+        <path class="hop" d="M544 198 L627 198"/>
+        <text class="edge" x="552" y="192">same, blocked</text>
+        <text class="blk" x="540" y="202" text-anchor="middle">&#10005;</text>
+
+        <!-- lane 2: a deliberate crossing, on the same road -->
+        <path class="rep" d="M115 205 L80 205 L80 352 L292 352" marker-end="url(#d-rep)"/>
+        <text class="edge" x="100" y="346">chosen subjects only</text>
+
+        <rect class="n" x="300" y="330" width="110" height="44" rx="3"/>
+        <text class="lbl" x="355" y="349" text-anchor="middle">export</text>
+        <text class="lbl2" x="355" y="362" text-anchor="middle">in acme-za</text>
+
+        <path class="rep" d="M418 352 L612 352" marker-end="url(#d-rep)"/>
+        <text class="edge" x="446" y="346">one named export</text>
+
+        <rect class="n" x="620" y="330" width="110" height="44" rx="3"/>
+        <text class="lbl" x="675" y="349" text-anchor="middle">import</text>
+        <text class="lbl2" x="675" y="362" text-anchor="middle">+ mirror</text>
+
+        <path class="rep" d="M730 352 L880 352 L880 205 L853 205" marker-end="url(#d-rep)"/>
+        <text class="edge" x="750" y="346">mirror</text>
+
+        <text class="edge" x="480" y="400" text-anchor="middle">the account is the door &middot; the gateway is the road</text>
+      </svg>
+    </div>
+    <figcaption><b>Option 3 &mdash; an account per tenant&ndash;region, with a deliberate copy.</b> Two
+    jobs, not one. The <b>account</b> is the door: it decides <i>whether</i> something may cross, and NATS
+    enforces it. The <b>gateway</b> is the road: it decides <i>how</i> something travels, and here it is
+    the only road there is. Plain subjects in <code>acme-za</code> and <code>acme-au</code> never reach
+    the road at all, because no door is open &mdash; identical subject names in the two accounts are two
+    different subject spaces. Open a door and the traffic <b>rides that same gateway</b>; there is no
+    second wire. That door is an <b>export/import</b> pair, and a <b>mirror</b> rides it, so options 2 and
+    3 are not rivals: <b>3 gives the isolation, 2 gives the chosen copy.</b> Note the two halves are
+    independent &mdash; an export/import between accounts on one cluster needs no gateway at all (that is
+    Phase 21's <code>PLATFORM</code>&rarr;tenant contract, working since long before a gateway existed),
+    and an export/import between two clusters with no link between them moves nothing, silently.
+    <b>Cost / caveat:</b> geography alone is not a reason to split an account &mdash; the NATS JWT guide
+    ties accounts to teams and applications, not infrastructure &mdash; and this cuts across our own rule
+    that a tenant is a business, not a region.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>What each option actually changes</h2>
+    <ul>
+      <li><b>Option 1 changes the subject.</b> Same account, same gateway, disjoint filters. Cheapest to
+      reason about, most expensive to live with: it spends a design rule we chose on purpose and still
+      leaves two write sides.</li>
+      <li><b>Option 2 changes the ownership.</b> One writable stream, one write side, a stated one-way
+      copy. It fixes the drift, not the isolation.</li>
+      <li><b>Option 3 changes the account.</b> Server-enforced isolation, then a mirror where a copy is
+      genuinely wanted. Both NATS and Synadia's own examples combine the two this way.</li>
+      <li><b>The tension to settle first.</b> An account per region cuts across the recorded decision that
+      a tenant is a marketplace-operating business, not a region &mdash; and the account boundary is
+      currently the only thing authenticating anything. Deciding option 3 means reopening that.</li>
+      <li><b>Nothing is decided yet.</b> The probes were purged and the lab is clean. Phase 64e (three-way
+      replicas) was deliberately not started, because hardening two double-capturing streams would make
+      the wrong shape harder to undo.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

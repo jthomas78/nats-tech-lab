@@ -1,4 +1,4 @@
-# Build context is the REPO ROOT (see demos/01-dictionary/docker-compose.yml)
+# Build context is the REPO ROOT (see demos/01-dictionary/deploy/cell/compose.dedicated.yaml)
 # so the shared UniFi theme preset (@unifi-theme) can be copied in.
 #
 # This image is the containerised form of BR-AS15's claim: the plugin is built
