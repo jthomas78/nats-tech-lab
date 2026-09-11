@@ -11,8 +11,11 @@
 # Accounts:
 #   SYS            the NATS system account -- server monitoring, nothing else
 #   LINEBOOKER     ONE tenant account that spans BOTH regions. This is the
-#                  broken shape. It exists so the lab can reproduce the
-#                  double capture on purpose -- see lab/00-the-problem.sh.
+#                  broken shape. It exists so the lab can reproduce it on
+#                  purpose: one account = ONE stream for the whole
+#                  supercluster, so the second region is refused (10058) and
+#                  reads the first region's stream across the WAN without
+#                  knowing. See lab/00-the-problem.sh.
 #   LINEBOOKER_ZA  the South African marketplace tenant  } the fixed shape
 #   LINEBOOKER_AU  the Australian marketplace tenant     } (option 3)
 #   PLATFORM       shared reference data, owned by nobody's tenant

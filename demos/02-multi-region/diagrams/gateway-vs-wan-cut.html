@@ -157,7 +157,12 @@ li b { color: var(--text); font-weight: 600; }
     stream name is unique across the whole thing. ZA takes the name. AU is refused with
     <code>stream name already in use with a different configuration (10058)</code>, and
     <code>stream info</code> from AU then returns <b>ZA&rsquo;s</b> stream &mdash; same cluster, same
-    <code>created</code>. This is the double capture: 25&nbsp;km for a 12.5&nbsp;km trip.</figcaption>
+    <code>created</code>. So AU has no stream of its own: every AU write and every AU read
+    crosses the WAN into ZA, and if cluster <code>za</code> is lost AU has nothing at all.
+    <b>Corrected 2026-09-11.</b> This caption used to end &ldquo;this is the double capture:
+    25&nbsp;km for a 12.5&nbsp;km trip&rdquo;. That was wrong &mdash; one account holds one
+    stream, so nothing is stored twice. The 25&nbsp;km was a projector replay bug. See
+    <a style="color:var(--accent)" href="gateway-double-capture-options-2.html">gateway-double-capture-options-2.html</a>.</figcaption>
   </figure>
 
   <!-- ============ 3 ============ -->

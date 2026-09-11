@@ -61,6 +61,18 @@ li b { color: var(--text); font-weight: 600; }
 <body>
 <div class="wrap">
 
+  <div style="border:1px solid #c0392b;border-left:4px solid #c0392b;background:#1A1E23;padding:12px 14px;margin:0 0 18px;border-radius:4px;font:13px/20px Inter,-apple-system,'Segoe UI',Roboto,sans-serif;color:#DEE0E3">
+    <b style="color:#e8564a">SUPERSEDED &mdash; 2026-09-11. Do not use this page.</b><br>
+    Its headline finding is wrong. There is no cross-region double capture over a gateway. Inside ONE account a
+    stream name is unique across the WHOLE supercluster, so the second region is refused with
+    <code>10058</code> and silently reads the first region's stream across the WAN &mdash; one stream, one KV
+    bucket, nothing stored twice. The &ldquo;25&nbsp;km&rdquo; came from a projector replay bug
+    (<code>defer sub.Unsubscribe()</code> deletes a durable pull consumer). The conclusion &mdash; one account
+    per region &mdash; did not change, but every reason on this page did.<br>
+    Read <a style="color:#006FFF" href="gateway-double-capture-options-2.html">gateway-double-capture-options-2.html</a>
+    instead. This file is kept only as a record of what was believed.
+  </div>
+
   <header class="head">
     <div class="head-txt">
       <div class="eyebrow">Phase 64d &middot; Multi-Region-Plan D11 &middot; open decision</div>

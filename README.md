@@ -27,7 +27,7 @@ demos/
     CLAUDE.md           This folder's own agent rules -- it is a sealed unit
     deploy/             compose.za.yaml (lb-za-1) + compose.au.yaml (lb-au-1),
                         up.sh and contexts.sh
-    diagrams/           Topology drawings and the double-capture options
+    diagrams/           Topology drawings and the one-account/one-stream options
     docs/               Multi-Region-Plan.md, the record of how it was worked out
     lab/                One script per question
     nats/               Server config and the minted trust chain
@@ -136,9 +136,18 @@ Six NATS servers and nothing else. Two clusters of three (`za`, `au`) joined by
 a gateway, in two Compose projects (`lb-za-1`, `lb-au-1`) on three networks.
 It answers three questions: does a tenant account wall hold across a gateway,
 what does `Replicas: 1` cost when a server dies, and — the one that decides the
-design — is the cross-region double capture real? The third is measured by the
-**odometer**: drive 12.5 km once, and one shared account makes the fleet total
-50 km while one account per region keeps it at 12.5 km.
+design — where does a region's data actually live? The third is measured by the
+**odometer**: drive 12.5 km once, and with one shared account *both* regions
+read 12.5 km out of the **same** bucket, held in cluster `za`. Australia owns
+nothing, reads it over the WAN, and loses it if South Africa goes down. One
+account per region gives each side a real local stream.
+
+> **Correction, 2026-09-11.** This paragraph used to ask "is the cross-region
+> **double capture** real?" and answer "one shared account makes the fleet
+> total 50 km". Both were wrong — a projector replay bug, plus adding two
+> readings of one bucket together. Behind a gateway one account holds ONE
+> stream, so nothing can be stored twice. Details:
+> `demos/02-multi-region/diagrams/gateway-double-capture-options-2.html`.
 
 ```bash
 cd demos/02-multi-region/deploy

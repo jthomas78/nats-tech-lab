@@ -24,8 +24,16 @@
 #
 # So Australia is not a second region. It is a second door into South Africa's.
 # Every AU service that "writes to its own stream" is writing to ZA's, and
-# every AU consumer reads ZA's log. That is where the double capture comes
-# from -- see ./03-odometer.sh for what it costs in kilometres.
+# every AU consumer reads ZA's log. See ./03-odometer.sh for what that costs.
+#
+# CORRECTION 2026-09-11. This header used to say the refusal is "where the
+# double capture comes from". There is no double capture here. One account
+# holds ONE ODOMETER and ONE KV_vehicles, so a message cannot be stored twice
+# and a total cannot be added twice. The cost is different and worse: AU owns
+# nothing, pays WAN latency on every read, and loses the stream completely if
+# cluster za dies. Double capture is real in a HUB-AND-LEAF topology, where
+# each side is a separate JetStream system. Full write-up:
+# ../diagrams/gateway-double-capture-options-2.html.
 #
 # Runs clean every time: it deletes its stream first and at the end.
 
@@ -99,14 +107,20 @@ cat <<'TXT'
 
 WHAT THE TWO NUMBERS REALLY MEAN
 
-  They are NOT two stored copies. They are one stream, counted twice, because
+  They are NOT two stored copies. They are ONE stream, read twice, because
   both contexts are looking at the same object.
 
-  That is worse, not better. Each region also runs its own writer and its own
-  projector. They all share this one log, so one business event is applied
-  once per region. Nobody chose that, and nothing warns you.
+  That is worse, not better. AU's writer writes into ZA's log. AU's projector
+  reads ZA's log. Every one of those trips crosses the WAN, and nothing warns
+  you. Nobody chose which region holds the data; the first one to ask for the
+  name took it.
 
-  If AU goes off the air, AU loses its data -- because AU never had any.
+  If ZA goes off the air, AU loses the stream -- because AU never had one.
+  If AU goes off the air, AU loses nothing, for the same reason.
+
+  What does NOT happen here is a double capture. There is one stream and one
+  KV bucket, so the 12.5 km trip is stored once and counted once. See
+  ./03-odometer.sh.
 
 WHAT DOES NOT FIX IT
 

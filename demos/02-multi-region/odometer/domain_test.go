@@ -40,10 +40,17 @@ func TestApply(t *testing.T) {
 	}
 }
 
-// This is the whole lab in one test. Apply the SAME trip twice and the total
-// doubles. So a total of 25 after one publish of 12.5 is not a rounding
-// question -- it is proof the event was captured twice.
-func TestDoubleCaptureShowsAsDoubleTotal(t *testing.T) {
+// Apply the SAME trip twice and the total doubles. So a total of 25 after ONE
+// publish of 12.5 is not a rounding question -- it is proof the event was
+// applied twice.
+//
+// CORRECTION 2026-09-11. The old name of this test said "double capture", and
+// the demo read that as a CROSS-REGION fault. It is not. A gateway cannot store
+// a message twice inside one account, because that account holds only ONE
+// stream. The real cause of a doubled total is a REPLAY: `Unsubscribe()` or
+// `Drain()` on the durable pull consumer deletes it, and the next projector run
+// starts again at message 1. See the comment in main.go.
+func TestReplayShowsAsDoubleTotal(t *testing.T) {
 	once := Odometer{}.Apply(Travelled{Km: 12.5})
 	twice := once.Apply(Travelled{Km: 12.5})
 

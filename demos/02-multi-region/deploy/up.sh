@@ -84,7 +84,7 @@ Then run the lab scripts:
 
   ../lab/01-the-wall.sh      does an account boundary hold across a gateway?
   ../lab/02-replicas.sh      what does Replicas 1 vs 3 cost when a node dies?
-  ../lab/03-odometer.sh      is the double capture real? (needs Go)
+  ../lab/03-odometer.sh      where does a region's data really live? (needs Go)
 TXT
     ;;
   down)

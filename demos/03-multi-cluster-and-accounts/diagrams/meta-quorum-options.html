@@ -88,7 +88,7 @@ pre .hi  { color: var(--text); }
     <div class="head-txt">
       <div class="eyebrow">Demo 03 &middot; measured 2026-09-11 &middot; hand-built lab, nats-server 2.14.6</div>
       <h1>Who is still alive to take a write?</h1>
-      <p class="sub">Demo 02's <a style="color:var(--accent)" href="../../02-multi-region/diagrams/gateway-double-capture-options.html">double-capture page</a>
+      <p class="sub">Demo 02's <a style="color:var(--accent)" href="../../02-multi-region/diagrams/gateway-double-capture-options-2.html">one-account/one-stream page</a>
       asks <b style="color:var(--text)">where the bytes land</b>. This page asks a different question:
       when a region goes dark, <b style="color:var(--text)">who can still accept a JetStream management call</b>.
       Four topologies. Every number below was measured on this machine, not drawn from the docs.</p>
@@ -488,10 +488,14 @@ client connects DIRECTLY to arb:4540, stream add DIRECT
         fails with <code>10005</code> there, I would not trust it without a test.</li>
       <li><b>Not measured:</b> the hub as a real JetStream store rather than a pass-through; leaf reconnect
         behaviour with many regions; mirror catch-up time at production volume.</li>
-      <li><b>Correction owed elsewhere.</b> Demo 02's <code>gateway-double-capture-options.html</code> still
-        carries the subtitle <i>"A JetStream <code>domain</code> protects the API, not the subject space."</i>
-        Over a gateway, a per-cluster domain does not cleanly protect anything &mdash; see Figure B. That page
-        needs a dated note.</li>
+      <li><b>Correction made elsewhere, 2026-09-11.</b> Demo 02's
+        <code>gateway-double-capture-options.html</code> claimed a cross-region <b>double capture</b> and
+        carried the subtitle <i>"A JetStream <code>domain</code> protects the API, not the subject space."</i>
+        Both were wrong. Over a gateway a per-cluster domain does not cleanly protect anything (Figure B), and
+        one account holds ONE stream for the whole supercluster, so nothing can be stored twice. That page is
+        superseded by <code>gateway-double-capture-options-2.html</code>. Double capture is real in the
+        <b>hub-and-leaf</b> shape on this page instead &mdash; two separate JetStream systems, neither able to
+        see the other's subjects, so neither can refuse the overlap.</li>
     </ul>
   </section>
 

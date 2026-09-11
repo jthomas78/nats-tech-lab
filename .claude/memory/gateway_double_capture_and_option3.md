@@ -1,6 +1,6 @@
 ---
 name: gateway_double_capture_and_option3
-description: RESOLVED 2026-09-08 — the double capture was a test artefact, not a needed shape; option 3 (one account per tenant) is what the repo already does; options 1 and 2 dropped for tenant data
+description: RESOLVED 2026-09-08, and the "double capture" itself DISPROVED 2026-09-11 — over a gateway one account holds ONE stream, so nothing is stored twice; option 3 (one account per tenant) is what the repo already does; options 1 and 2 dropped for tenant data
 metadata:
   type: project
 ---
@@ -25,9 +25,17 @@ That collapses the decision:
 - **Option 1 (region token) is dropped.** Never needed. It also broke our own rule.
 - **Option 2 (one authoritative stream + mirrors) is dropped for tenant data.** No
   tenant's operational data legitimately lives in two cells.
-- **The double capture was never a real shape.** We put one account in two cells and ran
-  a `SHIPPING` stream in each. No real tenant does that. It stays a genuine trap worth
-  knowing, but it was a test artefact, not a design we had to fix.
+- **The double capture was never a real shape — and on 2026-09-11 it turned out never to
+  have been a double capture at all.** We put one account in two cells and believed we had
+  a `SHIPPING` stream in each. We did not. Inside ONE account a stream name is unique
+  across the WHOLE supercluster, and the check is account-wide and placement-blind, so the
+  second cell's `stream add` is refused with `10058` and its client silently keeps using
+  the first cell's stream across the WAN. One stream, one KV bucket, nothing stored twice.
+  The doubled number came from a projector replay bug (`defer sub.Unsubscribe()` on a
+  durable pull consumer deletes it). The trap is real but different: **there is only one
+  of everything, you do not choose which region holds it, and you lose it completely when
+  that region dies.** Real double capture needs **hub-and-leaf** — two JetStream systems,
+  neither able to see the other's subjects, so neither can refuse the overlap.
 
 **Precision that matters:** "a tenant never spans two regions" is *not* a structural law
 — it is a fact about today's tenants. A tenant is a marketplace business, and a future
@@ -104,6 +112,9 @@ Not free: renaming an nsc account is delete-and-re-add, needing `down -v` and a 
 D11 in `demos/02-multi-region/docs/Multi-Region-Plan.md`; 64d marked part-done and open question 6
 updated (there is no cheap connectivity test here — every account is bind-mounted into
 all nine servers, so connecting proves nothing). Diagram of the original problem and the
-three options: `demos/02-multi-region/diagrams/gateway-double-capture-options.html` →
-`obsidian/V3-Platform/Architecture/Dictionary-POC/images/gateway-double-capture-options.png`.
-That diagram now shows a decision that is settled — read it as history.
+three options: `demos/02-multi-region/diagrams/gateway-double-capture-options-2.html`
+(corrected 2026-09-11). The original `gateway-double-capture-options.html` next to it, and
+its export
+`obsidian/V3-Platform/Architecture/Dictionary-POC/images/gateway-double-capture-options.png`,
+are **superseded** — the HTML now carries a SUPERSEDED banner, the PNG has not been
+re-exported. The decision itself is settled either way; read the old files as history.

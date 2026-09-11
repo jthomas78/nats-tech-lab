@@ -313,11 +313,11 @@
     <div class="panel con"><div class="lbl">Why this is the dangerous one</div><ul>
       <li><b>The failure is at create time, once, in a script nobody reads twice.</b> After that everything
         looks healthy.</li>
-      <li>Each region still runs its own writer and its own projector. They now share one log, so one business
-        event is applied <b>once per region</b>.</li>
-      <li>A message count cannot show this. Only a <b>business total</b> can — 25&nbsp;km for a 12.5&nbsp;km
-        trip. See Card 05.</li>
-      <li>If AU goes off the air, AU loses its data — because AU never had any.</li>
+      <li>Each region still runs its own writer and its own projector, and they now share one log. Every AU
+        write and every AU read crosses the WAN. Nobody chose that, and nothing warns you.</li>
+      <li>A message count cannot show this, and neither can a business total &mdash; the total is
+        <b>right</b>. Only <code>stream info</code> can: ask which <code>cluster</code> holds it. See Card 05.</li>
+      <li>If ZA goes off the air, AU loses the stream &mdash; because AU never had one.</li>
     </ul></div>
     <div class="panel note"><div class="lbl">What does not fix it</div><ul>
       <li><b>A domain.</b> Card 01.</li>
@@ -450,12 +450,12 @@
   <div class="grid2">
     <div class="panel pro"><div class="lbl">Pros</div><ul>
       <li><b>No trust-chain change.</b> No new accounts, no new credentials, no re-issue.</li>
-      <li>Stops the double capture today, with a filter edit.</li>
+      <li>Gives AU a real local stream today, with a filter edit and a stream rename.</li>
       <li>Easy to reason about in a small system with few publishers.</li>
     </ul></div>
     <div class="panel con"><div class="lbl">Cons</div><ul>
-      <li><b>A typo restores the bug, silently.</b> One publisher with the wrong prefix and the double capture is
-        back with no error anywhere.</li>
+      <li><b>A typo breaks it, silently.</b> One publisher with the wrong prefix and ZA's event is stored in
+        AU's stream too &mdash; twice, in two places, with no error anywhere. The server is not checking.</li>
       <li>Spends two of this repo's settled design rules: region is <b>not</b> a subject token, and streams are
         named for the domain, not the deployment.</li>
       <li>Touches every publisher, consumer and filter — a wide, boring migration.</li>
@@ -464,7 +464,7 @@
   </div>
 
   <div class="verdict"><span class="pill">Verdict</span>
-    <p>It stops the double capture and fixes nothing else. Reasonable as a <b>stop-gap</b> while accounts are
+    <p>It gives each region its own stream and fixes nothing else. Reasonable as a <b>stop-gap</b> while accounts are
       being minted; a poor destination, because its safety depends on everybody spelling things correctly
       forever.</p>
     <span class="side">boundary strength: convention</span></div>
@@ -482,8 +482,8 @@
   </div>
 
   <div class="decision"><div class="lbl">Decision</div>
-    <p>Is a region a <b>tenant boundary</b> — data that must not leak, and must not be counted twice — or only a
-      deployment detail?</p></div>
+    <p>Is a region a <b>tenant boundary</b> — data that must not leak, and that each region must own
+      outright — or only a deployment detail?</p></div>
 
   <div class="panel flat" style="margin-top:12px">
     <div class="lbl">Mechanism — measured by <code>lab/03-odometer.sh</code>, in kilometres</div>
@@ -507,14 +507,24 @@
       <text class="chipT ok" x="723" y="117" text-anchor="middle">odometer 0 km</text>
     </svg>
     <table style="margin-top:2px">
-      <thead><tr><th>Accounts</th><th>Odometer in ZA</th><th>Odometer in AU</th><th>The fleet believes</th></tr></thead>
+      <thead><tr><th>Accounts</th><th>Odometer in ZA</th><th>Odometer in AU</th><th>Who owns AU's data</th></tr></thead>
       <tbody>
-        <tr><td>one <code>LINEBOOKER</code>, both regions</td><td class="bad">25 km</td><td class="bad">25 km</td><td class="bad"><b>50 km</b></td></tr>
-        <tr><td><code>LINEBOOKER_ZA</code> + <code>LINEBOOKER_AU</code></td><td class="good">12.5 km</td><td class="good">0 km</td><td class="good"><b>12.5 km</b></td></tr>
+        <tr><td>one <code>LINEBOOKER</code>, both regions</td><td class="bad">12.5 km</td><td class="bad">12.5 km</td><td class="bad"><b>nobody — the SAME bucket, in <code>za</code></b></td></tr>
+        <tr><td><code>LINEBOOKER_ZA</code> + <code>LINEBOOKER_AU</code></td><td class="good">12.5 km</td><td class="good">0 km</td><td class="good"><b><code>au</code>, in its own local stream</b></td></tr>
       </tbody>
     </table>
+    <p style="margin-top:8px;font-size:12px;line-height:18px;color:var(--tx3)"><b>Corrected 2026-09-11.</b>
+      Row one used to read 25&nbsp;km / 25&nbsp;km / 50&nbsp;km and was called a cross-region
+      <b>double capture</b>. It was wrong twice. The 25 came from <code>defer sub.Unsubscribe()</code> in
+      <code>odometer/main.go</code> deleting the durable pull consumer, so every projector run replayed the
+      stream (measured: four runs over a stream holding <b>one</b> message read 12.5, 25, 37.5, 50 — one
+      region, one account, no gateway). The 50 came from adding ZA's number to AU's when both read the same
+      bucket. Behind a gateway there is nothing to capture twice. Full write-up:
+      <a style="color:var(--accent)" href="gateway-double-capture-options-2.html">gateway-double-capture-options-2.html</a>.</p>
     <ul style="margin-top:11px">
       <li>Same subject, same code, same single publish. <b>Only the account changed.</b></li>
+      <li>Row one is the trap: the number looks <b>right</b>. Both readings come out of one bucket, held in
+        <code>za</code>. AU pays WAN latency on every read and goes dark for that stream if <code>za</code> is lost.</li>
       <li>A gateway carries interest, and it <b>never crosses an account</b>. That is the whole guarantee.</li>
       <li>The tenant axis in this repo is the account, so a region-per-account decision must be taken with the
         tenancy model open, not separately.</li>
@@ -538,8 +548,9 @@
   </div>
 
   <div class="verdict"><span class="pill">Verdict</span>
-    <p>The destination. A count of messages can never tell you the business is wrong; a total can. 25&nbsp;km for
-      a 12.5&nbsp;km trip is what pays for the migration.</p>
+    <p>The destination. It is the only shape where each region <b>owns</b> its own data rather than borrowing
+      the other's over the WAN, and the only one that keeps the domain-correct stream name in both regions.
+      &ldquo;AU has no odometer at all once <code>za</code> is lost&rdquo; is what pays for the migration.</p>
     <span class="side">boundary strength: hard</span></div>
 </section>
 
@@ -943,7 +954,8 @@
       <li><b>Only the account is a wall.</b> Subjects are conventions, placement is a location, a domain is an address.</li>
       <li><b>The default is Replicas 1.</b> Three servers is not three copies.</li>
       <li><b>A WAN cut is a change freeze, not an outage</b> — unless the regions are unevenly sized, in which case only the smaller one freezes.</li>
-      <li><b>A business total finds bugs a message count cannot.</b> 25 km for a 12.5 km trip.</li>
+      <li><b>A business total finds bugs a message count cannot</b> — but a total that looks RIGHT can still
+        be reading the wrong region's stream. Ask <code>stream info</code> which cluster holds it.</li>
     </ul></div>
 
   <div class="verdict"><span class="pill">Verdict</span>
@@ -972,7 +984,8 @@
     <ul>
       <li><code>lab/01-option-1-subjects.sh</code> — the region token, and what it costs</li>
       <li><code>lab/01-the-wall.sh</code> — does an account hold across a gateway?</li>
-      <li><code>lab/03-odometer.sh</code> + <code>odometer/</code> — the 12.5 km / 25 km measurement</li>
+      <li><code>lab/03-odometer.sh</code> + <code>odometer/</code> — the 12.5 km measurement, and which
+        cluster really holds the stream (<code>od where</code>)</li>
       <li><code>lab/streams.sh</code> — every stream, every account, which cluster it sits on</li>
     </ul>
   </div>
@@ -999,7 +1012,8 @@
     <ul>
       <li><code>demos/02-multi-region/README.md</code> — the lab intro, three questions</li>
       <li><code>demos/02-multi-region/CLAUDE.md</code> § "Measured facts — do not re-guess these"</li>
-      <li><code>diagrams/gateway-double-capture-options.html</code> — the option comparison, drawn</li>
+      <li><code>diagrams/gateway-double-capture-options-2.html</code> — the corrected option comparison,
+        drawn (<code>-options.html</code> is the superseded original, kept for the record)</li>
     </ul>
   </div>
   </div>

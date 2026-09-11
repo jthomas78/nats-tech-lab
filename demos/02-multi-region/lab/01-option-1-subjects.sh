@@ -29,7 +29,14 @@
 #   - It touches every publisher, every consumer, and every stream filter.
 #   - It still leaves TWO write sides, with no story for merging them.
 #
-# In other words: it stops the double capture, and fixes nothing else.
+# In other words: it gives AU a real local stream, and fixes nothing else.
+#
+# CORRECTION 2026-09-11. This line used to read "it stops the double capture".
+# There is no double capture to stop. With one account there is only ONE
+# ODOMETER, so nothing is ever stored twice. What option 1 really buys is a
+# SECOND stream -- AU stops reading ZA's log over the WAN and gets its own.
+# It buys that with a region token in the subject AND in the stream name.
+# See ../diagrams/gateway-double-capture-options-2.html.
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -87,8 +94,9 @@ WHAT ACTUALLY HAPPENED
   it away.
 
   That distinction matters. Option 1 is a naming convention, not a boundary.
-  A typo in one filter, or one publisher using the wrong prefix, and the
-  double capture is back with no error anywhere.
+  A typo in one filter, or one publisher using the wrong prefix, and ZA's
+  event lands in AU's stream as well -- stored twice, in two streams, with no
+  error anywhere. The server is not checking. You are.
 
   Note what DID hold the two streams apart physically: --cluster za and
   --cluster au. That is placement, and it is the right tool for "where does

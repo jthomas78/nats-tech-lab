@@ -161,12 +161,27 @@ Three decisions made on purpose. Do not undo them without asking:
   this shortened subject into a real service.
 - **One example, not two.** Demo 02 is not the place for a second CQRS shape.
 
-`lab/03-odometer.sh` runs it and prints the verdict: **12.5 km = captured once,
-25 km = captured twice.** That number is the whole point of the demo.
+`lab/03-odometer.sh` runs it and prints the verdict. The question it answers is
+**where does the number live**, not how big it is: with one shared account both
+regions read **12.5 km** out of the **same** bucket in cluster `za`; with one
+account per region ZA reads 12.5 and AU reads 0, each from its own local stream.
 
-Two implementation details worth keeping: the projector writes with
+> **Correction, 2026-09-11.** This section used to say `25 km = captured twice`
+> and called it a cross-region **double capture**. Wrong. The 25 came from
+> `defer sub.Unsubscribe()` in `odometer/main.go` — on a **durable** pull
+> consumer that DELETES the consumer, so every `project --once` replayed the
+> stream from message 1 (measured: four runs over a stream holding **one**
+> message read 12.5, 25, 37.5, 50; one region, one account, no gateway). Behind
+> a gateway there is nothing to capture twice, because one account holds ONE
+> `ODOMETER` and ONE `KV_vehicles`. Double capture is real in **hub-and-leaf**.
+> Full write-up: `diagrams/gateway-double-capture-options-2.html`.
+
+Three implementation details worth keeping: the projector writes with
 `kv.Update(key, value, revision)`, not `Put`, so two projectors cannot both read
-12.5 and both write 25; and a failed apply is deliberately **not** acked.
+a value and both overwrite it; a failed apply is deliberately **not** acked; and
+**nothing may call `Unsubscribe()` or `Drain()` on the projector's durable pull
+subscription** — both delete the consumer server-side and cause the replay above.
+`odometer/main.go` carries a dated comment saying so.
 
 ## Lab scripts
 
@@ -186,7 +201,7 @@ sits in demo 01 or in `.claude/plans/` any more (moved 2026-09-09).
 |---|---|
 | `README.md` | the intro the lab shell renders, and the three questions with their measured answers |
 | `docs/Multi-Region-Plan.md` | the record of how the mechanics were worked out. Superseded in place — read it as history, not as instructions |
-| `diagrams/` | `multi-region-pattern-cards.html` (the 10-card deck — every conclusion this demo reached, one card each), `gateway-vs-wan-cut.html`, `gateway-double-capture-options.html`, and `multi-cluster-and-region/` (six topology drawings) |
+| `diagrams/` | `multi-region-pattern-cards.html` (the 10-card deck — every conclusion this demo reached, one card each), `gateway-vs-wan-cut.html`, `gateway-double-capture-options-2.html` (the corrected option comparison; `-options.html` next to it is the superseded original, kept for the record), and `multi-cluster-and-region/` (six topology drawings) |
 | `odometer/README.md` | the one JetStream + CQRS example, and its business rule table |
 | `lab/*.sh` | the runnable experiments |
 
@@ -273,10 +288,13 @@ Ignore these inside this folder:
   two regions is not two regions; AU is a second door into ZA's JetStream. That
   is what `lab/00-the-problem.sh` now measures. Two accounts
   (`lab2-linebooker-za` / `-au`) give two real streams with two `created` times.
-- **One shared account leaks KV across the gateway.** A KV bucket is a stream,
-  and its writes publish on `$KV.<bucket>.<key>`. With one `LINEBOOKER` account
-  both regions read 25 km from a single 12.5 km publish. With `LINEBOOKER_ZA` +
-  `LINEBOOKER_AU` the answer is 12.5 km in ZA and 0 in AU. That is the demo, and
-  it still measures the same after the domain fix.
+- **A KV bucket IS a stream, so one shared account gives you ONE bucket.** Its
+  writes publish on `$KV.<bucket>.<key>`, and `KV_vehicles` is subject to the
+  same account-wide name check as any stream. With one `LINEBOOKER` account both
+  regions read **12.5 km** — the same 12.5 km, out of the same bucket, held in
+  cluster `za`; AU owns nothing and reads it over the WAN. With `LINEBOOKER_ZA` +
+  `LINEBOOKER_AU` the answer is 12.5 km in ZA and 0 in AU, each local. That is
+  the demo. (It used to be recorded here as "both regions read 25 km" — that was
+  the replay bug, corrected 2026-09-11.)
 - **`Routes 8` per server is normal** on NATS 2.14. It opens several route links
   per peer. It is not a fault.
