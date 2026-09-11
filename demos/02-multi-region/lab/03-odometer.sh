@@ -1,17 +1,37 @@
 #!/usr/bin/env bash
-# LAB 3 -- the odometer. Is the double capture real? Read the number.
+# LAB 3 -- the odometer. Where does the truck's distance actually live?
 #
 # The question in plain words:
-#   A truck drives 12.5 km, once. Two regions are joined by a gateway. What
-#   does the odometer say afterwards?
+#   A truck drives 12.5 km, once, in South Africa. Two regions are joined by
+#   a gateway. Afterwards, what does each region's odometer say, and WHERE is
+#   the number stored?
 #
 # What you should see:
-#   ONE account in both regions   -> the odometer says 25 km. Wrong.
-#   ONE account PER region        -> the odometer says 12.5 km. Right.
+#   ONE account in both regions   -> there is only ONE odometer, and it sits
+#                                    in whichever region built it first. The
+#                                    other region reads it across the WAN.
+#   ONE account PER region        -> each region owns its own odometer. The
+#                                    number is right and it is local.
+#
+# CORRECTION 2026-09-11. An earlier version of this lab printed "25 km" here
+# and called it a cross-region DOUBLE CAPTURE. That was wrong, twice over:
+#
+#   1. The 25 came from a bug in ../odometer/main.go. `defer sub.Unsubscribe()`
+#      DELETES a durable pull consumer, so every `project --once` replayed the
+#      stream from message 1 and added the same 12.5 km again. Measured: four
+#      projector runs, ONE region, ONE account, ONE message in the stream ->
+#      12.5, 25, 37.5, 50. No gateway was involved at all.
+#   2. Even without the bug there is nothing to double-capture. Inside ONE
+#      account a stream name is unique across the WHOLE supercluster, so the
+#      second region's `stream add ODOMETER` is refused with 10058. One
+#      account = one ODOMETER = one KV_vehicles. Two streams never existed.
+#
+# The conclusion did not change -- a region boundary must be an ACCOUNT
+# boundary -- but the reason did. It is not "counted twice". It is "there is
+# only one of everything, and you do not choose which region holds it".
 #
 # Why a number and not a message count. A stream count tells you how many
 # messages were stored. It does not tell you whether the business is wrong.
-# 25 km for a 12.5 km trip is not a rounding question. It is proof.
 #
 # This is demo 02's only JetStream + CQRS example, on purpose. Demo 01
 # already compared the read-model shapes; this demo is about where a message
@@ -29,18 +49,6 @@ KM=12.5
 od() { go run . "$@"; }
 hr() { printf '\n%s\n' "----------------------------------------------------------"; }
 
-# Same three lines every stage. Only the account changes.
-#   $1 label   $2 za total   $3 au total   $4 fleet total
-scoreboard() {
-  printf '\n'
-  printf '    %-26s %s km\n' "odometer in ZA:"  "$2"
-  printf '    %-26s %s km\n' "odometer in AU:"  "$3"
-  printf '    %-26s %s km\n' "the fleet believes:" "$4"
-  printf '    %-26s %s km\n' "the truck actually drove:" "$KM"
-  printf '\n'
-  printf '    VERDICT: %s\n' "$1"
-}
-
 # Read one vehicle's total out of a region, or 0 when the bucket is empty.
 total_in() {
   local region="$1" account="$2"
@@ -49,12 +57,26 @@ total_in() {
                            END { if (!found) print 0 }'
 }
 
+# Which cluster physically holds the stream, as seen from one region.
+home_of() {
+  local region="$1" account="$2"
+  od where --region "$region" --account "$account" 2>/dev/null || echo unknown
+}
+
 # One full run: wipe both regions, drive once in ZA, project both sides.
+# $3 = "show" to let setup print its warnings.
 drive_once() {
-  local za_account="$1" au_account="$2"
+  local za_account="$1" au_account="$2" verbose="${3:-quiet}"
   for pair in "za:$za_account" "au:$au_account"; do
-    od reset --region "${pair%%:*}" --account "${pair#*:}" >/dev/null
-    od setup --region "${pair%%:*}" --account "${pair#*:}" >/dev/null
+    od reset --region "${pair%%:*}" --account "${pair#*:}" >/dev/null 2>&1 || true
+  done
+  sleep 1
+  for pair in "za:$za_account" "au:$au_account"; do
+    if [[ "$verbose" == "show" ]]; then
+      od setup --region "${pair%%:*}" --account "${pair#*:}" | sed 's/^/    /'
+    else
+      od setup --region "${pair%%:*}" --account "${pair#*:}" >/dev/null
+    fi
   done
   od travelled --region za --account "$za_account" --vehicle "$VEHICLE" --km "$KM" >/dev/null
   sleep 2
@@ -85,18 +107,27 @@ TXT
 hr
 echo "STAGE A  ONE account, LINEBOOKER, valid in BOTH regions"
 echo
-echo "  Each region runs its own projector. Both are valid listeners for the"
-echo "  same subject in the same account, so the gateway serves them both."
+echo "  Both regions ask for their own ODOMETER stream. Watch what AU is told."
+echo
 
-drive_once linebooker linebooker
+drive_once linebooker linebooker show
 za="$(total_in za linebooker)"
 au="$(total_in au linebooker)"
-fleet="$(awk -v a="$za" -v b="$au" 'BEGIN { print a + b }')"
+home="$(home_of au linebooker)"
 
-if [[ "$fleet" != "$KM" ]]; then
-  scoreboard "BROKEN. One trip, counted more than once." "$za" "$au" "$fleet"
+printf '\n'
+printf '    %-30s %s km\n' "odometer read from ZA:" "$za"
+printf '    %-30s %s km\n' "odometer read from AU:" "$au"
+printf '    %-30s %s km\n' "the truck actually drove:" "$KM"
+printf '    %-30s %s\n'    "the stream really lives in:" "$home"
+printf '\n'
+if [[ "$za" == "$KM" && "$au" == "$KM" ]]; then
+  echo "    VERDICT: the number is right, and that is the trap."
+  echo "             Both lines above read the SAME bucket. There is only one."
+  echo "             AU owns nothing. Every AU read crosses the WAN, and if"
+  echo "             cluster $home goes down AU has no odometer at all."
 else
-  scoreboard "the total was right -- unexpected for this stage." "$za" "$au" "$fleet"
+  echo "    VERDICT: unexpected -- investigate before trusting this page."
 fi
 
 # --- stage B -- one account per region -------------------------------------
@@ -104,33 +135,58 @@ hr
 echo "STAGE B  ONE account PER region, LINEBOOKER_ZA and LINEBOOKER_AU"
 echo
 echo "  Same subject. Same code. Same publish. Only the account differs."
+echo
 
-drive_once linebooker-za linebooker-au
+drive_once linebooker-za linebooker-au show
 za="$(total_in za linebooker-za)"
 au="$(total_in au linebooker-au)"
-fleet="$(awk -v a="$za" -v b="$au" 'BEGIN { print a + b }')"
+za_home="$(home_of za linebooker-za)"
+au_home="$(home_of au linebooker-au)"
 
-if [[ "$fleet" == "$KM" ]]; then
-  scoreboard "CORRECT. One trip, counted once, in the region that owns it." "$za" "$au" "$fleet"
+printf '\n'
+printf '    %-30s %s km  (stream in %s)\n' "odometer in ZA:" "$za" "$za_home"
+printf '    %-30s %s km  (stream in %s)\n' "odometer in AU:" "$au" "$au_home"
+printf '    %-30s %s km\n' "the truck actually drove:" "$KM"
+printf '\n'
+if [[ "$za" == "$KM" && "$au" == "0" && "$za_home" == "za" && "$au_home" == "au" ]]; then
+  echo "    VERDICT: CORRECT. Two odometers now exist, one per region."
+  echo "             The trip is counted once, in the region that owns it,"
+  echo "             and AU's own stream is real and local -- it is simply"
+  echo "             empty, because this truck never drove in Australia."
 else
-  scoreboard "the total is still wrong -- investigate." "$za" "$au" "$fleet"
+  echo "    VERDICT: unexpected -- investigate before trusting this page."
 fi
 
 hr
 cat <<'TXT'
 WHAT THIS PROVES
 
-  The account decided the number. Nothing else changed -- not the subject,
-  not the stream, not the projector, not the payload.
+  The account decided whether a second odometer could exist at all.
+  Nothing else changed -- not the subject, not the stream name, not the
+  projector, not the payload.
 
-  A JetStream `domain` does not save stage A, and it cannot. A gateway makes
-  the two clusters ONE supercluster, and a supercluster is ONE JetStream
-  system with ONE domain name. Both stages ran on the same domain, `lb`,
-  because that is the only legal setting. Regions are kept apart by the
+  Stage A: one account. `stream add ODOMETER` from the second region is
+  refused with `stream name already in use (10058)`. That check is
+  ACCOUNT-WIDE and PLACEMENT-BLIND, so `--cluster au` does not help. AU
+  ends up reading ZA's stream over the gateway and does not know it.
+
+  Stage B: one account per region. Both streams are created, both are local,
+  and the trip is stored exactly once.
+
+  A JetStream `domain` does not change Stage A, and it cannot. A gateway
+  makes the two clusters ONE supercluster, and a supercluster is ONE
+  JetStream system with ONE domain name. Both stages ran on the same domain,
+  `lb`, because that is the only legal setting. Regions are kept apart by the
   ACCOUNT, and a stream is pinned to a region by PLACEMENT (--cluster za|au).
 
-  So the region boundary must be an ACCOUNT boundary. That is option 3, and
-  this is the number that pays for it.
+  So the region boundary must be an ACCOUNT boundary. That is option 3.
+
+  WHAT THIS DOES NOT PROVE. It does not show a double capture. Over a
+  gateway, one account cannot hold two overlapping streams, so a message
+  cannot be stored twice. Double capture DOES happen in a hub-and-leaf
+  topology, where each region is a separate JetStream system with its own
+  domain and neither can see the other's subjects. See
+  ../../03-multi-cluster-and-accounts/diagrams/meta-quorum-options.html.
 
   Related: ./01-the-wall.sh shows the account wall holding for plain
   messages. This shows what it is worth in money.

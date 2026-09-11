@@ -39,21 +39,39 @@ runs it at 1, deletes it, then runs it at 3.
 The cost of 3 is real: every write goes to three servers, so it is slower and
 uses three times the disk. Choose it on purpose, per stream.
 
-## Question 3 — is the double capture real? Ask the odometer.
+## Question 3 — where does the data actually live? Ask the odometer.
 
-A truck drives **12.5 km, once**, in South Africa. Two regions. What does the
-odometer say afterwards?
+A truck drives **12.5 km, once**, in South Africa. Two regions. What does each
+region's odometer say afterwards, and **where is the number stored**?
 
-| Accounts | Odometer in ZA | Odometer in AU | The fleet believes |
+| Accounts | Odometer in ZA | Odometer in AU | Who owns AU's data |
 |---|---|---|---|
-| one `LINEBOOKER`, both regions | 25 km | 25 km | **50 km** |
-| `LINEBOOKER_ZA` + `LINEBOOKER_AU` | 12.5 km | 0 km | **12.5 km** |
+| one `LINEBOOKER`, both regions | 12.5 km | 12.5 km | **nobody — it is the SAME bucket, in `za`** |
+| `LINEBOOKER_ZA` + `LINEBOOKER_AU` | 12.5 km | 0 km | **au, in its own local stream** |
 
 Same subject. Same code. Same publish. Only the account changed.
 
-A message count cannot tell you the business is wrong. A total can. 25 km for
-a 12.5 km trip is not a rounding question — it is proof the event was
-captured twice. This is the number that pays for one account per region.
+Row one looks right and is the trap. Inside **one** account a stream name is
+unique across the **whole supercluster**, so Australia's `stream add ODOMETER`
+is refused with `stream name already in use (10058)` — and the client keeps
+working anyway, because a stream is reachable from either side of a gateway.
+Australia holds no data, pays WAN latency on every read, and goes dark for
+that stream the moment South Africa is lost.
+
+Row two is the fix. Two accounts are two namespaces, so both regions build a
+real, local `ODOMETER` under the **same name**, with no code change at all.
+
+> **Correction, 2026-09-11.** An earlier version of this table read 25 km /
+> 25 km / 50 km and called it a cross-region **double capture**. It was wrong
+> twice. The 25 came from a bug in `odometer/main.go` — `defer
+> sub.Unsubscribe()` deletes a **durable** pull consumer, so every projector
+> run replayed the stream and added the same distance again (measured: four
+> runs over a stream holding **one** message read 12.5, 25, 37.5, 50 — one
+> region, one account, no gateway). And the 50 came from adding ZA's number to
+> AU's number when both read the same bucket. Behind a gateway there is
+> nothing to capture twice; double capture is real in a **hub-and-leaf**
+> topology instead. Full write-up:
+> `diagrams/gateway-double-capture-options-2.html`.
 
 The JetStream `domain` does not save the first row, and it cannot. A gateway
 joins the two clusters into one **supercluster**, and a supercluster is one
@@ -93,6 +111,9 @@ first time.
 
 ```
 diagrams/multi-region-pattern-cards.html
+diagrams/gateway-double-capture-options-2.html   one account, one stream — and the
+                                                 three ways out (supersedes the
+                                                 -options.html page next to it)
 ```
 
 PDF: `obsidian/V3-Platform/Architecture/Dictionary-POC/NATS Multi-Region — Pattern Cards.pdf`
@@ -175,7 +196,7 @@ Then run the labs:
 ../lab/01-option-1-subjects.sh  a region token in the subject -- it works, at a price
 ../lab/01-the-wall.sh           does an account boundary hold across a gateway?
 ../lab/02-replicas.sh           what does Replicas 1 vs 3 cost when a node dies?
-../lab/03-odometer.sh           is the double capture real? (also needs Go)
+../lab/03-odometer.sh           where does a region's data really live? (also needs Go)
 ../lab/streams.sh               show every stream, and which region it sits on
 ```
 

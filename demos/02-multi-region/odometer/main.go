@@ -134,6 +134,8 @@ func main() {
 		err = runProject(c)
 	case "show":
 		err = runShow(c)
+	case "where":
+		err = runWhere(c)
 	case "reset":
 		err = runReset(c)
 	default:
@@ -153,6 +155,7 @@ func usage() {
   travelled  publish one trip      -vehicle V1 -km 12.5
   project    fold events into KV   -once to drain and exit
   show       print the read model
+  where      print which CLUSTER physically holds the stream
   reset      delete the stream and the bucket
 
 common flags: -region za|au   -account <creds name>
@@ -207,6 +210,9 @@ func runSetup(c config) error {
 	}
 	defer nc.Close()
 
+	// Set when this region ends up borrowing another region's stream or bucket.
+	elsewhere := false
+
 	// LimitsPolicy, not InterestPolicy -- replay has to stay possible.
 	// Replicas 3, because lab/02-replicas.sh already proved what R1 costs on
 	// a three-node cluster.
@@ -223,7 +229,22 @@ func runSetup(c config) error {
 		MaxAge:    24 * time.Hour,
 		Placement: &nats.Placement{Cluster: c.region},
 	})
-	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
+	// `already in use` is not always harmless here. Inside ONE account a stream
+	// name is unique across the WHOLE supercluster, so a second region asking
+	// for its own copy is refused with 10058 and silently keeps using the
+	// first region's stream -- in the first region's cluster, across the WAN.
+	// Measured 2026-09-11. Say so out loud instead of printing "ready".
+	if errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
+		if info, ierr := js.StreamInfo(streamName); ierr == nil && info.Cluster != nil &&
+			info.Cluster.Name != c.region {
+			elsewhere = true
+			fmt.Printf("%s: WARNING stream %s already exists in cluster %s, not in %s.\n",
+				c.region, streamName, info.Cluster.Name, c.region)
+			fmt.Printf("%s:         one account holds ONE %s for the whole supercluster (10058).\n",
+				c.region, streamName)
+			fmt.Printf("%s:         every read from here crosses the WAN.\n", c.region)
+		}
+	} else if err != nil {
 		return fmt.Errorf("create stream %s: %w", streamName, err)
 	}
 
@@ -232,11 +253,25 @@ func runSetup(c config) error {
 		Replicas:  3,
 		Placement: &nats.Placement{Cluster: c.region},
 	})
-	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
+	// Same rule, same trap: a KV bucket IS a stream (KV_vehicles), so one
+	// account holds one `vehicles` bucket for the whole supercluster.
+	if errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
+		if info, ierr := js.StreamInfo("KV_" + bucketName); ierr == nil && info.Cluster != nil &&
+			info.Cluster.Name != c.region {
+			elsewhere = true
+			fmt.Printf("%s: WARNING bucket %s already exists in cluster %s, not in %s.\n",
+				c.region, bucketName, info.Cluster.Name, c.region)
+		}
+	} else if err != nil {
 		return fmt.Errorf("create bucket %s: %w", bucketName, err)
 	}
 
-	fmt.Printf("%s: stream %s and bucket %s are ready\n", c.region, streamName, bucketName)
+	if elsewhere {
+		fmt.Printf("%s: stream %s and bucket %s are usable from here, but NOT owned here\n",
+			c.region, streamName, bucketName)
+	} else {
+		fmt.Printf("%s: stream %s and bucket %s are ready\n", c.region, streamName, bucketName)
+	}
 	return nil
 }
 
@@ -282,11 +317,22 @@ func runProject(c config) error {
 
 	// A durable pull consumer. Durable so a restart resumes where it stopped
 	// instead of replaying the whole stream and doubling every total.
+	//
+	// DO NOT Unsubscribe (or Drain) this subscription. On a DURABLE pull
+	// consumer both of those DELETE the consumer on the server, and the
+	// durable is the only thing remembering which messages this projector
+	// already added. Measured 2026-09-11: with `defer sub.Unsubscribe()` here,
+	// four `project --once` runs over a stream holding ONE 12.5 km message
+	// read 12.5, 25, 37.5, 50 -- one region, one account, no gateway involved.
+	// That artifact was mistaken for a cross-region "double capture".
+	//
+	// The durable stays on the server after this process exits. `nc.Close()`
+	// above is all the cleanup a client owes it; `reset` deletes the stream,
+	// which takes the consumer with it.
 	sub, err := js.PullSubscribe(streamFilter, consumerName, nats.BindStream(streamName))
 	if err != nil {
 		return fmt.Errorf("subscribe: %w", err)
 	}
-	defer sub.Unsubscribe()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -373,6 +419,29 @@ func applyMessage(kv nats.KeyValue, m *nats.Msg) error {
 		}
 		return err
 	}
+	return nil
+}
+
+// runWhere answers the question Stage A of lab/03-odometer.sh is really about:
+// a client can reach a stream from either region, so "can I read it" proves
+// nothing. Only the cluster name tells you who owns the data and who is
+// reading it over the WAN. Prints just the cluster name, for a shell to read.
+func runWhere(c config) error {
+	nc, js, err := connect(c)
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+
+	info, err := js.StreamInfo(streamName)
+	if err != nil {
+		return fmt.Errorf("stream info %s: %w", streamName, err)
+	}
+	if info.Cluster == nil {
+		fmt.Println("unknown")
+		return nil
+	}
+	fmt.Println(info.Cluster.Name)
 	return nil
 }
 
