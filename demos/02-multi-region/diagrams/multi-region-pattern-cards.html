@@ -454,8 +454,10 @@
       <li>Easy to reason about in a small system with few publishers.</li>
     </ul></div>
     <div class="panel con"><div class="lbl">Cons</div><ul>
-      <li><b>A typo breaks it, silently.</b> One publisher with the wrong prefix and ZA's event is stored in
-        AU's stream too &mdash; twice, in two places, with no error anywhere. The server is not checking.</li>
+      <li><b>A typo misroutes, silently.</b> Measured: a client on AU publishing <code>evt.za.trip</code>
+        stored the message in <b>ZA's</b> stream, across the WAN; AU's stayed at 0. Not two copies &mdash; one
+        copy in the wrong region, with no error anywhere. (A typo in a <i>filter</i> cannot happen: inside one
+        account JetStream refuses overlapping subjects, <code>10065</code>.)</li>
       <li>Spends two of this repo's settled design rules: region is <b>not</b> a subject token, and streams are
         named for the domain, not the deployment.</li>
       <li>Touches every publisher, consumer and filter — a wide, boring migration.</li>

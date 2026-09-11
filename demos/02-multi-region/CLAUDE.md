@@ -288,6 +288,23 @@ Ignore these inside this folder:
   two regions is not two regions; AU is a second door into ZA's JetStream. That
   is what `lab/00-the-problem.sh` now measures. Two accounts
   (`lab2-linebooker-za` / `-au`) give two real streams with two `created` times.
+- **Inside one account two streams may not have OVERLAPPING SUBJECTS either.**
+  `subjects overlap with an existing stream (10065)`. Measured 2026-09-11 in the
+  shared `LINEBOOKER` account across the gateway, both for a full overlap
+  (`evt.>` in za, then `evt.>` in au) and a partial one (`evt.za.>` in za, then
+  `evt.>` in au). Both refused. `--cluster` does not help; like 10058 the check
+  is account-wide and placement-blind. **Consequence: inside one account a
+  single publish can NEVER be stored twice.** Same name is refused (10058),
+  overlapping subjects are refused (10065), and disjoint subjects mean only one
+  stream matches. So there is no configuration of one account over a gateway
+  that produces a double capture. The check is per-account, so two accounts
+  *can* each hold `evt.>` — that is why `lab/03-odometer.sh` stage B works.
+- **A wrong subject prefix MISROUTES; it does not duplicate.** Measured
+  2026-09-11: a client connected to **au** publishing `evt.za.trip`, with
+  `T_ZA evt.za.>` in cluster za and `T_AU evt.au.>` in cluster au, stored the
+  message in **T_ZA** (1 message) and left T_AU at **0**. One copy, in the wrong
+  region, written across the WAN, with no error anywhere. That is the real cost
+  of option 1's naming convention — not a second copy.
 - **A KV bucket IS a stream, so one shared account gives you ONE bucket.** Its
   writes publish on `$KV.<bucket>.<key>`, and `KV_vehicles` is subject to the
   same account-wide name check as any stream. With one `LINEBOOKER` account both

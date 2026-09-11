@@ -273,7 +273,13 @@ au  stream add SHIPPING --subjects 'evt.au.&gt;' --cluster au   <span class="x">
     purpose (<code>ARCHITECTURE-COMMUNICATIONS</code> &sect;2 &mdash; tenancy is the account boundary,
     region is a deployment, and neither belongs in a subject). It touches every publisher, consumer,
     stream filter and stream name, and it still leaves two write sides with no story for merging
-    them.</figcaption>
+    them. <b>The filters must stay disjoint, and the server enforces that for you:</b> measured
+    2026-09-11, a second stream whose subjects overlap the first is refused inside one account with
+    <code>subjects overlap with an existing stream (10065)</code> &mdash; full overlap
+    (<code>evt.&gt;</code>/<code>evt.&gt;</code>) and partial (<code>evt.za.&gt;</code>/<code>evt.&gt;</code>)
+    alike. So option 1's real risk is not a duplicate. It is a <b>misroute</b>: measured, a client on
+    <b>au</b> publishing <code>evt.za.trip</code> stored the message in <b>za</b>'s stream and left au's
+    at <code>0</code>.</figcaption>
   </figure>
 
   <!-- ============================ FIGURE C ============================ -->
@@ -543,6 +549,49 @@ one publish in ZA                                <span class="x">za = 1   au = 1
       deliberate mirror on <code>$JS.au.API</code> still followed AU's new event. Full write-up:
       <code>demos/03-multi-cluster-and-accounts/diagrams/meta-quorum-options.html</code>.</div>
     </div>
+
+    <h3 style="margin:18px 0 8px;font-size:15px;line-height:21px">Every way one publish becomes two stored copies</h3>
+    <table>
+      <thead><tr><th>Configuration</th><th>Two copies?</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Gateway, <b>one</b> account, same stream name</td>
+          <td><span class="tag no">no</span></td>
+          <td>Refused, <code>10058</code>. One stream exists. <i>Measured.</i></td>
+        </tr>
+        <tr>
+          <td>Gateway, <b>one</b> account, different names, <b>overlapping</b> subjects</td>
+          <td><span class="tag no">no</span></td>
+          <td>Refused, <code>10065</code>. Full and partial overlap alike. <i>Measured 2026-09-11.</i></td>
+        </tr>
+        <tr>
+          <td>Gateway, <b>one</b> account, different names, <b>disjoint</b> subjects</td>
+          <td><span class="tag no">no</span></td>
+          <td>Only one filter matches. A wrong prefix <b>misroutes</b>, it does not duplicate. <i>Measured.</i></td>
+        </tr>
+        <tr>
+          <td>Gateway, <b>two</b> accounts, plus an explicit export/import of the subject</td>
+          <td><span class="tag meh">yes</span></td>
+          <td>The overlap check is <b>per account</b>, so each account may hold <code>evt.&gt;</code>. You have
+            to build the crossing on purpose. <i>Not measured here.</i></td>
+        </tr>
+        <tr>
+          <td><b>Hub and leaf</b>, separate <code>domain</code> per region, shared account</td>
+          <td><span class="tag no" style="background:#3a1714;border-color:#6b2a23">yes &mdash; the real one</span></td>
+          <td>Two JetStream systems. Neither can see the other's streams, so neither can refuse. <i>Measured.</i></td>
+        </tr>
+        <tr>
+          <td>A <b>mirror</b> or <b>source</b> stream (Option 2)</td>
+          <td><span class="tag yes">yes, on purpose</span></td>
+          <td>A second copy is the whole point. A mirror has no subject filter of its own, so the overlap
+            check never applies. <i>Measured.</i></td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:8px">Read the table top to bottom: <b>inside one account, over a gateway, there is no
+      configuration at all that stores a publish twice.</b> The server refuses every one of them. A second copy
+      needs a second namespace &mdash; a second account, a second JetStream domain, or a mirror you asked
+      for.</p>
   </section>
 
   <section class="sec">

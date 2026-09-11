@@ -94,9 +94,20 @@ WHAT ACTUALLY HAPPENED
   it away.
 
   That distinction matters. Option 1 is a naming convention, not a boundary.
-  A typo in one filter, or one publisher using the wrong prefix, and ZA's
-  event lands in AU's stream as well -- stored twice, in two streams, with no
-  error anywhere. The server is not checking. You are.
+  But be precise about what a typo does, because it is NOT a second copy:
+
+    A typo in a FILTER cannot happen. Inside one account JetStream refuses
+    two streams whose subjects overlap -- `subjects overlap with an existing
+    stream (10065)`. Measured 2026-09-11 for a full overlap (evt.> / evt.>)
+    and a partial one (evt.za.> / evt.>). Both refused.
+
+    A typo in a PUBLISHER is the real risk, and it MISROUTES. Measured: a
+    client connected to AU publishing on `evt.za.trip` stored the message in
+    ZA's stream, in cluster za, across the WAN. AU's stream stayed at 0. One
+    copy, in the wrong region, with no error anywhere.
+
+  So inside one account a message can never be stored twice. It can very
+  easily be stored in the wrong place. The server is not checking. You are.
 
   Note what DID hold the two streams apart physically: --cluster za and
   --cluster au. That is placement, and it is the right tool for "where does
