@@ -1,0 +1,303 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Demo 04 — Event Sourcing + CQRS on NATS</title>
+<style>html,body{margin:0;background:#131416}svg{display:block;width:100%;height:auto}</style>
+</head><body>
+<svg viewBox="0 0 2000 4230" xmlns="http://www.w3.org/2000/svg" font-family="Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif">
+<defs>
+ <marker id="mb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#006FFF"/></marker>
+ <marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#27C07F"/></marker>
+ <marker id="mw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#9A7B1E"/></marker>
+ <style>
+  .t{fill:#DEE0E3;font-size:44px;font-weight:700;text-anchor:middle}
+  .st{fill:#B7BCC2;font-size:21px;text-anchor:middle}
+  .sec{fill:#DEE0E3;font-size:32px;font-weight:700;text-anchor:middle}
+  .secn{fill:#B7BCC2;font-size:20px;text-anchor:middle}
+  .band{font-size:24px;font-weight:700;letter-spacing:.14em;text-anchor:middle}
+  .h{fill:#DEE0E3;font-size:26px;font-weight:700;text-anchor:middle}
+  .sb{fill:#7FB4FF;font-size:18px;text-anchor:middle}
+  .sg{fill:#6FD8A8;font-size:18px;text-anchor:middle}
+  .sw{fill:#D9BC6B;font-size:18px;text-anchor:middle}
+  .n{fill:#8C939B;font-size:16px;text-anchor:middle}
+  .big{fill:#DEE0E3;font-size:40px;font-weight:700;text-anchor:middle}
+  .eb{fill:none;stroke:#006FFF;stroke-width:3;marker-end:url(#mb)}
+  .eg{fill:none;stroke:#27C07F;stroke-width:3;marker-end:url(#mg)}
+  .ew{fill:none;stroke:#9A7B1E;stroke-width:3;marker-end:url(#mw)}
+  .lb{fill:#7FB4FF;font-size:18px}
+  .lg{fill:#6FD8A8;font-size:18px}
+  .lw{fill:#D9BC6B;font-size:18px}
+  .leg{fill:#B7BCC2;font-size:18px}
+ </style>
+</defs>
+<rect width="2000" height="4230" fill="#131416"/>
+
+<text class="t" x="1000" y="76">Event Sourcing + CQRS — Demo 04 odometer</text>
+<text class="st" x="1000" y="120">Two diagrams, not one overlay. Same system both times — only the way the aggregate is rebuilt changes.</text>
+
+<!-- ══════════════════════════════════════════════════════════
+     1 — WITHOUT A SNAPSHOT
+     ══════════════════════════════════════════════════════════ -->
+<text class="sec"  x="1000" y="215">1 — Without a snapshot</text>
+<text class="secn" x="1000" y="253">cqrs rehydrate -vehicle V1 -snapshot=false — every command replays the whole log, seq 1 … N.</text>
+
+<line x1="675"  y1="300" x2="675"  y2="2070" stroke="#4A515B" stroke-width="3" stroke-dasharray="12 12"/>
+<line x1="1325" y1="300" x2="1325" y2="2070" stroke="#4A515B" stroke-width="3" stroke-dasharray="12 12"/>
+<text class="band" x="350"  y="335" fill="#006FFF">WRITE SIDE</text>
+<text class="band" x="1000" y="335" fill="#B7BCC2">NATS</text>
+<text class="band" x="1650" y="335" fill="#27C07F">READ SIDE</text>
+
+<!-- left -->
+<rect x="90" y="370" width="520" height="130" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="400" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h"  x="360" y="428">Producer</text>
+<text class="sb" x="360" y="456">cqrs register · travel · retire</text>
+<text class="n"  x="360" y="482">main.go — the command CLI, one at a time</text>
+
+<rect x="90" y="550" width="520" height="150" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="580" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h"  x="360" y="608">Command</text>
+<text class="sb" x="360" y="636">write.go — handleCommand()</text>
+<text class="n"  x="360" y="662">rebuild · check · append, in that order</text>
+<text class="n"  x="360" y="684">orchestrates only — no rules here</text>
+
+<rect x="90" y="760" width="520" height="220" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="790" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h"  x="360" y="818">Aggregate — Vehicle</text>
+<text class="sb" x="360" y="846">domain.go — Apply() · Register() · Travel()</text>
+<text class="n"  x="360" y="872">Holds no stored state of its own.</text>
+<text class="n"  x="360" y="894">Rebuilt in memory for every command,</text>
+<text class="n"  x="360" y="916">checks BR-OD01..05,</text>
+<text class="n"  x="360" y="938">makes one new event.</text>
+<text class="n"  x="360" y="962">write.go — rehydrate() does the rebuilding</text>
+
+<!-- middle -->
+<rect x="740" y="760" width="520" height="220" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="4"/>
+<rect x="772" y="790" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1000" y="818">Event Log = the Write Store</text>
+<text class="sg" x="1000" y="846">JetStream stream ODOMETER</text>
+<text class="n"  x="1000" y="872">evt.odometer.vehicle.{id}.travelled</text>
+<text class="n"  x="1000" y="894">append-only · LimitsPolicy · kept forever</text>
+<text class="n"  x="1000" y="916">expected-last-subject-seq guards the append</text>
+<text class="n"  x="1000" y="938">There is no separate write database.</text>
+<text class="n"  x="1000" y="962">This is the only source of truth.</text>
+
+<rect x="740" y="1050" width="520" height="250" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3" stroke-dasharray="12 9"/>
+<rect x="772" y="1080" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1000" y="1108">Write-side consumer</text>
+<text class="sg" x="1000" y="1136">ordered · ephemeral · one per command</text>
+<text class="n"  x="1000" y="1162">write.go — replay()</text>
+<text class="n"  x="1000" y="1184">js.OrderedConsumer(ODOMETER, filter)</text>
+<text class="n"  x="1000" y="1206">DeliverAllPolicy — it starts at seq 1</text>
+<text class="n"  x="1000" y="1228">Remembers nothing between commands.</text>
+<text class="n"  x="1000" y="1250">Deleted again as soon as the command ends.</text>
+<text class="n"  x="1000" y="1276">This is the work the snapshot removes.</text>
+
+<rect x="740" y="1380" width="520" height="200" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="772" y="1410" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1000" y="1438">Read-side consumer</text>
+<text class="sg" x="1000" y="1466">durable · long-lived · one per projector</text>
+<text class="n"  x="1000" y="1492">vehicle-projector — read.go runProjector()</text>
+<text class="n"  x="1000" y="1514">reads the same log, for a different job</text>
+<text class="n"  x="1000" y="1536">never rehydrates, never checks a rule</text>
+<text class="n"  x="1000" y="1558">cqrs projector runs it, and it blocks</text>
+
+<rect x="740" y="1650" width="520" height="230" rx="16" fill="#241E0B" stroke="#9A7B1E" stroke-width="3"/>
+<rect x="772" y="1680" width="46" height="46" rx="11" fill="#9A7B1E"/>
+<text class="h"  x="1000" y="1708">Read Store — cache</text>
+<text class="sw" x="1000" y="1736">NATS KV: odometer-read</text>
+<text class="n"  x="1000" y="1762">key vehicle.{id}</text>
+<text class="n"  x="1000" y="1784">status · plate · totalKm · trips</text>
+<text class="n"  x="1000" y="1806">lastTripAt · lastSeq</text>
+<text class="n"  x="1000" y="1828">flat, built for reading</text>
+<text class="n"  x="1000" y="1850">rebuildable — throw it away and replay</text>
+
+<!-- right -->
+<rect x="1390" y="1380" width="520" height="200" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="1422" y="1410" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1650" y="1438">Projection</text>
+<text class="sg" x="1650" y="1466">read.go — project()</text>
+<text class="n"  x="1650" y="1492">folds the event into the read model</text>
+<text class="n"  x="1650" y="1514">one KV Put per event</text>
+<text class="n"  x="1650" y="1536">skips a redelivery it already folded</text>
+<text class="n"  x="1650" y="1558">no rules — they were checked on the write side</text>
+
+<rect x="1390" y="1685" width="520" height="140" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="1422" y="1712" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1650" y="1740">Query</text>
+<text class="sg" x="1650" y="1768">read.go — queryVehicle()</text>
+<text class="n"  x="1650" y="1794">one KV Get, no replay, no fallback</text>
+<text class="n"  x="1650" y="1816">KV is the only read store</text>
+
+<rect x="1390" y="1900" width="520" height="130" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="1422" y="1930" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1650" y="1958">Reader</text>
+<text class="sg" x="1650" y="1986">cqrs query -vehicle V1</text>
+<text class="n"  x="1650" y="2012">prints one vehicle — 0.6 ms</text>
+
+<!-- arrows, diagram 1 -->
+<path class="eb" d="M350 500 L350 540"/>
+<path class="eb" d="M350 700 L350 750"/>
+<path class="eb" d="M610 860 L730 860"/>
+<text class="lb" x="618" y="848">append event</text>
+<path class="eg" d="M1000 980 L1000 1040"/>
+<text class="lg" x="1020" y="1022">deliver seq 1 … N</text>
+<path class="eg" d="M740 1160 L640 1160 L640 1040 L350 1040 L350 992"/>
+<text class="lg" x="364" y="1028">replay every event, seq 1 … N</text>
+<path class="eg" d="M1260 880 L1300 880 L1300 1460 L1272 1460"/>
+<text class="lg" x="1240" y="1350" text-anchor="end">every new event</text>
+<path class="eg" d="M1270 1475 L1380 1475"/>
+<text class="lg" x="1280" y="1455">deliver</text>
+<path class="eg" d="M1650 1580 L1650 1615 L1120 1615 L1120 1642"/>
+<text class="lg" x="1362" y="1605">KV Put</text>
+<path class="eg" d="M1270 1755 L1380 1755"/>
+<text class="lg" x="1296" y="1743">get</text>
+<path class="eg" d="M1650 1825 L1650 1890"/>
+
+<!-- ══════════════════════════════════════════════════════════
+     2 — WITH A SNAPSHOT
+     ══════════════════════════════════════════════════════════ -->
+<line x1="90" y1="2130" x2="1910" y2="2130" stroke="#4A515B" stroke-width="2"/>
+<text class="sec"  x="1000" y="2215">2 — With a snapshot</text>
+<text class="secn" x="1000" y="2253">cqrs rehydrate -vehicle V1 -snapshot=true — load the snapshot, then replay only lastSeq+1 … N.</text>
+<text class="secn" x="1000" y="2285">The read side is unchanged, so it is not drawn again. A snapshot is a write-side optimisation only.</text>
+
+<line x1="675"  y1="2330" x2="675"  y2="4020" stroke="#4A515B" stroke-width="3" stroke-dasharray="12 12"/>
+<line x1="1325" y1="2330" x2="1325" y2="4020" stroke="#4A515B" stroke-width="3" stroke-dasharray="12 12"/>
+<text class="band" x="350"  y="2365" fill="#006FFF">WRITE SIDE</text>
+<text class="band" x="1000" y="2365" fill="#B7BCC2">NATS</text>
+<text class="band" x="1650" y="2365" fill="#9A7B1E">WHAT IT COSTS</text>
+
+<!-- left -->
+<rect x="90" y="2400" width="520" height="130" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="2430" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h"  x="360" y="2458">Producer</text>
+<text class="sb" x="360" y="2486">cqrs register · travel · retire · seed</text>
+<text class="n"  x="360" y="2512">main.go — seed writes a long history</text>
+
+<rect x="90" y="2580" width="520" height="150" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="2610" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h"  x="360" y="2638">Command</text>
+<text class="sb" x="360" y="2666">write.go — handleCommand()</text>
+<text class="n"  x="360" y="2692">identical code — one bool decides the mode</text>
+<text class="n"  x="360" y="2714">retries up to 5 times if it loses the race</text>
+
+<rect x="90" y="2790" width="520" height="220" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="2820" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h"  x="360" y="2848">Aggregate — Vehicle</text>
+<text class="sb" x="360" y="2876">domain.go — the same rules, unchanged</text>
+<text class="n"  x="360" y="2902">Starts from the snapshot state,</text>
+<text class="n"  x="360" y="2924">not from an empty Vehicle.</text>
+<text class="n"  x="360" y="2946">Then folds the tail on top.</text>
+<text class="n"  x="360" y="2968">Same Vehicle out. Far less work in.</text>
+<text class="n"  x="360" y="2992">write.go — rehydrate() takes both paths</text>
+
+<rect x="90" y="3440" width="520" height="220" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="3470" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h"  x="360" y="3498">Snapshot projector</text>
+<text class="sb" x="360" y="3526">snapshotter.go — foldIntoSnapshot()</text>
+<text class="n"  x="360" y="3552">this is how the snapshot gets written</text>
+<text class="n"  x="360" y="3574">folds each event into the state,</text>
+<text class="n"  x="360" y="3596">one KV Put per event, {state, lastSeq},</text>
+<text class="n"  x="360" y="3618">compare-and-swap on the KV revision,</text>
+<text class="n"  x="360" y="3642">skips a redelivery it already folded.</text>
+
+<!-- middle -->
+<rect x="740" y="2790" width="520" height="220" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="4"/>
+<rect x="772" y="2820" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1000" y="2848">Event Log = the Write Store</text>
+<text class="sg" x="1000" y="2876">JetStream stream ODOMETER</text>
+<text class="n"  x="1000" y="2902">unchanged — the snapshot adds nothing here</text>
+<text class="n"  x="1000" y="2924">append-only · LimitsPolicy · kept forever</text>
+<text class="n"  x="1000" y="2946">Delete both KV buckets and all of it</text>
+<text class="n"  x="1000" y="2968">comes back. Delete this and nothing does.</text>
+<text class="n"  x="1000" y="2992">Still the only source of truth.</text>
+
+<rect x="740" y="3080" width="520" height="250" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3" stroke-dasharray="12 9"/>
+<rect x="772" y="3110" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1000" y="3138">Write-side consumer</text>
+<text class="sg" x="1000" y="3166">ordered · ephemeral · one per command</text>
+<text class="n"  x="1000" y="3192">write.go — replay(), the same function</text>
+<text class="n"  x="1000" y="3214">DeliverByStartSequencePolicy instead</text>
+<text class="n"  x="1000" y="3236">OptStartSeq = snapshot lastSeq + 1</text>
+<text class="n"  x="1000" y="3258">If the snapshot is current it reads nothing,</text>
+<text class="n"  x="1000" y="3280">and it is skipped before it is even made.</text>
+<text class="n"  x="1000" y="3306">Same consumer. Different starting point.</text>
+
+<rect x="740" y="3440" width="520" height="220" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="772" y="3470" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h"  x="1000" y="3498">Write-side consumer — durable</text>
+<text class="sg" x="1000" y="3526">durable · long-lived · exactly one</text>
+<text class="n"  x="1000" y="3552">odometer-snapshotter</text>
+<text class="n"  x="1000" y="3574">snapshotter.go — runSnapshotter()</text>
+<text class="n"  x="1000" y="3596">A different thing from the dashed one.</text>
+<text class="n"  x="1000" y="3618">It keeps its place; that one never does.</text>
+<text class="n"  x="1000" y="3642">Asynchronous — so the snapshot trails.</text>
+
+<rect x="740" y="3760" width="520" height="240" rx="16" fill="#241E0B" stroke="#9A7B1E" stroke-width="3"/>
+<rect x="772" y="3790" width="46" height="46" rx="11" fill="#9A7B1E"/>
+<text class="h"  x="1000" y="3818">Write Store — snapshot</text>
+<text class="sw" x="1000" y="3846">NATS KV: odometer-write</text>
+<text class="n"  x="1000" y="3872">key vehicle.{id}</text>
+<text class="n"  x="1000" y="3894">value {state, lastSeq}</text>
+<text class="n"  x="1000" y="3916">an optimisation, never the truth</text>
+<text class="n"  x="1000" y="3938">always a little behind the log</text>
+<text class="n"  x="1000" y="3960">safe to throw away</text>
+<text class="n"  x="1000" y="3982">nothing reads it except rehydrate()</text>
+
+<!-- right: the measurement -->
+<rect x="1390" y="2790" width="520" height="220" rx="16" fill="#131416" stroke="#4A515B" stroke-width="3"/>
+<text class="sg"  x="1650" y="2840">WITHOUT THE SNAPSHOT</text>
+<text class="big" x="1650" y="2900">8.2 s</text>
+<text class="n"   x="1650" y="2934">10001 events read, every single command</text>
+<text class="n"   x="1650" y="2958">grows for as long as the log grows</text>
+<text class="n"   x="1650" y="2982">always right, and always getting slower</text>
+
+<rect x="1390" y="3080" width="520" height="220" rx="16" fill="#131416" stroke="#9A7B1E" stroke-width="3"/>
+<text class="sw"  x="1650" y="3130">WITH THE SNAPSHOT</text>
+<text class="big" x="1650" y="3190">0.6 ms</text>
+<text class="n"   x="1650" y="3224">0 events read when the snapshot is current</text>
+<text class="n"   x="1650" y="3248">4 events read when it trails by 4</text>
+<text class="n"   x="1650" y="3272">cost follows the tail, not the history</text>
+
+<rect x="1390" y="3370" width="520" height="290" rx="16" fill="#131416" stroke="#4A515B" stroke-width="3"/>
+<text class="h"   x="1650" y="3422">About 600 x</text>
+<text class="n"   x="1650" y="3456">Measured on one NATS 2.14.3 server,</text>
+<text class="n"   x="1650" y="3478">10001 events on one vehicle.</text>
+<text class="n"   x="1650" y="3512">The trap: the snapshot is ALWAYS stale.</text>
+<text class="n"   x="1650" y="3534">The write consumer is asynchronous,</text>
+<text class="n"   x="1650" y="3556">so it trails the log by some events.</text>
+<text class="n"   x="1650" y="3578">Code that reads the snapshot and stops</text>
+<text class="n"   x="1650" y="3600">is a bug, not a shortcut.</text>
+<text class="n"   x="1650" y="3634">The tail replay is what makes it correct.</text>
+
+<!-- arrows, diagram 2 -->
+<path class="eb" d="M350 2530 L350 2570"/>
+<path class="eb" d="M350 2730 L350 2780"/>
+<path class="eb" d="M610 2900 L730 2900"/>
+<text class="lb" x="618" y="2888">append event</text>
+<path class="eg" d="M1000 3010 L1000 3070"/>
+<text class="lg" x="1020" y="3052">deliver the tail</text>
+<path class="eg" d="M740 3190 L640 3190 L640 3070 L350 3070 L350 3022"/>
+<text class="lg" x="364" y="3058">2.  replay lastSeq+1 … N only</text>
+<path class="eg" d="M1260 2910 L1300 2910 L1300 3490 L1272 3490"/>
+<text class="lg" x="1240" y="3400" text-anchor="end">every new event</text>
+<path class="eb" d="M740 3510 L620 3510"/>
+<text class="lb" x="636" y="3498">deliver</text>
+<path class="ew" d="M610 3600 L690 3600 L690 3870 L730 3870"/>
+<text class="lw" x="618" y="3588">KV Put</text>
+<path class="ew" d="M740 3930 L60 3930 L60 2960 L80 2960"/>
+<text class="lw" x="104" y="3960">1.  load {state, lastSeq} — one KV Get, no replay</text>
+
+<!-- ══════════════════════════════════════════════════════════
+     legend
+     ══════════════════════════════════════════════════════════ -->
+<line x1="90" y1="4090" x2="1910" y2="4090" stroke="#4A515B" stroke-width="2"/>
+<rect x="90" y="4132" width="22" height="22" rx="5" fill="#006FFF"/>
+<text class="leg" x="126" y="4150">Write path (commands)</text>
+<rect x="470" y="4132" width="22" height="22" rx="5" fill="#27C07F"/>
+<text class="leg" x="506" y="4150">Stream, consumers, read path</text>
+<rect x="940" y="4132" width="22" height="22" rx="5" fill="#9A7B1E"/>
+<text class="leg" x="976" y="4150">NATS KV — derived, rebuildable</text>
+<rect x="1430" y="4131" width="24" height="24" rx="5" fill="none" stroke="#27C07F" stroke-width="2.5" stroke-dasharray="6 4"/>
+<text class="leg" x="1468" y="4150">dashed = ephemeral, deleted after use</text>
+</svg>
+</body></html>

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JetStream as an event source, with CQRS</title>
+  <style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.errtxt { fill: var(--bad); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="head">
+      <div class="head-txt">
+        <span class="eyebrow">Demo 04 · docs/Demo-04-Plan.md §4–§5</span>
+        <h1>JetStream as an event source, with CQRS</h1>
+        <p class="sub">The demo answers one question with a number: rehydrating an aggregate, how much does a snapshot buy you?</p>
+      </div>
+    </header>
+
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1000 716" role="img" aria-label="The complete Demo 04 CQRS solution flows from a command CLI through a write-side boundary that rehydrates a Vehicle aggregate in memory, lets that aggregate check the rules and emit one event, and appends it to the ODOMETER stream. The stream feeds independent write and read consumers, which update separate snapshot and read-model KV buckets, and the read bucket serves the query CLI. A long blue route shows the write bucket feeding its snapshot back to rehydration.">
+          <defs>
+            <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+            <marker id="a-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+            <marker id="a-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          </defs>
+
+          <!-- Grid: centre x=500; write group x=342..658; side columns x=220 and x=600; return lane x=168. -->
+          <rect class="n" x="412" y="26" width="176" height="46" rx="3"/>
+          <text class="lbl" x="500" y="46" text-anchor="middle">command CLI</text>
+          <text class="lbl2" x="500" y="59" text-anchor="middle">register · travel · retire</text>
+
+          <rect class="nb" x="342" y="108" width="316" height="252" rx="4"/>
+          <text class="grp" x="354" y="125">WRITE SIDE</text>
+          <rect class="n" x="388" y="140" width="224" height="44" rx="3"/>
+          <text class="lbl" x="400" y="159">1. rehydrate</text>
+          <text class="lbl2" x="400" y="172">snapshot + tail, or seq 1</text>
+          <rect class="n" x="388" y="202" width="224" height="70" rx="3"/>
+          <text class="lbl" x="400" y="221">2. Vehicle aggregate</text>
+          <text class="lbl2" x="400" y="235">rebuilt in memory per command</text>
+          <text class="lbl2" x="400" y="248">never stored — domain.go</text>
+          <text class="lbl2" x="400" y="261">checks BR-OD01..05, emits 1 event</text>
+          <rect class="n" x="388" y="300" width="224" height="44" rx="3"/>
+          <text class="lbl" x="400" y="319">3. append</text>
+          <text class="lbl2" x="400" y="332">expected-last-subject-seq</text>
+
+          <!-- ODOMETER cylinder: usable label width is 280px (2×150 − 20). -->
+          <path class="n" d="M350 392 L350 450 A150 9 0 0 0 650 450 L650 392"/>
+          <ellipse class="n" cx="500" cy="392" rx="150" ry="9"/>
+          <text class="lbl" x="500" y="416" text-anchor="middle">ODOMETER</text>
+          <text class="lbl2" x="500" y="430" text-anchor="middle">LimitsPolicy · evt.odometer.vehicle.{id}.*</text>
+
+          <rect class="n" x="230" y="500" width="160" height="46" rx="3"/>
+          <text class="lbl" x="310" y="520" text-anchor="middle">write consumer</text>
+          <text class="lbl2" x="310" y="533" text-anchor="middle">durable</text>
+          <rect class="n" x="610" y="500" width="160" height="46" rx="3"/>
+          <text class="lbl" x="690" y="520" text-anchor="middle">read consumer</text>
+          <text class="lbl2" x="690" y="533" text-anchor="middle">durable</text>
+
+          <rect class="n" x="220" y="590" width="180" height="44" rx="3"/>
+          <text class="lbl" x="310" y="609" text-anchor="middle">KV odometer-write</text>
+          <text class="lbl2" x="310" y="622" text-anchor="middle">{state, lastSeq}</text>
+          <rect class="n" x="600" y="590" width="180" height="44" rx="3"/>
+          <text class="lbl" x="690" y="609" text-anchor="middle">KV odometer-read</text>
+          <text class="lbl2" x="690" y="622" text-anchor="middle">totalKm · trips · status</text>
+          <rect class="n" x="640" y="674" width="100" height="30" rx="3"/>
+          <text class="lbl" x="690" y="693" text-anchor="middle">query CLI</text>
+
+          <path class="flow" marker-end="url(#a-sync)" d="M500 72 L500 97"/>
+          <text class="edge" x="512" y="89">command</text>
+          <path class="flow" marker-end="url(#a-sync)" d="M500 184 L500 197"/>
+          <path class="flow" marker-end="url(#a-sync)" d="M500 272 L500 289"/>
+          <path class="flow" marker-end="url(#a-sync)" d="M500 344 L500 374"/>
+          <text class="edge" x="512" y="381">append</text>
+
+          <!-- The snapshot return owns the left gutter, never crossing a node. -->
+          <path class="flow" marker-end="url(#a-sync)" d="M220 612 L168 612 L168 162 L377 162"/>
+          <text class="edge" x="176" y="386">read snapshot</text>
+
+          <!-- Diagonals are the intentional stream fan-out. -->
+          <path class="rep" marker-end="url(#a-rep)" d="M450 458 L310 489"/>
+          <text class="edge" x="370" y="491" text-anchor="middle">async</text>
+          <path class="rep" marker-end="url(#a-rep)" d="M550 458 L690 489"/>
+          <path class="proj" marker-end="url(#a-proj)" d="M310 546 L310 579"/>
+          <text class="edge" x="318" y="575">save snapshot</text>
+          <path class="proj" marker-end="url(#a-proj)" d="M690 546 L690 579"/>
+          <text class="edge" x="698" y="575">project</text>
+          <path class="flow" marker-end="url(#a-sync)" d="M690 634 L690 663"/>
+          <text class="edge" x="698" y="652">read</text>
+        </svg>
+      </div>
+      <figcaption><b>The whole solution.</b> The <code>Vehicle</code> aggregate is step 2 and it is the only place a rule lives — it has no database row and no KV key of its own, it is rebuilt from the log for one command and thrown away. One stream is the only truth; two KV buckets serve two different jobs; the write bucket is an optimisation the write side may not trust on its own, while the read bucket is the answer a query prints.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1000 320" role="img" aria-label="A side-by-side rehydration comparison shows that without a snapshot the ODOMETER stream replays sequence 1 through N into a Vehicle aggregate, while with a snapshot the write KV bucket loads state and last sequence and the stream replays only the tail. Both paths produce the same Vehicle, but one reads N events and the other a handful.">
+          <defs>
+            <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+            <marker id="b-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          </defs>
+
+          <!-- Grid: left lane x=16..468; right lane x=532..984; inter-lane gutter=64. -->
+          <text class="grp" x="16" y="20">NO SNAPSHOT</text>
+          <rect class="nb" x="16" y="34" width="452" height="270" rx="4"/>
+          <path class="n" d="M46 118 L46 176 A108 9 0 0 0 262 176 L262 118"/>
+          <ellipse class="n" cx="154" cy="118" rx="108" ry="9"/>
+          <text class="lbl" x="154" y="142" text-anchor="middle">ODOMETER</text>
+          <text class="lbl2" x="154" y="156" text-anchor="middle">seq 1 … N</text>
+          <rect class="n" x="304" y="126" width="144" height="30" rx="3"/>
+          <text class="lbl" x="376" y="145" text-anchor="middle">Vehicle aggregate</text>
+          <path class="flow" marker-end="url(#b-sync)" d="M262 147 L278 147 L278 220 L293 220 L293 141"/>
+          <text class="edge" x="286" y="235" text-anchor="middle">replay seq 1 … N</text>
+          <text class="lbl2" x="46" y="282">N events read</text>
+
+          <text class="grp" x="532" y="20">SNAPSHOT</text>
+          <rect class="nb" x="532" y="34" width="452" height="270" rx="4"/>
+          <rect class="n" x="548" y="80" width="144" height="46" rx="3"/>
+          <text class="lbl" x="620" y="100" text-anchor="middle">KV odometer-write</text>
+          <text class="lbl2" x="620" y="113" text-anchor="middle">{state, lastSeq}</text>
+          <rect class="n" x="808" y="126" width="144" height="30" rx="3"/>
+          <text class="lbl" x="880" y="145" text-anchor="middle">Vehicle aggregate</text>
+          <path class="flow" marker-end="url(#b-sync)" d="M620 80 L620 52 L797 52 L797 141"/>
+          <text class="edge" x="708" y="46" text-anchor="middle">load {state, lastSeq}</text>
+          <path class="n" d="M548 210 L548 268 A88 9 0 0 0 724 268 L724 210"/>
+          <ellipse class="n" cx="636" cy="210" rx="88" ry="9"/>
+          <text class="lbl" x="636" y="234" text-anchor="middle">ODOMETER</text>
+          <text class="lbl2" x="636" y="248" text-anchor="middle">stream tail</text>
+          <path class="rep" marker-end="url(#b-rep)" d="M724 239 L860 239 L860 167"/>
+          <text class="edge" x="792" y="254" text-anchor="middle">replay lastSeq+1 … N</text>
+          <text class="lbl2" x="548" y="296">a handful of events read</text>
+        </svg>
+      </div>
+      <figcaption><b>The snapshot is always stale.</b> The write consumer is asynchronous, so the snapshot trails the log. Rehydration therefore loads the snapshot <em>and</em> replays the tail. Code that stops at the snapshot is a bug, not a shortcut. Both lanes produce the same <code>Vehicle</code>; only the number of events read differs, and that number is what demo 04 measures.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1000 390" role="img" aria-label="Two writers concurrently rehydrate the same Vehicle at last sequence 42. Writer A appends with an expected sequence of 42 and creates sequence 43 on the ODOMETER stream. Writer B makes the same optimistic append, receives a 409 error, and follows a red retry route back to rehydrate from step 1.">
+          <defs>
+            <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+            <marker id="c-err" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+          </defs>
+
+          <!-- Grid: writer column x=24; rehydrate x=248; append lanes x=480/520; stream x=720..960; retry gutter y=342. -->
+          <rect class="n" x="24" y="86" width="120" height="44" rx="3"/>
+          <text class="lbl" x="84" y="105" text-anchor="middle">writer A</text>
+          <text class="lbl2" x="84" y="118" text-anchor="middle">command</text>
+          <rect class="n" x="24" y="210" width="120" height="44" rx="3"/>
+          <text class="lbl" x="84" y="229" text-anchor="middle">writer B</text>
+          <text class="lbl2" x="84" y="242" text-anchor="middle">command</text>
+          <rect class="n" x="248" y="126" width="172" height="54" rx="3"/>
+          <text class="lbl" x="334" y="148" text-anchor="middle">rehydrate</text>
+          <text class="lbl2" x="334" y="162" text-anchor="middle">lastSeq = 42</text>
+
+          <!-- ODOMETER cylinder: usable label width is 220px (2×120 − 20). -->
+          <path class="n" d="M720 150 L720 210 A120 9 0 0 0 960 210 L960 150"/>
+          <ellipse class="n" cx="840" cy="150" rx="120" ry="9"/>
+          <text class="lbl" x="840" y="174" text-anchor="middle">ODOMETER</text>
+          <text class="lbl2" x="840" y="188" text-anchor="middle">evt.odometer.vehicle.{id}.*</text>
+
+          <path class="flow" marker-end="url(#c-sync)" d="M144 108 L190 108 L190 148 L237 148"/>
+          <path class="flow" marker-end="url(#c-sync)" d="M144 232 L190 232 L190 164 L237 164"/>
+
+          <path class="flow" marker-end="url(#c-sync)" d="M420 146 L520 146 L520 168 L709 168"/>
+          <text class="edge" x="615" y="162" text-anchor="middle">append, expect 42</text>
+          <text class="lbl2" x="748" y="133">seq 43</text>
+          <path class="err" marker-end="url(#c-err)" d="M420 170 L480 170 L480 246 L640 246 L640 196 L709 196"/>
+          <text class="edge errtxt" x="560" y="261" text-anchor="middle">append, expect 42</text>
+
+          <!-- The retry owns the bottom gutter, then rises through the clear x=220 lane. -->
+          <path class="err" marker-end="url(#c-err)" d="M840 219 L840 342 L220 342 L220 153 L237 153"/>
+          <text class="edge errtxt" x="530" y="336" text-anchor="middle">409 — retry from step 1</text>
+        </svg>
+      </div>
+      <figcaption><b>Two commands at once.</b> Both writers read the same state, so without a guard both appends land and the rule is broken. <code>Nats-Expected-Last-Subject-Sequence</code>, scoped with <code>Nats-Expected-Last-Subject-Sequence-Subject</code> to <code>evt.odometer.vehicle.{id}.&gt;</code>, makes the second append fail instead. The scoped form needs NATS 2.11+; this demo runs 2.14.3.</figcaption>
+    </figure>
+
+    <section class="sec">
+      <h2>What the drawing commits us to</h2>
+      <ul>
+        <li><b>One stream is the only source of truth.</b> Every command is judged against a <code>Vehicle</code> rehydrated from <code>ODOMETER</code>, not against either KV bucket.</li>
+        <li><b>The aggregate holds only what a rule reads.</b> <code>Vehicle</code> has no <code>TotalKm</code>; the read model owns the total, trips, and query-facing status.</li>
+        <li><b>Two buckets, not one, make the split visible.</b> <code>nats kv ls</code> must show <code>odometer-write</code> beside <code>odometer-read</code>, because snapshot and read model are different jobs.</li>
+        <li><b>LimitsPolicy is load-bearing.</b> The demo deliberately replays from sequence 1, so retention must preserve events after consumers have acknowledged them.</li>
+        <li><b>The snapshot is an optimisation, never the truth.</b> It may seed rehydration, but the tail always follows because an asynchronous consumer can only be behind the log.</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

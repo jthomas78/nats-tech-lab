@@ -1,0 +1,30 @@
+# Demo 04 — one NATS server. That is the whole infrastructure.
+#
+# No cluster, no gateway, no operator mode. This demo measures the cost of
+# rehydrating an aggregate; a second server would add nothing to that and a
+# trust chain would add a bootstrap step that teaches nothing here.
+#
+# Ports are demo 04's own (4422 / 8422) so it can run beside demo 01 (4222)
+# and demo 02 (4621-4623, 4721-4723) without a clash.
+services:
+  nats:
+    image: nats:2.14.3-alpine3.22
+    container_name: lab4-nats
+    command:
+      - "--name=lab4-nats"
+      - "--jetstream"
+      - "--store_dir=/data"
+      - "--http_port=8222"
+    ports:
+      - "4422:4222"
+      - "8422:8222"
+    volumes:
+      - lab4-js:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  lab4-js:
