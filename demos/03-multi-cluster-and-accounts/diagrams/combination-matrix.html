@@ -70,10 +70,12 @@ pre .hi  { color: var(--text); }
 .nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
 .nb.clu { stroke-dasharray: none; stroke-opacity: 0.32; }
 .nb.dead { stroke: var(--bad); stroke-opacity: 0.55; }
+.nb.acct { stroke: var(--warn); stroke-opacity: 0.7; stroke-dasharray: 7 3; }
 .lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
 .lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
 .grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
 .grp.g { fill: var(--good); } .grp.r { fill: var(--bad); }
+.grp.a { fill: var(--warn); }   /* account = a namespace boundary */
 .edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
 .ro   { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
 .ro.g { fill: var(--good); } .ro.r { fill: var(--bad); } .ro.h { fill: var(--text); }
@@ -231,7 +233,9 @@ pre .hi  { color: var(--text); }
     <h2>The five topologies</h2>
     <p class="sub">The permutation table pairs every topology with both account models. These pictures hold the
       cluster shape still and show where the JetStream meta vote lives, then show whether <code>ODOMETER</code>
-      can exist in both regions.</p>
+      can exist in both regions. <b>T2 is drawn twice</b> &mdash; once per account model &mdash; because the
+      account boundary, not the cluster and not the <code>domain</code>, is what decides the answer over a
+      gateway. An <span style="color:var(--warn)">amber</span> boundary is a <b>namespace</b> boundary.</p>
 
     <figure id="topology-t1">
       <div class="fig-body">
@@ -268,44 +272,89 @@ pre .hi  { color: var(--text); }
       the other one. The cost is total isolation: a publish cannot reach the other region.</figcaption>
     </figure>
 
-    <figure id="topology-t2">
+    <figure id="topology-t2-1">
       <div class="fig-body">
-        <svg viewBox="0 0 960 306" role="img" aria-label="T2. The za and au three-instance clusters are joined by a gateway. Together they form one JetStream meta group of six peers with majority four. A shared account refuses a second ODOMETER stream with error 10058, while one account per region allows it.">
+        <svg viewBox="0 0 960 350" role="img" aria-label="T2.1. The za and au three-instance clusters are joined by a gateway. One six-peer JetStream meta group with majority four spans both clusters and one shared domain. One account encloses both clusters, so ODOMETER in au is refused with error 10058 and reads from au query za across the WAN.">
           <defs>
-            <marker id="t2-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+            <marker id="t21-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
           </defs>
-          <text class="grp g" x="22" y="26">T2 &mdash; ONE SUPERCLUSTER / ONE META GROUP &mdash; 6 PEERS &mdash; MAJORITY 4</text>
-          <rect class="nb" x="14" y="34" width="932" height="216" rx="4"/>
+          <text class="grp g" x="22" y="26">T2.1 &mdash; ONE META GROUP &mdash; 6 PEERS &mdash; MAJORITY 4 &mdash; ONE SHARED DOMAIN</text>
+          <rect class="nb" x="14" y="34" width="932" height="282" rx="4"/>
+          <rect class="nb acct" x="30" y="52" width="900" height="236" rx="4"/>
+          <text class="grp a" x="44" y="72">ACCOUNT acme &mdash; ONE STREAM NAMESPACE</text>
 
-          <rect class="nb clu" x="30" y="52" width="390" height="176" rx="4"/>
-          <text class="grp" x="44" y="70">CLUSTER za &mdash; REGION za</text>
-          <rect class="n" x="44" y="86" width="112" height="34" rx="3"/><text class="lbl" x="100" y="108" text-anchor="middle">za-1</text>
-          <rect class="n" x="168" y="86" width="112" height="34" rx="3"/><text class="lbl" x="224" y="108" text-anchor="middle">za-2</text>
-          <rect class="n" x="292" y="86" width="112" height="34" rx="3"/><text class="lbl" x="348" y="108" text-anchor="middle">za-3</text>
-          <text class="ro h" x="44" y="152">one shared JetStream meta vote</text>
-          <text class="ro r" x="44" y="172">lose au &rarr; 3 of 6 &rarr; below majority 4</text>
-          <text class="ro" x="44" y="192">the account does not change quorum</text>
+          <rect class="nb clu" x="46" y="88" width="364" height="164" rx="4"/>
+          <text class="grp" x="60" y="106">CLUSTER za &mdash; REGION za</text>
+          <rect class="n" x="60" y="122" width="104" height="34" rx="3"/><text class="lbl" x="112" y="144" text-anchor="middle">za-1</text>
+          <rect class="n" x="176" y="122" width="104" height="34" rx="3"/><text class="lbl" x="228" y="144" text-anchor="middle">za-2</text>
+          <rect class="n" x="292" y="122" width="104" height="34" rx="3"/><text class="lbl" x="344" y="144" text-anchor="middle">za-3</text>
+          <text class="ro h" x="60" y="188">ODOMETER stream &mdash; held here</text>
+          <text class="ro" x="60" y="210">one shared JetStream domain</text>
+          <text class="ro" x="60" y="232">one shared account</text>
 
-          <rect class="nb clu" x="540" y="52" width="390" height="176" rx="4"/>
-          <text class="grp" x="554" y="70">CLUSTER au &mdash; REGION au</text>
-          <rect class="n" x="554" y="86" width="112" height="34" rx="3"/><text class="lbl" x="610" y="108" text-anchor="middle">au-1</text>
-          <rect class="n" x="678" y="86" width="112" height="34" rx="3"/><text class="lbl" x="734" y="108" text-anchor="middle">au-2</text>
-          <rect class="n" x="802" y="86" width="112" height="34" rx="3"/><text class="lbl" x="858" y="108" text-anchor="middle">au-3</text>
-          <text class="ro h" x="554" y="152">the same meta group reaches here</text>
-          <text class="ro r" x="554" y="172">lose za &rarr; 3 of 6 &rarr; below majority 4</text>
-          <text class="ro" x="554" y="192">one supercluster, not two systems</text>
+          <rect class="nb clu" x="550" y="88" width="364" height="164" rx="4"/>
+          <text class="grp" x="564" y="106">CLUSTER au &mdash; REGION au</text>
+          <rect class="n" x="564" y="122" width="104" height="34" rx="3"/><text class="lbl" x="616" y="144" text-anchor="middle">au-1</text>
+          <rect class="n" x="680" y="122" width="104" height="34" rx="3"/><text class="lbl" x="732" y="144" text-anchor="middle">au-2</text>
+          <rect class="n" x="796" y="122" width="104" height="34" rx="3"/><text class="lbl" x="848" y="144" text-anchor="middle">au-3</text>
+          <text class="ro r" x="564" y="188">nats stream add ODOMETER &mdash; REFUSED</text>
+          <text class="ro r" x="564" y="210">stream name already in use (10058)</text>
+          <text class="ro g" x="564" y="232">WAN query &rarr; za succeeds silently</text>
 
-          <line class="gw" x1="420" y1="104" x2="540" y2="104" marker-start="url(#t2-gw)" marker-end="url(#t2-gw)"/>
-          <text class="edge" x="480" y="96" text-anchor="middle">gateway</text>
-
-          <text class="ro r" x="30" y="272">ONE SHARED ACCOUNT &rarr; ODOMETER in au: NO &mdash; stream name already in use (10058)</text>
-          <text class="ro g" x="30" y="290">ONE ACCOUNT PER REGION &rarr; ODOMETER in both regions: YES</text>
+          <line class="gw" x1="410" y1="140" x2="550" y2="140" marker-start="url(#t21-gw)" marker-end="url(#t21-gw)"/>
+          <text class="edge" x="480" y="132" text-anchor="middle">gateway</text>
+          <text class="ro r" x="30" y="278">lose either region &rarr; 3 of 6 peers &rarr; below majority 4</text>
+          <text class="ro r" x="30" y="330">ODOMETER in both regions: NO &mdash; one account is one stream namespace across the whole supercluster.</text>
         </svg>
       </div>
-      <figcaption><b>T2 &mdash; gateway joins the vote and the namespace.</b> The gateway makes one six-peer meta
-      group, so a region loss leaves only three votes where four are needed. A shared account also has one
-      stream namespace and refuses the second <code>ODOMETER</code>; separate accounts fix that name collision,
-      not the quorum cost.</figcaption>
+      <figcaption><b>T2.1 &mdash; one shared account.</b> The gateway makes one six-peer meta group and one shared
+      JetStream domain. <code>ODOMETER</code> exists in za, so au refuses the duplicate stream create. A read
+      from au crosses the WAN to za.</figcaption>
+    </figure>
+
+    <figure id="topology-t2-2">
+      <div class="fig-body">
+        <svg viewBox="0 0 960 350" role="img" aria-label="T2.2. The za and au three-instance clusters are joined by a gateway. One six-peer JetStream meta group with majority four spans both clusters and one shared domain. Separate accounts enclose the individual clusters, so both hold an ODOMETER stream, reads are local, and a publish stays in one account unless an export and import are wired.">
+          <defs>
+            <marker id="t22-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          </defs>
+          <text class="grp g" x="22" y="26">T2.2 &mdash; ONE META GROUP &mdash; 6 PEERS &mdash; MAJORITY 4 &mdash; ONE SHARED DOMAIN</text>
+          <rect class="nb" x="14" y="34" width="932" height="282" rx="4"/>
+
+          <rect class="nb acct" x="30" y="52" width="390" height="200" rx="4"/>
+          <text class="grp a" x="44" y="72">ACCOUNT acme-za &mdash; STREAM NAMESPACE</text>
+          <rect class="nb clu" x="46" y="88" width="358" height="146" rx="4"/>
+          <text class="grp" x="60" y="106">CLUSTER za &mdash; REGION za</text>
+          <rect class="n" x="60" y="122" width="104" height="34" rx="3"/><text class="lbl" x="112" y="144" text-anchor="middle">za-1</text>
+          <rect class="n" x="176" y="122" width="104" height="34" rx="3"/><text class="lbl" x="228" y="144" text-anchor="middle">za-2</text>
+          <rect class="n" x="292" y="122" width="104" height="34" rx="3"/><text class="lbl" x="344" y="144" text-anchor="middle">za-3</text>
+          <text class="ro h" x="60" y="184">ODOMETER stream &mdash; held here</text>
+          <text class="ro g" x="60" y="206">read: LOCAL</text>
+          <text class="ro" x="60" y="224">one shared JetStream domain</text>
+
+          <rect class="nb acct" x="540" y="52" width="390" height="200" rx="4"/>
+          <text class="grp a" x="554" y="72">ACCOUNT acme-au &mdash; STREAM NAMESPACE</text>
+          <rect class="nb clu" x="556" y="88" width="358" height="146" rx="4"/>
+          <text class="grp" x="570" y="106">CLUSTER au &mdash; REGION au</text>
+          <rect class="n" x="570" y="122" width="104" height="34" rx="3"/><text class="lbl" x="622" y="144" text-anchor="middle">au-1</text>
+          <rect class="n" x="686" y="122" width="104" height="34" rx="3"/><text class="lbl" x="738" y="144" text-anchor="middle">au-2</text>
+          <rect class="n" x="802" y="122" width="104" height="34" rx="3"/><text class="lbl" x="854" y="144" text-anchor="middle">au-3</text>
+          <text class="ro h" x="570" y="184">ODOMETER stream &mdash; held here</text>
+          <text class="ro g" x="570" y="206">read: LOCAL</text>
+          <text class="ro" x="570" y="224">one shared JetStream domain</text>
+
+          <line class="gw" x1="420" y1="140" x2="540" y2="140" marker-start="url(#t22-gw)" marker-end="url(#t22-gw)"/>
+          <text class="edge" x="480" y="132" text-anchor="middle">gateway</text>
+          <text class="ro h" x="30" y="270">one publish enters ONE account &rarr; stored once</text>
+          <text class="ro" x="30" y="288">account crossing needs explicit export / import &mdash; not wired here</text>
+          <text class="ro r" x="30" y="306">lose either region &rarr; 3 of 6 peers &rarr; below majority 4</text>
+          <text class="ro g" x="30" y="330">ODOMETER in both regions: YES &mdash; two accounts are two stream namespaces. One publish is still stored once.</text>
+        </svg>
+      </div>
+      <figcaption><b>T2.2 &mdash; one account per region.</b> The gateway still makes one six-peer meta group and
+      one shared JetStream domain. Each account has its own stream namespace, so <code>ODOMETER</code> can exist
+      in both regions and reads stay local. A publish enters one account and stays stored once unless an explicit
+      export/import crosses the account boundary.</figcaption>
     </figure>
 
     <figure id="topology-t3">
@@ -407,7 +456,7 @@ pre .hi  { color: var(--text); }
           </defs>
           <text class="grp g" x="330" y="26">T5 &mdash; META GROUP hub &mdash; 3 PEERS &mdash; QUORUM 2</text>
           <rect class="nb clu" x="322" y="34" width="316" height="112" rx="4"/>
-          <text class="grp" x="334" y="52">CLUSTER hub &mdash; <tspan class="grp" style="fill:var(--warn)">domain: hub</tspan></text>
+          <text class="grp" x="334" y="52">CLUSTER hub &mdash; <tspan class="grp a">domain: hub</tspan></text>
           <rect class="n" x="336" y="64" width="90" height="32" rx="3"/><text class="lbl" x="381" y="85" text-anchor="middle">hub-1</text>
           <rect class="n" x="434" y="64" width="90" height="32" rx="3"/><text class="lbl" x="479" y="85" text-anchor="middle">hub-2</text>
           <rect class="n" x="532" y="64" width="90" height="32" rx="3"/><text class="lbl" x="577" y="85" text-anchor="middle">hub-3</text>
@@ -420,7 +469,7 @@ pre .hi  { color: var(--text); }
 
           <text class="grp g" x="28" y="224">META GROUP za &mdash; 3 PEERS &mdash; QUORUM 2</text>
           <rect class="nb clu" x="20" y="230" width="420" height="118" rx="4"/>
-          <text class="grp" x="32" y="248">CLUSTER za &mdash; <tspan class="grp" style="fill:var(--warn)">domain: za</tspan></text>
+          <text class="grp" x="32" y="248">CLUSTER za &mdash; <tspan class="grp a">domain: za</tspan></text>
           <rect class="n" x="34" y="260" width="120" height="32" rx="3"/><text class="lbl" x="94" y="281" text-anchor="middle">za-1</text>
           <rect class="n" x="164" y="260" width="120" height="32" rx="3"/><text class="lbl" x="224" y="281" text-anchor="middle">za-2</text>
           <rect class="n" x="294" y="260" width="120" height="32" rx="3"/><text class="lbl" x="354" y="281" text-anchor="middle">za-3</text>
@@ -429,7 +478,7 @@ pre .hi  { color: var(--text); }
 
           <text class="grp g" x="528" y="224">META GROUP au &mdash; 3 PEERS &mdash; QUORUM 2</text>
           <rect class="nb clu" x="520" y="230" width="420" height="118" rx="4"/>
-          <text class="grp" x="532" y="248">CLUSTER au &mdash; <tspan class="grp" style="fill:var(--warn)">domain: au</tspan></text>
+          <text class="grp" x="532" y="248">CLUSTER au &mdash; <tspan class="grp a">domain: au</tspan></text>
           <rect class="n" x="534" y="260" width="120" height="32" rx="3"/><text class="lbl" x="594" y="281" text-anchor="middle">au-1</text>
           <rect class="n" x="664" y="260" width="120" height="32" rx="3"/><text class="lbl" x="724" y="281" text-anchor="middle">au-2</text>
           <rect class="n" x="794" y="260" width="120" height="32" rx="3"/><text class="lbl" x="854" y="281" text-anchor="middle">au-3</text>
