@@ -36,4 +36,9 @@ tmp/
 # Draw.io autosave backups
 .$*.drawio.bkp
 *.drawio.bkp
+
+# Scratch / live JetStream stores -- never tracked
 demos/03-multi-cluster-and-accounts/js/
+
+# Compiled Go binary, rebuilt on every run
+demos/02-multi-region/odometer/odometer
