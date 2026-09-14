@@ -11,6 +11,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [ui_bug_triage_trust_framing](ui_bug_triage_trust_framing.md) — user says "the UI" is broken → check frontend first
 - [admin_ui_design_viewport](admin_ui_design_viewport.md) — UIs target 1920x1080; verify at that width
 - [swag_regen_diff_noise](swag_regen_diff_noise.md) — `swag init` rewrites all `$ref` repo-wide; hand-patch instead
+- [codex_must_run_gpt_5_6_terra_high](codex_must_run_gpt_5_6_terra_high.md) — Codex is the DEFAULT worker, pinned to `gpt-5.6-terra` + effort `high`; Claude is the fallback, and the user naming Claude is the override
 
 ## Frontend gotchas
 - [phase5_lifecycle_health_plan](phase5_lifecycle_health_plan.md) — Phase 5 lifecycle/withdrawal/health: COMPLETE and live-verified 2026-09-01
@@ -90,7 +91,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [phase38e_organizations_rename](phase38e_organizations_rename.md) — `trading-partner-service`→`organizations-service`; "trading partner" stays as vocab, BR-TP* keep numbers
 - [accounts_overview_pulse_design](accounts_overview_pulse_design.md) — DONE Phase 45; ring buffer + duration selector (BR-043) + gated search (BR-044)
 - [app-shell-deployment-gaps](app-shell-deployment-gaps.md) — green suites prove nothing about Dockerfile COPYs, NATS grants, or creds regeneration
-- [jetstream_domain_per_cluster_is_mandatory](jetstream_domain_per_cluster_is_mandatory.md) — **[demo 02]** a gateway makes one supercluster; without `domain` per cluster both cells' `SHIPPING` streams silently merge
+- [jetstream_domain_per_cluster_is_mandatory](jetstream_domain_per_cluster_is_mandatory.md) — **[demo 02] RETRACTED fix** — a gateway makes one supercluster and `10058` is real, but a per-cluster `domain` does NOT split it; use ONE domain, and a second account for a second namespace
 - [hub_means_one_nats_cluster_not_the_control_plane](hub_means_one_nats_cluster_not_the_control_plane.md) — **[demo 02]** `hub` is used two ways in this repo; in the plan and drawing it is one transport tile, not the control-plane band
 - [gateway_double_capture_and_option3](gateway_double_capture_and_option3.md) — **[demo 02]** RESOLVED, and 2026-09-11 the "double capture" was DISPROVED: over a gateway one account holds ONE stream (10058), so nothing is stored twice; option 3 = one account per tenant = what we already do; options 1 and 2 dropped
 - [cross_region_load_handoff](cross_region_load_handoff.md) — **[demo 02]** a load crossing regions is two loads + one handoff (integration, not replication); origin owns journey completion via a per-dropoff POD checklist
