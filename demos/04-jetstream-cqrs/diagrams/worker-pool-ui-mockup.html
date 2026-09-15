@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo 04 — worker pool panel mockup</title>
+<style>
+:root {
+  /* shared/unifi-theme/unifi.css — dark tokens, verbatim */
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #131416; --panel: #131416; --border: #2c3138;
+  --accent: #006fff; --accent-ink: #ffffff;
+  --nav-active: #1c1d1f; --secondary: #22262c;
+  --ok: #27c07f; --warn: #f0b429; --err: #e5484d;
+  --write: #4d94ff; --read: #2dd4bf;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1400px; margin: 0 auto; padding: 24px 18px 40px; display: flex; flex-direction: column; gap: 26px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; }
+.sub { margin: 0; color: var(--muted); max-width: 84ch; }
+.sub code, figcaption code, .note code { font-family: var(--mono); font-size: 11px;
+  background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+figure { margin: 0; }
+figcaption { color: var(--muted); font-size: 12px; line-height: 18px; padding: 10px 2px 0; max-width: 104ch; }
+figcaption b { color: var(--text); font-weight: 600; }
+
+.app { border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  background: var(--bg); display: flex; flex-direction: column; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: 14px; height: 46px; padding: 0 14px;
+  border-bottom: 1px solid var(--border); flex: none; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; }
+.dot { width: 20px; height: 20px; border-radius: 5px; background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.crumb { color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.crumb b { color: var(--text); font-weight: 600; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 12px; font-size: 11px; color: var(--muted); }
+.pill .led { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.live { color: var(--ok); } .pill.ro { color: var(--muted); }
+
+.body { display: flex; min-height: 0; }
+.rail { width: 208px; flex: none; border-right: 1px solid var(--border); padding: 12px 10px;
+  display: flex; flex-direction: column; gap: 4px; }
+.rail .eyebrow { padding: 10px 8px 4px; }
+.nav { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 9px;
+  border-radius: 5px; color: var(--muted); font-size: 13px; }
+.nav.on { background: var(--nav-active); color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+.nav .k { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-left: auto; }
+.nav .sq { width: 13px; height: 13px; border: 1px solid currentColor; border-radius: 3px; opacity: .7; flex: none; }
+.nav .sq.w { border-color: var(--write); } .nav .sq.r { border-color: var(--read); }
+.nav .sq.p { border-color: var(--warn); }
+.lesson { display: flex; gap: 9px; padding: 7px 9px; border-radius: 4px; color: var(--muted); }
+.lesson.on { background: var(--nav-active); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+.lesson .no { font-family: var(--mono); font-size: 10px; color: var(--dim); padding-top: 3px; }
+.lesson .ls { display: flex; flex-direction: column; gap: 1px; }
+.lesson .ls b { font-weight: 600; font-size: 13px; line-height: 18px; }
+.lesson.on .ls b { color: var(--text); }
+.lesson .ls i { font-style: normal; font-size: 11px; line-height: 15px; color: var(--dim); }
+
+.main { flex: 1; min-width: 0; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 16px; }
+.pagehead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pagehead h2 { font-size: 17px; line-height: 23px; }
+.mono { font-family: var(--mono); }
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px;
+  font-family: var(--mono); font-size: 10px; border: 1px solid var(--border); color: var(--muted); }
+.tag.ok  { color: var(--ok);    border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.tag.w   { color: var(--write); border-color: color-mix(in srgb, var(--write) 40%, var(--border)); }
+.tag.bad { color: var(--err);   border-color: color-mix(in srgb, var(--err) 40%, var(--border)); }
+.note { color: var(--dim); font-size: 11px; margin: 0; }
+
+/* The one tab style in the repo: a real PrimeVue Tabs carrying
+   class="panel-tabs" — a hairline under the whole tablist, the active tab
+   picked out by an accent underline. Never a chip or pill toggle; chips are
+   reserved for filters (shared/unifi-theme/LAYOUT.md, "Panel top tabs"). */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin: 0 -18px 0; padding: 0 18px; }
+.tabs .t { padding: 0 14px; height: 36px; display: inline-flex; align-items: center;
+  color: var(--muted); font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs .t.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+
+.claim { border: 1px solid var(--border); border-left: 2px solid var(--err); border-radius: 5px;
+  padding: 10px 13px; color: var(--muted); font-size: 12.5px; line-height: 19px; }
+.claim b { color: var(--text); font-weight: 600; }
+.card { border: 1px solid var(--border); border-radius: 6px; padding: 13px 14px;
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card.bad { border-color: color-mix(in srgb, var(--err) 45%, var(--border)); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-family: var(--mono); font-size: 11.5px; margin: 0; }
+.kv dt { color: var(--dim); } .kv dd { margin: 0; color: var(--text); }
+.kv dd.bad { color: var(--err); }
+.kv dd.ok { color: var(--ok); }
+
+.pool svg { display: block; width: 100%; height: auto; }
+.bar-row { display: grid; grid-template-columns: 96px 1fr 116px; align-items: center; gap: 12px;
+  font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.track { display: block; height: 13px; border-radius: 3px; background: color-mix(in srgb, var(--dim) 22%, transparent); overflow: hidden; }
+.fill { display: block; height: 100%; border-radius: 3px; background: var(--write); }
+.fill.idle { background: color-mix(in srgb, var(--dim) 60%, transparent); }
+.fill.ok { background: var(--ok); }
+.right { text-align: right; color: var(--text); }
+
+/* Every tab carries the command that produced it. The panel never starts a
+   worker, so the command line is the only way a reader can repeat what the
+   tab shows. */
+.term { border: 1px solid var(--border); border-radius: 6px; background: #0f1012; padding: 11px 13px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.term .pr { color: var(--dim); } .term .cmd { color: var(--text); }
+.term .lead { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding-bottom: 3px; }
+
+/* Tabs 2-4 are drawn as the content region on its own, so one page can show
+   every tab at once without four copies of the topbar and rail. */
+.panelonly { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.panelonly .main { padding: 14px 18px 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div>
+    <span class="eyebrow">Phase 04.7 · PROPOSED · docs.nats.io/learn/jetstream/worker-pool</span>
+    <h1>Worker pool — panel mockup</h1>
+    <p class="sub">One lesson row, four tabs. The panel is read-only: every worker is started, configured and
+      killed from the <code>cqrs</code> CLI, and each tab prints the command that produced what it shows.
+      Dark UniFi tokens and the existing app frame, unchanged.</p>
+  </div>
+
+  <figure>
+    <div class="app">
+      <div class="topbar">
+        <div class="brand"><span class="dot">4</span> Odometer</div>
+        <div class="crumb">/ 02 · Scaling a consumer / <b>Worker pool</b></div>
+        <span class="spacer"></span>
+        <span class="pill ro"><span class="led"></span> Read-only</span>
+        <span class="pill live"><span class="led"></span> Watching</span>
+      </div>
+      <div class="body">
+        <aside class="rail">
+          <span class="eyebrow">Guide</span>
+          <div class="nav">How it works</div>
+          <span class="eyebrow">Lessons</span>
+          <div class="lesson"><span class="no">01</span><span class="ls"><b>Stream + CQRS</b><i>One fold, in order.</i></span></div>
+          <div class="lesson on"><span class="no">02</span><span class="ls"><b>Scaling a consumer</b><i>Many folds, out of order.</i></span></div>
+        </aside>
+
+        <main class="main">
+          <div class="pagehead">
+            <h2>Worker pool</h2>
+            <span class="tag w">4 workers</span>
+            <span class="tag">MaxAckPending 1000</span>
+            <span class="tag">AckWait 30s</span>
+            <span class="spacer"></span>
+            <span class="note mono">one durable · odometer-pool</span>
+          </div>
+
+          <div class="tabs">
+            <span class="t on">Live</span>
+            <span class="t">Starvation</span>
+            <span class="t">Redelivery</span>
+            <span class="t">1 vs 4</span>
+          </div>
+
+          <p class="claim"><b>A watermark makes redelivery safe.</b> It does not make reordering safe —
+            it makes reordering silent.</p>
+
+          <div class="card pool">
+            <svg viewBox="0 0 1060 404" role="img"
+              aria-label="The ODOMETER log drawn as a strip of sequence chips 4 to 11. Chips 4 to 5 and 7 are folded, chip 7 set the watermark to lastSeq 7. Chip 6 is still in flight at worker 3 and is annotated as about to be dropped because 6 is less than or equal to lastSeq 7. Chips 9 to 11 are pending. Below the strip a full-width bar represents the single durable consumer odometer-pool with MaxAckPending 1000 and AckWait 30 seconds, and four vertical connectors run down from it to four worker cards: worker 1 folding sequence 8, worker 2 waiting, worker 3 folding sequence 6 and marked out of order, and worker 4 waiting."
+              font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">
+              <text x="0" y="12" font-size="10" fill="#737c87" letter-spacing="1">ODOMETER · EVT.ODOMETER.VEHICLE.TRUCK-7.&gt;</text>
+
+              <!-- folded -->
+              <rect x="0"   y="30" width="92" height="44" rx="5" fill="none" stroke="#2c3138"/>
+              <text x="46"  y="58" font-size="13" fill="#737c87" text-anchor="middle">#4</text>
+              <rect x="104" y="30" width="92" height="44" rx="5" fill="none" stroke="#2c3138"/>
+              <text x="150" y="58" font-size="13" fill="#737c87" text-anchor="middle">#5</text>
+
+              <!-- in flight, out of order -->
+              <rect x="208" y="30" width="92" height="44" rx="5" fill="#1a1116" stroke="#e5484d"/>
+              <text x="254" y="58" font-size="13" fill="#e5484d" text-anchor="middle">#6</text>
+
+              <!-- the watermark -->
+              <rect x="312" y="30" width="92" height="44" rx="5" fill="#101d17" stroke="#27c07f"/>
+              <text x="358" y="52" font-size="13" fill="#27c07f" text-anchor="middle">#7</text>
+              <text x="358" y="67" font-size="9" fill="#27c07f" text-anchor="middle">lastSeq</text>
+
+              <!-- in flight -->
+              <rect x="416" y="30" width="92" height="44" rx="5" fill="#101723" stroke="#4d94ff"/>
+              <text x="462" y="58" font-size="13" fill="#4d94ff" text-anchor="middle">#8</text>
+
+              <!-- pending -->
+              <rect x="520" y="30" width="92" height="44" rx="5" fill="none" stroke="#2c3138"/>
+              <text x="566" y="58" font-size="13" fill="#b7bcc2" text-anchor="middle">#9</text>
+              <rect x="624" y="30" width="92" height="44" rx="5" fill="none" stroke="#2c3138"/>
+              <text x="670" y="58" font-size="13" fill="#b7bcc2" text-anchor="middle">#10</text>
+              <rect x="728" y="30" width="92" height="44" rx="5" fill="none" stroke="#2c3138"/>
+              <text x="774" y="58" font-size="13" fill="#b7bcc2" text-anchor="middle">#11</text>
+              <text x="838" y="58" font-size="10.5" fill="#737c87">head</text>
+
+              <!-- the drop annotation -->
+              <path d="M254 76 L254 96" stroke="#e5484d" stroke-width="1.5"/>
+              <text x="196" y="112" font-size="10.5" fill="#e5484d">#6 lands after #7 · 6 ≤ lastSeq 7 · dropped, no error, no retry</text>
+
+              <!-- the consumer -->
+              <rect x="0" y="146" width="1060" height="52" rx="6" fill="#16191d" stroke="#2c3138"/>
+              <text x="14"   y="169" font-size="13"   fill="#dee0e3">odometer-pool</text>
+              <text x="14"   y="186" font-size="10.5" fill="#737c87">one durable consumer · the position belongs here, not to a worker</text>
+              <text x="1046" y="169" font-size="10.5" fill="#b7bcc2" text-anchor="end">MaxAckPending 1000</text>
+              <text x="1046" y="186" font-size="10.5" fill="#b7bcc2" text-anchor="end">AckWait 30s</text>
+
+              <!-- consumer to workers -->
+              <path d="M125 200 L125 234" stroke="#4a515b" stroke-width="1.5"/>
+              <path d="M395 200 L395 234" stroke="#4a515b" stroke-width="1.5"/>
+              <path d="M665 200 L665 234" stroke="#e5484d" stroke-width="1.5"/>
+              <path d="M935 200 L935 234" stroke="#4a515b" stroke-width="1.5"/>
+
+              <!-- workers -->
+              <rect x="0" y="240" width="250" height="94" rx="6" fill="#16191d" stroke="#2c3138"/>
+              <circle cx="18" cy="264" r="5" fill="#4d94ff"/>
+              <text x="34"  y="268" font-size="13"   fill="#dee0e3">worker 1</text>
+              <text x="16"  y="292" font-size="11.5" fill="#4d94ff">folding #8</text>
+              <text x="16"  y="312" font-size="10.5" fill="#737c87">acked 31 · unacked 1</text>
+
+              <rect x="270" y="240" width="250" height="94" rx="6" fill="#16191d" stroke="#2c3138"/>
+              <circle cx="288" cy="264" r="5" fill="#4a515b"/>
+              <text x="304" y="268" font-size="13"   fill="#dee0e3">worker 2</text>
+              <text x="286" y="292" font-size="11.5" fill="#b7bcc2">waiting</text>
+              <text x="286" y="312" font-size="10.5" fill="#737c87">acked 28 · unacked 0</text>
+
+              <rect x="540" y="240" width="250" height="94" rx="6" fill="#1a1116" stroke="#e5484d"/>
+              <circle cx="558" cy="264" r="5" fill="#e5484d"/>
+              <text x="574" y="268" font-size="13"   fill="#dee0e3">worker 3</text>
+              <text x="556" y="292" font-size="11.5" fill="#e5484d">folding #6 · behind #7</text>
+              <text x="556" y="312" font-size="10.5" fill="#737c87">acked 30 · unacked 1</text>
+
+              <rect x="810" y="240" width="250" height="94" rx="6" fill="#16191d" stroke="#2c3138"/>
+              <circle cx="828" cy="264" r="5" fill="#4a515b"/>
+              <text x="844" y="268" font-size="13"   fill="#dee0e3">worker 4</text>
+              <text x="826" y="292" font-size="11.5" fill="#b7bcc2">waiting</text>
+              <text x="826" y="312" font-size="10.5" fill="#737c87">acked 29 · unacked 0</text>
+
+              <text x="0" y="372" font-size="10.5" fill="#737c87">The server hands each stored event to exactly one worker. Which worker gets which event is decided by demand, so it is not the log's order.</text>
+              <text x="0" y="392" font-size="10.5" fill="#737c87">Colour: blue = in flight · green = folded, set the watermark · red = will be silently discarded by the watermark.</text>
+            </svg>
+          </div>
+
+          <div class="card bad">
+            <span class="eyebrow">Fold damage · pool total against the single-threaded projector</span>
+            <div class="cols">
+              <dl class="kv">
+                <dt>events acked</dt><dd>118</dd>
+                <dt>events folded</dt><dd>115</dd>
+                <dt>dropped by watermark</dt><dd class="bad">3 — #6, #14, #27</dd>
+              </dl>
+              <dl class="kv">
+                <dt>totalKm (pool)</dt><dd class="bad">41 902 km</dd>
+                <dt>totalKm (projector)</dt><dd>42 180 km</dd>
+                <dt>drift</dt><dd class="bad">−278 km</dd>
+              </dl>
+            </div>
+            <p class="note">The pool's total is <b>short</b>, never double. A dropped event is a fact that is
+              gone, and nothing reports it.</p>
+          </div>
+
+          <div class="term">
+            <span class="lead">Ran this</span>
+            <span><span class="pr">$</span> <span class="cmd">cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s</span></span>
+            <span>4 workers bound to odometer-pool · heartbeats in KV odometer-pool-workers</span>
+          </div>
+        </main>
+      </div>
+    </div>
+    <figcaption><b>Tab 1 — Live.</b> One lesson row, four tabs: the pool is one subject under four conditions,
+      not four subjects. The strip is the log; the bar under it is the single durable consumer; the four cards
+      are the workers bound to it. Worker 3 holds <code>#6</code> behind a watermark already set to
+      <code>7</code>, so <code>#6</code> is acked and never applied.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="panelonly">
+      <main class="main">
+        <div class="pagehead">
+          <h2>Worker pool</h2>
+          <span class="tag w">8 workers</span>
+          <span class="tag bad">MaxAckPending 3</span>
+          <span class="spacer"></span>
+          <span class="note mono">one durable · odometer-pool</span>
+        </div>
+        <div class="tabs">
+          <span class="t">Live</span>
+          <span class="t on">Starvation</span>
+          <span class="t">Redelivery</span>
+          <span class="t">1 vs 4</span>
+        </div>
+
+        <div class="card">
+          <div class="pagehead">
+            <span class="eyebrow">Events acked per worker · 60 second run</span>
+            <span class="spacer"></span>
+            <span class="tag bad">5 workers idle</span>
+          </div>
+          <div class="bar-row"><span>worker 1</span><span class="track"><span class="fill" style="width:88%"></span></span><span class="right">41 acked</span></div>
+          <div class="bar-row"><span>worker 2</span><span class="track"><span class="fill" style="width:74%"></span></span><span class="right">34 acked</span></div>
+          <div class="bar-row"><span>worker 3</span><span class="track"><span class="fill" style="width:61%"></span></span><span class="right">28 acked</span></div>
+          <div class="bar-row"><span>worker 4</span><span class="track"><span class="fill idle" style="width:4%"></span></span><span class="right">2 acked</span></div>
+          <div class="bar-row"><span>worker 5</span><span class="track"><span class="fill idle" style="width:2%"></span></span><span class="right">1 acked</span></div>
+          <div class="bar-row"><span>worker 6</span><span class="track"><span class="fill idle" style="width:0%"></span></span><span class="right">0 acked</span></div>
+          <div class="bar-row"><span>worker 7</span><span class="track"><span class="fill idle" style="width:0%"></span></span><span class="right">0 acked</span></div>
+          <div class="bar-row"><span>worker 8</span><span class="track"><span class="fill idle" style="width:0%"></span></span><span class="right">0 acked</span></div>
+          <p class="note">The cap is shared across the consumer, not given to each worker. Three messages in
+            flight cannot keep eight workers busy.</p>
+        </div>
+
+        <div class="term">
+          <span class="lead">Ran this</span>
+          <span><span class="pr">$</span> <span class="cmd">cqrs pool -workers 8 -max-pending 3</span></span>
+          <span>compare against <span class="cmd">cqrs pool -workers 8 -max-pending 1000</span></span>
+        </div>
+      </main>
+    </div>
+    <figcaption><b>Tab 2 — Starvation.</b> <code>MaxAckPending</code> is a property of the consumer, so eight
+      workers share one budget of three. Five of them never receive a message. The tab prints both commands so
+      the cure is one keystroke away from the fault.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="panelonly">
+      <main class="main">
+        <div class="pagehead">
+          <h2>Worker pool</h2>
+          <span class="tag w">4 workers</span>
+          <span class="tag">AckWait 30s</span>
+          <span class="spacer"></span>
+          <span class="note mono">one durable · odometer-pool</span>
+        </div>
+        <div class="tabs">
+          <span class="t">Live</span>
+          <span class="t">Starvation</span>
+          <span class="t on">Redelivery</span>
+          <span class="t">1 vs 4</span>
+        </div>
+
+        <div class="card pool">
+          <span class="eyebrow">What the server did with #94</span>
+          <svg viewBox="0 0 1060 190" role="img"
+            aria-label="A timeline of one message. At zero seconds worker 2 receives sequence 94, delivery count one. Worker 2 then stops responding. Thirty seconds later AckWait elapses and the server redelivers sequence 94 to worker 4 with delivery count two. Worker 4 folds it, finds the watermark already at 94, drops it, and acks."
+            font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">
+            <path d="M90 60 L1020 60" stroke="#2c3138" stroke-width="1"/>
+
+            <circle cx="90" cy="60" r="5" fill="#4d94ff"/>
+            <text x="90" y="40" font-size="10.5" fill="#4d94ff" text-anchor="middle">t = 0s</text>
+            <text x="90" y="84"  font-size="11.5" fill="#dee0e3" text-anchor="middle">#94 → worker 2</text>
+            <text x="90" y="100" font-size="10.5" fill="#737c87" text-anchor="middle">delivery 1</text>
+
+            <circle cx="360" cy="60" r="5" fill="#e5484d"/>
+            <text x="360" y="40" font-size="10.5" fill="#e5484d" text-anchor="middle">t = 2s</text>
+            <text x="360" y="84"  font-size="11.5" fill="#e5484d" text-anchor="middle">worker 2 stops</text>
+            <text x="360" y="100" font-size="10.5" fill="#737c87" text-anchor="middle">no ack, no nak, no error</text>
+
+            <path d="M366 60 L674 60" stroke="#f0b429" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="520" y="40" font-size="10.5" fill="#f0b429" text-anchor="middle">AckWait counting · 30s</text>
+
+            <circle cx="680" cy="60" r="5" fill="#f0b429"/>
+            <text x="680" y="40" font-size="10.5" fill="#f0b429" text-anchor="middle">t = 32s</text>
+            <text x="680" y="84"  font-size="11.5" fill="#dee0e3" text-anchor="middle">#94 → worker 4</text>
+            <text x="680" y="100" font-size="10.5" fill="#737c87" text-anchor="middle">delivery 2</text>
+
+            <circle cx="1020" cy="60" r="5" fill="#27c07f"/>
+            <text x="1020" y="40" font-size="10.5" fill="#27c07f" text-anchor="end">t = 32s</text>
+            <text x="1020" y="84"  font-size="11.5" fill="#27c07f" text-anchor="end">94 ≤ lastSeq 94 · dropped, acked</text>
+            <text x="1020" y="100" font-size="10.5" fill="#737c87" text-anchor="end">not counted twice</text>
+
+            <text x="40" y="146" font-size="10.5" fill="#737c87">The 30 seconds are not free. The event is late by a whole AckWait, and every reader is wrong for that long.</text>
+            <text x="40" y="166" font-size="10.5" fill="#737c87">This is the one case the watermark is built for: the SAME sequence arriving twice. It is not the out-of-order case on the Live tab.</text>
+          </svg>
+        </div>
+
+        <div class="cols">
+          <div class="card">
+            <span class="eyebrow">Outcome</span>
+            <dl class="kv">
+              <dt>worker stopped</dt><dd>worker 2, holding #94</dd>
+              <dt>AckWait elapsed</dt><dd>30s</dd>
+              <dt>redelivered to</dt><dd>worker 4</dd>
+              <dt>delivery count</dt><dd>2</dd>
+              <dt>double-counted</dt><dd class="ok">no — watermark held</dd>
+            </dl>
+          </div>
+          <div class="card">
+            <span class="eyebrow">Cost</span>
+            <dl class="kv">
+              <dt>fold delayed by</dt><dd class="bad">30s</dd>
+              <dt>read model stale for</dt><dd class="bad">30s</dd>
+              <dt>events behind head</dt><dd>1 → 0</dd>
+              <dt>errors logged</dt><dd>0</dd>
+            </dl>
+            <p class="note">AckWait is a guess about how long real work takes. Too long and a dead worker holds
+              the message. Too short and a slow worker is treated as dead.</p>
+          </div>
+        </div>
+
+        <div class="term">
+          <span class="lead">Ran this</span>
+          <span><span class="pr">$</span> <span class="cmd">cqrs pool -workers 4 -ack-wait 30s -kill-at 94</span></span>
+          <span>worker holding #94 stops fetching and never acks — the same thing the server sees when a process dies</span>
+          <span>or press ctrl-c on a second <span class="cmd">cqrs pool -workers 1</span> for the same effect</span>
+        </div>
+      </main>
+    </div>
+    <figcaption><b>Tab 3 — Redelivery.</b> <code>-kill-at 94</code> is real fault injection, not a label: the
+      worker that fetches sequence 94 stops fetching and never acks or naks, which is exactly what the server
+      observes when a process is killed. A nak would redeliver at once and hide the <code>AckWait</code> wait,
+      so silence is the point.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="panelonly">
+      <main class="main">
+        <div class="pagehead">
+          <h2>Worker pool</h2>
+          <span class="tag">MaxAckPending 1000</span>
+          <span class="tag ok">10 000 events</span>
+          <span class="spacer"></span>
+          <span class="note mono">one durable · odometer-pool</span>
+        </div>
+        <div class="tabs">
+          <span class="t">Live</span>
+          <span class="t">Starvation</span>
+          <span class="t">Redelivery</span>
+          <span class="t on">1 vs 4</span>
+        </div>
+
+        <div class="card">
+          <span class="eyebrow">Time to drain 10 000 events</span>
+          <div class="bar-row"><span>1 worker</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="right">41.2 s</span></div>
+          <div class="bar-row"><span>2 workers</span><span class="track"><span class="fill" style="width:56%"></span></span><span class="right">23.1 s</span></div>
+          <div class="bar-row"><span>4 workers</span><span class="track"><span class="fill ok" style="width:35%"></span></span><span class="right">14.4 s</span></div>
+          <div class="bar-row"><span>8 workers</span><span class="track"><span class="fill ok" style="width:31%"></span></span><span class="right">12.8 s</span></div>
+          <p class="note">Four workers is 2.9× faster, not 4×. Past four the curve flattens: the KV write is
+            the shared cost, and no number of workers makes it cheaper.</p>
+        </div>
+
+        <div class="cols">
+          <div class="card">
+            <span class="eyebrow">What the pool bought</span>
+            <dl class="kv">
+              <dt>1 worker</dt><dd>243 events/s</dd>
+              <dt>4 workers</dt><dd class="ok">694 events/s</dd>
+              <dt>speed-up</dt><dd>2.9×</dd>
+              <dt>order kept</dt><dd class="bad">no</dd>
+            </dl>
+          </div>
+          <div class="card bad">
+            <span class="eyebrow">What it cost</span>
+            <dl class="kv">
+              <dt>dropped (1 worker)</dt><dd class="ok">0</dd>
+              <dt>dropped (4 workers)</dt><dd class="bad">3</dd>
+              <dt>totalKm error</dt><dd class="bad">−278 km</dd>
+            </dl>
+            <p class="note">This is the whole trade in two cards. A pool is right for work that is independent.
+              A fold is not independent work.</p>
+          </div>
+        </div>
+
+        <div class="term">
+          <span class="lead">Ran this</span>
+          <span><span class="pr">$</span> <span class="cmd">cqrs seed -events 10000</span></span>
+          <span><span class="pr">$</span> <span class="cmd">cqrs pool -workers 1 -drain</span></span>
+          <span><span class="pr">$</span> <span class="cmd">cqrs pool -workers 4 -drain</span></span>
+          <span><span class="pr">$</span> <span class="cmd">cqrs pool -workers 8 -drain</span></span>
+          <span><span class="pr">-drain</span> stops the run when the consumer reports 0 pending, and prints the elapsed time</span>
+        </div>
+      </main>
+    </div>
+    <figcaption><b>Tab 4 — 1 vs 4.</b> The number the phase exists to produce, beside the number it costs.
+      Speed is measured with <code>-drain</code> against a fixed 10 000 event seed, so each run answers the same
+      question. Four workers are faster and wrong; one worker is slower and right.</figcaption>
+  </figure>
+
+  <figcaption><b>The panel is a viewer, not a control room.</b> Worker count, <code>MaxAckPending</code>,
+    <code>AckWait</code> and the kill are all CLI flags. The UI's only job is to make the damage visible —
+    which worker holds what, which sequence the watermark threw away, and how far the pool's total has drifted
+    from the projector's. Every tab prints its own command, so nothing on screen is unreproducible.</figcaption>
+</div>
+</body>
+</html>

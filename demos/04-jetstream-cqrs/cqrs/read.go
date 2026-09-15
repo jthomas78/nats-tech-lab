@@ -27,12 +27,13 @@ import (
 // Odometer is embedded, so the stored JSON stays flat and built for reading:
 // {status, plate, totalKm, trips, lastTripAt, lastSeq}.
 //
-// LastSeq is not for the reader. It is how the projector recognises an event
-// it has already folded. JetStream delivers at least once, and a fold that is
-// not idempotent turns a redelivery into a wrong total.
+// The embedded Fold is not for the reader. It is how the projector decides
+// whether an event may be applied at all -- BR-OD06..08. JetStream delivers
+// at least once, and a fold that is not idempotent turns a redelivery into a
+// wrong total.
 type ReadEntry struct {
 	Odometer
-	LastSeq uint64 `json:"lastSeq"`
+	Fold
 }
 
 // runProjector folds every event into the read store until ctx is cancelled.
@@ -91,14 +92,16 @@ func project(ctx context.Context, kv jetstream.KeyValue, msg jetstream.Msg) erro
 		return err
 	}
 
+	seq := meta.Sequence.Stream
+
 	entry, err := kv.Get(ctx, snapshotKey(id))
 	switch {
 	case errors.Is(err, jetstream.ErrKeyNotFound):
-		next := ReadEntry{
+		first := ReadEntry{
 			Odometer: Odometer{}.Apply(event, meta.Timestamp),
-			LastSeq:  meta.Sequence.Stream,
+			Fold:     Fold{}.Advance(seq),
 		}
-		body, _ := json.Marshal(next)
+		body, _ := json.Marshal(first)
 		_, err = kv.Create(ctx, snapshotKey(id), body)
 		return err
 	case err != nil:
@@ -109,11 +112,18 @@ func project(ctx context.Context, kv jetstream.KeyValue, msg jetstream.Msg) erro
 	if err := json.Unmarshal(entry.Value(), &current); err != nil {
 		return err
 	}
-	if meta.Sequence.Stream <= current.LastSeq {
-		return nil // already folded; a redelivery, not a new fact
+	// BR-OD06..08. Three answers, not two: apply it, ignore a redelivery, or
+	// refuse an event that arrived behind the fold. The refusal is what the
+	// old `<=` used to swallow.
+	apply, err := current.Next(seq)
+	if err != nil {
+		return err
+	}
+	if !apply {
+		return nil // BR-OD07 — a redelivery, not a new fact
 	}
 	current.Odometer = current.Odometer.Apply(event, meta.Timestamp)
-	current.LastSeq = meta.Sequence.Stream
+	current.Fold = current.Advance(seq)
 	body, _ := json.Marshal(current)
 	// Compare-and-swap on the revision. Two projectors must not overwrite
 	// each other into a read model that skipped an event.

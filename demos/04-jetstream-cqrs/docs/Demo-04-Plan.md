@@ -1,7 +1,8 @@
 # Demo 04 — JetStream as an Event Source, with CQRS
 
-**Status:** Phases 04.1-04.5 DONE — rules signed off 2026-09-14, finding in
-`README.md`. Phase 04.6 (a UI) is PROPOSED 2026-09-15 and awaits approval.
+**Status:** Phases 04.1-04.6 DONE — rules signed off 2026-09-14, finding in
+`README.md`. Phase 04.7 (a worker pool) was APPROVED 2026-09-15 and is in
+progress.
 **Depends on:** Demo 02's `odometer/` (the domain is lifted from it).
 
 ---
@@ -162,6 +163,7 @@ numbers side by side, "snapshots are faster" is a claim, not a finding.
 - [x] **04.4** Read side — read consumer, read store, `query`.
 - [x] **04.5** `seed` + `rehydrate` timing, and write the finding into the README.
 - [x] **04.6** A UI for the demo — see section 9.
+- [ ] **04.7** A worker pool in front of the fold — see section 10. APPROVED 2026-09-15, in progress.
 
 ---
 
@@ -376,3 +378,378 @@ demos/04-jetstream-cqrs/
       three block diagrams to one, and the PNG re-exported. The page is now 7
       figures and 7 SVGs; the About frame resized itself to 4469px with no
       inner scrollbar.
+
+---
+
+## 10. Phase 04.7 — a worker pool in front of the fold (PROPOSED)
+
+**Status:** PROPOSED 2026-09-15. No code, no `nats.conf` change and no Vue
+file until this section is approved.
+
+Source: <https://docs.nats.io/learn/jetstream/worker-pool>. The scope is that
+page and nothing else. Subject mapping and `partition()` are a different page
+and are **out** — see D7.
+
+This phase adds nothing to section 1's "Out" list. No Postgres, no cluster, no
+gateway, no operator mode, no Temporal, no `{context}` token.
+
+### 10.1 Why
+
+A worker pool is the standard JetStream answer to "this consumer is too slow":
+many workers bind to **one** durable consumer, and the server hands each stored
+message to exactly one of them. It is the right tool for work that is
+independent — send an email, resize an image, call an API.
+
+This demo's two consumers are not independent work. They are **folds**. A fold
+is order-dependent by definition, which is why `snapshotter.go` and `read.go`
+both set `MaxAckPending: 1` and say so in a comment.
+
+So the phase answers a question the demo cannot currently answer:
+
+> **What does a worker pool actually buy, and what does it actually cost, when
+> the work is a fold?**
+
+The answer is a pair of numbers on one screen: `4 workers ≈ 2.9× faster` beside
+`totalKm is short by 278 km`. Neither number means much alone.
+
+### 10.2 Design decisions
+
+**D1 — the two existing consumers are not touched.** `snapshotter` and
+`projector` keep `MaxAckPending: 1` and keep their behaviour exactly. The pool
+is a **third**, separate consumer (`odometer-pool`) writing to a **third**
+bucket. If this phase changes a number in `odometer-write` or `odometer-read`,
+it has failed.
+
+**D2 — the pool is deliberately wrong, and says so.** The point is not to ship
+a fast fold. It is to show, with the repo's own code and the repo's own
+numbers, why the `MaxAckPending: 1` comment is there. A demo that only shows
+the safe configuration cannot teach why it is safe.
+
+**D3 — the silence ends. BR-OD08 turns a dropped event into an error.**
+Today both folds write `if seq <= lastSeq { return nil }`. That treats a
+redelivery and a reordering as the same thing and acks both. Under a pool the
+second case is permanent, silent loss. BR-OD06..08 split the test in three, and
+`seq < lastSeq` now returns `ErrOutOfOrder`.
+
+**This cannot fire while `MaxAckPending` is 1**, so the change is inert for the
+two existing consumers. That is what makes it safe to add.
+
+**D4 — an out-of-order event is terminated, not retried.** A nak redelivers the
+same sequence, and the fold's position never moves backwards, so the retry
+fails again for ever. `ErrOutOfOrder` therefore calls `msg.Term()`: the event is
+still lost, but it is **counted, logged and drawn**. Loud loss instead of silent
+loss is the entire improvement.
+
+**D5 — the UI reads a heartbeat bucket, not consumer info.** Each worker writes
+its own key into a new KV bucket `odometer-pool-workers` — what it holds, how
+many it has acked, how many it refused. The browser watches that bucket exactly
+the way it already watches `odometer-write` and `odometer-read`, so no new data
+path and no new NATS permission is needed. `$JS.API.CONSUMER.INFO` was the
+alternative; it was rejected because it reports the **consumer**, and this
+phase's whole subject is the **workers**.
+
+**D6 — the panel is a viewer, not a control room.** Worker count,
+`MaxAckPending`, `AckWait` and the kill are all CLI flags. The browser starts
+nothing and stops nothing. The demo's two interaction paths stay genuinely
+different: the CLI **does**, the UI **shows**. Every tab prints the command
+that produced it, so nothing on screen is unreproducible.
+
+**D7 — partitioning is out of scope.** A partitioned pool — subject mapping
+with `{{partition(n, 1)}}`, one durable per shard — would restore per-vehicle
+order and make the pool correct. It is real, but it is documented on
+`/nats-concepts/subject_mapping`, not on the worker-pool page, and it needs a
+`nats.conf` mapping block plus N consumers. It is a candidate for a later
+phase, named here so nobody thinks it was missed.
+
+**D8 — `-kill-at` is real fault injection, not a label.** The worker that
+fetches that sequence stops fetching and never acks and never naks. That is
+precisely what the server observes when a process is killed. It must **not**
+nak: a nak redelivers at once and hides the `AckWait` wait that the tab exists
+to show.
+
+### 10.3 Business rules
+
+**Three new fold rules. `BUSINESS_RULES-ODOMETER.md` is updated in the same
+commit as the code.**
+
+| ID | Rule | Error | Enforced by |
+|---|---|---|---|
+| BR-OD06 | A fold applies an event only when its stream sequence is ahead of the fold's position | — | `Fold.Next` |
+| BR-OD07 | A sequence equal to the fold's position is a redelivery and is ignored | — | `Fold.Next` |
+| BR-OD08 | A sequence behind the fold's position is out of order and is refused | `ErrOutOfOrder` | `Fold.Next` |
+
+`Fold` is a small type in `domain.go` holding one `uint64` position. It holds
+no state and reads no total; it answers "may this event be applied". The caller
+then applies it with `Vehicle.Apply` or `Odometer.Apply`, unchanged.
+
+`snapshotter.go` and `read.go` both drop their hand-written `<=` line and call
+`Fold.Next` instead, so the rule is enforced in one place, in `domain.go`, for
+every fold in the demo.
+
+### 10.4 Storage
+
+| Kind | Name | Role | New? |
+|---|---|---|---|
+| Stream | `ODOMETER` | unchanged | no |
+| KV | `odometer-write` | unchanged, still `MaxAckPending: 1` | no |
+| KV | `odometer-read` | unchanged, still `MaxAckPending: 1` | no |
+| KV | `odometer-pool` | the pool's own fold — the damaged one | **yes** |
+| KV | `odometer-pool-workers` | one key per worker: heartbeat, counters | **yes** |
+| Consumer | `odometer-pool` | one durable, many workers bound to it | **yes** |
+
+Both new buckets are `lowercase-kebab`, per the demo's storage rule. The
+consumer shares its name with its bucket on purpose — one pool, one position,
+one damaged projection.
+
+`odometer-pool-workers` gets a short TTL so a worker that dies stops appearing
+on the screen without anything having to delete its key.
+
+### 10.5 CLI surface
+
+One new subcommand in `main.go`'s switch, beside `snapshotter` and `projector`:
+
+```
+cqrs pool -workers N [-max-pending N] [-ack-wait D] [-kill-at SEQ] [-drain]
+```
+
+| Flag | Default | What it does |
+|---|---|---|
+| `-workers` | `4` | how many workers bind to `odometer-pool` |
+| `-max-pending` | `1000` | `MaxAckPending` on the consumer — shared by all workers |
+| `-ack-wait` | `30s` | `AckWait` on the consumer |
+| `-kill-at` | off | the worker holding that sequence goes silent (D8) |
+| `-drain` | off | stop when the consumer reports 0 pending, and print the elapsed time |
+
+`-drain` is what makes the "1 vs 4" numbers comparable: every run answers the
+same question against the same 10 000 event seed.
+
+### 10.6 The UI
+
+#### 10.6.1 The rail becomes a lesson index — option B, approved 2026-09-15
+
+The demo teaches two things and the second only makes sense after the first, so
+the rail says exactly that and nothing else:
+
+```
+GUIDE
+  How it works
+LESSONS
+  01 · Stream + CQRS
+  02 · Scaling a consumer
+```
+
+**Three rows, and it never grows** — not for a new vehicle, not for a new
+bucket, not for a third lesson. Today's rail mixes four kinds of thing (a
+guide, domain data, a lesson, four storage objects) as peers, and adding the
+pool would have made it eleven rows and counting. Option A — numbered lesson
+groups with the vehicles and buckets indented underneath — was drawn and
+rejected; option B was chosen.
+
+Mockups: `diagrams/nav-grouping-option-b.html` (chosen) and
+`diagrams/nav-grouping-proposal.html` (option A, for the record).
+
+**D9 — what leaves the rail becomes a control in the panel.** The vehicle list
+becomes a picker in the pagehead. The storage objects become a tab strip. Both
+lessons therefore carry a tab strip, and both use the repo's one tab style — a
+real PrimeVue `Tabs` carrying `class="panel-tabs"`, the same as
+`AboutPanel.vue`. Never a chip or pill toggle; chips stay reserved for filters.
+
+| Lesson | Tabs |
+|---|---|
+| 01 · Stream + CQRS | Overview · ODOMETER · odometer-write · odometer-read |
+| 02 · Scaling a consumer | Live · Starvation · Redelivery · 1 vs 4 |
+
+**D10 — lesson 01's Overview tab must show both buckets side by side.** This is
+not a layout preference, it is the demo. `CLAUDE.md` says *"Two buckets, not
+one. The split is the demo — you can see it in `nats kv ls`."* The per-bucket
+tabs exist for browsing keys; the Overview tab is where the split is argued,
+and a change that leaves only one bucket visible there has broken the demo.
+
+**D10a — `odometer-pool-workers` gets no tab of its own.** It leaves the rail
+and does not reappear as a bucket tab, because lesson 02's Live tab already
+draws its contents: one worker card per key. A bucket viewer beside that would
+show the same data twice in the same panel.
+
+**D11 — the breadcrumb carries the lesson.** `Demo 04 / 02 · Scaling a
+consumer / Worker pool`, so a reader who lands deep still knows which half of
+the demo they are in.
+
+#### 10.6.2 Lesson 02 — the worker pool panel
+
+Four tabs — the repo's one tab style, a real PrimeVue `Tabs` carrying
+`class="panel-tabs"`, the same as `AboutPanel.vue`. Never a chip or pill toggle.
+
+| Tab | Shows | Command it prints |
+|---|---|---|
+| Live | the log strip, the consumer, the worker cards, fold damage | `cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s` |
+| Starvation | events acked per worker, eight workers on a cap of three | `cqrs pool -workers 8 -max-pending 3` |
+| Redelivery | one message's timeline across an `AckWait` | `cqrs pool -workers 4 -ack-wait 30s -kill-at 94` |
+| 1 vs 4 | time to drain 10 000 events at 1, 2, 4 and 8 workers | `cqrs seed -events 10000` then `cqrs pool -workers N -drain` |
+
+Tabs, not four rail rows: the pool is one subject under four conditions, not
+four subjects. Under option B the rail holds lessons only, so there was never a
+row available for a condition.
+
+Mockup: `diagrams/worker-pool-ui-mockup.html` (+ `.png`). Before/after of the
+consumer topology: `diagrams/worker-pool-proposal.html` (+ `.png`).
+
+`LagLane.vue` takes exactly two markers today (`writeSeq`, `readSeq`). It is
+generalised to N markers so the pool's position can be drawn beside the other
+two. The geometry stays pure and specced in `src/view/lane.js`; the Vue file
+draws, it does not decide.
+
+### 10.7 Layout
+
+```
+demos/04-jetstream-cqrs/
+  cqrs/domain.go              EDIT - Fold + ErrOutOfOrder (BR-OD06..08)
+  cqrs/domain_test.go         EDIT - one Ginkgo Context per new rule, red first
+  cqrs/snapshotter.go         EDIT - call Fold.Next instead of its own `<=`
+  cqrs/read.go                EDIT - call Fold.Next instead of its own `<=`
+  cqrs/pool.go                NEW  - the pool subcommand, workers, heartbeats
+  cqrs/pool_test.go           NEW  - Ginkgo specs: flags, Term on out-of-order
+  cqrs/main.go                EDIT - one `pool` case in the switch
+  deploy/nats.conf            NO CHANGE - nothing to permit, see 04.7.7
+  frontend/src/App.vue        EDIT - sections becomes a 3-row lesson index (D9)
+  frontend/src/components/
+    PoolPanel.vue             NEW  - lesson 02, the four tabs
+    PoolPanel.spec.js         NEW  - incl. two its that fail on an invented number
+    StreamCqrsPanel.vue       NEW  - lesson 01, the four tabs, Overview first
+    StreamCqrsPanel.spec.js   NEW  - the D10 acceptance test
+    VehiclePicker.vue         NEW  - what the rail's Vehicles group used to be
+    VehiclePicker.spec.js     NEW  - all vehicles is a real option
+    BucketPanel.vue           NO CHANGE - its props already took a subject, 04.7.9a
+    BucketKeys.vue            NO CHANGE - its props already took a subject, 04.7.9a
+    LagLane.vue               EDIT - two markers become N
+  frontend/src/view/lessons.js      NEW  - the rail rows, the tabs, the crumb
+  frontend/src/view/lessons.spec.js NEW  - written first, 14 specs
+  frontend/src/view/lane.js   EDIT - laneRows(), the N-row geometry
+  frontend/src/view/pool.js       NEW  - lesson 02's arithmetic, pure
+  frontend/src/view/pool.spec.js  NEW  - written first, 22 specs
+  frontend/src/config.js      EDIT - POOL_KV, POOL_WORKERS_KV
+  frontend/src/styles/sides.css EDIT - --d4-lost, for loss only
+  frontend/src/view/lane.js   EDIT - N markers, still pure, still specced
+  frontend/src/nats/
+    useOdometer.js            EDIT - watch BOTH pool buckets, optionally
+    model.js                  EDIT - poolWorker(), one heartbeat to a row
+    model.spec.js             EDIT - 4 specs for poolWorker
+    subjects.js               EDIT - workerFromKey(), reverses `worker.{02d}`
+  BUSINESS_RULES-ODOMETER.md  EDIT - BR-OD06..08
+  README.md                   EDIT - port table unchanged, pool section added
+```
+
+No new host port. The pool is a CLI process, like `snapshotter` and
+`projector`.
+
+### 10.8 Tasks
+
+- [x] 04.7.1 `domain.go` — `Fold` + `ErrOutOfOrder`, BR-OD06..08. Specs first,
+      red, then green. `BUSINESS_RULES-ODOMETER.md` in the same commit.
+- [ ] 04.7.2 `snapshotter.go` and `read.go` call `Fold.Next`. Prove the two
+      existing consumers behave identically: same `lastSeq`, same `totalKm`,
+      after a full `seed` + rebuild.
+- [x] 04.7.3 `cqrs/pool.go` — the subcommand, N workers on one durable,
+      heartbeats into `odometer-pool-workers`, `Term()` on `ErrOutOfOrder`.
+- [ ] 04.7.4 `-drain` and the 1/2/4/8 measurement. Write the real numbers into
+      the README, replacing the mockup's placeholders.
+- [ ] 04.7.5 `-kill-at` and the redelivery measurement.
+- [ ] 04.7.6 `-max-pending 3` and the starvation measurement.
+- [x] 04.7.7 `deploy/nats.conf` — **no change needed, and that is the finding.**
+      The task was written expecting a permission to add. There is none:
+      `deploy/nats.conf` holds `server_name`, `port`, `http_port`, a
+      `jetstream` block and a `websocket` block, and **no `authorization`,
+      `accounts`, `users` or `permissions` block anywhere** — confirmed by
+      grep across `nats.conf` and `compose.yaml`. This server grants
+      everything to everyone by design (it is a single-server demo with no
+      secrets, and its own comment says so). So the browser can already watch
+      `KV_odometer-pool-workers` the moment the bucket exists, exactly as D5
+      assumed. Do not invent a config change to close this task.
+- [x] 04.7.8 `LagLane.vue` + `lane.js` — two markers become N. Specs first.
+      `lane.js` gained `laneRows({ head, rows })` and `ROW`; a row is
+      `{ id, text, seq, tone, kind }` and `kind: 'log'` draws full width.
+      `lanePoints` is now three rows (write, log, read) on top of it, and a
+      spec proves the three-row case lands on exactly the old coordinates —
+      y 18/44/70, axis 88, viewBox height 104 — so nothing about lesson 01's
+      drawing moved. `LagLane.vue` takes a `rows` prop for the general form
+      and keeps `writeSeq`/`readSeq` for the CQRS form. `styles/sides.css`
+      gained `--d4-lost` for a killed worker or a refused event; a worker
+      takes the read colour, because a worker folds into a read model and is
+      not a third side of CQRS. 78 vitest specs green.
+- [x] 04.7.9a The rail becomes a lesson index (D9). `sections` drops to three
+      rows; `VehiclePicker.vue` and lesson 01's tab strip take what left the
+      rail; `BucketPanel.vue` and `BucketKeys.vue` read their subject from a
+      tab. D10 is the acceptance test: both buckets still side by side on
+      Overview. Verified at 1920x1080.
+      **Done.** The rail's three rows, both lessons' tab tables and the D11
+      breadcrumb are data in `frontend/src/view/lessons.js`, specced first in
+      `lessons.spec.js` (14 specs) — so "the rail never grows", "no
+      `odometer-pool-workers` tab" (D10a) and "every tab prints a command" are
+      machine-checked without mounting Vue. `App.vue` now holds two separate
+      refs, `view` (the lesson) and `vehicle`, where it used to hold one
+      `view` string; picking a vehicle and picking a lesson could not both be
+      true while they were one value. `StreamCqrsPanel.spec.js` is the D10
+      acceptance test and it mounts the panel for real.
+      **`BucketPanel.vue` and `BucketKeys.vue` needed NO change, and the plan
+      line above said EDIT.** Both already took their subject from props
+      (`side`, `bucket`, `keyName`/`rows`, `doc`, `head`); nothing in either
+      read the rail. The task was written expecting an edit; there was none.
+      **One real bug, found in the browser, not by a spec.** The picker came
+      up blank. `null` is what every panel above it means by "all vehicles",
+      but PrimeVue reads a null model value as "nothing is selected" and falls
+      back to the placeholder. The picker now uses an internal sentinel and
+      still emits `null` outwards; `VehiclePicker.spec.js` pins both halves.
+      104 vitest specs green, `npm run build` clean, checked at 1920x1080.
+      `PoolPanel.vue` exists as a STUB so lesson 02's row renders — its tab
+      strip and commands are real, its tab contents are 04.7.9b's job. It
+      draws no numbers, because the numbers are not measured yet (04.7.4).
+- [x] 04.7.9b `PoolPanel.vue` — the four tabs, each printing its command.
+      Verified at 1920x1080.
+
+      The arithmetic went into `view/pool.js` first, specced before it existed
+      (22 its), so the panel only draws. Transport was the cheap part: both
+      pool buckets are watched exactly like the other two, so there is no new
+      consumer-info call and no HTTP. The watches are OPTIONAL — `cqrs pool`
+      may never have been run, and an absent bucket is a state of the world,
+      not an error.
+
+      Two findings, recorded rather than smoothed over:
+
+      A heartbeat does not say "the last sequence I acked" (`WorkerState`,
+      `cqrs/pool.go`), only what a worker is holding right now. So an idle
+      worker is left OFF the lane instead of being drawn at sequence 0, which
+      would claim it is the whole log behind when it is merely idle. A spec
+      pins this.
+
+      Two of the four tabs have no measurement yet and say so in words:
+      **1 vs 4** draws nothing at all and prints the `-drain` commands, because
+      04.7.4 has not been run; **Redelivery** shows what the server is doing
+      but reports no duration, because nothing here measures one. Live and
+      Starvation are fully live off the two pool buckets. Two its in
+      `PoolPanel.spec.js` exist only to fail if a later change fills the
+      empty tab in with plausible numbers.
+
+      145 vitest specs green, `npm run build` clean, checked at 1920x1080.
+- [x] 04.7.10 README — a pool section and the four numbers.
+
+      The section is written: what the pool is, the three facts that decide
+      how it behaves, what BR-OD08 damage looks like, the three condition
+      runs, and the `-drain` comparison.
+
+      The four numbers are NOT in it. The 1-vs-4 table is present with every
+      cell dashed and a line saying plainly that it has not been measured,
+      matching the UI's "1 vs 4" tab. 04.7.4 fills both in one edit. A table
+      of times this demo never ran would break the only promise it makes.
+
+      Two other corrections while in the file: the UI panel table described
+      the old rail and now describes the three-row lesson index (D9), and the
+      Status line claimed all phases were done.
+
+### 10.9 What would make this phase a failure
+
+- A number in `odometer-write` or `odometer-read` changed (D1).
+- A business rule enforced anywhere but `domain.go`.
+- A button in the browser that starts, stops or configures a worker (D6).
+- A tab that shows a number without the command that produced it.
+- `partition()` or a `nats.conf` subject mapping appearing anywhere (D7).
+- A rail row that is not a lesson or the guide (D9).
+- Lesson 01's Overview tab showing one bucket instead of two (D10).

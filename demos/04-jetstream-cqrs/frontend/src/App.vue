@@ -1,18 +1,19 @@
 <script setup>
-// The screen proper. The rail picks one of two things to show.
+// The screen proper. The rail picks a LESSON; the lesson picks its own tabs.
 //
-// "How it works" is the demo explained — the README and the drawings, both
-// read from the files that already hold them. Everything else is the demo
-// running, in four pieces, in the order the demo argues:
+// Phase 04.7 (D9) changed what the rail is. It used to list the vehicles and
+// the three storage objects, so it grew every time the demo did. It is now a
+// lesson index and it never grows:
 //
-//   1. the command bar   the only thing that writes, and it decides nothing
-//   2. the lag lane      both sides drawn against the head of the log at once
-//   3. the two buckets   the same vehicle, stored twice, for two different jobs
-//   4. the log           the source of truth, with the lag told row by row
+//   GUIDE    How it works
+//   LESSONS  01 · Stream + CQRS
+//            02 · Scaling a consumer
 //
-// The bar is first because the demo is done in that order: send a command,
-// then watch it appear below. Still no rules here — every value on this page
-// was decided by domain.go and folded into KV by a projector.
+// What left the rail did not disappear — it became a control inside the panel.
+// The vehicles are a picker in the pagehead (VehiclePicker.vue); the storage
+// objects are a tab strip inside lesson 01 (StreamCqrsPanel.vue). The rail now
+// answers "what am I being taught", and the panel answers "what am I looking
+// at" — two questions that were fighting over one list.
 //
 // Nothing an accepted command returns is written into the panels. The command
 // gives back a sequence number; the screen learns what it MEANT from the read
@@ -29,15 +30,15 @@ import NavList from '@ui-shell/NavList.vue'
 
 import { useCommands } from './commands/useCommands.js'
 import AboutPanel from './components/AboutPanel.vue'
-import BucketKeys from './components/BucketKeys.vue'
-import BucketPanel from './components/BucketPanel.vue'
 import CommandBar from './components/CommandBar.vue'
-import EventLog from './components/EventLog.vue'
-import LagLane from './components/LagLane.vue'
+import PoolPanel from './components/PoolPanel.vue'
+import StreamCqrsPanel from './components/StreamCqrsPanel.vue'
+import VehiclePicker from './components/VehiclePicker.vue'
 import { COMMAND_API, NATS_WS, READ_KV, STREAM, SUBJECT_PREFIX, WRITE_KV } from './config.js'
 import { useOdometer } from './nats/useOdometer.js'
+import { GUIDE, crumbFor, railSections } from './view/lessons.js'
 
-const { status, error, head, writes, reads, log, vehicles, lags, connect, disconnect } =
+const { status, error, head, writes, reads, pool, poolWorkers, log, vehicles, lags, connect, disconnect } =
   useOdometer()
 
 onMounted(connect)
@@ -57,18 +58,20 @@ const STATES = {
 }
 const connection = computed(() => STATES[status.value] ?? STATES.idle)
 
-const view = ref('storage-stream')
+// The rail's selection and the vehicle are now two separate things. They used
+// to be one `view` string (`vehicle-truck-7`), which is why picking a vehicle
+// and picking a lesson could not both be true at once.
+const view = ref('lesson-01')
+const vehicle = ref(null)
 
-// The guide is a page of its own, not a panel among the live ones. Somebody
-// reading what CQRS means here should not have to read it past a lag lane
-// that is moving.
-const isAbout = computed(() => view.value === 'about')
+const isAbout = computed(() => view.value === GUIDE.key)
+const isLesson01 = computed(() => view.value === 'lesson-01')
+const isLesson02 = computed(() => view.value === 'lesson-02')
 
-// One vehicle, or none. `null` means a storage row is selected and every panel
-// widens to the whole bucket.
-const vehicle = computed(() =>
-  view.value.startsWith('vehicle-') ? view.value.slice('vehicle-'.length) : null,
-)
+const sections = railSections()
+const crumb = computed(() => crumbFor(view.value, vehicle.value))
+
+// `null` means all vehicles, and every panel widens to the whole bucket.
 const scope = computed(() => vehicle.value ?? 'all vehicles')
 
 const writeDoc = computed(() => (vehicle.value ? (writes.get(vehicle.value) ?? null) : null))
@@ -95,8 +98,8 @@ const vehicleHead = computed(() =>
 )
 
 // Scoped to the selection. For one vehicle the two positions are that key's own
-// lastSeq; for the whole bucket they are the furthest any key has been folded
-// to, which is where the projector itself has reached.
+// lastSeq; for all vehicles they are the furthest any key has been folded to,
+// which is where the projector itself has reached.
 const positions = computed(() =>
   vehicle.value
     ? {
@@ -120,41 +123,14 @@ const vehiclePlate = computed(() => writeDoc.value?.plate ?? readDoc.value?.plat
 
 const STATUS_SEVERITY = { registered: 'success', retired: 'secondary' }
 
-// A retired vehicle says so in the rail; everything else shows how far the read
-// side has folded it, which is the number the lane moves.
-function badgeFor(id) {
-  const w = writes.get(id)
-  if (w?.status === 'retired') return 'retired'
-  const r = reads.get(id)
-  return String(r?.lastSeq ?? w?.lastSeq ?? 0)
-}
+const writeRows = computed(() => [...writes.values()])
+const readRows = computed(() => [...reads.values()])
 
-const sections = computed(() => [
-  {
-    eyebrow: 'Guide',
-    items: [{ key: 'about', label: 'How it works' }],
-  },
-  {
-    eyebrow: 'Vehicles',
-    items: vehicles.value.length
-      ? vehicles.value.map((id) => ({ key: `vehicle-${id}`, label: id, badge: badgeFor(id) }))
-      : [{ key: 'vehicles-none', label: 'No vehicles yet' }],
-  },
-  {
-    eyebrow: 'Storage',
-    items: [
-      { key: 'storage-stream', label: STREAM, badge: String(head.value) },
-      { key: 'storage-write', label: WRITE_KV, badge: String(writes.size) },
-      { key: 'storage-read', label: READ_KV, badge: String(reads.size) },
-    ],
-  },
-])
-
-// A vehicle that disappears from both buckets must not leave the rail pointing
-// at a row that is gone.
-watch(sections, (next) => {
-  const keys = next.flatMap((s) => s.items.map((i) => i.key))
-  if (!keys.includes(view.value)) view.value = 'storage-stream'
+// A vehicle that disappears from both buckets must not leave the picker
+// pointing at a key that is gone. The rail cannot go stale any more — its three
+// rows are fixed — so this watches the vehicle list instead of the rail.
+watch(vehicles, (next) => {
+  if (vehicle.value && !next.includes(vehicle.value)) vehicle.value = null
 })
 </script>
 
@@ -168,7 +144,9 @@ watch(sections, (next) => {
     <template #breadcrumb>
       <span>Demo 04</span>
       <span class="sep">/</span>
-      <b>{{ isAbout ? 'How it works' : (vehicle ?? 'JetStream + CQRS') }}</b>
+      <span>{{ crumb.lesson }}</span>
+      <span class="sep">/</span>
+      <b>{{ crumb.title }}</b>
     </template>
 
     <template #topbar-right>
@@ -183,111 +161,83 @@ watch(sections, (next) => {
       <NavList
         v-model="view"
         :sections="sections"
-        aria-label="Vehicles and storage"
+        aria-label="Lessons"
       />
     </template>
 
     <header class="pagehead">
-      <h1>{{ isAbout ? 'How it works' : (vehicle ?? 'Odometer') }}</h1>
+      <h1>{{ isAbout ? GUIDE.label : crumb.title }}</h1>
       <Tag
-        v-if="!isAbout && vehicleStatus"
+        v-if="isLesson01 && vehicleStatus"
         :severity="STATUS_SEVERITY[vehicleStatus] ?? 'info'"
         :value="vehicleStatus"
         data-testid="vehicle-status"
       />
       <Tag
-        v-if="!isAbout && vehiclePlate"
+        v-if="isLesson01 && vehiclePlate"
         severity="secondary"
         :value="vehiclePlate"
       />
+      <VehiclePicker
+        v-if="isLesson01"
+        v-model="vehicle"
+        :vehicles="vehicles"
+        :writes="writes"
+        :reads="reads"
+      />
       <code
-        v-if="!isAbout"
+        v-if="isLesson01"
         class="subject"
       >{{ subject }}</code>
     </header>
 
     <AboutPanel v-if="isAbout" />
 
-    <p
-      v-if="!isAbout && !vehicle"
-      class="sub"
-    >
-      One log, two sides. The write side checks a rule against the state the log
-      already holds. The read side answers a question the log was never shaped
-      for. Both trail the stream head, and the gap is what this screen exists to
-      show. Pick a vehicle to narrow every panel to one key.
-    </p>
+    <template v-if="isLesson01">
+      <p
+        v-if="!vehicle"
+        class="sub"
+      >
+        One log, two sides. The write side checks a rule against the state the
+        log already holds. The read side answers a question the log was never
+        shaped for. Both trail the stream head, and the gap is what this screen
+        exists to show. Pick a vehicle to narrow every tab to one key.
+      </p>
 
-    <p
-      v-if="!isAbout && error"
-      class="panel err"
-      data-testid="connection-error"
-    >
-      {{ error }}
-    </p>
+      <p
+        v-if="error"
+        class="panel err"
+        data-testid="connection-error"
+      >
+        {{ error }}
+      </p>
 
-    <CommandBar
-      v-if="!isAbout"
-      :vehicle="vehicle"
-      :pending="pending"
-      :outcomes="outcomes"
-      @run="run"
-    />
-
-    <LagLane
-      v-if="!isAbout"
-      :head="positions.head"
-      :write-seq="positions.writeSeq"
-      :read-seq="positions.readSeq"
-      :scope="scope"
-      :head-label="vehicle ? `newest event for ${vehicle}` : 'stream head'"
-      :log-label="vehicle ? `${STREAM} · the events for ${vehicle}, up to seq ${positions.head}` : ''"
-    />
-
-    <div
-      v-if="!isAbout && vehicle"
-      class="cols"
-    >
-      <BucketPanel
-        side="write"
-        :bucket="WRITE_KV"
-        :key-name="`vehicle.${vehicle}`"
-        :doc="writeDoc"
-        :head="positions.head"
+      <CommandBar
+        :vehicle="vehicle"
+        :pending="pending"
+        :outcomes="outcomes"
+        @run="run"
       />
-      <BucketPanel
-        side="read"
-        :bucket="READ_KV"
-        :key-name="`vehicle.${vehicle}`"
-        :doc="readDoc"
-        :head="positions.head"
+
+      <StreamCqrsPanel
+        :vehicle="vehicle"
+        :write-doc="writeDoc"
+        :read-doc="readDoc"
+        :write-rows="writeRows"
+        :read-rows="readRows"
+        :log-rows="rows"
+        :head="head"
+        :positions="positions"
+        :scope="scope"
       />
-    </div>
+    </template>
 
-    <BucketKeys
-      v-if="view === 'storage-write'"
-
-      side="write"
-      :bucket="WRITE_KV"
-      :rows="[...writes.values()]"
+    <PoolPanel
+      v-if="isLesson02"
       :head="head"
-    />
-    <BucketKeys
-      v-if="view === 'storage-read'"
-      side="read"
-      :bucket="READ_KV"
-      :rows="[...reads.values()]"
-      :head="head"
-    />
-
-    <EventLog
-      v-if="!isAbout"
-      :rows="rows"
-      :head="head"
-      :write-seq="positions.writeSeq"
-      :read-seq="positions.readSeq"
-      :scope="scope"
-      :show-vehicle="!vehicle"
+      :workers="poolWorkers"
+      :pool="pool"
+      :reads="reads"
     />
 
     <footer class="wiring">
@@ -337,21 +287,6 @@ watch(sections, (next) => {
 .panel.err {
   border-color: var(--err);
   color: var(--err);
-}
-
-/* Side by side, because the point is the difference between the two. They
-   stack below 1100px rather than squeezing the read side's big number. */
-.cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 20px;
-}
-
-@media (max-width: 1100px) {
-  .cols {
-    grid-template-columns: 1fr;
-  }
 }
 
 .wiring {

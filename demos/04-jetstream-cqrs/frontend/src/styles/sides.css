@@ -8,10 +8,16 @@
  * They live here and not in shared/unifi-theme because "write side" and "read
  * side" are demo 04's domain, not a design-system role. No other app in the
  * repo has a use for them.
+ *
+ * Phase 04.7 adds one more. A pool worker folds into a read model, so it takes
+ * the read colour — it is not a third side of CQRS. --d4-lost is the exception:
+ * a worker that was killed, or an event the fold refused (BR-OD08). Loss is the
+ * one thing on this screen that must not look like everything else.
  */
 :root {
   --d4-write: #4d94ff;
   --d4-read: #2dd4bf;
+  --d4-lost: #f87171;
 }
 
 /* Light mode — the dark values wash out on white, so both are darkened to
@@ -19,4 +25,5 @@
 :root:not(.p-dark) {
   --d4-write: #0b5ed7;
   --d4-read: #0d7d70;
+  --d4-lost: #c3372f;
 }

@@ -153,3 +153,98 @@ var _ = Describe("the odometer read model", func() {
 		Expect(first).To(Equal(again))
 	})
 })
+
+// A fold's position is the only state these rules read. There is no vehicle
+// here and no total -- BR-OD06..08 answer "may this event be applied", and
+// nothing about what applying it would produce.
+var _ = Describe("the fold position", func() {
+
+	Context("BR-OD06 — a sequence ahead of the position is applied", func() {
+		It("applies the first event a fresh fold sees", func() {
+			f := Fold{}
+			next, err := f.Next(1)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(next).To(BeTrue())
+		})
+
+		It("applies the next sequence in the log", func() {
+			next, err := Fold{LastSeq: 41}.Next(42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(next).To(BeTrue())
+		})
+
+		// A gap is not an error. The consumer filters a subject, so the
+		// sequences one vehicle's fold sees are never contiguous.
+		It("applies a sequence that skips a gap", func() {
+			next, err := Fold{LastSeq: 41}.Next(97)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(next).To(BeTrue())
+		})
+	})
+
+	Context("BR-OD07 — a sequence equal to the position is a redelivery", func() {
+		It("ignores it, without an error", func() {
+			next, err := Fold{LastSeq: 42}.Next(42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(next).To(BeFalse())
+		})
+
+		// The caller acks a redelivery. Refusing it would nak for ever,
+		// because the second copy will never become new.
+		It("is the answer JetStream's at-least-once delivery needs", func() {
+			f := Fold{LastSeq: 42}
+			for i := 0; i < 3; i++ {
+				next, err := f.Next(42)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(next).To(BeFalse())
+			}
+		})
+	})
+
+	Context("BR-OD08 — a sequence behind the position is out of order", func() {
+		It("refuses it", func() {
+			next, err := Fold{LastSeq: 42}.Next(41)
+			Expect(err).To(MatchError(ErrOutOfOrder))
+			Expect(next).To(BeFalse())
+		})
+
+		// This is the whole reason the rule exists. The old code said
+		// `seq <= lastSeq -> return nil`, which acked an event it never
+		// applied. The total was then short for ever, with no error.
+		It("separates a late event from a repeated one", func() {
+			f := Fold{LastSeq: 42}
+
+			repeated, err := f.Next(42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(repeated).To(BeFalse())
+
+			late, err := f.Next(7)
+			Expect(err).To(MatchError(ErrOutOfOrder))
+			Expect(late).To(BeFalse())
+		})
+
+		It("reports the sequence it refused and the position it held", func() {
+			_, err := Fold{LastSeq: 42}.Next(7)
+			Expect(err.Error()).To(ContainSubstring("7"))
+			Expect(err.Error()).To(ContainSubstring("42"))
+		})
+	})
+
+	Context("the fold advances only on an applied event", func() {
+		It("moves to the applied sequence", func() {
+			f := Fold{}
+			_, err := f.Next(9)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(f.Advance(9)).To(Equal(Fold{LastSeq: 9}))
+		})
+
+		// Advance is a separate call on purpose. The caller writes the
+		// projection first and moves the position with it, in one KV value,
+		// so a crash between the two cannot lose or double an event.
+		It("leaves the position alone while deciding", func() {
+			f := Fold{LastSeq: 9}
+			_, _ = f.Next(10)
+			Expect(f.LastSeq).To(Equal(uint64(9)))
+		})
+	})
+})

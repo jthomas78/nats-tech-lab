@@ -5,6 +5,7 @@
 // stream head at the right end. Each side's marker sits where that side has
 // folded up to, and the gap between the marker and the right end IS the lag.
 
+import { READ_KV, STREAM, WRITE_KV } from '../config.js'
 import { lag } from '../nats/model.js'
 
 export const AXIS = Object.freeze({ x0: 40, x1: 960 })
@@ -37,25 +38,74 @@ export function labelPlacement(x, axis = AXIS, width = LABEL_WIDTH) {
   return { anchor: 'end', x: x - LABEL_GAP }
 }
 
+// One row per thing that folds. Phase 04.7 made this N rows instead of two
+// markers: a worker pool has one row per worker, and the panel does not know
+// how many workers there are until it reads the heartbeat bucket.
+//
+// A row is `{ id, text, seq }` plus three optional fields: `kind: 'log'` draws
+// the log itself (always full width — it IS the head, so it cannot be behind
+// it), `tone` is passed through untouched for the drawing to colour, and
+// `say` overrides `text` in the alt text when the spoken wording differs.
+//
+// `row.label` on the way OUT is the label PLACEMENT, not the words — the words
+// are `row.text`. The two had the same name once and it cost an hour.
+//
+// The geometry lives here, not in the component, because it is arithmetic and
+// arithmetic is specced. Rows are 26 units apart and the axis sits 18 below
+// the last row, which is exactly where the old fixed write/log/read drawing
+// already had them — see the spec that proves the three-row case is unchanged.
+export const ROW = Object.freeze({ top: 18, gap: 26, lift: 8, axisGap: 18, foot: 16 })
+
+export function laneRows({ head = 0, rows = [] } = {}, axis = AXIS) {
+  const h = Number(head) || 0
+  const placed = rows.map((row, i) => {
+    const isLog = row.kind === 'log'
+    const seq = isLog ? h : Number(row.seq) || 0
+    const x = isLog ? axis.x1 : positionOf(seq, h, axis)
+    const y = ROW.top + i * ROW.gap
+    return {
+      ...row,
+      kind: row.kind || 'fold',
+      seq,
+      lag: isLog ? 0 : Math.max(0, h - seq),
+      x,
+      y,
+      labelY: y - ROW.lift,
+      label: labelPlacement(x, axis),
+    }
+  })
+  const axisY = ROW.top + Math.max(0, placed.length - 1) * ROW.gap + ROW.axisGap
+  return { head: h, axis, rows: placed, axisY, height: axisY + ROW.foot }
+}
+
+// The two-marker lane is three rows: write, the log, read. It keeps its own
+// `write` and `read` fields because the existing drawing and its specs name
+// them, and because those two are not interchangeable the way workers are.
 export function lanePoints(input = {}, axis = AXIS) {
   const l = lag(input)
-  const writeX = positionOf(l.writeSeq, l.head, axis)
-  const readX = positionOf(l.readSeq, l.head, axis)
-  return {
-    ...l,
+  const logText = input.logLabel || `${STREAM} · ${l.head} events, the only source of truth`
+  const laid = laneRows(
+    {
+      head: l.head,
+      rows: [
+        { id: 'write', kind: 'fold', tone: 'write', text: `${WRITE_KV} · snapshot at ${l.writeSeq}`, seq: l.writeSeq, say: 'The write-side snapshot' },
+        { id: 'log', kind: 'log', tone: 'log', text: logText },
+        { id: 'read', kind: 'fold', tone: 'read', text: `${READ_KV} · projected to ${l.readSeq}`, seq: l.readSeq, say: 'The read model' },
+      ],
+    },
     axis,
-    write: { seq: l.writeSeq, lag: l.writeLag, x: writeX, label: labelPlacement(writeX, axis) },
-    read: { seq: l.readSeq, lag: l.readLag, x: readX, label: labelPlacement(readX, axis) },
-  }
+  )
+  const [write, , read] = laid.rows
+  return { ...l, ...laid, write, read }
 }
 
 // The alt text for the SVG. Screen readers get the same three positions the
 // picture shows, in words.
 export function laneDescription(points, scope = 'all vehicles') {
   if (points.head <= 0) return `Nothing on the stream yet for ${scope}.`
-  return (
-    `Sequence axis from 1 to ${points.head} for ${scope}. ` +
-    `The write-side snapshot sits at sequence ${points.write.seq}, ${points.write.lag} behind the head. ` +
-    `The read model sits at sequence ${points.read.seq}, ${points.read.lag} behind the head.`
+  const folds = (points.rows || []).filter((row) => row.kind !== 'log')
+  const lines = folds.map(
+    (row) => `${row.say || row.text} sits at sequence ${row.seq}, ${row.lag} behind the head. `,
   )
+  return `Sequence axis from 1 to ${points.head} for ${scope}. ` + lines.join('')
 }

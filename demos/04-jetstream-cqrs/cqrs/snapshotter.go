@@ -74,10 +74,12 @@ func foldIntoSnapshot(ctx context.Context, kv jetstream.KeyValue, msg jetstream.
 		return err
 	}
 
+	seq := meta.Sequence.Stream
+
 	entry, err := kv.Get(ctx, snapshotKey(id))
 	switch {
 	case errors.Is(err, jetstream.ErrKeyNotFound):
-		snap := Snapshot{State: Vehicle{}.Apply(event), LastSeq: meta.Sequence.Stream}
+		snap := Snapshot{State: Vehicle{}.Apply(event), Fold: Fold{}.Advance(seq)}
 		body, _ := json.Marshal(snap)
 		_, err = kv.Create(ctx, snapshotKey(id), body)
 		return err
@@ -89,13 +91,19 @@ func foldIntoSnapshot(ctx context.Context, kv jetstream.KeyValue, msg jetstream.
 	if err := json.Unmarshal(entry.Value(), &snap); err != nil {
 		return err
 	}
-	// Already folded. Redelivery is normal in JetStream, and a fold that is
-	// not idempotent turns an at-least-once delivery into a wrong total.
-	if meta.Sequence.Stream <= snap.LastSeq {
-		return nil
+	// BR-OD06..08. Redelivery is normal in JetStream and is ignored; an event
+	// that arrived behind the fold is refused out loud instead of acked in
+	// silence. This consumer holds MaxAckPending 1, so the refusal cannot
+	// fire here today -- it is the pool in phase 04.7 that makes it speak.
+	apply, err := snap.Next(seq)
+	if err != nil {
+		return err
+	}
+	if !apply {
+		return nil // BR-OD07 — a redelivery, not a new fact
 	}
 	snap.State = snap.State.Apply(event)
-	snap.LastSeq = meta.Sequence.Stream
+	snap.Fold = snap.Advance(seq)
 	body, _ := json.Marshal(snap)
 	_, err = kv.Update(ctx, snapshotKey(id), body, entry.Revision())
 	return err

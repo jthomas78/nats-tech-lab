@@ -24,12 +24,17 @@ import (
 
 // Snapshot is what the write-side KV bucket holds for one vehicle.
 //
-// LastSeq is the stream sequence of the last event already folded into State.
-// It is the join between the snapshot and the log: rehydration continues from
-// LastSeq+1, never from the snapshot alone.
+// The embedded Fold carries LastSeq: the stream sequence of the last event
+// already folded into State. It is the join between the snapshot and the log,
+// so rehydration continues from LastSeq+1 and never from the snapshot alone.
+//
+// Fold is embedded rather than copied so that the state and the position are
+// one KV value and one write. A position stored apart from the state it
+// describes can disagree with it after a crash. The stored JSON is unchanged
+// by the embedding: {state, lastSeq}, exactly as before.
 type Snapshot struct {
-	State   Vehicle `json:"state"`
-	LastSeq uint64  `json:"lastSeq"`
+	State Vehicle `json:"state"`
+	Fold
 }
 
 // Rehydrated is one rebuilt aggregate plus the numbers that make the

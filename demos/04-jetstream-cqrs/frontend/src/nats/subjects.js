@@ -37,3 +37,12 @@ export function vehicleFromKey(key) {
   const id = s.slice('vehicle.'.length)
   return id === '' ? null : id
 }
+
+// workerFromKey reverses workerKey() in names.go: `worker.{02d}`.
+// KV odometer-pool-workers holds one of these per worker, and nothing else.
+export function workerFromKey(key) {
+  const s = String(key ?? '')
+  if (!s.startsWith('worker.')) return null
+  const n = Number(s.slice('worker.'.length))
+  return Number.isInteger(n) && n > 0 ? n : null
+}

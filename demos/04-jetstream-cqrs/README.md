@@ -49,7 +49,8 @@ diagrams:
 ## What is in here, and what is not
 
 One NATS server, one Go binary, one Compose file, one stream, two KV buckets,
-and a small Vue UI that watches all of it.
+and a small Vue UI that watches all of it. Lesson 02 adds two more buckets,
+but only once you run it.
 
 No Postgres, no cluster, no gateway, no operator mode, no Temporal.
 Multi-region is demo 02. Accounts and topologies are demo 03. Services are
@@ -176,6 +177,10 @@ nats --context lab4-odometer kv ls
 One stream, `ODOMETER`. Two buckets, `odometer-write` and `odometer-read`.
 The split is the demo.
 
+Run the worker pool (see **Lesson 02** below) and two more appear:
+`odometer-pool` and `odometer-pool-workers`. They are lesson 02's, and they do
+not exist until you run it.
+
 ### 10. Stop and clean up
 
 ```bash
@@ -235,13 +240,21 @@ outright rather than half working.
 
 ### What is on the screen
 
-| Panel | What it shows |
+The rail is a lesson index, not a list of data. Three rows, and it never
+grows: a guide, and one row per lesson.
+
+| Rail row | What it shows |
 |---|---|
-| **How it works** | the first rail entry — this README, and the diagrams |
-| **Command bar** | register, record a trip, retire |
-| **Lag lane** | the stream head, and how far each side trails it |
-| **Two buckets** | the same vehicle stored twice, for two different jobs |
-| **Log** | every event, newest first, marked as each side folds it |
+| **How it works** | this README, and the diagrams |
+| **01 · Stream + CQRS** | four tabs — Overview, the log, and each bucket |
+| **02 · Scaling a consumer** | four tabs — Live, Starvation, Redelivery, 1 vs 4 |
+
+Lesson 01's Overview tab is the argument: the lag lane, and both buckets side
+by side. Which vehicle you are looking at is a picker at the top of the page,
+not a rail row, so ten vehicles do not make ten rail rows.
+
+Every tab prints the command that produced it. A number on a screen you cannot
+reproduce in a terminal is a claim, not a demonstration.
 
 No button is ever greyed out by a rule. A trip of 0 km is sent, refused by
 `domain.go`, and the refusal names the rule it broke. A rule the browser
@@ -280,6 +293,96 @@ Two things that number does not say:
 
 Reproduce it yourself with **How to run it**, step 8.
 
+## Lesson 02 — scaling a consumer
+
+The rest of this demo folds one event at a time, in order, because a fold is a
+fold. `cqrs pool` does it wrong on purpose: N workers bind to **one** durable
+consumer and race each other. Throughput goes up. Order goes away.
+
+Three facts decide everything that follows.
+
+- **The position belongs to the consumer, not to a worker.** Adding workers
+  adds hands, not places in the queue.
+- **`MaxAckPending` is shared by the whole consumer.** Eight workers and a cap
+  of three leaves five workers with nothing to do. That is a config answer, not
+  a bug.
+- **Demand order is not log order.** Worker 3 can be folding event 6 while
+  worker 1 has already folded event 7.
+
+The pool folds into its own bucket, `odometer-pool`. It is a third projection
+of the same log and it is kept apart from `odometer-read` on purpose: the pool
+is deliberately damaged, and a demo that damaged the read model to show that
+would have nothing correct left to compare against.
+
+### What the damage looks like
+
+`BR-OD08` is what turns reordering from a silence into a number. A fold refuses
+an event whose sequence is behind its own position, terminates it, and counts
+it. The run prints the count:
+
+```
+events      10001 handed out
+folded      9994 acked
+dropped     7 refused by BR-OD08 — out of order, terminated, gone
+```
+
+**The pool's total is short, never double.** A dropped event is a fact that is
+gone: the fold's position never moves back, so nothing repairs it. Compare
+`odometer-pool` against `odometer-read` and the difference is the cost of the
+extra workers, in kilometres.
+
+`BR-OD08` cannot fire while `-max-pending 1`. One message in flight is one
+message in flight, whatever the worker count, so the pool behaves and proves
+nothing.
+
+### The four runs
+
+Each one is the same pool under a different condition. They are the four tabs
+in the UI.
+
+```bash
+./cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s   # Live
+./cqrs pool -workers 8 -max-pending 3                    # Starvation
+./cqrs pool -workers 4 -ack-wait 30s -kill-at 94         # Redelivery
+```
+
+`-kill-at` is real fault injection, not a label. The worker that fetches that
+sequence stops fetching and **never acks and never naks** — exactly what the
+server sees when a process is killed. It must not nak: a nak redelivers at
+once and hides the `AckWait` wait, which is the only thing the flag exists to
+show. The event is redelivered after `AckWait`, the watermark refuses to
+double-count it (`BR-OD07`), and the fold is stuck until then.
+
+Each run blocks. Stop it with Ctrl-C.
+
+### Does it actually go faster — 1 vs 4
+
+**Not measured yet.** This table is empty on purpose, and the UI's "1 vs 4"
+tab draws nothing for the same reason. A table of times this demo never ran
+would be the one thing it must not do.
+
+| Workers | Time to drain 10000 events | Events/s | Dropped |
+|---|---|---|---|
+| 1 | — | — | — |
+| 2 | — | — | — |
+| 4 | — | — | — |
+| 8 | — | — | — |
+
+Fill it in yourself:
+
+```bash
+./cqrs seed -vehicle truck-7 -n 10000
+for w in 1 2 4 8; do ./cqrs pool -workers $w -drain; done
+```
+
+`-drain` is what makes the runs comparable: it rebuilds the pool's projection
+from sequence 1 and stops when the consumer reports nothing left. Every run
+then answers the same question against the same seed.
+
+Expect the dropped count to go **up** with the worker count. That is the
+trade, and it is the whole lesson: you are buying throughput with correctness,
+and this demo makes you see the price.
+
 ## The commands
 
 | Command | What it does |
@@ -293,10 +396,12 @@ Reproduce it yourself with **How to run it**, step 8.
 | `projector` | run the read-side projector (blocks) |
 | `query -vehicle ID` | read the read store — one KV get, no replay |
 | `serve` | run the command API the UI posts to (blocks) |
+| `pool -workers N [-max-pending N] [-ack-wait D] [-kill-at SEQ] [-drain]` | N workers racing on one durable consumer (blocks) |
 
 ## Status
 
-All six phases are done — see `docs/Demo-04-Plan.md`.
+Phases 04.1 to 04.6 are done. Phase 04.7 — the worker pool — is built and
+runs; its four timings are not measured yet. See `docs/Demo-04-Plan.md`.
 
 ## Tests
 

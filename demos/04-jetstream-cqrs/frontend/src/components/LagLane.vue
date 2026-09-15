@@ -4,19 +4,27 @@
 // A terminal prints one line at a time, so it can tell you the write side is at
 // sequence 124 and the read side at 126, but it cannot show you both distances
 // at once. This does: one axis from sequence 1 to the head of the log, the log
-// itself drawn full-width, and a marker per side sitting where that side has
-// folded up to. The gap between a marker and the right-hand end is the lag.
+// itself drawn full-width, and a marker per fold sitting where that fold has
+// got to. The gap between a marker and the right-hand end is the lag.
+//
+// Phase 04.7 made it N markers instead of two. A worker pool has one row per
+// worker and the panel does not know how many until it reads the heartbeat
+// bucket, so the drawing takes a list of rows and draws whatever it is given.
+// Passing `rows` is the general form; passing `writeSeq`/`readSeq` is the
+// three-row CQRS form, which is the same drawing with a fixed list.
 //
 // All the maths is in view/lane.js and is specced there. This file only draws.
 import { computed } from 'vue'
 
-import { READ_KV, STREAM, WRITE_KV } from '../config.js'
-import { laneDescription, lanePoints } from '../view/lane.js'
+import { laneDescription, laneRows, lanePoints } from '../view/lane.js'
 
 const props = defineProps({
   head: { type: Number, default: 0 },
   writeSeq: { type: Number, default: 0 },
   readSeq: { type: Number, default: 0 },
+  // The general form: `{ id, text, seq, tone, kind }`. See view/lane.js.
+  // When this is empty the component falls back to the write/log/read lane.
+  rows: { type: Array, default: () => [] },
   // What the lane is measuring: one vehicle's key, or every key in the bucket.
   scope: { type: String, default: 'all vehicles' },
   // What the right-hand end of the axis is. For the whole bucket that is the
@@ -24,16 +32,29 @@ const props = defineProps({
   // is the only thing its own snapshot could possibly be behind.
   headLabel: { type: String, default: 'stream head' },
   logLabel: { type: String, default: '' },
+  title: { type: String, default: '' },
 })
 
 const points = computed(() =>
-  lanePoints({ head: props.head, writeSeq: props.writeSeq, readSeq: props.readSeq }),
+  props.rows.length
+    ? laneRows({ head: props.head, rows: props.rows })
+    : lanePoints({
+        head: props.head,
+        writeSeq: props.writeSeq,
+        readSeq: props.readSeq,
+        logLabel: props.logLabel,
+      }),
 )
+
 const description = computed(() => laneDescription(points.value, props.scope))
-const caughtUp = computed(() => points.value.writeLag === 0 && points.value.readLag === 0)
-const logLine = computed(
-  () => props.logLabel || `${STREAM} · ${points.value.head} events, the only source of truth`,
+const folds = computed(() => points.value.rows.filter((row) => row.kind !== 'log'))
+const caughtUp = computed(() => folds.value.every((row) => row.lag === 0))
+const summary = computed(() =>
+  caughtUp.value
+    ? 'both caught up'
+    : `${folds.value.map((row) => row.lag).join(' / ')} events behind`,
 )
+const heading = computed(() => props.title || `How far behind each side is — ${props.scope}`)
 </script>
 
 <template>
@@ -43,107 +64,82 @@ const logLine = computed(
   >
     <header>
       <p class="eyebrow">
-        How far behind each side is — {{ scope }}
+        {{ heading }}
       </p>
       <span
         class="tag"
         :class="{ ok: caughtUp }"
         data-testid="lag-summary"
-      >{{ caughtUp ? 'both caught up' : `${points.writeLag} / ${points.readLag} events behind` }}</span>
+      >{{ summary }}</span>
     </header>
 
     <svg
-      viewBox="0 0 1000 104"
+      :viewBox="`0 0 1000 ${points.height}`"
       role="img"
       :aria-label="description"
     >
-      <!-- The write side, above the log. -->
-      <line
-        class="seg write"
-        :x1="points.axis.x0"
-        y1="18"
-        :x2="points.write.x"
-        y2="18"
-      />
-      <circle
-        class="dot write"
-        :cx="points.write.x"
-        cy="18"
-        r="4.5"
-      />
-      <text
-        class="marker write"
-        :x="points.write.label.x"
-        y="9"
-        :text-anchor="points.write.label.anchor"
-      >{{ WRITE_KV }} · snapshot at {{ points.write.seq }}</text>
-
-      <!-- The log itself. The only source of truth, so it is always full. -->
-      <line
-        class="seg log"
-        :x1="points.axis.x0"
-        y1="44"
-        :x2="points.axis.x1"
-        y2="44"
-      />
-      <text
-        class="label"
-        :x="points.axis.x0"
-        y="34"
-      >{{ logLine }}</text>
-
-      <!-- The read side, below the log. -->
-      <line
-        class="seg read"
-        :x1="points.axis.x0"
-        y1="70"
-        :x2="points.read.x"
-        y2="70"
-      />
-      <circle
-        class="dot read"
-        :cx="points.read.x"
-        cy="70"
-        r="4.5"
-      />
-      <text
-        class="marker read"
-        :x="points.read.label.x"
-        y="63"
-        :text-anchor="points.read.label.anchor"
-      >{{ READ_KV }} · projected to {{ points.read.seq }}</text>
+      <!-- One row per fold, plus the log itself. The log is always full width:
+           it IS the head, so it cannot be behind it. -->
+      <g
+        v-for="row in points.rows"
+        :key="row.id"
+      >
+        <line
+          class="seg"
+          :class="row.tone"
+          :x1="points.axis.x0"
+          :y1="row.y"
+          :x2="row.x"
+          :y2="row.y"
+        />
+        <circle
+          v-if="row.kind !== 'log'"
+          class="dot"
+          :class="row.tone"
+          :cx="row.x"
+          :cy="row.y"
+          r="4.5"
+        />
+        <text
+          class="marker"
+          :class="row.kind === 'log' ? 'label' : row.tone"
+          :x="row.kind === 'log' ? points.axis.x0 : row.label.x"
+          :y="row.labelY"
+          :text-anchor="row.kind === 'log' ? 'start' : row.label.anchor"
+        >{{ row.text }}</text>
+      </g>
 
       <!-- The axis. -->
       <line
         class="axis"
         :x1="points.axis.x0"
-        y1="88"
+        :y1="points.axisY"
         :x2="points.axis.x1"
-        y2="88"
+        :y2="points.axisY"
       />
       <line
         class="tick"
         :x1="points.axis.x0"
-        y1="84"
+        :y1="points.axisY - 4"
         :x2="points.axis.x0"
-        y2="92"
+        :y2="points.axisY + 4"
       />
       <line
         class="tick"
         :x1="points.axis.x1"
-        y1="84"
+        :y1="points.axisY - 4"
         :x2="points.axis.x1"
-        y2="92"
+        :y2="points.axisY + 4"
       />
       <text
         class="label"
         :x="points.axis.x0"
-        y="102"
+        :y="points.axisY + 14"
       >seq 1</text>
       <text
         class="label"
         :x="points.axis.x1"
-        y="102"
+        :y="points.axisY + 14"
         text-anchor="end"
       >seq {{ points.head }} — {{ headLabel }}</text>
     </svg>
@@ -195,8 +191,8 @@ svg {
 .seg {
   stroke-width: 6;
   stroke-linecap: round;
-  /* The markers slide as the projectors catch up. Moving them instantly reads
-     as a redraw; easing them reads as the lag closing, which is the point. */
+  /* The markers slide as the folds catch up. Moving them instantly reads as a
+     redraw; easing them reads as the lag closing, which is the point. */
   transition: x2 240ms ease-out;
 }
 
@@ -218,10 +214,21 @@ svg {
   fill: var(--d4-write);
 }
 
+/* A pool worker folds into a read model, so it is the read colour. It is not
+   a third side of CQRS — see styles/sides.css. */
 .seg.read,
-.dot.read {
+.dot.read,
+.seg.worker,
+.dot.worker {
   stroke: var(--d4-read);
   fill: var(--d4-read);
+}
+
+/* A killed worker, or a fold that refused an event (BR-OD08). */
+.seg.lost,
+.dot.lost {
+  stroke: var(--d4-lost);
+  fill: var(--d4-lost);
 }
 
 .axis {
@@ -245,8 +252,13 @@ svg {
   fill: var(--d4-write);
 }
 
-.marker.read {
+.marker.read,
+.marker.worker {
   fill: var(--d4-read);
+}
+
+.marker.lost {
+  fill: var(--d4-lost);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -7,7 +7,7 @@
 // there never will be — every accept and every refusal comes from domain.go
 // (plan section 9.2, D1). Formatting a number is not a rule.
 
-import { parseEventSubject, vehicleFromKey } from './subjects.js'
+import { parseEventSubject, vehicleFromKey, workerFromKey } from './subjects.js'
 
 // writeSnapshot shapes one value from KV odometer-write: {state, lastSeq}.
 //
@@ -99,4 +99,27 @@ export function maxSeq(entries) {
     if (e && Number(e.lastSeq) > max) max = Number(e.lastSeq)
   }
   return max
+}
+
+// poolWorker shapes one key from KV odometer-pool-workers — WorkerState in
+// cqrs/pool.go. It is a heartbeat, not a control channel: nothing the browser
+// does is read back, and the bucket has a TTL, so a killed worker leaves the
+// screen on its own.
+//
+// The number comes from the KEY when the value has not got one. A heartbeat
+// that was truncated mid-write should still land on the right card rather
+// than collapsing every worker onto card zero.
+export function poolWorker(key, doc) {
+  const worker = workerFromKey(key)
+  if (worker === null) return null
+  return {
+    id: String(key),
+    worker: Number(doc?.worker ?? worker) || worker,
+    status: doc?.status ?? 'waiting',
+    holding: Number(doc?.holding ?? 0),
+    acked: Number(doc?.acked ?? 0),
+    dropped: Number(doc?.dropped ?? 0),
+    behind: Number(doc?.behind ?? 0),
+    at: doc?.at ?? '',
+  }
 }

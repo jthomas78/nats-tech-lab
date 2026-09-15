@@ -5,6 +5,9 @@ package main
 // aggregate, and the wrong aggregate approves a command the rules forbid.
 
 import (
+	"encoding/json"
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -49,5 +52,42 @@ var _ = Describe("the event codec", func() {
 			_, err := vehicleIDFrom("evt.odometer.vehicle.V1")
 			Expect(err).To(HaveOccurred())
 		})
+	})
+})
+
+// Both KV buckets hold a document that embeds Fold. Embedding is a Go detail
+// and must stay one: a bucket written before phase 04.7 has to read back
+// unchanged, and `nats kv get` has to keep printing the same shape.
+var _ = Describe("what the KV buckets hold", func() {
+
+	It("writes the write-side snapshot as {state, lastSeq}", func() {
+		snap := Snapshot{State: Vehicle{Status: StatusRegistered, Plate: "CA 123-456"}}
+		snap.Fold = snap.Advance(42)
+
+		body, err := json.Marshal(snap)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(Equal(
+			`{"state":{"status":"registered","plate":"CA 123-456"},"lastSeq":42}`))
+	})
+
+	It("reads a document written before Fold was embedded", func() {
+		var snap Snapshot
+		err := json.Unmarshal(
+			[]byte(`{"state":{"status":"retired","plate":"CA 123-456"},"lastSeq":7}`), &snap)
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(snap.State.Status).To(Equal(StatusRetired))
+		Expect(snap.LastSeq).To(Equal(uint64(7)))
+	})
+
+	It("keeps the read model flat, with lastSeq beside the totals", func() {
+		entry := ReadEntry{Odometer: Odometer{}.Apply(Registered{Plate: "CA 123-456"}, time.Time{})}
+		entry.Fold = entry.Advance(9)
+
+		body, err := json.Marshal(entry)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring(`"lastSeq":9`))
+		Expect(string(body)).To(ContainSubstring(`"totalKm":0`))
+		Expect(string(body)).NotTo(ContainSubstring(`"Fold"`))
 	})
 })

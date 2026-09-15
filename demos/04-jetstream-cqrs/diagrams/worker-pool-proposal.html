@@ -1,0 +1,151 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Demo 04 — worker pool proposal, before and after</title>
+<style>html,body{margin:0;background:#131416}svg{display:block;width:100%;height:auto}</style>
+</head><body>
+<svg viewBox="0 0 2000 1700" xmlns="http://www.w3.org/2000/svg" role="img"
+  aria-label="Before and after diagram of demo 04. Before: the ODOMETER stream feeds two durable consumers, the snapshotter and the projector, each with MaxAckPending 1, writing to the odometer-write and odometer-read KV buckets. After: those two are unchanged, and two new consumer groups are added beside them — odometer-pool-naive, a single durable shared round-robin by four workers which loses per-vehicle order and produces wrong totals on purpose, and odometer-pool-partitioned, four durables with one filter subject per partition, which keeps order per vehicle and produces the same totals as the projector."
+  font-family="Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif">
+<defs>
+ <marker id="mb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#006FFF"/></marker>
+ <marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#27C07F"/></marker>
+ <marker id="mw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#9A7B1E"/></marker>
+ <marker id="mr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#F87171"/></marker>
+ <marker id="mn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#5A626C"/></marker>
+ <style>
+  .t{fill:#DEE0E3;font-size:44px;font-weight:700;text-anchor:middle}
+  .st{fill:#B7BCC2;font-size:21px;text-anchor:middle}
+  .sec{fill:#DEE0E3;font-size:32px;font-weight:700;text-anchor:middle}
+  .secn{fill:#B7BCC2;font-size:20px;text-anchor:middle}
+  .band{font-size:22px;font-weight:700;letter-spacing:.14em;text-anchor:middle;fill:#8C939B}
+  .h{fill:#DEE0E3;font-size:26px;font-weight:700;text-anchor:middle}
+  .hd{fill:#8C939B;font-size:26px;font-weight:700;text-anchor:middle}
+  .sb{fill:#7FB4FF;font-size:18px;text-anchor:middle}
+  .sg{fill:#6FD8A8;font-size:18px;text-anchor:middle}
+  .sw{fill:#D9BC6B;font-size:18px;text-anchor:middle}
+  .sr{fill:#F9A3A3;font-size:18px;text-anchor:middle}
+  .n{fill:#8C939B;font-size:16px;text-anchor:middle}
+  .eg{fill:none;stroke:#27C07F;stroke-width:3;marker-end:url(#mg)}
+  .ew{fill:none;stroke:#9A7B1E;stroke-width:3;marker-end:url(#mw)}
+  .er{fill:none;stroke:#F87171;stroke-width:3;marker-end:url(#mr)}
+  .en{fill:none;stroke:#5A626C;stroke-width:3;marker-end:url(#mn)}
+  .leg{fill:#B7BCC2;font-size:18px}
+  .note{fill:#DEE0E3;font-size:20px}
+ </style>
+</defs>
+<rect width="2000" height="1700" fill="#131416"/>
+
+<text class="t"  x="1000" y="74">Worker pools beside the folds — phase 04.7 proposal</text>
+<text class="st" x="1000" y="118">Nothing that works today is touched. Two new consumer groups are added, one deliberately wrong.</text>
+
+<!-- ───────────── BEFORE ───────────── -->
+<text class="sec"  x="1000" y="200">BEFORE — what demo 04 runs today</text>
+<text class="secn" x="1000" y="238">Two durable consumers. Each one is a fold, so each one is strictly single-file.</text>
+
+<text class="band" x="390"  y="292">STREAM</text>
+<text class="band" x="1090" y="292">CONSUMERS</text>
+<text class="band" x="1705" y="292">NATS KV</text>
+
+<path d="M140 340 L140 450 A250 20 0 0 0 640 450 L640 340" fill="#1A1E23" stroke="#27C07F" stroke-width="3"/>
+<ellipse cx="390" cy="340" rx="250" ry="20" fill="#1A1E23" stroke="#27C07F" stroke-width="3"/>
+<text class="h" x="390" y="400">ODOMETER</text>
+<text class="n" x="390" y="430">LimitsPolicy — the source of truth</text>
+
+<rect x="840" y="320" width="500" height="120" rx="16" fill="#1A1E23" stroke="#006FFF" stroke-width="3"/>
+<rect x="872" y="348" width="40" height="40" rx="10" fill="#006FFF"/>
+<text class="h"  x="1090" y="372">snapshotter</text>
+<text class="sb" x="1090" y="400">durable · MaxAckPending 1</text>
+<text class="n"  x="1090" y="424">snapshotter.go — a fold, in order</text>
+
+<rect x="840" y="480" width="500" height="120" rx="16" fill="#1A1E23" stroke="#27C07F" stroke-width="3"/>
+<rect x="872" y="508" width="40" height="40" rx="10" fill="#27C07F"/>
+<text class="h"  x="1090" y="532">projector</text>
+<text class="sg" x="1090" y="560">durable · MaxAckPending 1</text>
+<text class="n"  x="1090" y="584">read.go — a fold, in order</text>
+
+<rect x="1470" y="320" width="470" height="120" rx="16" fill="#1A1E23" stroke="#9A7B1E" stroke-width="3"/>
+<text class="h"  x="1705" y="372">odometer-write</text>
+<text class="sw" x="1705" y="400">{state, lastSeq}</text>
+<text class="n"  x="1705" y="424">write-side snapshot</text>
+
+<rect x="1470" y="480" width="470" height="120" rx="16" fill="#1A1E23" stroke="#9A7B1E" stroke-width="3"/>
+<text class="h"  x="1705" y="532">odometer-read</text>
+<text class="sw" x="1705" y="560">denormalised document</text>
+<text class="n"  x="1705" y="584">read model</text>
+
+<path class="eg" d="M645 380 L828 380"/>
+<path class="eg" d="M645 420 L740 420 L740 540 L828 540"/>
+<path class="ew" d="M1345 380 L1458 380"/>
+<path class="ew" d="M1345 540 L1458 540"/>
+
+<line x1="90" y1="668" x2="1910" y2="668" stroke="#4A515B" stroke-width="2"/>
+
+<!-- ───────────── AFTER ───────────── -->
+<text class="sec"  x="1000" y="738">AFTER — the proposal</text>
+<text class="secn" x="1000" y="776">Same stream, same events. Four consumer groups instead of two.</text>
+
+<text class="band" x="390"  y="832">STREAM</text>
+<text class="band" x="1090" y="832">CONSUMERS</text>
+<text class="band" x="1705" y="832">NATS KV</text>
+
+<path d="M140 890 L140 1470 A250 20 0 0 0 640 1470 L640 890" fill="#1A1E23" stroke="#27C07F" stroke-width="3"/>
+<ellipse cx="390" cy="890" rx="250" ry="20" fill="#1A1E23" stroke="#27C07F" stroke-width="3"/>
+<text class="h" x="390" y="1170">ODOMETER</text>
+<text class="n" x="390" y="1200">unchanged — one stream, four readers</text>
+
+<rect x="840" y="880" width="500" height="100" rx="16" fill="#16191D" stroke="#4A515B" stroke-width="3"/>
+<text class="hd" x="1090" y="926">snapshotter</text>
+<text class="n"  x="1090" y="954">unchanged — do not pool this</text>
+
+<rect x="840" y="1010" width="500" height="100" rx="16" fill="#16191D" stroke="#4A515B" stroke-width="3"/>
+<text class="hd" x="1090" y="1056">projector</text>
+<text class="n"  x="1090" y="1084">unchanged — do not pool this</text>
+
+<rect x="1470" y="880" width="470" height="100" rx="16" fill="#16191D" stroke="#4A515B" stroke-width="3"/>
+<text class="hd" x="1705" y="926">odometer-write</text>
+<text class="n"  x="1705" y="954">unchanged</text>
+
+<rect x="1470" y="1010" width="470" height="100" rx="16" fill="#16191D" stroke="#4A515B" stroke-width="3"/>
+<text class="hd" x="1705" y="1056">odometer-read</text>
+<text class="n"  x="1705" y="1084">unchanged</text>
+
+<rect x="840" y="1150" width="500" height="160" rx="16" fill="#1A1E23" stroke="#F87171" stroke-width="3"/>
+<rect x="872" y="1178" width="40" height="40" rx="10" fill="#F87171"/>
+<text class="h"  x="1090" y="1202">odometer-pool-naive</text>
+<text class="sr" x="1090" y="1232">ONE durable · MaxAckPending 4</text>
+<text class="n"  x="1090" y="1260">4 workers share it, round-robin</text>
+<text class="n"  x="1090" y="1286">order is lost between workers</text>
+
+<rect x="840" y="1350" width="500" height="160" rx="16" fill="#1A1E23" stroke="#27C07F" stroke-width="3"/>
+<rect x="872" y="1378" width="40" height="40" rx="10" fill="#27C07F"/>
+<text class="h"  x="1090" y="1402">odometer-pool-partitioned</text>
+<text class="sg" x="1090" y="1432">FOUR durables · one per shard</text>
+<text class="n"  x="1090" y="1460">nats.conf maps subject to a shard</text>
+<text class="n"  x="1090" y="1486">order kept per vehicle</text>
+
+<rect x="1470" y="1180" width="470" height="100" rx="16" fill="#1A1E23" stroke="#F87171" stroke-width="3"/>
+<text class="h" x="1705" y="1226">odometer-pool-naive</text>
+<text class="n" x="1705" y="1254">wrong totals — on purpose</text>
+
+<rect x="1470" y="1380" width="470" height="100" rx="16" fill="#1A1E23" stroke="#27C07F" stroke-width="3"/>
+<text class="h" x="1705" y="1426">odometer-pool-partitioned</text>
+<text class="n" x="1705" y="1454">same totals as odometer-read</text>
+
+<path class="en" d="M645 930 L828 930"/>
+<path class="en" d="M645 1060 L828 1060"/>
+<path class="er" d="M645 1230 L828 1230"/>
+<path class="eg" d="M645 1430 L828 1430"/>
+<path class="en" d="M1345 930 L1458 930"/>
+<path class="en" d="M1345 1060 L1458 1060"/>
+<path class="er" d="M1345 1230 L1458 1230"/>
+<path class="eg" d="M1345 1430 L1458 1430"/>
+
+<!-- ───────────── footer ───────────── -->
+<line x1="90" y1="1556" x2="1910" y2="1556" stroke="#4A515B" stroke-width="2"/>
+<text class="note" x="90" y="1600">The number this phase produces: projector lag with 1 worker, against 4 partitions, at the same publish rate.</text>
+<rect x="90"   y="1638" width="22" height="22" rx="5" fill="#006FFF"/><text class="leg" x="126"  y="1656">write side</text>
+<rect x="330"  y="1638" width="22" height="22" rx="5" fill="#27C07F"/><text class="leg" x="366"  y="1656">correct / read side</text>
+<rect x="690"  y="1638" width="22" height="22" rx="5" fill="#9A7B1E"/><text class="leg" x="726"  y="1656">NATS KV — derived</text>
+<rect x="1050" y="1638" width="22" height="22" rx="5" fill="#F87171"/><text class="leg" x="1086" y="1656">wrong on purpose</text>
+<rect x="1390" y="1638" width="22" height="22" rx="5" fill="#5A626C"/><text class="leg" x="1426" y="1656">unchanged by this phase</text>
+</svg>
+</body></html>

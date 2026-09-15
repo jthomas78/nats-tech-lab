@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -44,4 +45,14 @@ func ensureStream(ctx context.Context, js jetstream.JetStream) (jetstream.Stream
 // ensureKV creates a bucket if it is not there.
 func ensureKV(ctx context.Context, js jetstream.JetStream, bucket string) (jetstream.KeyValue, error) {
 	return js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket})
+}
+
+// ensureExpiringKV creates a bucket whose values expire on their own.
+//
+// Only the worker heartbeat bucket uses this. A worker that is killed cannot
+// tidy up after itself -- that is what being killed means -- so the bucket
+// forgets it instead, and the browser sees the pool shrink with no cleanup
+// code anywhere.
+func ensureExpiringKV(ctx context.Context, js jetstream.JetStream, bucket string, ttl time.Duration) (jetstream.KeyValue, error) {
+	return js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket, TTL: ttl})
 }

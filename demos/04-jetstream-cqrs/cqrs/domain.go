@@ -18,6 +18,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -40,6 +41,14 @@ var (
 	// ErrRetired is BR-OD04. A retired vehicle refuses further trips, and
 	// cannot be retired a second time.
 	ErrRetired = errors.New("vehicle is retired")
+
+	// ErrOutOfOrder is BR-OD08. An event arrived behind a fold that has
+	// already moved past it.
+	//
+	// A fold's position never moves backwards, so this cannot be repaired by
+	// retrying: the same event would be refused again, for ever. The caller
+	// terminates the message instead of nak'ing it, and the loss is counted.
+	ErrOutOfOrder = errors.New("event is behind the fold")
 )
 
 // Status is the vehicle lifecycle. Three values, and the zero value means
@@ -201,4 +210,57 @@ func (e Travelled) applyToOdometer(o Odometer, at time.Time) Odometer {
 func (Retired) applyToOdometer(o Odometer, _ time.Time) Odometer {
 	o.Status = StatusRetired
 	return o
+}
+
+// -------------------------------------------------------------------- fold
+
+// Fold is the position of a projection in the log. It is not a projection.
+//
+// It holds a sequence and nothing else -- no vehicle, no total. Its one job
+// is to answer whether an event that is already in the log may be applied to
+// whatever the caller is building, and that answer is BR-OD06..08.
+//
+// Both KV documents embed one of these, which is why the position and the
+// projected state are written together in a single value. A position stored
+// apart from the state it describes can disagree with it after a crash.
+type Fold struct {
+	// LastSeq is the stream sequence of the last event applied. Zero means
+	// nothing has been applied yet, which is what a first event must see.
+	LastSeq uint64 `json:"lastSeq"`
+}
+
+// Next reports whether the event at seq may be applied.
+//
+//	seq >  LastSeq  ->  true,  nil            BR-OD06  a new fact
+//	seq == LastSeq  ->  false, nil            BR-OD07  a redelivery; ack it
+//	seq <  LastSeq  ->  false, ErrOutOfOrder  BR-OD08  too late; count it
+//
+// The gap between the two false answers is the point of the rule. Before
+// phase 04.7 both were `return nil`, so an event that arrived too late was
+// acked and never applied, and the projection was short for ever with no
+// error anywhere. A watermark makes redelivery safe. It does not make
+// reordering safe -- it makes reordering silent.
+//
+// Next decides nothing about ordering itself. It reports what already
+// happened, and a caller that runs a pool of workers over one consumer will
+// hear about it.
+func (f Fold) Next(seq uint64) (bool, error) {
+	switch {
+	case seq > f.LastSeq:
+		return true, nil
+	case seq == f.LastSeq:
+		return false, nil
+	default:
+		return false, fmt.Errorf("%w: sequence %d arrived after %d", ErrOutOfOrder, seq, f.LastSeq)
+	}
+}
+
+// Advance moves the position to seq.
+//
+// It is a separate call from Next because the caller must write the new
+// state and the new position as one value. Folding inside Next would move
+// the position even when the write that follows it fails.
+func (f Fold) Advance(seq uint64) Fold {
+	f.LastSeq = seq
+	return f
 }

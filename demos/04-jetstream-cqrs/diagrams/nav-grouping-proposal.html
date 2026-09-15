@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo 04 — rail grouping, option A</title>
+<style>
+:root {
+  /* shared/unifi-theme/unifi.css — dark tokens, verbatim */
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #131416; --panel: #131416; --border: #2c3138;
+  --accent: #006fff; --accent-ink: #ffffff;
+  --nav-active: #1c1d1f; --secondary: #22262c;
+  --ok: #27c07f; --warn: #f0b429; --err: #e5484d;
+  --write: #4d94ff; --read: #2dd4bf;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1260px; margin: 0 auto; padding: 24px 18px 40px; display: flex; flex-direction: column; gap: 26px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; }
+.sub { margin: 0; color: var(--muted); max-width: 84ch; }
+.sub code, figcaption code, .note code { font-family: var(--mono); font-size: 11px;
+  background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+figure { margin: 0; }
+figcaption { color: var(--muted); font-size: 12px; line-height: 18px; padding: 10px 2px 0; max-width: 100ch; }
+figcaption b { color: var(--text); font-weight: 600; }
+.note { color: var(--dim); font-size: 11px; margin: 0; }
+
+/* ── the app frame, same classes as worker-pool-ui-mockup.html ── */
+.app { border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  background: var(--bg); display: flex; flex-direction: column; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: 14px; height: 46px; padding: 0 14px;
+  border-bottom: 1px solid var(--border); flex: none; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; }
+.dot { width: 20px; height: 20px; border-radius: 5px; background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.crumb { color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.crumb b { color: var(--text); font-weight: 600; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 12px; font-size: 11px; color: var(--muted); }
+.pill .led { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.live { color: var(--ok); }
+.body { display: flex; min-height: 0; }
+
+/* ── the rail ── */
+.rail { width: 228px; flex: none; border-right: 1px solid var(--border); padding: 10px 10px 14px;
+  display: flex; flex-direction: column; gap: 3px; }
+.rail.bare { border-right: none; border: 1px solid var(--border); border-radius: 6px; }
+.rail .eyebrow { padding: 12px 8px 2px; }
+.rail .eyebrow.num { color: var(--muted); }
+.rail .eyebrow.num .n { color: var(--accent); }
+/* One line under each lesson label, so the rail says what the demo is before
+   anybody clicks anything. */
+.rail .lead { padding: 0 8px 5px; color: var(--dim); font-size: 10.5px; line-height: 15px; }
+.nav { display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 0 9px;
+  border-radius: 5px; color: var(--muted); font-size: 13px; }
+.nav.on { background: var(--nav-active); color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+.nav .k { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-left: auto; padding-left: 8px; }
+.nav .sq { width: 13px; height: 13px; border: 1px solid currentColor; border-radius: 3px; opacity: .7; flex: none; }
+.nav .sq.w { border-color: var(--write); } .nav .sq.r { border-color: var(--read); }
+.nav .sq.p { border-color: var(--warn); }
+/* A child row sits under the lesson row it belongs to. The indent is the
+   grouping; there is no second level of eyebrow. */
+.nav.child { padding-left: 22px; font-size: 12.5px; }
+
+/* ── the before/after pair ── */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.colhead { display: flex; align-items: center; gap: 8px; }
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px;
+  font-family: var(--mono); font-size: 10px; border: 1px solid var(--border); color: var(--muted); }
+.tag.ok  { color: var(--ok);  border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.tag.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--border)); }
+/* On the "before" rail only: a coloured chip naming what KIND of thing each
+   group is. Four kinds in one list is the fault being fixed. */
+.kind { margin-left: auto; font-family: var(--mono); font-size: 9px; letter-spacing: .06em;
+  padding: 0 5px; border-radius: 3px; border: 1px solid currentColor; opacity: .85; }
+.kind.g { color: var(--read); } .kind.d { color: var(--warn); }
+.kind.s { color: var(--write); } .kind.x { color: var(--err); }
+.ekrow { display: flex; align-items: center; padding: 12px 8px 2px; }
+.ekrow .eyebrow { padding: 0; }
+
+/* ── the panel beside the rail, kept plain: this drawing is about the rail ── */
+.main { flex: 1; min-width: 0; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+.pagehead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pagehead h2 { font-size: 17px; line-height: 23px; }
+.mono { font-family: var(--mono); }
+.tabs { display: flex; border-bottom: 1px solid var(--border); margin: 0 -18px; padding: 0 18px; }
+.tabs .t { padding: 0 14px; height: 36px; display: inline-flex; align-items: center;
+  color: var(--muted); font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs .t.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+.card { border: 1px solid var(--border); border-radius: 6px; padding: 13px 14px;
+  display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.ghost { border-style: dashed; color: var(--dim); align-items: center; justify-content: center;
+  min-height: 132px; font-family: var(--mono); font-size: 11px; text-align: center; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div>
+    <span class="eyebrow">Phase 04.7 · PROPOSED · rail grouping</span>
+    <h1>Option A — the rail becomes a lesson index</h1>
+    <p class="sub">The demo teaches two things, and the second one only makes sense after the first. The rail
+      should say that. Today it mixes four kinds of thing in one list; option A groups every row under the
+      lesson it belongs to, in order.</p>
+  </div>
+
+  <figure>
+    <div class="pair">
+
+      <div class="col">
+        <div class="colhead"><h2>Today</h2><span class="tag bad">4 kinds of thing</span></div>
+        <aside class="rail bare">
+          <div class="ekrow"><span class="eyebrow">Guide</span><span class="kind g">GUIDE</span></div>
+          <div class="nav">How it works</div>
+
+          <div class="ekrow"><span class="eyebrow">Vehicles</span><span class="kind d">DATA</span></div>
+          <div class="nav">truck-7 <span class="k">11</span></div>
+          <div class="nav">van-2 <span class="k">44</span></div>
+
+          <div class="ekrow"><span class="eyebrow">Experiments</span><span class="kind x">LESSON</span></div>
+          <div class="nav"><span class="sq p"></span> Worker pool</div>
+
+          <div class="ekrow"><span class="eyebrow">Storage</span><span class="kind s">OBJECT</span></div>
+          <div class="nav"><span class="sq"></span> ODOMETER <span class="k">128</span></div>
+          <div class="nav"><span class="sq w"></span> odometer-write <span class="k">2</span></div>
+          <div class="nav"><span class="sq r"></span> odometer-read <span class="k">2</span></div>
+          <div class="nav"><span class="sq p"></span> odometer-pool-workers <span class="k">4</span></div>
+        </aside>
+        <p class="note">A guide, some domain data, a lesson and four storage objects, all as peers.
+          <code>odometer-pool-workers</code> sits beside <code>odometer-write</code> as though the two belong
+          to the same idea. They do not.</p>
+      </div>
+
+      <div class="col">
+        <div class="colhead"><h2>Option A</h2><span class="tag ok">1 kind of thing: lessons</span></div>
+        <aside class="rail bare">
+          <span class="eyebrow">Guide</span>
+          <div class="nav">How it works</div>
+
+          <span class="eyebrow num"><span class="n">01</span> · Stream + CQRS</span>
+          <p class="lead">One fold, in order.</p>
+          <div class="nav on"><span class="sq"></span> ODOMETER <span class="k">128</span></div>
+          <div class="nav child">truck-7 <span class="k">11</span></div>
+          <div class="nav child">van-2 <span class="k">44</span></div>
+          <div class="nav"><span class="sq w"></span> odometer-write <span class="k">2</span></div>
+          <div class="nav"><span class="sq r"></span> odometer-read <span class="k">2</span></div>
+
+          <span class="eyebrow num"><span class="n">02</span> · Scaling a consumer</span>
+          <p class="lead">Many folds, out of order.</p>
+          <div class="nav"><span class="sq p"></span> Worker pool</div>
+          <div class="nav child"><span class="sq p"></span> odometer-pool <span class="k">2</span></div>
+          <div class="nav child"><span class="sq p"></span> odometer-pool-workers <span class="k">4</span></div>
+        </aside>
+        <p class="note">Every row now belongs to a lesson. The vehicles are indented under the log they came
+          out of, and the pool's two buckets are indented under the pool, so nothing reads as a peer of
+          something it is not.</p>
+      </div>
+
+    </div>
+    <figcaption><b>The fault was mixed kinds, not order.</b> Numbering is honest here because the content
+      really is a sequence — lesson 02 breaks the fold that lesson 01 builds, so it cannot be read first.
+      Each lesson carries one line of its own: <b>one fold, in order</b> against <b>many folds, out of
+      order</b>. That pair states the whole demo before anybody clicks a row.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="app">
+      <div class="topbar">
+        <div class="brand"><span class="dot">4</span> Odometer</div>
+        <div class="crumb">/ <span>02 · Scaling a consumer</span> / <b>Worker pool</b></div>
+        <span class="spacer"></span>
+        <span class="pill live"><span class="led"></span> Watching</span>
+      </div>
+      <div class="body">
+        <aside class="rail">
+          <span class="eyebrow">Guide</span>
+          <div class="nav">How it works</div>
+
+          <span class="eyebrow num"><span class="n">01</span> · Stream + CQRS</span>
+          <p class="lead">One fold, in order.</p>
+          <div class="nav"><span class="sq"></span> ODOMETER <span class="k">128</span></div>
+          <div class="nav child">truck-7 <span class="k">11</span></div>
+          <div class="nav child">van-2 <span class="k">44</span></div>
+          <div class="nav"><span class="sq w"></span> odometer-write <span class="k">2</span></div>
+          <div class="nav"><span class="sq r"></span> odometer-read <span class="k">2</span></div>
+
+          <span class="eyebrow num"><span class="n">02</span> · Scaling a consumer</span>
+          <p class="lead">Many folds, out of order.</p>
+          <div class="nav on"><span class="sq p"></span> Worker pool</div>
+          <div class="nav child"><span class="sq p"></span> odometer-pool <span class="k">2</span></div>
+          <div class="nav child"><span class="sq p"></span> odometer-pool-workers <span class="k">4</span></div>
+        </aside>
+
+        <main class="main">
+          <div class="pagehead">
+            <h2>Worker pool</h2>
+            <span class="tag">4 workers</span>
+            <span class="tag">MaxAckPending 1000</span>
+            <span class="spacer"></span>
+            <span class="note mono">one durable · odometer-pool</span>
+          </div>
+          <div class="tabs">
+            <span class="t on">Live</span>
+            <span class="t">Starvation</span>
+            <span class="t">Redelivery</span>
+            <span class="t">1 vs 4</span>
+          </div>
+          <div class="card ghost">the four tabs — drawn in full in diagrams/worker-pool-ui-mockup.html</div>
+          <div class="cols">
+            <div class="card ghost">fold damage</div>
+            <div class="card ghost">the command that produced this tab</div>
+          </div>
+        </main>
+      </div>
+    </div>
+    <figcaption><b>The breadcrumb carries the lesson too.</b> <code>Demo 04 / 02 · Scaling a consumer /
+      Worker pool</code> — so a reader who lands deep still knows which half of the demo they are in. The
+      panels are left as placeholders on purpose; this drawing is about the rail.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="card">
+      <span class="eyebrow">What changes in code</span>
+      <p class="note" style="font-size:12px;line-height:19px;color:var(--muted)">
+        Only the <code>sections</code> computed property in <code>frontend/src/App.vue</code>, plus one
+        <code>lead</code> line and one <code>child</code> class in <code>@ui-shell/NavList.vue</code>. No panel
+        changes, no new component, no store. <code>AppShell.vue</code> is untouched — the rail's markup already
+        belongs to every app in the repo, and a per-app override of it is not allowed.</p>
+    </div>
+    <figcaption><b>Cheap, because the grouping is data.</b> The rail already renders whatever
+      <code>sections</code> returns. Option A is a different list, not a different component.</figcaption>
+  </figure>
+
+</div>
+</body>
+</html>

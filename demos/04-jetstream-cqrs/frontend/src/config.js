@@ -12,6 +12,13 @@ export const STREAM = 'ODOMETER'
 export const WRITE_KV = 'odometer-write'
 export const READ_KV = 'odometer-read'
 
+// Lesson 02. POOL_KV is a THIRD projection of the same log, kept apart from
+// READ_KV on purpose: the pool is deliberately wrong, and a demo that damaged
+// the read model to show that would have nothing correct left to compare
+// against. POOL_WORKERS_KV is one key per worker — heartbeat and counters.
+export const POOL_KV = 'odometer-pool'
+export const POOL_WORKERS_KV = 'odometer-pool-workers'
+
 // Must match names.go. The first token is the fixed literal `evt`, never a
 // wildcard — an open first token overlaps $SYS.> and JetStream refuses it.
 export const SUBJECT_PREFIX = 'evt.odometer.vehicle'

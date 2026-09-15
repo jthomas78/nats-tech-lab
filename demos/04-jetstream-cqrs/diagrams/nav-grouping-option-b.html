@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo 04 — rail grouping, option B</title>
+<style>
+
+:root {
+  /* shared/unifi-theme/unifi.css — dark tokens, verbatim */
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #131416; --panel: #131416; --border: #2c3138;
+  --accent: #006fff; --accent-ink: #ffffff;
+  --nav-active: #1c1d1f; --secondary: #22262c;
+  --ok: #27c07f; --warn: #f0b429; --err: #e5484d;
+  --write: #4d94ff; --read: #2dd4bf;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1260px; margin: 0 auto; padding: 24px 18px 40px; display: flex; flex-direction: column; gap: 26px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; }
+.sub { margin: 0; color: var(--muted); max-width: 84ch; }
+.sub code, figcaption code, .note code { font-family: var(--mono); font-size: 11px;
+  background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+figure { margin: 0; }
+figcaption { color: var(--muted); font-size: 12px; line-height: 18px; padding: 10px 2px 0; max-width: 100ch; }
+figcaption b { color: var(--text); font-weight: 600; }
+.note { color: var(--dim); font-size: 11px; margin: 0; }
+
+/* ── the app frame, same classes as worker-pool-ui-mockup.html ── */
+.app { border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  background: var(--bg); display: flex; flex-direction: column; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: 14px; height: 46px; padding: 0 14px;
+  border-bottom: 1px solid var(--border); flex: none; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; }
+.dot { width: 20px; height: 20px; border-radius: 5px; background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.crumb { color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.crumb b { color: var(--text); font-weight: 600; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 12px; font-size: 11px; color: var(--muted); }
+.pill .led { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.live { color: var(--ok); }
+.body { display: flex; min-height: 0; }
+
+/* ── the rail ── */
+.rail { width: 228px; flex: none; border-right: 1px solid var(--border); padding: 10px 10px 14px;
+  display: flex; flex-direction: column; gap: 3px; }
+.rail.bare { border-right: none; border: 1px solid var(--border); border-radius: 6px; }
+.rail .eyebrow { padding: 12px 8px 2px; }
+.rail .eyebrow.num { color: var(--muted); }
+.rail .eyebrow.num .n { color: var(--accent); }
+/* One line under each lesson label, so the rail says what the demo is before
+   anybody clicks anything. */
+.rail .lead { padding: 0 8px 5px; color: var(--dim); font-size: 10.5px; line-height: 15px; }
+.nav { display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 0 9px;
+  border-radius: 5px; color: var(--muted); font-size: 13px; }
+.nav.on { background: var(--nav-active); color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+.nav .k { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-left: auto; padding-left: 8px; }
+.nav .sq { width: 13px; height: 13px; border: 1px solid currentColor; border-radius: 3px; opacity: .7; flex: none; }
+.nav .sq.w { border-color: var(--write); } .nav .sq.r { border-color: var(--read); }
+.nav .sq.p { border-color: var(--warn); }
+/* A child row sits under the lesson row it belongs to. The indent is the
+   grouping; there is no second level of eyebrow. */
+.nav.child { padding-left: 22px; font-size: 12.5px; }
+
+/* ── the before/after pair ── */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.colhead { display: flex; align-items: center; gap: 8px; }
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px;
+  font-family: var(--mono); font-size: 10px; border: 1px solid var(--border); color: var(--muted); }
+.tag.ok  { color: var(--ok);  border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.tag.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--border)); }
+/* On the "before" rail only: a coloured chip naming what KIND of thing each
+   group is. Four kinds in one list is the fault being fixed. */
+.kind { margin-left: auto; font-family: var(--mono); font-size: 9px; letter-spacing: .06em;
+  padding: 0 5px; border-radius: 3px; border: 1px solid currentColor; opacity: .85; }
+.kind.g { color: var(--read); } .kind.d { color: var(--warn); }
+.kind.s { color: var(--write); } .kind.x { color: var(--err); }
+.ekrow { display: flex; align-items: center; padding: 12px 8px 2px; }
+.ekrow .eyebrow { padding: 0; }
+
+/* ── the panel beside the rail, kept plain: this drawing is about the rail ── */
+.main { flex: 1; min-width: 0; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+.pagehead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pagehead h2 { font-size: 17px; line-height: 23px; }
+.mono { font-family: var(--mono); }
+.tabs { display: flex; border-bottom: 1px solid var(--border); margin: 0 -18px; padding: 0 18px; }
+.tabs .t { padding: 0 14px; height: 36px; display: inline-flex; align-items: center;
+  color: var(--muted); font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs .t.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+.card { border: 1px solid var(--border); border-radius: 6px; padding: 13px 14px;
+  display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.ghost { border-style: dashed; color: var(--dim); align-items: center; justify-content: center;
+  min-height: 132px; font-family: var(--mono); font-size: 11px; text-align: center; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+/* ── option B only ── */
+/* The rail shrinks to four rows, so the things it used to hold have to live
+   somewhere. In B they live in the panel: a picker in the pagehead and a
+   second tab strip for the storage objects. */
+.sel { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 12.5px; }
+.sel .cap { color: var(--dim); font-size: 11px; }
+.sel .chev { color: var(--dim); font-size: 9px; margin-left: 2px; }
+.warnbox { border: 1px solid var(--border); border-left: 2px solid var(--err); border-radius: 5px;
+  padding: 10px 13px; color: var(--muted); font-size: 12.5px; line-height: 19px; }
+.warnbox b { color: var(--text); font-weight: 600; }
+.stack { display: flex; flex-direction: column; gap: 9px; }
+.kindrow { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 2px; }
+.kindrow .kind { margin-left: 0; }
+
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-family: var(--mono); font-size: 11.5px; margin: 0; }
+.kv dt { color: var(--dim); } .kv dd { margin: 0; color: var(--text); }
+.kv dd.bad { color: var(--err); } .kv dd.ok { color: var(--ok); }
+.card.bad { border-color: color-mix(in srgb, var(--err) 45%, var(--border)); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div>
+    <span class="eyebrow">Phase 04.7 · PROPOSED · rail grouping</span>
+    <h1>Option B — the rail is a lesson index and nothing else</h1>
+    <p class="sub">Three rows, for ever. Vehicles and storage objects stop being navigation and become
+      controls inside the panel. This is the cleanest rail available — and it costs the demo the one
+      picture it exists to show.</p>
+  </div>
+
+  <figure>
+    <div class="pair">
+
+      <div class="col">
+        <div class="colhead"><h2>Today</h2><span class="tag bad">4 kinds of thing</span></div>
+        <aside class="rail bare">
+          <div class="ekrow"><span class="eyebrow">Guide</span><span class="kind g">GUIDE</span></div>
+          <div class="nav">How it works</div>
+          <div class="ekrow"><span class="eyebrow">Vehicles</span><span class="kind d">DATA</span></div>
+          <div class="nav">truck-7 <span class="k">11</span></div>
+          <div class="nav">van-2 <span class="k">44</span></div>
+          <div class="ekrow"><span class="eyebrow">Experiments</span><span class="kind x">LESSON</span></div>
+          <div class="nav"><span class="sq p"></span> Worker pool</div>
+          <div class="ekrow"><span class="eyebrow">Storage</span><span class="kind s">OBJECT</span></div>
+          <div class="nav"><span class="sq"></span> ODOMETER <span class="k">128</span></div>
+          <div class="nav"><span class="sq w"></span> odometer-write <span class="k">2</span></div>
+          <div class="nav"><span class="sq r"></span> odometer-read <span class="k">2</span></div>
+          <div class="nav"><span class="sq p"></span> odometer-pool-workers <span class="k">4</span></div>
+        </aside>
+        <p class="note">Eleven rows, and it grows by one for every vehicle and every new bucket.</p>
+      </div>
+
+      <div class="col">
+        <div class="colhead"><h2>Option B</h2><span class="tag ok">3 rows, fixed</span></div>
+        <aside class="rail bare">
+          <span class="eyebrow">Guide</span>
+          <div class="nav">How it works</div>
+          <span class="eyebrow">Lessons</span>
+          <div class="nav on"><span class="sq"></span> 01 · Stream + CQRS</div>
+          <div class="nav"><span class="sq p"></span> 02 · Scaling a consumer</div>
+        </aside>
+        <p class="note">Three rows. It never grows — not for a new vehicle, not for a new bucket, not for a
+          third lesson's storage. Everything else moved into the panel.</p>
+        <div class="kindrow">
+          <span class="kind g">GUIDE</span>
+          <span class="kind x">LESSON</span>
+        </div>
+      </div>
+
+    </div>
+    <figcaption><b>B removes the fault by removing the rows.</b> The rail holds two kinds of thing instead of
+      four, and its height stops depending on the data. Whether that is a win depends entirely on what the
+      panel then has to carry — which is the next drawing.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="app">
+      <div class="topbar">
+        <div class="brand"><span class="dot">4</span> Odometer</div>
+        <div class="crumb">/ <b>01 · Stream + CQRS</b></div>
+        <span class="spacer"></span>
+        <span class="pill live"><span class="led"></span> Watching</span>
+      </div>
+      <div class="body">
+        <aside class="rail">
+          <span class="eyebrow">Guide</span>
+          <div class="nav">How it works</div>
+          <span class="eyebrow">Lessons</span>
+          <div class="nav on"><span class="sq"></span> 01 · Stream + CQRS</div>
+          <div class="nav"><span class="sq p"></span> 02 · Scaling a consumer</div>
+        </aside>
+
+        <main class="main">
+          <div class="pagehead">
+            <h2>Stream + CQRS</h2>
+            <span class="tag">one fold, in order</span>
+            <span class="spacer"></span>
+            <span class="sel"><span class="cap">Vehicle</span> truck-7 <span class="chev">▾</span></span>
+          </div>
+          <div class="tabs">
+            <span class="t on">Overview</span>
+            <span class="t">ODOMETER</span>
+            <span class="t">odometer-write</span>
+            <span class="t">odometer-read</span>
+          </div>
+          <div class="card ghost">the lag lane — write at 128, read at 124</div>
+          <div class="cols">
+            <div class="card ghost">odometer-write · truck-7</div>
+            <div class="card ghost">odometer-read · truck-7</div>
+          </div>
+          <div class="card ghost" style="min-height:96px">the log</div>
+        </main>
+      </div>
+    </div>
+    <figcaption><b>The rows did not disappear; they moved.</b> The vehicle list became a picker in the
+      pagehead. The three storage objects became a tab strip. The tab strip now mixes a summary with three
+      storage objects — which is the same "four kinds of thing" fault the rail had, one level down.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="stack">
+      <div class="warnbox"><b>What B costs.</b> The two buckets are never on screen together as two things.
+        <code>odometer-write</code> and <code>odometer-read</code> become two states of one tab strip, so a
+        reader sees one at a time. This demo's own <code>CLAUDE.md</code> says: <b>"Two buckets, not one. The
+        split is the demo — you can see it in <code>nats kv ls</code>."</b> B hides the split behind a click.</div>
+
+      <div class="cols">
+        <div class="card">
+          <span class="eyebrow">What B wins</span>
+          <dl class="kv">
+            <dt>rail rows</dt><dd>3, fixed</dd>
+            <dt>grows with data</dt><dd class="ok">no</dd>
+            <dt>kinds in the rail</dt><dd class="ok">2</dd>
+            <dt>lesson order visible</dt><dd class="ok">yes</dd>
+          </dl>
+        </div>
+        <div class="card bad">
+          <span class="eyebrow">What B costs</span>
+          <dl class="kv">
+            <dt>buckets seen together</dt><dd class="bad">no</dd>
+            <dt>new tab strip in 01</dt><dd class="bad">yes — 4 tabs</dd>
+            <dt>new vehicle picker</dt><dd class="bad">yes</dd>
+            <dt>panels to rebuild</dt><dd class="bad">3</dd>
+          </dl>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">What changes in code</span>
+        <p class="note" style="font-size:12px;line-height:19px;color:var(--muted)">
+          <code>sections</code> in <code>frontend/src/App.vue</code>, plus a new tab strip and a new vehicle
+          picker component, plus <code>BucketPanel.vue</code> and <code>BucketKeys.vue</code> rewired to take
+          their subject from a tab instead of the rail. Option A touches one computed property and two lines
+          of <code>NavList.vue</code>; B touches three shipped panels.</p>
+      </div>
+    </div>
+    <figcaption><b>B is the tidier rail and the weaker demo.</b> It is the right answer for a product with
+      many objects and no argument to make. This demo has few objects and one argument, and the argument is a
+      side-by-side comparison.</figcaption>
+  </figure>
+
+</div>
+</body>
+</html>

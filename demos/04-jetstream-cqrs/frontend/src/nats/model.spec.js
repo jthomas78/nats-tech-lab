@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { applyEntry } from './useOdometer.js'
-import { lag, logEvent, maxSeq, readModel, writeSnapshot } from './model.js'
+import { lag, logEvent, maxSeq, poolWorker, readModel, writeSnapshot } from './model.js'
 import { parseEventSubject, vehicleFromKey } from './subjects.js'
 
 // These specs run with no NATS and no browser. Everything they cover is a
@@ -205,5 +205,40 @@ describe('applyEntry', () => {
     }
     applyEntry(into, broken, readModel)
     expect(into.get('v1')).toMatchObject({ id: 'v1', totalKm: 0, trips: 0 })
+  })
+})
+
+// Phase 04.7 — KV odometer-pool-workers. One key per worker, WorkerState in
+// cqrs/pool.go. The browser watches it exactly the way it watches the other
+// buckets, so it needs a shape function and nothing else.
+describe('poolWorker', () => {
+  it('shapes one worker heartbeat', () => {
+    const w = poolWorker('worker.03', {
+      worker: 3,
+      status: 'working',
+      holding: 94,
+      acked: 30,
+      dropped: 1,
+      behind: 95,
+      at: '2026-09-15T10:00:00Z',
+    })
+    expect(w.id).toBe('worker.03')
+    expect(w.worker).toBe(3)
+    expect(w.status).toBe('working')
+    expect(w.holding).toBe(94)
+    expect(w.acked).toBe(30)
+    expect(w.dropped).toBe(1)
+  })
+
+  it('takes the worker number from the key when the value has none', () => {
+    expect(poolWorker('worker.07', {}).worker).toBe(7)
+  })
+
+  it('refuses a key this demo does not write', () => {
+    expect(poolWorker('vehicle.truck-7', {})).toBeNull()
+  })
+
+  it('calls a worker with no status waiting, not working', () => {
+    expect(poolWorker('worker.01', {}).status).toBe('waiting')
   })
 })

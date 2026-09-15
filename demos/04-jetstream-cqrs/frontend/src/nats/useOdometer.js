@@ -1,14 +1,25 @@
-// The read path. One WebSocket, three subscriptions, no HTTP.
+// The read path. One WebSocket, five subscriptions, no HTTP.
 //
 // Commands do NOT come through here — they go to the Go shim on 20402 over
 // HTTP (plan section 9.2, D3). Keeping the two apart is not tidiness: it is
 // what makes the CQRS split visible in the browser's own network tab.
 //
-// Three things are watched, and they are three because they move separately:
+// Three things are watched for lesson 01, and they are three because they
+// move separately:
 //
 //   KV odometer-write   the write-side snapshot. Always trails the head.
 //   KV odometer-read    the read model. Trails the head by a different amount.
 //   stream ODOMETER     the head itself, and the log the table draws.
+//
+// Phase 04.7 added two more, for lesson 02. They are watched the same way, so
+// the pool panel needed no new transport and no consumer-info API call:
+//
+//   KV odometer-pool          the pool's own, deliberately damaged fold.
+//   KV odometer-pool-workers  one key per worker: heartbeat and counters.
+//
+// The two pool buckets may not exist — nobody has to run `cqrs pool` — so
+// their watches are allowed to fail without taking the page down. An absent
+// bucket means the lesson has not been run, not that the screen is broken.
 //
 // A single "current state" subscription would hide exactly the thing this
 // screen is for.
@@ -18,8 +29,8 @@ import { Kvm } from '@nats-io/kv'
 import { nanos, wsconnect } from '@nats-io/nats-core'
 import { computed, reactive, ref, shallowRef } from 'vue'
 
-import { NATS_WS, READ_KV, STREAM, WRITE_KV } from '../config.js'
-import { lag, logEvent, maxSeq, readModel, writeSnapshot } from './model.js'
+import { NATS_WS, POOL_KV, POOL_WORKERS_KV, READ_KV, STREAM, WRITE_KV } from '../config.js'
+import { lag, logEvent, maxSeq, poolWorker, readModel, writeSnapshot } from './model.js'
 
 // How many stream rows the table keeps. The seed command writes 10 000 trips
 // to make the replay worth timing, and a browser that tried to hold all of
@@ -55,6 +66,8 @@ export function useOdometer() {
   const messages = ref(0)
   const writes = reactive(new Map())
   const reads = reactive(new Map())
+  const pool = reactive(new Map())
+  const poolWorkers = reactive(new Map())
   const log = ref([])
 
   const connection = shallowRef(null)
@@ -106,6 +119,9 @@ export function useOdometer() {
       await Promise.all([
         watchBucket(js, WRITE_KV, writes, writeSnapshot),
         watchBucket(js, READ_KV, reads, readModel),
+        // Optional: the pool is a lesson somebody chooses to run.
+        watchOptionalBucket(js, POOL_KV, pool, readModel),
+        watchOptionalBucket(js, POOL_WORKERS_KV, poolWorkers, poolWorker),
       ])
       await tailStream(js)
       trackStatus(nc)
@@ -154,6 +170,19 @@ export function useOdometer() {
     const watcher = await kv.watch()
     closers.push(() => watcher.stop())
     drain(watcher, (entry) => applyEntry(into, entry, shape))
+  }
+
+  // watchOptionalBucket is watchBucket for a bucket that may not be there.
+  // `cqrs pool` creates both pool buckets on its first run; before that, open()
+  // fails and that is the correct state of the world, not an error to report.
+  // Swallowing the failure here is deliberate and narrow: the bucket simply
+  // stays empty, and the panel says the lesson has not been run.
+  async function watchOptionalBucket(js, bucket, into, shape) {
+    try {
+      await watchBucket(js, bucket, into, shape)
+    } catch {
+      // Not run yet.
+    }
   }
 
   // tailStream follows the log. It starts near the head rather than at
@@ -216,6 +245,8 @@ export function useOdometer() {
     messages,
     writes,
     reads,
+    pool,
+    poolWorkers,
     log,
     vehicles,
     lags,
