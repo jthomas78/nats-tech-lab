@@ -15,7 +15,21 @@
 // the app. `srcdoc` means the file is compiled in, not fetched. The frame is
 // given no scripts; it is only allowed to be same-origin so this component can
 // read its height and grow to fit, which avoids a scrollbar inside a scrollbar.
+//
+// The two views are a real PrimeVue `Tabs` carrying `class="panel-tabs"`, which
+// is the repo's one style for a top tab strip (shared/unifi-theme/LAYOUT.md,
+// "Panel top tabs"). A custom chip/pill toggle is explicitly not allowed for
+// this role — chips are for filters. The strip therefore sits FLUSH on the
+// page and the card treatment lives on each tab's content, not around the
+// tabs: wrapping the strip in a card puts the tablist on a background it does
+// not expect and costs a pile of compensating overrides.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+
+import Tab from 'primevue/tab'
+import TabList from 'primevue/tablist'
+import TabPanel from 'primevue/tabpanel'
+import TabPanels from 'primevue/tabpanels'
+import Tabs from 'primevue/tabs'
 
 import readme from '../../../README.md?raw'
 import diagramPage from '../../../diagrams/demo04-jetstream-cqrs.html?raw'
@@ -71,52 +85,67 @@ onBeforeUnmount(() => window.removeEventListener('resize', measure))
       words, then drawn.
     </p>
 
-    <nav
-      class="tabs"
-      aria-label="About sections"
+    <Tabs
+      v-model:value="tab"
+      class="panel-tabs"
     >
-      <button
-        v-for="t in TABS"
-        :key="t.key"
-        type="button"
-        :class="{ active: t.key === tab }"
-        :aria-pressed="t.key === tab"
-        :data-testid="`about-tab-${t.key}`"
-        @click="tab = t.key"
-      >
-        {{ t.label }}
-      </button>
-    </nav>
-
-    <!-- eslint-disable vue/no-v-html -- our own README, compiled in at build -->
-    <article
-      v-if="tab === 'notes'"
-      class="notes"
-      data-testid="about-notes"
-      v-html="notes"
-    />
-    <!-- eslint-enable vue/no-v-html -->
-
-    <div
-      v-else
-      class="frame"
-      data-testid="about-diagrams"
-    >
-      <iframe
-        ref="frame"
-        title="Class and sequence diagrams for demo 04"
-        sandbox="allow-same-origin"
-        :srcdoc="diagramPage"
-        :style="{ height: `${frameHeight}px` }"
-        @load="measure"
-      />
-    </div>
+      <TabList>
+        <Tab
+          v-for="t in TABS"
+          :key="t.key"
+          :value="t.key"
+          :data-testid="`about-tab-${t.key}`"
+        >
+          {{ t.label }}
+        </Tab>
+      </TabList>
+      <TabPanels>
+        <TabPanel value="notes">
+          <!-- eslint-disable vue/no-v-html -- our own README, compiled in at build -->
+          <article
+            class="card notes"
+            data-testid="about-notes"
+            v-html="notes"
+          />
+          <!-- eslint-enable vue/no-v-html -->
+        </TabPanel>
+        <TabPanel value="diagrams">
+          <!-- v-if, not a hidden panel. PrimeVue renders every TabPanel, and a
+               hidden iframe has no layout to measure — the frame would size
+               itself to nothing and the drawings would be cropped. Mounting it
+               only while its tab is open makes @load fire with real geometry.
+               AccountsView.vue uses the same v-if for the same reason. -->
+          <div
+            v-if="tab === 'diagrams'"
+            class="card frame"
+            data-testid="about-diagrams"
+          >
+            <iframe
+              ref="frame"
+              title="Class and sequence diagrams for demo 04"
+              sandbox="allow-same-origin"
+              :srcdoc="diagramPage"
+              :style="{ height: `${frameHeight}px` }"
+              @load="measure"
+            />
+          </div>
+        </TabPanel>
+      </TabPanels>
+    </Tabs>
   </section>
 </template>
 
 <style scoped>
+/* No card here. The tab strip sits flush on the page and each tab's content
+   carries the card instead (LAYOUT.md, "Placement"). */
 .about {
   margin-top: 20px;
+}
+
+/* The same card every other panel on this screen draws — BucketPanel, LagLane,
+   EventLog. It sits on the tab CONTENT so the two views look like the panels
+   they sit beside, and so the tablist's hairline stays on the page. */
+.card {
   padding: 14px 16px;
   border: 1px solid var(--lab-panel-border);
   border-radius: 6px;
@@ -148,44 +177,22 @@ header {
   color: var(--p-text-muted-color);
 }
 
-.tabs {
-  display: flex;
-  gap: 8px;
+/* Everything about the strip itself — the hairline, the active underline, the
+   type — comes from `.panel-tabs` in shared/unifi-theme/unifi.css. Nothing is
+   restyled here; that is the point of there being one tab style in the repo.
+   Only the gap above it is this component's business. */
+.panel-tabs {
   margin-top: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--lab-panel-border);
-}
-
-.tabs button {
-  padding: 4px 12px;
-  border: 1px solid var(--lab-panel-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--p-text-muted-color);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.tabs button:hover {
-  color: var(--p-text-color);
-}
-
-.tabs button.active {
-  border-color: color-mix(in srgb, var(--p-primary-color) 50%, var(--lab-panel-border));
-  color: var(--p-primary-color);
-}
-
-.tabs button:focus-visible {
-  outline: 2px solid var(--p-primary-color);
-  outline-offset: 1px;
 }
 
 /* The README is prose, so it gets a reading measure rather than the full
-   panel width. The diagrams below are the opposite — they want everything. */
+   panel width. The diagrams are the opposite — they want everything. */
 .notes {
   max-width: 84ch;
-  margin-top: 16px;
+}
+
+.notes :deep(> :first-child) {
+  margin-top: 0;
 }
 
 .notes :deep(h1) {
@@ -274,10 +281,6 @@ header {
 
 .notes :deep(a) {
   color: var(--p-primary-color);
-}
-
-.frame {
-  margin-top: 16px;
 }
 
 .frame iframe {
