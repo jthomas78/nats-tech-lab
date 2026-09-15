@@ -98,6 +98,14 @@
       "runtimeArgs": ["vitepress", "dev", ".", "--port", "7109", "--strictPort"],
       "cwd": "demos/01-dictionary/docs",
       "port": 7109
+    },
+    {
+      "//": "Demo 04's UI. Ports here follow 20<demo number><increment> and sit outside the 7100-7299 bands, which demo 01 has fully claimed: 20401 this dev server, 20402 the command API (`cqrs serve`), 20403 the NATS WebSocket. strictPort, because the command API's CORS allow-list names http://localhost:20401 exactly and a moved dev server would be refused rather than reported.",
+      "name": "demo04-odometer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "demos/04-jetstream-cqrs/frontend",
+      "port": 20401
     }
   ]
 }

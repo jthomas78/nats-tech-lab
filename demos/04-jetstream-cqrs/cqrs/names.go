@@ -28,6 +28,16 @@ const (
 	ReadConsumer = "vehicle-projector"
 
 	defaultURL = "nats://127.0.0.1:4422"
+
+	// Host ports for this demo follow 20<demo number><increment>, so they
+	// never collide with demo 01's 7100-7299 bands. 20401 is the frontend,
+	// 20402 the command API, 20403 the NATS WebSocket.
+	defaultServeAddr = "127.0.0.1:20402"
+
+	// The frontend's origin. Only a page served from here may send commands.
+	// Loopback on purpose: this demo has no accounts and no auth, so the
+	// bind address is what keeps it off the network.
+	defaultOrigin = "http://localhost:20401,http://127.0.0.1:20401"
 )
 
 // vehicleSubject is the subject one event is published on.

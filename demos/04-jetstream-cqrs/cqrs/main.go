@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 //	cqrs projector
 //	cqrs query      -vehicle V1
 //	cqrs seed       -vehicle V1 -n 10000
+//	cqrs serve      -addr :20402
 
 const usage = `cqrs — demo 04, JetStream as an event source
 
@@ -34,6 +36,7 @@ const usage = `cqrs — demo 04, JetStream as an event source
   projector                            run the read-side projector (blocks)
   query       -vehicle ID              read the read store — one KV get, no replay
   seed        -vehicle ID -n N [-km K]  write N trips, to make the replay worth timing
+  serve       [-addr A] [-origin O]    the command API the browser UI posts to (blocks)
 
   -url  NATS url (default ` + defaultURL + `)
 `
@@ -58,6 +61,8 @@ func run(cmd string, args []string) error {
 	km := fs.Float64("km", 0, "kilometres travelled (travel)")
 	n := fs.Int("n", 0, "how many trips to seed")
 	snapshot := fs.Bool("snapshot", true, "rehydrate from the snapshot, then replay the tail")
+	addr := fs.String("addr", defaultServeAddr, "address the command API listens on")
+	origin := fs.String("origin", defaultOrigin, "comma-separated list of browser origins allowed to send commands")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -93,6 +98,11 @@ func run(cmd string, args []string) error {
 	case "projector":
 		fmt.Printf("projector running — folding %s into KV %s. ctrl-c to stop.\n", StreamName, ReadKV)
 		return runProjector(ctx, js, readKV)
+
+	case "serve":
+		fmt.Printf("command API on %s — accepting register, travel, retire from %s.\n", *addr, *origin)
+		fmt.Printf("reads do NOT come through here; the browser watches NATS directly.\n")
+		return runServe(ctx, js, writeKV, *addr, strings.Split(*origin, ","))
 
 	case "query":
 		if *vehicle == "" {

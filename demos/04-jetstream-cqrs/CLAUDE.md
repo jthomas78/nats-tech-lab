@@ -44,12 +44,17 @@ snapshot.
 
 Agreed with the user 2026-09-14. Do not add any of it:
 
-- no frontend
 - no Postgres
 - no cluster, no gateway, no supercluster, no JetStream domain
 - no operator mode (a plain server, no `nsc` trust chain)
 - no Temporal
 - no `{context}` subject token
+
+**Changed 2026-09-15 — a UI is now in scope.** "no frontend" and "no services"
+were lifted for phase 04.6: a Vue app plus one thin HTTP shim (`cqrs serve`)
+in front of the existing `domain.go`. The shim holds no rules. The rest of the
+list above is unchanged. Read `docs/Demo-04-Plan.md` section 9 before touching
+`frontend/`, `cqrs/serve.go` or `deploy/nats.conf`.
 
 Multi-region belongs to demo 02. Accounts and topologies belong to demo 03.
 Services, Postgres and UIs belong to demo 01.
@@ -70,7 +75,14 @@ renaming.
 |---|---|
 | NATS client | `4422` |
 | NATS monitor | `8422` |
+| NATS WebSocket | `20403` |
+| Frontend | `20401` |
+| Command API (`cqrs serve`) | `20402` |
 | `nats` CLI context | `lab4-odometer` |
+
+This demo's host ports follow `20<2-digit demo><2-digit increment>`, so they
+never collide with demo 01's `7100-7299` bands. `4422` / `8422` predate the
+scheme and stay.
 
 **Every context name starts `lab4-`.** Demo 01 owns `sys` and `platform`, and
 demo 02 owns `lab2-*`, in the same store (`~/.config/nats/context/`). An

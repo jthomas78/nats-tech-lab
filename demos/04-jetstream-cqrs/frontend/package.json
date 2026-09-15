@@ -1,0 +1,32 @@
+{
+  "name": "demo04-odometer-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@nats-io/jetstream": "^3.4.0",
+    "@nats-io/kv": "^3.4.0",
+    "@nats-io/nats-core": "^3.4.0",
+    "@primevue/themes": "^4",
+    "marked": "^15.0.12",
+    "primeicons": "^7",
+    "primevue": "^4",
+    "vue": "^3.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6",
+    "@vue/test-utils": "^2.4.11",
+    "eslint": "^10.6.0",
+    "eslint-plugin-vue": "^10.9.2",
+    "happy-dom": "^20.10.6",
+    "vite": "^7",
+    "vitest": "^4.1.10"
+  }
+}

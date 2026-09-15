@@ -1,0 +1,22 @@
+/* Two colours, and they are the demo, not a new palette.
+ *
+ * Everything else on this screen comes from @unifi-theme. These two say WHICH
+ * SIDE of CQRS a thing belongs to — blue is the write side, teal is the read
+ * side — and they are the same two values the demo's diagrams use, so the
+ * picture in diagrams/ and the picture on the screen agree.
+ *
+ * They live here and not in shared/unifi-theme because "write side" and "read
+ * side" are demo 04's domain, not a design-system role. No other app in the
+ * repo has a use for them.
+ */
+:root {
+  --d4-write: #4d94ff;
+  --d4-read: #2dd4bf;
+}
+
+/* Light mode — the dark values wash out on white, so both are darkened to
+ * keep the text that uses them readable. Matches unifi.css's own approach. */
+:root:not(.p-dark) {
+  --d4-write: #0b5ed7;
+  --d4-read: #0d7d70;
+}

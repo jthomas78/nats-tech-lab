@@ -5,20 +5,24 @@
 # trust chain would add a bootstrap step that teaches nothing here.
 #
 # Ports are demo 04's own (4422 / 8422) so it can run beside demo 01 (4222)
-# and demo 02 (4621-4623, 4721-4723) without a clash.
+# and demo 02 (4621-4623, 4721-4723) without a clash. The UI ports follow
+# 20<demo number><increment>: 20401 frontend, 20402 command API, 20403 the
+# NATS WebSocket the browser connects to.
+#
+# The server is configured by nats.conf, not by flags — a websocket block
+# cannot be expressed as a flag. See docs/Demo-04-Plan.md section 9.
 services:
   nats:
     image: nats:2.14.3-alpine3.22
     container_name: lab4-nats
     command:
-      - "--name=lab4-nats"
-      - "--jetstream"
-      - "--store_dir=/data"
-      - "--http_port=8222"
+      - "--config=/etc/nats/nats.conf"
     ports:
       - "4422:4222"
       - "8422:8222"
+      - "20403:8080"
     volumes:
+      - ./nats.conf:/etc/nats/nats.conf:ro
       - lab4-js:/data
     healthcheck:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:8222/healthz"]

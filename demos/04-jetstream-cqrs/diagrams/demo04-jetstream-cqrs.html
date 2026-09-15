@@ -74,7 +74,7 @@ h3 { margin: 0; font-size: 13px; line-height: 19px; font-weight: 600; color: var
       <div class="head-txt">
         <span class="eyebrow">Demo 04 · docs/Demo-04-Plan.md §4–§5 · cqrs/</span>
         <h1>JetStream as an event source, with CQRS</h1>
-        <p class="sub">The demo answers one question with a number: rehydrating an aggregate, how much does a snapshot buy you? Three block diagrams show the shape, a class diagram names the types, and five sequence diagrams walk each <code>cqrs</code> command through the code that runs it.</p>
+        <p class="sub">The demo answers one question with a number: rehydrating an aggregate, how much does a snapshot buy you? One block diagram shows the shape, a class diagram names the types, and five sequence diagrams walk each <code>cqrs</code> command through the code that runs it.</p>
       </div>
     </header>
 
@@ -152,90 +152,6 @@ h3 { margin: 0; font-size: 13px; line-height: 19px; font-weight: 600; color: var
         </svg>
       </div>
       <figcaption><b>The whole solution.</b> The <code>Vehicle</code> aggregate is step 2 and it is the only place a rule lives — it has no database row and no KV key of its own, it is rebuilt from the log for one command and thrown away. One stream is the only truth; two KV buckets serve two different jobs; the write bucket is an optimisation the write side may not trust on its own, while the read bucket is the answer a query prints.</figcaption>
-    </figure>
-
-    <figure>
-      <div class="fig-body">
-        <svg viewBox="0 0 1000 320" role="img" aria-label="A side-by-side rehydration comparison shows that without a snapshot the ODOMETER stream replays sequence 1 through N into a Vehicle aggregate, while with a snapshot the write KV bucket loads state and last sequence and the stream replays only the tail. Both paths produce the same Vehicle, but one reads N events and the other a handful.">
-          <defs>
-            <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
-            <marker id="b-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
-          </defs>
-
-          <!-- Grid: left lane x=16..468; right lane x=532..984; inter-lane gutter=64. -->
-          <text class="grp" x="16" y="20">NO SNAPSHOT</text>
-          <rect class="nb" x="16" y="34" width="452" height="270" rx="4"/>
-          <path class="n" d="M46 118 L46 176 A108 9 0 0 0 262 176 L262 118"/>
-          <ellipse class="n" cx="154" cy="118" rx="108" ry="9"/>
-          <text class="lbl" x="154" y="142" text-anchor="middle">ODOMETER</text>
-          <text class="lbl2" x="154" y="156" text-anchor="middle">seq 1 … N</text>
-          <rect class="n" x="304" y="126" width="144" height="30" rx="3"/>
-          <text class="lbl" x="376" y="145" text-anchor="middle">Vehicle aggregate</text>
-          <path class="flow" marker-end="url(#b-sync)" d="M262 147 L278 147 L278 220 L293 220 L293 141"/>
-          <text class="edge" x="286" y="235" text-anchor="middle">replay seq 1 … N</text>
-          <text class="lbl2" x="46" y="282">N events read</text>
-
-          <text class="grp" x="532" y="20">SNAPSHOT</text>
-          <rect class="nb" x="532" y="34" width="452" height="270" rx="4"/>
-          <rect class="n" x="548" y="80" width="144" height="46" rx="3"/>
-          <text class="lbl" x="620" y="100" text-anchor="middle">KV odometer-write</text>
-          <text class="lbl2" x="620" y="113" text-anchor="middle">{state, lastSeq}</text>
-          <rect class="n" x="808" y="126" width="144" height="30" rx="3"/>
-          <text class="lbl" x="880" y="145" text-anchor="middle">Vehicle aggregate</text>
-          <path class="flow" marker-end="url(#b-sync)" d="M620 80 L620 52 L797 52 L797 141"/>
-          <text class="edge" x="708" y="46" text-anchor="middle">load {state, lastSeq}</text>
-          <path class="n" d="M548 210 L548 268 A88 9 0 0 0 724 268 L724 210"/>
-          <ellipse class="n" cx="636" cy="210" rx="88" ry="9"/>
-          <text class="lbl" x="636" y="234" text-anchor="middle">ODOMETER</text>
-          <text class="lbl2" x="636" y="248" text-anchor="middle">stream tail</text>
-          <path class="rep" marker-end="url(#b-rep)" d="M724 239 L860 239 L860 167"/>
-          <text class="edge" x="792" y="254" text-anchor="middle">replay lastSeq+1 … N</text>
-          <text class="lbl2" x="548" y="296">a handful of events read</text>
-        </svg>
-      </div>
-      <figcaption><b>The snapshot is always stale.</b> The write consumer is asynchronous, so the snapshot trails the log. Rehydration therefore loads the snapshot <em>and</em> replays the tail. Code that stops at the snapshot is a bug, not a shortcut. Both lanes produce the same <code>Vehicle</code>; only the number of events read differs, and that number is what demo 04 measures.</figcaption>
-    </figure>
-
-    <figure>
-      <div class="fig-body">
-        <svg viewBox="0 0 1000 390" role="img" aria-label="Two writers concurrently rehydrate the same Vehicle at last sequence 42. Writer A appends with an expected sequence of 42 and creates sequence 43 on the ODOMETER stream. Writer B makes the same optimistic append, receives a 409 error, and follows a red retry route back to rehydrate from step 1.">
-          <defs>
-            <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
-            <marker id="c-err" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
-          </defs>
-
-          <!-- Grid: writer column x=24; rehydrate x=248; append lanes x=480/520; stream x=720..960; retry gutter y=342. -->
-          <rect class="n" x="24" y="86" width="120" height="44" rx="3"/>
-          <text class="lbl" x="84" y="105" text-anchor="middle">writer A</text>
-          <text class="lbl2" x="84" y="118" text-anchor="middle">command</text>
-          <rect class="n" x="24" y="210" width="120" height="44" rx="3"/>
-          <text class="lbl" x="84" y="229" text-anchor="middle">writer B</text>
-          <text class="lbl2" x="84" y="242" text-anchor="middle">command</text>
-          <rect class="n" x="248" y="126" width="172" height="54" rx="3"/>
-          <text class="lbl" x="334" y="148" text-anchor="middle">rehydrate</text>
-          <text class="lbl2" x="334" y="162" text-anchor="middle">lastSeq = 42</text>
-
-          <!-- ODOMETER cylinder: usable label width is 220px (2×120 − 20). -->
-          <path class="n" d="M720 150 L720 210 A120 9 0 0 0 960 210 L960 150"/>
-          <ellipse class="n" cx="840" cy="150" rx="120" ry="9"/>
-          <text class="lbl" x="840" y="174" text-anchor="middle">ODOMETER</text>
-          <text class="lbl2" x="840" y="188" text-anchor="middle">evt.odometer.vehicle.{id}.*</text>
-
-          <path class="flow" marker-end="url(#c-sync)" d="M144 108 L190 108 L190 148 L237 148"/>
-          <path class="flow" marker-end="url(#c-sync)" d="M144 232 L190 232 L190 164 L237 164"/>
-
-          <path class="flow" marker-end="url(#c-sync)" d="M420 146 L520 146 L520 168 L709 168"/>
-          <text class="edge" x="615" y="162" text-anchor="middle">append, expect 42</text>
-          <text class="lbl2" x="748" y="133">seq 43</text>
-          <path class="err" marker-end="url(#c-err)" d="M420 170 L480 170 L480 246 L640 246 L640 196 L709 196"/>
-          <text class="edge errtxt" x="560" y="261" text-anchor="middle">append, expect 42</text>
-
-          <!-- The retry owns the bottom gutter, then rises through the clear x=220 lane. -->
-          <path class="err" marker-end="url(#c-err)" d="M840 219 L840 342 L220 342 L220 153 L237 153"/>
-          <text class="edge errtxt" x="530" y="336" text-anchor="middle">409 — retry from step 1</text>
-        </svg>
-      </div>
-      <figcaption><b>Two commands at once.</b> Both writers read the same state, so without a guard both appends land and the rule is broken. <code>Nats-Expected-Last-Subject-Sequence</code>, scoped with <code>Nats-Expected-Last-Subject-Sequence-Subject</code> to <code>evt.odometer.vehicle.{id}.&gt;</code>, makes the second append fail instead. The scoped form needs NATS 2.11+; this demo runs 2.14.3.</figcaption>
     </figure>
 
     <hr class="rule">
