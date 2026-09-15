@@ -61,6 +61,10 @@ Datastores (Postgres, etc.) and NATS keep their conventional ports. Assign the n
 free port in sequence within a demo and record it in that demo's `README.md` port
 table.
 
+Shared lab tools sit outside both bands, because the bands are per-demo and a tool
+is not a demo. Allocated: **31311** — NUI, the NATS web GUI (`tools/nui/`), which
+reaches every demo's NATS over the host.
+
 ## Frontend Design System
 
 Every UI in this repo (`lab-shell/` and each app under

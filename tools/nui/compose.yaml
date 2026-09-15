@@ -1,0 +1,50 @@
+# NUI — a web GUI for NATS (https://github.com/nats-nui/nui).
+#
+# A LAB TOOL, NOT A DEMO. It is deliberately not part of any demo's Compose
+# stack, and it joins no demo network. Each demo publishes its NATS client
+# port on the host, so NUI reaches every one of them by dialling back out to
+# host.docker.internal. That keeps demos 01-04 sealed from each other and
+# from this file: adding or removing NUI changes no demo.
+#
+# Run it on its own project so it survives a demo teardown:
+#   docker compose -p lab-tools -f tools/nui/compose.yaml up -d
+#   docker compose -p lab-tools -f tools/nui/compose.yaml down
+#
+# Web UI: http://localhost:31311
+#
+# Port 31311 is NUI's own default and sits OUTSIDE this repo's 7100-7199
+# frontend band on purpose. That band is fully allocated between demo 01's
+# za-1 (7100-7149) and au-1 (7150-7199) cells, and NUI is not a demo
+# frontend.
+services:
+  nui:
+    image: ghcr.io/nats-nui/nui:0.9.3
+    container_name: lab-nui
+    # The image's entrypoint hard-codes --proto-schemas-path=/protoschemas/default,
+    # ships no such directory, and runs NUI as a non-root user that cannot
+    # create one at /. Every /api/proto call then returns 500 and the UI never
+    # renders its connection list. Measured on 0.9.3. The entrypoint appends
+    # our arguments after its own, and Go's flag package takes the last value,
+    # so this repoints the path into /db -- the one directory the entrypoint
+    # chowns to the nui user.
+    command: ["--proto-schemas-path=/db/protoschemas"]
+    ports:
+      - "31311:31311"
+    volumes:
+      # NUI's own store. It has no config-as-code: connections are added in
+      # the UI and live here, so this volume is what makes them survive a
+      # restart. Delete it and you re-add the four connections by hand.
+      - nui-db:/db
+      # Operator-mode demos need a credential. Read-only, and mounted at a
+      # path that names the demo, because every demo has its own trust chain
+      # and a sys.creds from one is meaningless to another.
+      - ../../demos/01-dictionary/nats/creds:/creds/demo01:ro
+      - ../../demos/02-multi-region/nats/creds:/creds/demo02:ro
+    extra_hosts:
+      # Linux does not provide host.docker.internal; Docker Desktop does.
+      # This line makes the compose file work on both.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  nui-db:
