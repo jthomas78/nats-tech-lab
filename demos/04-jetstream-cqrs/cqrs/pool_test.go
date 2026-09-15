@@ -53,3 +53,55 @@ var _ = Describe("the kill clock", func() {
 		})
 	})
 })
+
+// MaxAckPending is one number on the CONSUMER, and the whole starvation
+// lesson is that it does not divide up among the workers. Eight workers on a
+// cap of three is still three messages in flight.
+//
+// Saying that is easy. Proving it needs the pool to report where the work
+// landed, and until 04.7.6 it reported only totals — which look identical
+// whether one worker did everything or eight shared it evenly.
+var _ = Describe("how the work landed across the workers", func() {
+	state := func(worker, acked int) *WorkerState {
+		return &WorkerState{Worker: worker, Acked: acked}
+	}
+
+	It("calls a worker that acked nothing idle", func() {
+		s := shareOf([]*WorkerState{state(1, 10), state(2, 0), state(3, 0)})
+
+		Expect(s.Workers).To(Equal(3))
+		Expect(s.Busy).To(Equal(1))
+		Expect(s.Idle).To(Equal(2))
+	})
+
+	It("counts every worker exactly once", func() {
+		s := shareOf([]*WorkerState{state(1, 5), state(2, 0), state(3, 7), state(4, 1)})
+
+		Expect(s.Busy + s.Idle).To(Equal(s.Workers))
+	})
+
+	It("keeps the workers in their own order, so worker 1 is first", func() {
+		s := shareOf([]*WorkerState{state(1, 5), state(2, 0), state(3, 7)})
+
+		Expect(s.Acked).To(Equal([]int{5, 0, 7}))
+	})
+
+	// The question this answers is "did this worker do any work", and a
+	// killed worker that never acked did not. Conflating it with a starved
+	// one would be wrong on the Redelivery tab, which is why that tab reads
+	// status instead — but a drain run has no kill in it.
+	It("judges on acks alone, not on status", func() {
+		killed := &WorkerState{Worker: 2, Acked: 0, Status: "killed"}
+		s := shareOf([]*WorkerState{state(1, 5), killed})
+
+		Expect(s.Idle).To(Equal(1))
+	})
+
+	It("says nothing rather than something about an empty pool", func() {
+		s := shareOf(nil)
+
+		Expect(s.Workers).To(BeZero())
+		Expect(s.Busy).To(BeZero())
+		Expect(s.Acked).To(BeEmpty())
+	})
+})

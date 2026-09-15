@@ -263,6 +263,19 @@ func printPool(cfg PoolConfig, r PoolResult) {
 			fmt.Printf("rate        %.0f events/s\n", float64(r.Events)/secs)
 		}
 	}
+	if sh := r.Share; sh.Workers > 0 {
+		// The starvation answer. Totals cannot give it: one worker doing
+		// everything and eight sharing it evenly print the same Events.
+		fmt.Printf("busy        %d of %d workers acked anything\n", sh.Busy, sh.Workers)
+		if sh.Idle > 0 {
+			fmt.Printf("idle        %d never acked — the cap is on the consumer, not on each worker\n", sh.Idle)
+		}
+		parts := make([]string, 0, len(sh.Acked))
+		for i, n := range sh.Acked {
+			parts = append(parts, fmt.Sprintf("w%d:%d", i+1, n))
+		}
+		fmt.Printf("spread      %s\n", strings.Join(parts, "  "))
+	}
 	if r.Dropped > 0 {
 		fmt.Printf("\nthe pool's total is SHORT by those %d events. A dropped event is a fact\n", r.Dropped)
 		fmt.Printf("that is gone: the fold's position never moves back, so nothing repairs it.\n")

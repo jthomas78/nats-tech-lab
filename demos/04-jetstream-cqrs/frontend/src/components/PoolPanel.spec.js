@@ -12,6 +12,11 @@ import {
   REDELIVERY_SOURCE,
   redeliveryRows,
 } from '../view/redelivery.js'
+import {
+  STARVATION_MEASURED_AT,
+  STARVATION_SOURCE,
+  starvationRows,
+} from '../view/starvation.js'
 import PoolPanel from './PoolPanel.vue'
 
 const mountPanel = (props = {}) =>
@@ -94,6 +99,75 @@ describe('PoolPanel — starvation', () => {
     // Scoped to this card on purpose: the 1-vs-4 tab draws bar rows too, and
     // a page-wide count would silently mix the two lessons together.
     expect(card.findAll('.bar-row')).toHaveLength(2)
+  })
+})
+
+// 04.7.6 inverted this tab. It used to promise starvation, because the
+// nats.io worker-pool page says a low cap "starves a large set of workers".
+// Four `-drain` runs at 8 workers say otherwise: at every cap, including 1,
+// all eight acked, within 2% of each other. The doc is describing an INSTANT
+// (5 of 8 parked, which `num_waiting` confirms); the tab was reading it as a
+// RUN. These its exist to stop the old claim coming back.
+describe('PoolPanel — starvation, after the measurement', () => {
+  const starvation = async () => {
+    const w = mountPanel({ head: 94, workers: workers() })
+    w.vm.tab = 'starvation'
+    await w.vm.$nextTick()
+    return w
+  }
+
+  it('shows the recorded runs whether or not a pool is running', async () => {
+    const w = await starvation()
+    expect(w.find('[data-testid="starvation-measured"]').exists()).toBe(true)
+
+    const idle = mountPanel()
+    idle.vm.tab = 'starvation'
+    await idle.vm.$nextTick()
+    expect(idle.find('[data-testid="starvation-measured"]').exists()).toBe(true)
+  })
+
+  it('never promises that workers will sit and do nothing', async () => {
+    const w = await starvation()
+    expect(w.text()).not.toContain('do nothing')
+    expect(w.text()).not.toContain('watch five')
+  })
+
+  it('draws a row per recorded cap', async () => {
+    const w = await starvation()
+    for (const r of starvationRows()) {
+      expect(w.find(`[data-testid="starvation-cap-${r.maxPending}"]`).exists()).toBe(true)
+    }
+  })
+
+  it('says every worker acked, because that is what the runs show', async () => {
+    const w = await starvation()
+    const card = w.find('[data-testid="starvation-measured"]').text()
+    for (const r of starvationRows()) {
+      expect(card).toContain(`${r.busy} of ${r.workers}`)
+    }
+  })
+
+  it('says when and on what the runs were made', async () => {
+    const w = await starvation()
+    expect(w.find('[data-testid="starvation-measured"]').text()).toContain(
+      STARVATION_MEASURED_AT,
+    )
+  })
+
+  it('prints the commands that produced the table', async () => {
+    const w = await starvation()
+    const term = w.find('[data-testid="starvation-term"]')
+    expect(term.exists()).toBe(true)
+    for (const line of STARVATION_SOURCE) {
+      expect(term.text()).toContain(line)
+    }
+  })
+
+  it('names the cap as the loss dial, which is the actual finding', async () => {
+    const w = await starvation()
+    expect(w.find('[data-testid="starvation-measured"]').text()).toContain(
+      'loss',
+    )
   })
 })
 

@@ -388,6 +388,52 @@ still gone.
 
 The same two runs are drawn on the UI's **Redelivery** tab.
 
+### Does `MaxAckPending` starve workers — no
+
+Measured 2026-09-16, on one NATS 2.14.3 server in Docker on a laptop, eight
+workers, 74 109 events in the stream, `-drain` so every run reads the same log.
+
+| MaxAckPending | Time | Events/s | Workers that acked | Folded | Dropped | Loss |
+|---|---|---|---|---|---|---|
+| **1** | 1m34.1s | 788 | **8 of 8** | 74109 | **0** | 0.0% |
+| 3 | 50.0s | 1481 | **8 of 8** | 57529 | 16580 | 22.4% |
+| 1000 | 33.2s | 2229 | **8 of 8** | 31912 | 42197 | 56.9% |
+
+The cap of 3 was run twice — 54.6s and 16 722 dropped the second time — so
+these are a race, not a constant.
+
+```bash
+./cqrs pool -workers 8 -max-pending 1 -drain
+./cqrs pool -workers 8 -max-pending 3 -drain
+./cqrs pool -workers 8 -max-pending 1000 -drain
+```
+
+**No worker starved, at any cap.** Not even at a cap of one: all eight acked,
+within 2% of each other (`w1:9263 … w8:9264`). A worker acks, a slot frees,
+the next fetch is served. `MaxAckPending` throttles the **consumer**; it does
+not idle a worker.
+
+What it really is, is the **loss dial**. A smaller cap is slower and drops
+less, because there is less in flight to reorder. At a cap of 1 this pool
+folds the whole log and drops **nothing** — same eight workers, same code, a
+third of the speed.
+
+The [nats.io worker-pool page][nats-wp] says a low cap "starves a large set of
+workers". Both are true, about different things. At an **instant**, yes —
+sampled while a capped pool ran, the consumer reported `num_ack_pending 3` and
+`num_waiting 4`–`5` of the 8, every time:
+
+```bash
+nats --context lab4-odometer consumer info ODOMETER odometer-pool -j
+```
+
+Over a **run**, no — every worker gets a turn. Set the cap for the loss you
+can accept, not to keep workers busy.
+
+[nats-wp]: https://docs.nats.io/learn/jetstream/worker-pool
+
+The same three runs are drawn on the UI's **Starvation** tab.
+
 ### Does it actually go faster — 1 vs 4
 
 Measured 2026-09-15, on one NATS 2.14.3 server in Docker on a laptop, 10029

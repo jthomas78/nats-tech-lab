@@ -40,6 +40,12 @@ import {
   redeliveryRows,
 } from '../view/redelivery.js'
 import {
+  STARVATION_MEASURED_AT,
+  STARVATION_REPEAT,
+  STARVATION_SOURCE,
+  starvationRows,
+} from '../view/starvation.js'
+import {
   ackBars,
   foldDamage,
   poolCaughtUp,
@@ -95,6 +101,10 @@ const drain = drainRows()
 // Recorded the same way, for the same reason — see view/redelivery.js. The
 // live panel cannot time a redelivery; the server never reports the wait.
 const redeliveries = redeliveryRows()
+
+// Recorded the same way again — see view/starvation.js. This one corrects a
+// claim the tab used to make, so it is not decoration: it is the evidence.
+const starvation = starvationRows()
 
 const STATUS_TONE = { working: 'on', waiting: 'off', killed: 'lost' }
 
@@ -288,8 +298,9 @@ function km(n) {
             data-testid="starvation-not-running"
           >
             <p class="note">
-              Eight workers on a cap of three. Start it and watch five of them
-              do nothing:
+              Eight workers on a cap of three. At any instant five of them are
+              parked, waiting for a slot. Over a whole run, every one of them
+              gets served — the card below is four runs that say so.
             </p>
             <code class="run">{{ current.cmd }}</code>
           </div>
@@ -318,7 +329,8 @@ function km(n) {
             <p class="note">
               The cap is shared across the consumer, not given to each worker.
               Three messages in flight is three messages in flight however many
-              workers are asking for them.
+              workers are asking for them. So a bar at zero right now is a
+              worker waiting its turn, not a worker shut out.
             </p>
 
             <div
@@ -328,11 +340,105 @@ function km(n) {
             >
               <p class="note">
                 Every bar is at zero because the pool has caught up, so there
-                is no work to share out and nothing to starve. Seed it first,
+                is no work to share out. Seed it first,
                 then read the bars:
               </p>
               <code class="run">{{ SEED_CMD }}</code>
             </div>
+          </div>
+
+          <!-- The measurement. Outside the v-if for the same reason as the
+               redelivery one: recorded data is true whether or not a pool is
+               running. This card exists because the tab used to claim the
+               opposite of what the runs show. -->
+          <div
+            class="card measured"
+            data-testid="starvation-measured"
+          >
+            <p class="eyebrow">
+              What the cap actually does — four recorded runs
+            </p>
+            <table class="rt">
+              <thead>
+                <tr>
+                  <th>MaxAckPending</th>
+                  <th>time</th>
+                  <th>rate</th>
+                  <th>workers that acked</th>
+                  <th>folded</th>
+                  <th>dropped</th>
+                  <th>loss</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="r in starvation"
+                  :key="r.maxPending"
+                  :data-testid="`starvation-cap-${r.maxPending}`"
+                  :class="{ control: r.control }"
+                >
+                  <td><code>{{ r.maxPending }}</code></td>
+                  <td>
+                    <span class="track wide"><span
+                      class="fill"
+                      :style="{ width: `${r.barPct}%` }"
+                    /></span>
+                    {{ r.seconds }}s
+                  </td>
+                  <td>{{ r.rate.toLocaleString('en-GB') }}/s</td>
+                  <td class="ok">{{ r.busy }} of {{ r.workers }}</td>
+                  <td>{{ r.folded.toLocaleString('en-GB') }}</td>
+                  <td :class="r.dropped ? 'lost' : 'ok'">
+                    {{ r.dropped.toLocaleString('en-GB') }}
+                  </td>
+                  <td :class="r.dropped ? 'lost' : 'ok'">
+                    {{ r.lossPct.toFixed(1) }}%
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="note">
+              {{ STARVATION_MEASURED_AT }}. The cap of
+              <code>{{ STARVATION_REPEAT.maxPending }}</code> was run twice —
+              {{ STARVATION_REPEAT.seconds }}s and
+              {{ STARVATION_REPEAT.dropped.toLocaleString('en-GB') }} dropped
+              the second time — so the numbers are a race, not a constant.
+            </p>
+            <p class="note hard">
+              <b>No worker starved, at any cap.</b> Not even at a cap of one:
+              all eight acked, within 2% of each other. A worker acks, a slot
+              frees, the next fetch is served. <code>MaxAckPending</code>
+              throttles the <b>consumer</b>; it does not idle a worker.
+            </p>
+            <p class="note hard">
+              What it really is, is the <b>loss dial</b>. A smaller cap is
+              slower and drops less, because there is less in flight to
+              reorder. At a cap of 1 this pool folds the whole log and drops
+              <b>nothing</b> — same eight workers, same code, a third of the
+              speed. The dropping is BR-OD07 doing its job on events that
+              arrived out of order.
+            </p>
+            <p class="note cmp">
+              The nats.io worker-pool page says a low cap "starves a large set
+              of workers". Both are true, about different things. At an
+              <b>instant</b>, yes — <code>num_waiting</code> on the consumer
+              sits at 4 or 5 of the 8 while <code>num_ack_pending</code> holds
+              at 3. Over a <b>run</b>, no — every worker gets a turn. Set the
+              cap for the loss you can accept, not to keep workers busy.
+            </p>
+          </div>
+
+          <div
+            class="term"
+            data-testid="starvation-term"
+          >
+            <span class="lead">Ran this</span>
+            <span v-for="line in STARVATION_SOURCE" :key="line"><span class="pr">$</span> {{ line }}</span>
+            <span class="foot">
+              <code>-drain</code> rebuilds the pool's fold from sequence 1 and
+              stops at zero pending, so every run reads the same 74 109 events
+              and the times can be compared.
+            </span>
           </div>
         </TabPanel>
 
@@ -886,6 +992,25 @@ header {
 
 .rt tr:last-child td {
   border-bottom: 0;
+}
+
+/* The time column carries a magnitude, so it gets a bar as well as a number.
+   `.track` is a flex child everywhere else on this panel; in a table cell it
+   has to size itself. */
+.rt .track.wide {
+  display: inline-block;
+  flex: none;
+  width: 80px;
+  margin-right: 9px;
+  vertical-align: middle;
+}
+
+/* The cap-of-1 run is the CONTROL — the one that folded the whole log. Every
+   faster row is faster by losing something, so the correct run is the one
+   marked, not the quickest. */
+.rt tr.control td:first-child {
+  box-shadow: inset 2px 0 0 var(--d4-read);
+  padding-left: 8px;
 }
 
 /* The finding the tab exists for. It is the sentence a reader is most

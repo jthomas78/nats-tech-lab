@@ -645,10 +645,13 @@ demos/04-jetstream-cqrs/
   frontend/src/view/redelivery.js NEW  - 04.7.5's two runs, recorded as data
   frontend/src/view/redelivery.spec.js NEW - written first, 11 specs
   frontend/src/view/commands.spec.js NEW - every printed command vs main.go
+  frontend/src/view/starvation.js NEW  - 04.7.6's four runs, recorded as data
+  frontend/src/view/starvation.spec.js NEW - written first, 14 specs
   RedeliveryTimeline.vue      NEW  - 04.7.5, the mockup's Tab 3 time line
   RedeliveryTimeline.spec.js  NEW  - written first, 6 specs
-  cqrs/pool.go                EDIT - 04.7.5, the kill clock
-  cqrs/pool_test.go           NEW  - written first, 4 specs for the clock
+  cqrs/pool.go                EDIT - 04.7.5 kill clock, 04.7.6 PoolShare
+  cqrs/pool_test.go           NEW  - written first, 4 + 5 specs
+  cqrs/main.go                EDIT - 04.7.6, printPool prints busy/idle/spread
   frontend/src/config.js      EDIT - POOL_KV, POOL_WORKERS_KV
   frontend/src/styles/sides.css EDIT - --d4-lost, for loss only
   frontend/src/view/lane.js   EDIT - N markers, still pure, still specced
@@ -817,7 +820,55 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       `-kill-att` fails it. It is a text check, not an execution — a unit
       suite that needed a NATS server would simply be skipped, and the flags
       are what drift, not the server. 236 vitest specs, 62 Ginkgo specs.
-- [ ] 04.7.6 `-max-pending 3` and the starvation measurement.
+- [x] 04.7.6 `-max-pending 3` and the starvation measurement — **the tab was
+      wrong, and the measurement is what proves it.**
+
+      The task was written to demonstrate starvation, because the
+      [nats.io worker-pool page](https://docs.nats.io/learn/jetstream/worker-pool)
+      says a low cap "starves a large set of workers", and the Starvation tab
+      repeated it: *"Eight workers on a cap of three. Start it and watch five
+      of them do nothing."* Nothing in the pool could check that claim —
+      `PoolResult` carried only totals, and one worker doing everything looks
+      exactly like eight sharing it evenly.
+
+      So `PoolShare` / `shareOf()` were added to `pool.go` (specs first, 5 its
+      in `pool_test.go`) and `printPool` now prints busy / idle / spread. Then
+      four `-drain` runs at 8 workers over the same 74 109 events:
+
+      | MaxAckPending | Time | Events/s | Acked | Folded | Dropped | Loss |
+      |---|---|---|---|---|---|---|
+      | 1 | 1m34.1s | 788 | **8 of 8** | 74109 | **0** | 0.0% |
+      | 3 | 50.0s | 1481 | **8 of 8** | 57529 | 16580 | 22.4% |
+      | 3 (repeat) | 54.6s | 1357 | **8 of 8** | 57387 | 16722 | 22.6% |
+      | 1000 | 33.2s | 2229 | **8 of 8** | 31912 | 42197 | 56.9% |
+
+      **No worker starved, at any cap.** At a cap of 1 the spread was
+      `w1:9263 … w8:9264` — under 2% apart. A worker acks, a slot frees, the
+      next fetch is served. `MaxAckPending` throttles the CONSUMER; it does
+      not idle a worker.
+
+      What it is, is the **loss dial**. Smaller cap = slower and drops less,
+      because there is less in flight to reorder. At a cap of 1 the pool folds
+      the whole log and drops nothing — same eight workers, same code, a third
+      of the speed. Read beside 04.7.4 (which varied worker count at one cap),
+      the two halves meet: the same trade appears on the knob you would
+      actually reach for.
+
+      **On the user's challenge, the cap was confirmed on the server, not in
+      our code.** `nats consumer info ODOMETER odometer-pool -j` reports
+      `max_ack_pending 3`, `ack_policy explicit`. Sampled 12 times during a
+      live capped run it held at `num_ack_pending 3` with `num_waiting` 4–5.
+
+      That also reconciles the two claims: the doc is describing an INSTANT
+      (5 of 8 parked, which `num_waiting` confirms), and the tab was reading
+      it as a RUN. Both sentences are on the tab now, labelled as such.
+
+      Runs kept in `view/starvation.js` (spec-first, 14 its in
+      `view/starvation.spec.js`), drawn on the Starvation tab as a table with
+      a time bar and the cap-1 control marked, then the terminal that produced
+      it. The guard its in `PoolPanel.spec.js` were inverted the same way
+      04.7.4 and 04.7.5 inverted theirs — including one that fails if the
+      words "do nothing" ever come back. 257 vitest specs, 67 Ginkgo specs.
 - [x] 04.7.7 `deploy/nats.conf` — **no change needed, and that is the finding.**
       The task was written expecting a permission to add. There is none:
       `deploy/nats.conf` holds `server_name`, `port`, `http_port`, a
@@ -898,7 +949,7 @@ No new host port. The pool is a CLI process, like `snapshotter` and
 
       **Superseded 2026-09-16 by 04.7.5** for the Redelivery tab: the runs were
       made, so that tab now draws them too. Nothing on lesson 02 is unmeasured
-      any more except starvation (04.7.6).
+      any more.
 
       **Corrected 2026-09-15**, on the user's finding: lesson 02 had no
       read-only bucket view at all. Lesson 01 gives every bucket it folds into

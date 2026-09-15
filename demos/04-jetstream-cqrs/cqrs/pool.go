@@ -76,6 +76,42 @@ type PoolResult struct {
 	Acked   int
 	Dropped int
 	Elapsed time.Duration
+	Share   PoolShare
+}
+
+// PoolShare is where the work landed. Totals cannot show it: one worker doing
+// everything and eight sharing it evenly produce the same Events and the same
+// Acked, and only this tells them apart.
+//
+// It exists for the starvation lesson (04.7.6). MaxAckPending is one number on
+// the CONSUMER, and the claim on that tab is that it does not divide up among
+// the workers — eight workers on a cap of three is still three messages in
+// flight, and the workers with nothing to fetch simply wait.
+type PoolShare struct {
+	Workers int
+	// Busy acked at least one event. Idle acked none.
+	Busy int
+	Idle int
+	// Acked per worker, worker 1 first, so the spread is visible and not
+	// just the count.
+	Acked []int
+}
+
+// shareOf judges on acks alone. "Did this worker do any work" has one honest
+// answer and it is the ack count; a worker that was killed holding an event
+// still did no work. The Redelivery tab reads status instead, because there
+// the difference matters — but a drain run has no kill in it.
+func shareOf(states []*WorkerState) PoolShare {
+	out := PoolShare{Workers: len(states), Acked: make([]int, 0, len(states))}
+	for _, s := range states {
+		out.Acked = append(out.Acked, s.Acked)
+		if s.Acked > 0 {
+			out.Busy++
+		} else {
+			out.Idle++
+		}
+	}
+	return out
 }
 
 // runPool starts the workers and blocks until ctx is cancelled, or until the
@@ -144,6 +180,7 @@ func runPool(ctx context.Context, js jetstream.JetStream, poolKV, workersKV jets
 		out.Acked += s.Acked
 		out.Dropped += s.Dropped
 	}
+	out.Share = shareOf(states)
 	mu.Unlock()
 	out.Events = out.Acked + out.Dropped
 	return out, nil
