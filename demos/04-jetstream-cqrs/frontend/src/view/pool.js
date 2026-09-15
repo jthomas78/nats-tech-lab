@@ -10,7 +10,9 @@
 //
 // A demo that prints a plausible number it did not measure has broken the one
 // promise it makes. Where there is no measurement these functions return
-// `null` and the panel says so in words.
+// `null` and the panel says so in words. The one duration on that tab comes
+// from view/redelivery.js, which holds two runs that were actually timed by
+// the pool process — read off its log, never derived here.
 
 import { STREAM } from '../config.js'
 

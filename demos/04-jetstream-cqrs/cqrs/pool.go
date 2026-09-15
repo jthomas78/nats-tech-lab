@@ -115,6 +115,10 @@ func runPool(ctx context.Context, js jetstream.JetStream, poolKV, workersKV jets
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
+	// One clock for the whole pool: the worker that loses an event is never
+	// the worker that gets it back.
+	clock := newKillClock()
+
 	start := time.Now()
 	for i := 0; i < cfg.Workers; i++ {
 		state := &WorkerState{Worker: i + 1, Status: "waiting"}
@@ -122,7 +126,7 @@ func runPool(ctx context.Context, js jetstream.JetStream, poolKV, workersKV jets
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			work(runCtx, consumer, poolKV, workersKV, state, &mu, cfg)
+			work(runCtx, consumer, poolKV, workersKV, state, &mu, cfg, clock)
 		}()
 	}
 
@@ -147,10 +151,50 @@ func runPool(ctx context.Context, js jetstream.JetStream, poolKV, workersKV jets
 
 // work is one worker: fetch one, fold it, ack it, say so. Forever.
 //
+// killClock remembers when a worker went silent, so the redelivery can be
+// measured instead of estimated.
+//
+// Nothing else in the system knows. The server does not say "this is a
+// redelivery after 30 seconds"; it says only that the delivery count is 2, and
+// the worker that receives it was never the worker that lost it. The clock
+// lives in the pool process because that is the one place that saw both ends.
+//
+// The first kill wins. A second kill of the same sequence is a different
+// silence, and overwriting would shorten the wait being measured.
+type killClock struct {
+	mu sync.Mutex
+	at map[uint64]time.Time
+}
+
+func newKillClock() *killClock {
+	return &killClock{at: map[uint64]time.Time{}}
+}
+
+func (c *killClock) killed(seq uint64, when time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, seen := c.at[seq]; !seen {
+		c.at[seq] = when
+	}
+}
+
+// since reports how long the sequence has been silent. The false answer means
+// nobody killed it, and that is reported rather than returned as zero -- a
+// zero wait and no wait at all are different facts.
+func (c *killClock) since(seq uint64, now time.Time) (time.Duration, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	at, ok := c.at[seq]
+	if !ok {
+		return 0, false
+	}
+	return now.Sub(at), true
+}
+
 // One message at a time, on purpose. A batch of ten would hide which worker
 // holds which sequence, and holding is the thing the panel draws.
 func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV jetstream.KeyValue,
-	state *WorkerState, mu *sync.Mutex, cfg PoolConfig) {
+	state *WorkerState, mu *sync.Mutex, cfg PoolConfig, clock *killClock) {
 
 	beat := time.NewTicker(PoolHeartbeat)
 	defer beat.Stop()
@@ -187,13 +231,26 @@ func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV je
 			// worker simply stops existing as far as the pool is
 			// concerned, and the server finds out the slow way -- when
 			// AckWait expires. That wait is the lesson.
-			if cfg.KillAt != 0 && seq == cfg.KillAt {
+			if cfg.KillAt != 0 && seq == cfg.KillAt && meta.NumDelivered == 1 {
+				clock.killed(seq, time.Now())
 				mu.Lock()
 				state.Status, state.Holding = "killed", seq
 				mu.Unlock()
 				publishWorker(ctx, workersKV, state, mu)
 				log.Printf("worker %d: killed while holding #%d — no ack, no nak", state.Worker, seq)
 				return
+			}
+
+			// The measurement 04.7.5 exists for. A redelivery is the
+			// server admitting it waited AckWait out; the worker that
+			// gets it never saw the silence, so the clock supplies it.
+			if meta.NumDelivered > 1 {
+				if waited, ok := clock.since(seq, time.Now()); ok {
+					log.Printf("worker %d: REDELIVERED #%d after %s — delivery %d, AckWait %s",
+						state.Worker, seq, waited.Round(time.Millisecond), meta.NumDelivered, cfg.AckWait)
+				} else {
+					log.Printf("worker %d: redelivered #%d — delivery %d", state.Worker, seq, meta.NumDelivered)
+				}
 			}
 
 			mu.Lock()

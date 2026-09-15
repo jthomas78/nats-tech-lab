@@ -642,6 +642,13 @@ demos/04-jetstream-cqrs/
   frontend/src/view/drain.spec.js NEW  - written first, 8 specs
   frontend/src/view/strip.js      NEW  - 04.7.4b, chip states and the window
   frontend/src/view/strip.spec.js NEW  - written first, 16 specs
+  frontend/src/view/redelivery.js NEW  - 04.7.5's two runs, recorded as data
+  frontend/src/view/redelivery.spec.js NEW - written first, 11 specs
+  frontend/src/view/commands.spec.js NEW - every printed command vs main.go
+  RedeliveryTimeline.vue      NEW  - 04.7.5, the mockup's Tab 3 time line
+  RedeliveryTimeline.spec.js  NEW  - written first, 6 specs
+  cqrs/pool.go                EDIT - 04.7.5, the kill clock
+  cqrs/pool_test.go           NEW  - written first, 4 specs for the clock
   frontend/src/config.js      EDIT - POOL_KV, POOL_WORKERS_KV
   frontend/src/styles/sides.css EDIT - --d4-lost, for loss only
   frontend/src/view/lane.js   EDIT - N markers, still pure, still specced
@@ -760,7 +767,56 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       real panel, so the lines would connect nothing.
 
       196 vitest specs green, `npm run build` clean.
-- [ ] 04.7.5 `-kill-at` and the redelivery measurement.
+- [x] 04.7.5 The redelivery measurement, 2026-09-16. The tab said the wait
+      "is not measured on this screen" and it was right — nothing in the system
+      knew. The server never reports a wait; it reports a delivery count of 2,
+      and the worker that receives the event was never the worker that lost it.
+      So `cqrs pool` grew a `killClock`: one clock for the whole pool, first
+      kill wins, specced before it was written (`cqrs/pool_test.go`, 4 its).
+      The worker that gets a `NumDelivered > 1` asks it how long the silence
+      was and logs the answer. `NumDelivered == 1` now guards the kill itself,
+      so a redelivered event is not killed a second time.
+
+      Two runs, not one, because one run cannot tell a rule from a
+      coincidence — kept in `frontend/src/view/redelivery.js` under the same
+      rule `drain.js` has: a row may only be added after the run was made, and
+      the command that made it is written beside it.
+
+      | AckWait | waited | handed to | fold ran on | outcome |
+      |---|---|---|---|---|
+      | `30s` | 30.02s | worker 3 → 4 | +29 events | dropped |
+      | `5s` | 5.001s | worker 4 → 1 | +30 events | dropped |
+
+      **The finding, and it is harder than the tab expected.** The wait is
+      `AckWait` and nothing else, to within 20ms — the server is not reacting
+      to a failure, it is running a timer out. And the wait bought nothing:
+      the other three workers kept folding during the silence, so both
+      redelivered events arrived behind the watermark and were dropped on
+      arrival (BR-OD07). In a pool, a redelivery after `AckWait` is not a
+      recovery. The kilometres are still gone.
+
+      That is drawn on the Redelivery tab as the mockup's Tab 3 time line
+      (`RedeliveryTimeline.vue`), then the table, then the terminal that
+      produced both. The line is the mockup's shape with one change: the
+      mockup starts at the FIRST delivery, and the pool has no such number —
+      its clock starts at the kill. So the line starts at the silence, and
+      every point on it is a figure the run produced. It also says the thing
+      the table cannot: the drop was decided while AckWait was still counting,
+      by the 29 events the other workers folded meanwhile.
+
+      The guard its in `PoolPanel.spec.js` were inverted the same way 04.7.4
+      inverted its pair: they now fail if a figure on screen drifts from
+      `view/redelivery.js`.
+
+      **On the user's instruction, the printed commands are now a test.**
+      `view/commands.spec.js` reads `cqrs/main.go` — where the one shared
+      FlagSet and the subcommand switch both live — and holds every command
+      the UI prints to it: the two recorded blocks, `SEED_CMD`, and every tab
+      `cmd` read through `tabsFor`. A renamed flag now fails the suite instead
+      of failing in front of a reader. Proven to bite: breaking one flag to
+      `-kill-att` fails it. It is a text check, not an execution — a unit
+      suite that needed a NATS server would simply be skipped, and the flags
+      are what drift, not the server. 236 vitest specs, 62 Ginkgo specs.
 - [ ] 04.7.6 `-max-pending 3` and the starvation measurement.
 - [x] 04.7.7 `deploy/nats.conf` — **no change needed, and that is the finding.**
       The task was written expecting a permission to add. There is none:
@@ -838,7 +894,11 @@ No new host port. The pool is a CLI process, like `snapshotter` and
 
       **Superseded 2026-09-15 by 04.7.4** for the 1-vs-4 tab only: the runs
       were made, so the tab now draws them and those two its were inverted to
-      hold the drawing to the run. Redelivery is still unmeasured (04.7.5).
+      hold the drawing to the run.
+
+      **Superseded 2026-09-16 by 04.7.5** for the Redelivery tab: the runs were
+      made, so that tab now draws them too. Nothing on lesson 02 is unmeasured
+      any more except starvation (04.7.6).
 
       **Corrected 2026-09-15**, on the user's finding: lesson 02 had no
       read-only bucket view at all. Lesson 01 gives every bucket it folds into

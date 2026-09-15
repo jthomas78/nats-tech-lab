@@ -7,6 +7,11 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import { DRAIN_RUNS, DRAIN_SOURCE } from '../view/drain.js'
+import {
+  REDELIVERY_MEASURED_AT,
+  REDELIVERY_SOURCE,
+  redeliveryRows,
+} from '../view/redelivery.js'
 import PoolPanel from './PoolPanel.vue'
 
 const mountPanel = (props = {}) =>
@@ -107,6 +112,63 @@ describe('PoolPanel — redelivery', () => {
     w.vm.tab = 'redelivery'
     await w.vm.$nextTick()
     expect(w.find('[data-testid="redelivery"]').text()).toContain('#94')
+  })
+
+  it('does not claim to have timed the live wait', async () => {
+    const killed = workers()
+    killed.set('worker.03', { id: 'worker.03', worker: 3, status: 'killed', holding: 94, acked: 12, dropped: 0 })
+    const w = mountPanel({ head: 94, workers: killed })
+    w.vm.tab = 'redelivery'
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="redelivery"]').text()).toContain('cannot time that wait')
+  })
+})
+
+// The measurement, drawn (plan task 04.7.5). These its exist so the figures on
+// screen stay tied to view/redelivery.js — if somebody edits the markup and a
+// number drifts from the recorded runs, these fail.
+describe('PoolPanel — redelivery measured', () => {
+  const open = async () => {
+    const w = mountPanel({ head: 94, workers: workers() })
+    w.vm.tab = 'redelivery'
+    await w.vm.$nextTick()
+    return w
+  }
+
+  it('shows the recorded runs whether or not a pool is running', async () => {
+    const w = await open()
+    const card = w.find('[data-testid="redelivery-measured"]')
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain(REDELIVERY_MEASURED_AT)
+  })
+
+  it('draws one row per recorded run, with that runs own figures', async () => {
+    const w = await open()
+    for (const r of redeliveryRows()) {
+      const row = w.find(`[data-testid="redelivery-${r.ackWait}"]`)
+      expect(row.exists()).toBe(true)
+      expect(row.text()).toContain(String(r.waitedSeconds))
+      expect(row.text()).toContain(r.handoff)
+      expect(row.text()).toContain('dropped')
+    }
+  })
+
+  it('says the redelivery went to a different worker', async () => {
+    const w = await open()
+    expect(w.find('[data-testid="redelivery-measured"]').text()).toContain('different worker')
+  })
+
+  it('says the wait recovered nothing, which is the finding', async () => {
+    const w = await open()
+    const text = w.find('[data-testid="redelivery-measured"]').text()
+    expect(text).toContain('dropped on arrival')
+    expect(text).toContain('not a recovery')
+  })
+
+  it('prints the commands that produced the runs', async () => {
+    const w = await open()
+    const term = w.find('[data-testid="redelivery-term"]')
+    for (const line of REDELIVERY_SOURCE) expect(term.text()).toContain(line)
   })
 })
 

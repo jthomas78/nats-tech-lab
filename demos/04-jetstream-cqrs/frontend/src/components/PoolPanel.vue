@@ -33,6 +33,12 @@ import Tag from 'primevue/tag'
 
 import { POOL_KV, READ_KV } from '../config.js'
 import { DRAIN_SOURCE, MEASURED_AT, drainRows } from '../view/drain.js'
+import RedeliveryTimeline from './RedeliveryTimeline.vue'
+import {
+  REDELIVERY_MEASURED_AT,
+  REDELIVERY_SOURCE,
+  redeliveryRows,
+} from '../view/redelivery.js'
 import {
   ackBars,
   foldDamage,
@@ -85,6 +91,10 @@ const kill = computed(() => redelivery(rows.value))
 // Recorded, not watched. The only numbers on this panel that did not come
 // off the wire in front of you — see view/drain.js.
 const drain = drainRows()
+
+// Recorded the same way, for the same reason — see view/redelivery.js. The
+// live panel cannot time a redelivery; the server never reports the wait.
+const redeliveries = redeliveryRows()
 
 const STATUS_TONE = { working: 'on', waiting: 'off', killed: 'lost' }
 
@@ -376,9 +386,78 @@ function km(n) {
             <p class="note">
               The server will redeliver #{{ kill.seq }} after
               <code>AckWait</code>. Until then the fold is stuck here and the
-              read model is stale. How long that took is not measured on this
-              screen — read it off the run.
+              read model is stale. This screen cannot time that wait — the
+              card below was read off two runs that did.
             </p>
+          </div>
+
+          <!-- The measurement. It sits outside the v-if because it is
+               recorded data, not live state: it is true whether or not a
+               pool is running right now. -->
+          <div
+            class="card measured"
+            data-testid="redelivery-measured"
+          >
+            <p class="eyebrow">
+              What the wait actually cost — two recorded runs
+            </p>
+            <!-- The 30s run drawn out, because the table says WHAT happened
+                 and the line says WHEN the drop became unavoidable. -->
+            <RedeliveryTimeline :run="redeliveries[0]" />
+            <table class="rt">
+              <thead>
+                <tr>
+                  <th>AckWait</th>
+                  <th>waited</th>
+                  <th>handed to</th>
+                  <th>fold ran on</th>
+                  <th>outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="r in redeliveries"
+                  :key="r.ackWait"
+                  :data-testid="`redelivery-${r.ackWait}`"
+                >
+                  <td><code>{{ r.ackWait }}</code></td>
+                  <td>{{ r.waitedSeconds }}s</td>
+                  <td>worker {{ r.handoff }}</td>
+                  <td>+{{ r.ranOn }} events</td>
+                  <td class="lost">{{ r.outcome }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="note">
+              {{ REDELIVERY_MEASURED_AT }}. The wait is the
+              <code>AckWait</code> and nothing else — 30s came back in
+              {{ redeliveries[0].waitedSeconds }}s, 5s in
+              {{ redeliveries[1].waitedSeconds }}s. The server is not retrying
+              after a failure; it is running a timer out.
+            </p>
+            <p class="note hard">
+              And the wait bought nothing. Both events came back to a
+              <b>different worker</b>, and by then the watermark had folded
+              {{ redeliveries[0].ranOn }} and {{ redeliveries[1].ranOn }} more
+              events — so both redeliveries were <b>dropped on arrival</b>
+              (BR-OD07). In a pool, a redelivery after <code>AckWait</code> is
+              not a recovery. The kilometres are still gone.
+            </p>
+          </div>
+
+          <div
+            class="term"
+            data-testid="redelivery-term"
+          >
+            <span class="lead">Ran this</span>
+            <span v-for="line in REDELIVERY_SOURCE" :key="line"><span class="pr">$</span> {{ line }}</span>
+            <span class="foot">
+              The seed after each pool is what makes the fold run on while the
+              worker is silent. Without it the pool has nothing left to fold,
+              the watermark stays put, and the redelivered event would be
+              accepted — which is the one case that does not happen in a busy
+              system.
+            </span>
           </div>
         </TabPanel>
 
@@ -765,6 +844,62 @@ header {
 
 .damage {
   margin-top: 20px;
+}
+
+/* The recorded runs. A table, not bars: five short facts per row and none of
+   them is a magnitude, so a bar would only decorate them. */
+/* Wider than the cards around it, and deliberately so: the time line inside
+   it is 1060 units across, and squeezing that into an 84ch card renders its
+   labels at about six pixels. The prose in here keeps its own 84ch. */
+.measured {
+  margin-top: 20px;
+}
+
+.measured .rt {
+  max-width: 110ch;
+}
+
+.rt {
+  width: 100%;
+  margin: 10px 0 12px;
+  border-collapse: collapse;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.rt th {
+  padding: 0 14px 6px 0;
+  border-bottom: 1px solid var(--lab-panel-border);
+  color: var(--p-text-disabled-color);
+  font-weight: 500;
+  font-size: 11px;
+  text-align: left;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rt td {
+  padding: 7px 14px 7px 0;
+  border-bottom: 1px solid var(--lab-panel-border);
+  color: var(--p-text-color);
+}
+
+.rt tr:last-child td {
+  border-bottom: 0;
+}
+
+/* The finding the tab exists for. It is the sentence a reader is most
+   likely to skip, so it is the one that gets the rule beside it. */
+.note.hard {
+  margin-top: 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--d4-lost);
+  color: var(--p-text-color);
+}
+
+.note.hard b {
+  color: var(--d4-lost);
+  font-weight: 600;
 }
 
 .kv {

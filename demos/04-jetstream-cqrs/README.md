@@ -355,6 +355,39 @@ double-count it (`BR-OD07`), and the fold is stuck until then.
 
 Each run blocks. Stop it with Ctrl-C.
 
+### What the redelivery actually costs
+
+Measured 2026-09-16, on one NATS 2.14.3 server in Docker on a laptop, four
+workers. The pool keeps a kill clock in its own process, because nothing else
+saw both ends: the server never reports a wait, only a delivery count, and the
+worker that gets the event back is never the worker that lost it.
+
+| AckWait | Waited | Handed to | Fold ran on | Outcome |
+|---|---|---|---|---|
+| `30s` | 30.02s | worker 3 → 4 | +29 events | dropped |
+| `5s` | 5.001s | worker 4 → 1 | +30 events | dropped |
+
+```bash
+./cqrs pool -workers 4 -ack-wait 30s -kill-at 74040
+./cqrs seed -vehicle truck-7 -n 40
+./cqrs pool -workers 4 -ack-wait 5s -kill-at 74079
+./cqrs seed -vehicle truck-7 -n 40
+```
+
+Two things fall out of it.
+
+The wait **is** `AckWait`, to within 20ms in both runs. The server is not
+retrying after a failure — it is running a timer out. Set `AckWait` long and
+you have chosen exactly how long the fold stays stuck.
+
+And the wait **bought nothing**. The seed after each pool keeps the other
+three workers folding, so by the time the event came back the watermark had
+moved past it — and both redeliveries were dropped on arrival (`BR-OD07`). In
+a pool, a redelivery after `AckWait` is not a recovery. The kilometres are
+still gone.
+
+The same two runs are drawn on the UI's **Redelivery** tab.
+
 ### Does it actually go faster — 1 vs 4
 
 Measured 2026-09-15, on one NATS 2.14.3 server in Docker on a laptop, 10029
