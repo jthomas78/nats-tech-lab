@@ -185,10 +185,12 @@ header {
   margin-top: 14px;
 }
 
-/* The README is prose, so it gets a reading measure rather than the full
-   panel width. The diagrams are the opposite — they want everything. */
+/* The card fills the panel, like every other panel on this screen and like the
+   diagrams tab beside it. The README is not only prose — it carries code blocks,
+   ASCII drawings and tables that a reading measure would wrap or scroll — so the
+   measure is put on the running text alone, below. */
 .notes {
-  max-width: 84ch;
+  max-width: none;
 }
 
 .notes :deep(> :first-child) {
@@ -212,8 +214,12 @@ header {
   font-size: 13px;
 }
 
+/* Long lines of prose are hard to read, so paragraphs and list items keep a
+   reading measure even though their card does not. Headings, rules, code and
+   tables are free to use the whole width. */
 .notes :deep(p),
 .notes :deep(li) {
+  max-width: 84ch;
   color: var(--p-text-muted-color);
 }
 
