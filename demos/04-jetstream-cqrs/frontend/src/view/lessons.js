@@ -71,6 +71,13 @@ export function lessonFor(view) {
   return LESSONS.find((l) => l.key === view) ?? LESSONS[0]
 }
 
+// The command that gives an idle pool something to fold.
+//
+// It lives here because this file already owns "which command produces what
+// you are looking at". A caught-up pool is not a broken screen, and the panel
+// that says so has to be able to print the way out of it.
+export const SEED_CMD = 'cqrs seed -vehicle truck-7 -n 2000'
+
 export function tabsFor(view) {
   if (view === GUIDE.key) return []
   return LESSONS.find((l) => l.key === view)?.tabs ?? []

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ackBars,
   foldDamage,
+  poolCaughtUp,
   poolHealth,
   poolLaneRows,
   redelivery,
@@ -162,5 +163,33 @@ describe('redelivery', () => {
 
   it('is null when the pool is not running at all', () => {
     expect(redelivery([])).toBeNull()
+  })
+})
+
+// An idle pool is a correct picture, not a blank one. These pin the one
+// signal the panel uses to tell "nothing to fold" apart from "nothing here".
+describe('poolCaughtUp', () => {
+  const running = { running: true }
+
+  it('is false when no pool is running', () => {
+    expect(poolCaughtUp(100, 100, { running: false })).toBe(false)
+  })
+
+  it('is true when the fold has reached the head', () => {
+    expect(poolCaughtUp(100, 100, running)).toBe(true)
+  })
+
+  it('is false when the fold is behind the head', () => {
+    expect(poolCaughtUp(100, 94, running)).toBe(false)
+  })
+
+  // A fresh pool has acked nothing yet. That must not read as "caught up",
+  // or the panel would tell you to seed while the pool is busy folding.
+  it('is false when nothing has been folded at all', () => {
+    expect(poolCaughtUp(100, 0, running)).toBe(false)
+  })
+
+  it('is false when there is no head to compare against', () => {
+    expect(poolCaughtUp(0, 0, running)).toBe(false)
   })
 })

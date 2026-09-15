@@ -707,6 +707,21 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       `cqrs seed -events 10000 && cqrs pool -workers N -drain`, which matched
       neither the seed flags actually used nor the terminal block below it.
       160 vitest specs green, `npm run build` clean, checked at 1920x1080.
+- [x] 04.7.4a A caught-up pool explains itself, 2026-09-16. Worker heartbeats
+      have a 10-second TTL (`PoolWorkerTTL`), so the three live tabs are blank
+      unless a pool is running — that is correct and was reported as a
+      regression, which means the screen was not saying it. Worse, a pool that
+      has folded to the head draws `waiting · 0 acked` on every card and every
+      starvation bar at zero: the same picture a broken page would draw.
+
+      `poolCaughtUp(head, foldSeq, health)` in `view/pool.js` (5 specs) names
+      that state. The signal is the FOLD POSITION against the head, not the ack
+      counters — counters are per process and reset to 0 on every restart, so
+      they would flicker; the fold position lives in KV and does not. Live and
+      Starvation each gained a hint carrying `SEED_CMD` from `view/lessons.js`,
+      and Redelivery gained a line saying to stop any running pool first, since
+      every pool joins the same durable consumer. 169 vitest specs green,
+      `npm run build` clean, checked at 1920x1080 against a live 4-worker pool.
 - [ ] 04.7.5 `-kill-at` and the redelivery measurement.
 - [ ] 04.7.6 `-max-pending 3` and the starvation measurement.
 - [x] 04.7.7 `deploy/nats.conf` — **no change needed, and that is the finding.**

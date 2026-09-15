@@ -33,8 +33,16 @@ import Tag from 'primevue/tag'
 
 import { POOL_KV, READ_KV } from '../config.js'
 import { DRAIN_SOURCE, MEASURED_AT, drainRows } from '../view/drain.js'
-import { ackBars, foldDamage, poolHealth, poolLaneRows, redelivery, workerRows } from '../view/pool.js'
-import { tabsFor } from '../view/lessons.js'
+import {
+  ackBars,
+  foldDamage,
+  poolCaughtUp,
+  poolHealth,
+  poolLaneRows,
+  redelivery,
+  workerRows,
+} from '../view/pool.js'
+import { SEED_CMD, tabsFor } from '../view/lessons.js'
 import BucketKeys from './BucketKeys.vue'
 import LagLane from './LagLane.vue'
 
@@ -65,6 +73,11 @@ const foldSeq = computed(() =>
 )
 
 const laneRows = computed(() => poolLaneRows(props.head, rows.value, foldSeq.value))
+// A pool that has folded up to the head has nothing left to do. Every worker
+// then reads `waiting · 0 acked`, which is correct and looks broken, so the
+// panel says which one it is and prints the way out.
+const caughtUp = computed(() => poolCaughtUp(props.head, foldSeq.value, health.value))
+
 const damage = computed(() => foldDamage(poolRows.value, readRows.value))
 const kill = computed(() => redelivery(rows.value))
 
@@ -228,6 +241,22 @@ function km(n) {
               Nothing folded yet, so there is nothing to compare — the drift is
               left blank rather than shown as zero.
             </p>
+
+            <div
+              v-if="caughtUp"
+              class="card hint"
+              data-testid="pool-caught-up"
+            >
+              <p class="eyebrow">
+                Caught up — nothing left to fold
+              </p>
+              <p class="note">
+                The workers say <code>waiting</code> and <code>0 acked</code>
+                because the pool has folded the whole log, not because the page
+                is broken. Give it new events and the cards start moving:
+              </p>
+              <code class="run">{{ SEED_CMD }}</code>
+            </div>
           </template>
         </TabPanel>
 
@@ -271,6 +300,19 @@ function km(n) {
               Three messages in flight is three messages in flight however many
               workers are asking for them.
             </p>
+
+            <div
+              v-if="caughtUp"
+              class="hint bare"
+              data-testid="starvation-caught-up"
+            >
+              <p class="note">
+                Every bar is at zero because the pool has caught up, so there
+                is no work to share out and nothing to starve. Seed it first,
+                then read the bars:
+              </p>
+              <code class="run">{{ SEED_CMD }}</code>
+            </div>
           </div>
         </TabPanel>
 
@@ -288,6 +330,11 @@ function km(n) {
               server sees when a process is killed.
             </p>
             <code class="run">{{ current.cmd }}</code>
+            <p class="note cmp">
+              Stop any pool you already have running first. Every pool joins
+              the same durable consumer, so a second one just shares the work
+              and you cannot tell whose worker went quiet.
+            </p>
           </div>
 
           <div
@@ -549,6 +596,26 @@ header {
 
 .cmp {
   margin-top: 12px;
+}
+
+/* "This is idle, not broken." It reads as an aside rather than a warning:
+   nothing has gone wrong, there is simply nothing to fold. */
+.hint {
+  margin-top: 16px;
+  max-width: 84ch;
+  border-style: dashed;
+}
+
+.hint .eyebrow {
+  margin-bottom: 8px;
+}
+
+/* Inside a card already, so it takes no border of its own. */
+.hint.bare {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 
 /* The mockup's two-card trade (diagrams/worker-pool-ui-mockup.html). The

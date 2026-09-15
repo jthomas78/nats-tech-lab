@@ -193,3 +193,32 @@ describe('PoolPanel — odometer-pool', () => {
     expect(w.find('.cmd').text()).toBe('nats kv ls odometer-pool')
   })
 })
+
+// A caught-up pool draws `waiting · 0 acked` on every card, which is the same
+// picture a broken screen would draw. These its keep the panel saying which one
+// it is, and keep the way out of it on the page rather than in the chat log.
+describe('PoolPanel — caught up', () => {
+  const caught = () => new Map([['truck-7', { id: 'truck-7', totalKm: 1478, lastSeq: 94 }]])
+
+  it('explains an idle pool and prints the command that feeds it', () => {
+    const w = mountPanel({ head: 94, workers: workers(), pool: caught(), reads: reads() })
+    const hint = w.find('[data-testid="pool-caught-up"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('cqrs seed -vehicle truck-7 -n 2000')
+  })
+
+  it('says the same thing where the bars are, because zero bars read as broken too', () => {
+    const w = mountPanel({ head: 94, workers: workers(), pool: caught(), reads: reads() })
+    expect(w.find('[data-testid="starvation-caught-up"]').exists()).toBe(true)
+  })
+
+  it('stays quiet while the fold is still behind the head — there IS work', () => {
+    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), reads: reads() })
+    expect(w.find('[data-testid="pool-caught-up"]').exists()).toBe(false)
+    expect(w.find('[data-testid="starvation-caught-up"]').exists()).toBe(false)
+  })
+
+  it('stays quiet when no pool is running at all', () => {
+    expect(mountPanel().find('[data-testid="pool-caught-up"]').exists()).toBe(false)
+  })
+})

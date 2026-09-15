@@ -47,6 +47,27 @@ export function poolHealth(rows = []) {
   }
 }
 
+// Is the pool running but out of work?
+//
+// A pool that has folded up to the head has nothing left to do, so every
+// worker sits at `waiting` with 0 acked — which looks exactly like a broken
+// screen. It is not: it is the correct picture of an idle pool, and the panel
+// says so and prints the command that gives it something to fold.
+//
+// The signal is the FOLD POSITION against the head, not the ack counts.
+// Counters are per-process and reset to 0 every time somebody restarts the
+// pool, so "0 acked" is true of a busy pool in its first second too. The fold
+// position is in KV and survives the restart, so it does not flicker.
+//
+// Null head or an empty pool bucket means there is nothing to compare, and
+// that is reported as "not caught up" rather than guessed at.
+export function poolCaughtUp(head = 0, foldSeq = 0, health = {}) {
+  if (!health.running) return false
+  const h = Number(head) || 0
+  const f = Number(foldSeq) || 0
+  return h > 0 && f >= h
+}
+
 // Every bar is measured against the busiest worker, not against the total.
 // The lesson is the SHAPE of the distribution — three workers doing the work
 // and five doing none — and a share-of-total bar flattens exactly that.
