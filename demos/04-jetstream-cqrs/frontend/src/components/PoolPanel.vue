@@ -1054,8 +1054,12 @@ header {
   font-size: 12px;
 }
 
+/* Wide enough for the LONGEST label this class carries, which is "8 workers"
+   at 9 and "worker 10" at 9 — not for the shortest. At 8ch the one-worker row
+   fitted and the rest did not, so every bar started 7px right of the control
+   row, which is the one row a reader compares the others against. */
 .who {
-  min-width: 8ch;
+  min-width: 10ch;
   color: var(--p-text-muted-color);
 }
 
