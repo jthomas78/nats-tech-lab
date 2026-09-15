@@ -260,6 +260,19 @@ demo 02 uses the **host** `nats`/`nsc` CLIs, not a container (the toolbox was
 removed 2026-09-09 on the user's instruction). Demo 01's own tooling rules are
 unaffected.
 
+### Running demo 04
+
+**`demos/04-jetstream-cqrs/` has its own `CLAUDE.md`. Read that, not this file,
+for anything inside that folder.** It is a sealed unit — one NATS server (port
+4422) and one small Go binary, no Postgres, no services, no frontends, no
+cluster and no operator mode. Its plan, business rules and diagrams all live
+inside the folder, not in `.claude/plans/` or `obsidian/`.
+
+It lifts demo 02's odometer domain and adds the write side demo 02 has not got:
+a command checked against the state the log already holds, rehydrated **with
+and without a snapshot** so the cost of each is a measured number. Its `nats`
+CLI contexts all start `lab4-`.
+
 ## Demo 01 — Dictionary POC
 
 ### What it demonstrates
