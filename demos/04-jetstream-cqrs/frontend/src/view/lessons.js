@@ -44,7 +44,11 @@ export const LESSONS = Object.freeze([
       { key: 'live', label: 'Live', cmd: 'cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s' },
       { key: 'starvation', label: 'Starvation', cmd: 'cqrs pool -workers 8 -max-pending 3' },
       { key: 'redelivery', label: 'Redelivery', cmd: 'cqrs pool -workers 4 -ack-wait 30s -kill-at 94' },
-      { key: 'scaling', label: '1 vs 4', cmd: 'cqrs seed -events 10000 && cqrs pool -workers N -drain' },
+      // The header prints ONE command; the tab itself prints the whole run as
+      // a terminal (view/drain.js). Keep the two spelled the same way — a
+      // header that disagrees with the block underneath it is worse than no
+      // header at all.
+      { key: 'scaling', label: '1 vs 4', cmd: 'cqrs pool -workers N -drain' },
       // The read-only view. Lesson 01 gives every bucket it folds into a tab
       // that is just `nats kv ls` on the screen, and lesson 02 folds into one
       // too. Without this tab the pool's damage is only ever a single total,

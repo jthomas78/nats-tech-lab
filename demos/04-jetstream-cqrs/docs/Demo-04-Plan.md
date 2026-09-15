@@ -623,7 +623,7 @@ demos/04-jetstream-cqrs/
   frontend/src/App.vue        EDIT - sections becomes a 3-row lesson index (D9)
   frontend/src/components/
     PoolPanel.vue             NEW  - lesson 02, the four tabs
-    PoolPanel.spec.js         NEW  - incl. two its that fail on an invented number
+    PoolPanel.spec.js         NEW  - incl. the its that hold "1 vs 4" to the run
     StreamCqrsPanel.vue       NEW  - lesson 01, the four tabs, Overview first
     StreamCqrsPanel.spec.js   NEW  - the D10 acceptance test
     VehiclePicker.vue         NEW  - what the rail's Vehicles group used to be
@@ -636,6 +636,8 @@ demos/04-jetstream-cqrs/
   frontend/src/view/lane.js   EDIT - laneRows(), the N-row geometry
   frontend/src/view/pool.js       NEW  - lesson 02's arithmetic, pure
   frontend/src/view/pool.spec.js  NEW  - written first, 22 specs
+  frontend/src/view/drain.js      NEW  - 04.7.4's four runs, recorded as data
+  frontend/src/view/drain.spec.js NEW  - written first, 8 specs
   frontend/src/config.js      EDIT - POOL_KV, POOL_WORKERS_KV
   frontend/src/styles/sides.css EDIT - --d4-lost, for loss only
   frontend/src/view/lane.js   EDIT - N markers, still pure, still specced
@@ -660,8 +662,51 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       after a full `seed` + rebuild.
 - [x] 04.7.3 `cqrs/pool.go` — the subcommand, N workers on one durable,
       heartbeats into `odometer-pool-workers`, `Term()` on `ErrOutOfOrder`.
-- [ ] 04.7.4 `-drain` and the 1/2/4/8 measurement. Write the real numbers into
-      the README, replacing the mockup's placeholders.
+- [x] 04.7.4 `-drain` and the 1/2/4/8 measurement. The real numbers are now in
+      the README and on the "1 vs 4" tab, replacing the mockup's placeholders.
+
+      Measured 2026-09-15, one NATS 2.14.3 server in Docker on a laptop, one
+      seed of 10 000 trips on `truck-7`, 10029 events in the stream. `-drain`
+      rebuilds the pool's projection from sequence 1, so all four runs answer
+      the same question against the same log and the order they were run in
+      does not matter (they were run 1, 2, 8, 4).
+
+      | Workers | Drain | Events/s | Speed | Folded | Dropped |
+      |---|---|---|---|---|---|
+      | 1 | 23.5 s | 426 | 1.0x | 10029 | 0 |
+      | 2 | 12.2 s | 824 | 1.9x | 10025 | 4 |
+      | 4 | 6.3 s | 1600 | 3.7x | 6947 | 3082 (31%) |
+      | 8 | 4.8 s | 2100 | 4.9x | 4338 | 5691 (57%) |
+
+      **The phase's answer, in one line: it goes 3.7x faster at four workers,
+      and it throws away 31% of the log to do it.** The one-worker run is the
+      control and the only row that folds everything — one worker cannot race
+      itself. The times reproduce; the dropped counts will not match exactly,
+      because a race is a race, and the README and the UI both say so.
+
+      The numbers are kept as DATA, in `frontend/src/view/drain.js`, not in
+      markup — `MEASURED_AT`, `DRAIN_SOURCE` (the commands, one per line) and
+      `DRAIN_RUNS`, with `drainRows()` deriving speed-up, loss share and bar
+      width. Specced before use (8 its), including that each row accounts for
+      every event it was handed, so a typed number fails rather than renders.
+
+      The tab follows the mockup (`diagrams/worker-pool-ui-mockup.html`, Tab
+      4) rather than the table first written here: bars for the speed, then
+      two cards — what the pool bought, what it cost — then the terminal that
+      produced them. Two cards, because the trade IS the lesson and a single
+      table lets a reader take the fast number and walk away.
+
+      This tab is the ONE place on lesson 02 that draws a number the page did
+      not watch arrive, and `view/drain.js` says so in its header. A row may
+      not be added there before the run has been made. The two guard its in
+      `PoolPanel.spec.js` that used to assert "no timing appears" are now
+      inverted: they assert the drawn figures match `DRAIN_RUNS`, cell for
+      cell, so a drifted number fails the suite.
+
+      Also aligned while here: the tab's header command was
+      `cqrs seed -events 10000 && cqrs pool -workers N -drain`, which matched
+      neither the seed flags actually used nor the terminal block below it.
+      160 vitest specs green, `npm run build` clean, checked at 1920x1080.
 - [ ] 04.7.5 `-kill-at` and the redelivery measurement.
 - [ ] 04.7.6 `-max-pending 3` and the starvation measurement.
 - [x] 04.7.7 `deploy/nats.conf` — **no change needed, and that is the finding.**
@@ -738,6 +783,10 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       `PoolPanel.spec.js` exist only to fail if a later change fills the
       empty tab in with plausible numbers.
 
+      **Superseded 2026-09-15 by 04.7.4** for the 1-vs-4 tab only: the runs
+      were made, so the tab now draws them and those two its were inverted to
+      hold the drawing to the run. Redelivery is still unmeasured (04.7.5).
+
       **Corrected 2026-09-15**, on the user's finding: lesson 02 had no
       read-only bucket view at all. Lesson 01 gives every bucket it folds into
       a `nats kv ls` tab and lesson 02 folds into one too, so a fifth tab was
@@ -754,10 +803,13 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       how it behaves, what BR-OD08 damage looks like, the three condition
       runs, and the `-drain` comparison.
 
-      The four numbers are NOT in it. The 1-vs-4 table is present with every
-      cell dashed and a line saying plainly that it has not been measured,
-      matching the UI's "1 vs 4" tab. 04.7.4 fills both in one edit. A table
-      of times this demo never ran would break the only promise it makes.
+      The four numbers were NOT in it. The 1-vs-4 table was present with every
+      cell dashed and a line saying plainly that it had not been measured,
+      matching the UI's "1 vs 4" tab. A table of times this demo never ran
+      would break the only promise it makes.
+
+      **Filled in 2026-09-15 by 04.7.4**, README and UI in one edit, as
+      planned.
 
       Two other corrections while in the file: the UI panel table described
       the old rail and now describes the three-row lesson index (D9), and the

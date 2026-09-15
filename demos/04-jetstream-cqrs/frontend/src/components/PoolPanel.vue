@@ -11,11 +11,13 @@
 // lesson somebody chooses to run, the two pool buckets do not exist until they
 // do, and an empty state that names the command is the honest picture.
 //
-// NO NUMBER ON THIS PANEL IS INVENTED. Everything drawn is read live from KV
-// odometer-pool-workers and KV odometer-pool. The "1 vs 4" tab has no drawing
-// at all, because `-drain` has not been run yet (plan task 04.7.4) and a
-// plausible-looking table of times this demo never measured would break the
-// one promise it makes.
+// NO NUMBER ON THIS PANEL IS INVENTED. Four of the five tabs are read live
+// from KV odometer-pool-workers and KV odometer-pool. The fifth, "1 vs 4", is
+// a RECORDED MEASUREMENT: four real `-drain` runs, made 2026-09-15 (plan task
+// 04.7.4), kept as data in view/drain.js and repeated verbatim in the README.
+// It is the one exception, and it is allowed only because the runs happened.
+// A plausible-looking table of times this demo never measured would break the
+// one promise it makes, so a row may not be added there before it is run.
 //
 // The tab strip is a real PrimeVue `Tabs` carrying `class="panel-tabs"` — the
 // repo's one style for a top tab strip, the same as AboutPanel.vue. Never a
@@ -30,6 +32,7 @@ import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 
 import { POOL_KV, READ_KV } from '../config.js'
+import { DRAIN_SOURCE, MEASURED_AT, drainRows } from '../view/drain.js'
 import { ackBars, foldDamage, poolHealth, poolLaneRows, redelivery, workerRows } from '../view/pool.js'
 import { tabsFor } from '../view/lessons.js'
 import BucketKeys from './BucketKeys.vue'
@@ -64,6 +67,10 @@ const foldSeq = computed(() =>
 const laneRows = computed(() => poolLaneRows(props.head, rows.value, foldSeq.value))
 const damage = computed(() => foldDamage(poolRows.value, readRows.value))
 const kill = computed(() => redelivery(rows.value))
+
+// Recorded, not watched. The only numbers on this panel that did not come
+// off the wire in front of you — see view/drain.js.
+const drain = drainRows()
 
 const STATUS_TONE = { working: 'on', waiting: 'off', killed: 'lost' }
 
@@ -318,28 +325,114 @@ function km(n) {
           </div>
         </TabPanel>
 
-        <!-- 1 VS 4 — deliberately empty. See the file header. -->
+        <!-- 1 VS 4 — a recorded measurement, the one thing on this panel
+             that is not read live from KV. Four real `-drain` runs, kept as
+             data in view/drain.js and repeated verbatim in the README.
+
+             The shape is the one the mockup settled on (diagrams/
+             worker-pool-ui-mockup.html, Tab 4): bars for the speed, then two
+             cards — what the pool bought, and what it cost — then the
+             terminal that produced them. Two cards, because the trade IS the
+             lesson and a single table lets a reader take the fast number and
+             walk away. -->
         <TabPanel value="scaling">
           <div
-            class="card idle-card"
-            data-testid="scaling-unmeasured"
+            class="card"
+            data-testid="scaling-measured"
           >
             <p class="eyebrow">
-              Not measured yet
+              Time to drain {{ drain[0].events }} events
             </p>
-            <p class="note">
-              Time to drain 10 000 events at 1, 2, 4 and 8 workers. This demo
-              has not run it, so this tab draws nothing. A table of times that
-              were never measured would be the one thing this demo must not do.
-              Run it and the numbers go in the README:
+            <div
+              v-for="r in drain"
+              :key="r.workers"
+              class="bar-row"
+              :data-testid="`drain-${r.workers}`"
+            >
+              <span class="who">{{ r.workers }} {{ r.workers === 1 ? 'worker' : 'workers' }}</span>
+              <span class="track"><span
+                class="fill"
+                :class="r.control ? 'base' : 'ok'"
+                :style="{ width: `${r.barPct}%` }"
+              /></span>
+              <span class="right">{{ r.seconds.toFixed(1) }} s</span>
+            </div>
+            <p class="note cmp">
+              {{ MEASURED_AT }}. Four workers drain the same log
+              <b>{{ drain[2].speedup.toFixed(1) }}x</b> quicker than one, not
+              4x — past four the curve flattens, because the KV write is a
+              shared cost and no number of workers makes it cheaper.
             </p>
-            <code class="run">cqrs seed -vehicle truck-7 -n 10000</code>
-            <code class="run">for w in 1 2 4 8; do cqrs pool -workers $w -drain; done</code>
-            <p class="note">
-              <code>-drain</code> is what makes the numbers comparable: it
-              rebuilds the pool's projection from sequence 1, so every run
-              answers the same question against the same seed.
-            </p>
+          </div>
+
+          <div class="cols">
+            <div class="card">
+              <p class="eyebrow">
+                What the pool bought
+              </p>
+              <dl
+                class="kv"
+                data-testid="pool-bought"
+              >
+                <dt>1 worker</dt>
+                <dd>{{ drain[0].rate }} events/s</dd>
+                <dt>4 workers</dt>
+                <dd class="won">
+                  {{ drain[2].rate }} events/s
+                </dd>
+                <dt>speed-up</dt>
+                <dd>{{ drain[2].speedup.toFixed(1) }}x</dd>
+                <dt>order kept</dt>
+                <dd class="lost">
+                  no
+                </dd>
+              </dl>
+            </div>
+
+            <div class="card bad">
+              <p class="eyebrow">
+                What it cost
+              </p>
+              <dl
+                class="kv"
+                data-testid="pool-cost"
+              >
+                <dt>dropped (1 worker)</dt>
+                <dd class="won">
+                  {{ drain[0].dropped }}
+                </dd>
+                <dt>dropped (4 workers)</dt>
+                <dd class="lost">
+                  {{ drain[2].dropped }} · {{ drain[2].lossPct.toFixed(0) }}%
+                </dd>
+                <dt>dropped (8 workers)</dt>
+                <dd class="lost">
+                  {{ drain[3].dropped }} · {{ drain[3].lossPct.toFixed(0) }}%
+                </dd>
+              </dl>
+              <p class="note">
+                This is the whole trade in two cards. A pool is right for work
+                that is independent. A fold is not independent work:
+                <code>totalKm += km</code> is not safe when two workers fold
+                the same vehicle at once. One worker drops nothing, which is
+                why it is the control — one worker cannot race itself.
+              </p>
+            </div>
+          </div>
+
+          <div
+            class="term"
+            data-testid="drain-term"
+          >
+            <span class="lead">Ran this</span>
+            <span v-for="line in DRAIN_SOURCE" :key="line"><span class="pr">$</span> {{ line }}</span>
+            <span class="foot">
+              <code>-drain</code> rebuilds the pool's projection from sequence
+              1 and stops when the consumer reports 0 pending, so every run
+              answers the same question against the same seed. The times
+              reproduce. The dropped counts will not match exactly — a race is
+              a race.
+            </span>
           </div>
         </TabPanel>
 
@@ -456,6 +549,72 @@ header {
 
 .cmp {
   margin-top: 12px;
+}
+
+/* The mockup's two-card trade (diagrams/worker-pool-ui-mockup.html). The
+   cost card is outlined in the loss colour, so the reader cannot take the
+   fast number without seeing what paid for it. */
+.card.bad {
+  border-color: color-mix(in srgb, var(--d4-lost) 45%, var(--lab-panel-border));
+}
+
+.kv dd.won {
+  color: var(--d4-read);
+}
+
+.kv dd.lost {
+  color: var(--d4-lost);
+}
+
+/* A faster run is a shorter bar, AND a different colour. `.base` is the
+   one-worker control — the slow, correct baseline — so it takes the write-side
+   colour and the pooled runs take the read-side one. Neither says "better":
+   the two cards beside the bars are what price the trade.
+
+   This is a modifier, not a change to `.fill` itself, because the Starvation
+   tab shares that class and its colours mean something else. */
+.fill.base {
+  background: var(--d4-write);
+}
+
+.fill.ok {
+  background: var(--d4-read);
+}
+
+/* The commands that produced the numbers above, drawn as the terminal they
+   were typed into. Nothing on this tab is a claim you cannot re-run. */
+.term {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 20px;
+  padding: 11px 13px;
+  border: 1px solid var(--lab-panel-border);
+  border-radius: 6px;
+  background: var(--lab-term-bg, #0f1012);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.term .lead {
+  padding-bottom: 3px;
+  color: var(--p-text-disabled-color);
+  font-family: var(--p-font-family);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.term .pr {
+  color: var(--p-text-disabled-color);
+}
+
+.term .foot {
+  max-width: 84ch;
+  margin-top: 6px;
+  color: var(--p-text-muted-color);
+  font-family: var(--p-font-family);
+  font-size: 12px;
 }
 
 /* One card per worker. They wrap rather than scroll: eight workers is a
