@@ -652,6 +652,7 @@ demos/04-jetstream-cqrs/
   cqrs/pool.go                EDIT - 04.7.5 kill clock, 04.7.6 PoolShare
   cqrs/pool_test.go           NEW  - written first, 4 + 5 specs
   cqrs/main.go                EDIT - 04.7.6, printPool prints busy/idle/spread
+  cqrs/fold_agreement_test.go NEW  - 04.7.2, 7 specs: the two consumers agree
   frontend/src/config.js      EDIT - POOL_KV, POOL_WORKERS_KV
   frontend/src/styles/sides.css EDIT - --d4-lost, for loss only
   frontend/src/view/lane.js   EDIT - N markers, still pure, still specced
@@ -671,9 +672,61 @@ No new host port. The pool is a CLI process, like `snapshotter` and
 
 - [x] 04.7.1 `domain.go` — `Fold` + `ErrOutOfOrder`, BR-OD06..08. Specs first,
       red, then green. `BUSINESS_RULES-ODOMETER.md` in the same commit.
-- [ ] 04.7.2 `snapshotter.go` and `read.go` call `Fold.Next`. Prove the two
-      existing consumers behave identically: same `lastSeq`, same `totalKm`,
-      after a full `seed` + rebuild.
+- [x] 04.7.2 `snapshotter.go` and `read.go` call `Fold.Next`. Prove the two
+      existing consumers behave identically — **half the task was a question
+      and half of it was a mistake in the task.**
+
+      The code half was already done by 04.7.1: both files call `snap.Next(seq)`
+      / `current.Next(seq)` and handle all three answers (apply, ignore a
+      redelivery, refuse an event behind the fold). Nothing to write.
+
+      The task then asked for "same `lastSeq`, same `totalKm`". **`totalKm`
+      cannot be compared, and the reason is the demo.** `Vehicle` — the
+      write-side aggregate — has no `TotalKm` field at all;
+      `Travelled.applyToVehicle` returns the aggregate unchanged, because no
+      command is ever judged against a distance. Only `Odometer`, the read
+      model, carries it. Asking the two sides to agree on `totalKm` is asking
+      CQRS not to be CQRS.
+
+      So the proof was split in two, and both halves were run.
+
+      **Unit — `cqrs/fold_agreement_test.go`, 7 specs.** Replays one log the
+      way each consumer replays it, with the NATS parts removed. Pins what
+      they must agree on (same position, same `status`, same `plate`, same
+      decision for the same sequence because it is literally the same
+      embedded `Fold`) and what they must NOT (10 000 trips move the read
+      model `74327 km` and leave the aggregate byte-for-byte identical — which
+      is *why* a write-side snapshot stays tiny however long the log gets).
+      Proven to bite: dropping `Plate` from `Registered.applyToOdometer` fails
+      two of them.
+
+      **Live — a real seed and a real rebuild.** Seeded a new vehicle
+      (`rebuild-probe`, 25 trips), then deleted both KV buckets and both
+      durables and let the snapshotter and projector fold all 74 135 events
+      from sequence 1 again. The log itself was never touched; that is what
+      makes this safe to do at all.
+
+      | Vehicle | write `lastSeq` | read `lastSeq` | agree | read `totalKm` |
+      |---|---|---|---|---|
+      | `V1` | 1 | 1 | yes | 0 |
+      | `V2` | 28 | 28 | yes | 37 |
+      | `rebuild-probe` | 74135 | 74135 | yes | 25 |
+      | `truck-7` | 74109 | 74109 | yes | 74327 |
+      | `ui-1` | 24 | 24 | yes | 12.5 |
+      | `ui-demo-1` | 5 | 5 | yes | 42 |
+
+      Every vehicle, both buckets, same position and same shared fields.
+
+      **And the stronger result: all 10 KV documents came back byte-identical
+      to what they held before the wipe.** That is the one that was worth
+      running, because `lastTripAt` is a timestamp. `project()` uses the
+      event's own stream timestamp and never the wall clock, and a rebuild an
+      hour later reproducing the same `lastTripAt` to the nanosecond is what
+      proves it. A read model that drifted here would be a record of when it
+      was built rather than of what happened.
+
+      No UI change. This task is about two CLI consumers agreeing, and there
+      is no screen that claims otherwise.
 - [x] 04.7.3 `cqrs/pool.go` — the subcommand, N workers on one durable,
       heartbeats into `odometer-pool-workers`, `Term()` on `ErrOutOfOrder`.
 - [x] 04.7.4 `-drain` and the 1/2/4/8 measurement. The real numbers are now in

@@ -388,6 +388,43 @@ still gone.
 
 The same two runs are drawn on the UI's **Redelivery** tab.
 
+### Do the two projections agree — yes, and a rebuild is exact
+
+The snapshotter folds into `odometer-write`; the projector folds into
+`odometer-read`. Separate processes, separate durables, one log. Measured
+2026-09-16: both buckets and both durables were deleted, then both consumers
+folded all 74 135 events from sequence 1 again. The log was never touched.
+
+| Vehicle | write `lastSeq` | read `lastSeq` | read `totalKm` |
+|---|---|---|---|
+| `V1` | 1 | 1 | 0 |
+| `V2` | 28 | 28 | 37 |
+| `rebuild-probe` | 74135 | 74135 | 25 |
+| `truck-7` | 74109 | 74109 | 74327 |
+| `ui-1` | 24 | 24 | 12.5 |
+| `ui-demo-1` | 5 | 5 | 42 |
+
+```bash
+nats --context lab4-odometer kv del odometer-write -f
+nats --context lab4-odometer kv del odometer-read -f
+nats --context lab4-odometer consumer rm ODOMETER odometer-snapshotter -f
+nats --context lab4-odometer consumer rm ODOMETER vehicle-projector -f
+./cqrs snapshotter &
+./cqrs projector &
+```
+
+Same position everywhere, and the same `status` and `plate`. **All ten KV
+documents came back byte-identical to what they held before the wipe** —
+`lastTripAt` included, to the nanosecond. That is the result worth having:
+`project()` uses the event's own stream timestamp and never the wall clock, so
+rebuilding the read model next year gives the answer it gave today.
+
+They do **not** agree on `totalKm`, and must not. `Vehicle` — the write-side
+aggregate — has no such field: `Travelled` leaves it unchanged, because no
+command is ever judged against a distance. Ten thousand trips move the read
+model and leave the aggregate byte-for-byte identical. That is why a write-side
+snapshot stays tiny however long the log gets, and it is CQRS in one line.
+
 ### Does `MaxAckPending` starve workers — no
 
 Measured 2026-09-16, on one NATS 2.14.3 server in Docker on a laptop, eight
