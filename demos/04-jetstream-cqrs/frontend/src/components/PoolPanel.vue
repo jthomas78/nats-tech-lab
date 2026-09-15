@@ -32,6 +32,7 @@ import Tag from 'primevue/tag'
 import { POOL_KV, READ_KV } from '../config.js'
 import { ackBars, foldDamage, poolHealth, poolLaneRows, redelivery, workerRows } from '../view/pool.js'
 import { tabsFor } from '../view/lessons.js'
+import BucketKeys from './BucketKeys.vue'
 import LagLane from './LagLane.vue'
 
 const props = defineProps({
@@ -341,6 +342,37 @@ function km(n) {
             </p>
           </div>
         </TabPanel>
+
+        <!-- odometer-pool — the read-only view, `nats kv ls` on the screen.
+             Beside odometer-read, because the pool's damage is per vehicle:
+             a single total tells you kilometres are missing, this tells you
+             which vehicle lost them. BucketKeys takes side="read" for both,
+             since the pool holds the same ReadEntry shape the read model does
+             (cqrs/read.go) — that is the whole point of comparing them. -->
+        <TabPanel value="pool">
+          <div
+            class="cols"
+            data-testid="pool-buckets"
+          >
+            <BucketKeys
+              side="read"
+              :bucket="POOL_KV"
+              :rows="poolRows"
+              :head="head"
+            />
+            <BucketKeys
+              side="read"
+              :bucket="READ_KV"
+              :rows="readRows"
+              :head="head"
+            />
+          </div>
+          <p class="note cmp">
+            Same log, same fold, two results. Every row where the left total is
+            lower than the right is an event BR-OD08 refused, and nothing
+            repairs it.
+          </p>
+        </TabPanel>
       </TabPanels>
     </Tabs>
   </section>
@@ -404,6 +436,26 @@ header {
   color: var(--p-text-color);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
+}
+
+/* Two buckets, side by side, for the same reason lesson 01 does it: the
+   point is the difference between them. */
+.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cmp {
+  margin-top: 12px;
 }
 
 /* One card per worker. They wrap rather than scroll: eight workers is a

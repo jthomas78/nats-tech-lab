@@ -24,9 +24,9 @@ const pool = () => new Map([['truck-7', { id: 'truck-7', totalKm: 1200, lastSeq:
 const reads = () => new Map([['truck-7', { id: 'truck-7', totalKm: 1478, lastSeq: 94 }]])
 
 describe('PoolPanel — the tab strip', () => {
-  it('offers the four lesson-02 tabs', () => {
+  it('offers the four conditions and the bucket the pool folds into', () => {
     const w = mountPanel()
-    for (const key of ['live', 'starvation', 'redelivery', 'scaling']) {
+    for (const key of ['live', 'starvation', 'redelivery', 'scaling', 'pool']) {
       expect(w.find(`[data-testid="lesson-02-tab-${key}"]`).exists()).toBe(true)
     }
   })
@@ -129,5 +129,26 @@ describe('PoolPanel — 1 vs 4', () => {
     w.vm.tab = 'scaling'
     await w.vm.$nextTick()
     expect(w.find('[data-testid="scaling-unmeasured"]').text()).toContain('-drain')
+  })
+})
+
+// The pool folds into a bucket, so that bucket can be browsed — the same
+// read-only view lesson 01 gives odometer-write and odometer-read. Without it
+// the damage is one total you have to trust.
+describe('PoolPanel — odometer-pool', () => {
+  it('lists the pool bucket beside the read model', async () => {
+    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), reads: reads() })
+    w.vm.tab = 'pool'
+    await w.vm.$nextTick()
+    const text = w.find('[data-testid="pool-buckets"]').text()
+    expect(text).toContain('odometer-pool')
+    expect(text).toContain('odometer-read')
+  })
+
+  it('prints nats kv ls for the bucket it is showing', async () => {
+    const w = mountPanel()
+    w.vm.tab = 'pool'
+    await w.vm.$nextTick()
+    expect(w.find('.cmd').text()).toBe('nats kv ls odometer-pool')
   })
 })

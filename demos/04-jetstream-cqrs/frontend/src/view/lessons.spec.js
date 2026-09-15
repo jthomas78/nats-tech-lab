@@ -41,13 +41,23 @@ describe('the tabs each lesson carries', () => {
     ])
   })
 
-  it('gives lesson 02 the four pool conditions', () => {
+  it('gives lesson 02 the four pool conditions, then the bucket it folds into', () => {
     expect(tabsFor('lesson-02').map((t) => t.label)).toEqual([
       'Live',
       'Starvation',
       'Redelivery',
       '1 vs 4',
+      'odometer-pool',
     ])
+  })
+
+  // Every bucket this demo folds into can be browsed, the same way `nats kv ls`
+  // browses it. A fold with no read-only view is a number you have to trust.
+  it('gives every fold bucket a tab of its own', () => {
+    const every = LESSONS.flatMap((l) => l.tabs.map((t) => t.label))
+    for (const bucket of ['odometer-write', 'odometer-read', 'odometer-pool']) {
+      expect(every).toContain(bucket)
+    }
   })
 
   it('gives odometer-pool-workers no tab of its own — D10a', () => {

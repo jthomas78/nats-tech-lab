@@ -14,7 +14,7 @@
 // Every tab names the command that produces it. A number on a screen that
 // cannot be reproduced in a terminal is a claim, not a demonstration.
 
-import { READ_KV, STREAM, WRITE_KV } from '../config.js'
+import { POOL_KV, READ_KV, STREAM, WRITE_KV } from '../config.js'
 
 export const GUIDE = Object.freeze({ key: 'about', label: 'How it works' })
 
@@ -45,6 +45,11 @@ export const LESSONS = Object.freeze([
       { key: 'starvation', label: 'Starvation', cmd: 'cqrs pool -workers 8 -max-pending 3' },
       { key: 'redelivery', label: 'Redelivery', cmd: 'cqrs pool -workers 4 -ack-wait 30s -kill-at 94' },
       { key: 'scaling', label: '1 vs 4', cmd: 'cqrs seed -events 10000 && cqrs pool -workers N -drain' },
+      // The read-only view. Lesson 01 gives every bucket it folds into a tab
+      // that is just `nats kv ls` on the screen, and lesson 02 folds into one
+      // too. Without this tab the pool's damage is only ever a single total,
+      // and you cannot see WHICH vehicle lost the kilometres.
+      { key: 'pool', label: POOL_KV, cmd: `nats kv ls ${POOL_KV}` },
     ]),
   }),
 ])

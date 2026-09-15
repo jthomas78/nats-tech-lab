@@ -585,6 +585,16 @@ Four tabs — the repo's one tab style, a real PrimeVue `Tabs` carrying
 | Starvation | events acked per worker, eight workers on a cap of three | `cqrs pool -workers 8 -max-pending 3` |
 | Redelivery | one message's timeline across an `AckWait` | `cqrs pool -workers 4 -ack-wait 30s -kill-at 94` |
 | 1 vs 4 | time to drain 10 000 events at 1, 2, 4 and 8 workers | `cqrs seed -events 10000` then `cqrs pool -workers N -drain` |
+| odometer-pool | every key in the pool's bucket, beside `odometer-read` | `nats kv ls odometer-pool` |
+
+**A fifth tab, added 2026-09-15 on the user's finding.** The first four are
+conditions; this one is the read-only view, the same `nats kv ls` view lesson
+01 gives `odometer-write` and `odometer-read`. Every bucket this demo folds
+into can be browsed, because a fold with no read-only view is a number you
+have to trust. It is drawn beside `odometer-read` because the pool's damage is
+per vehicle: a single total says kilometres are missing, this says WHICH
+vehicle lost them. `odometer-pool-workers` still gets no tab (D10a) — the Live
+tab already draws its contents as worker cards.
 
 Tabs, not four rail rows: the pool is one subject under four conditions, not
 four subjects. Under option B the rail holds lessons only, so there was never a
@@ -728,7 +738,16 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       `PoolPanel.spec.js` exist only to fail if a later change fills the
       empty tab in with plausible numbers.
 
-      145 vitest specs green, `npm run build` clean, checked at 1920x1080.
+      **Corrected 2026-09-15**, on the user's finding: lesson 02 had no
+      read-only bucket view at all. Lesson 01 gives every bucket it folds into
+      a `nats kv ls` tab and lesson 02 folds into one too, so a fifth tab was
+      added — `odometer-pool`, drawn beside `odometer-read`. On the live
+      screen it shows real damage: truck-7 at 181.0 km / 11 trips in the pool
+      against 247.0 km / 17 trips in the read model. The footer's "watching"
+      line was wrong in the same way, naming three objects when the page had
+      subscribed to four; it now names only the buckets that actually exist.
+
+      148 vitest specs green, `npm run build` clean, checked at 1920x1080.
 - [x] 04.7.10 README — a pool section and the four numbers.
 
       The section is written: what the pool is, the three facts that decide

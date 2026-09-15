@@ -34,7 +34,16 @@ import CommandBar from './components/CommandBar.vue'
 import PoolPanel from './components/PoolPanel.vue'
 import StreamCqrsPanel from './components/StreamCqrsPanel.vue'
 import VehiclePicker from './components/VehiclePicker.vue'
-import { COMMAND_API, NATS_WS, READ_KV, STREAM, SUBJECT_PREFIX, WRITE_KV } from './config.js'
+import {
+  COMMAND_API,
+  NATS_WS,
+  POOL_KV,
+  POOL_WORKERS_KV,
+  READ_KV,
+  STREAM,
+  SUBJECT_PREFIX,
+  WRITE_KV,
+} from './config.js'
 import { useOdometer } from './nats/useOdometer.js'
 import { GUIDE, crumbFor, railSections } from './view/lessons.js'
 
@@ -70,6 +79,16 @@ const isLesson02 = computed(() => view.value === 'lesson-02')
 
 const sections = railSections()
 const crumb = computed(() => crumbFor(view.value, vehicle.value))
+
+// What the page is actually watching, not what it hoped to. The two pool
+// buckets only exist once somebody has run `cqrs pool`, so naming them
+// unconditionally would claim a subscription the page has not got.
+const watching = computed(() => {
+  const names = [WRITE_KV, READ_KV, STREAM]
+  if (pool.size) names.push(POOL_KV)
+  if (poolWorkers.size) names.push(POOL_WORKERS_KV)
+  return names.join(', ')
+})
 
 // `null` means all vehicles, and every panel widens to the whole bucket.
 const scope = computed(() => vehicle.value ?? 'all vehicles')
@@ -243,7 +262,7 @@ watch(vehicles, (next) => {
     <footer class="wiring">
       <span>reads · {{ NATS_WS }}</span>
       <span>commands · {{ COMMAND_API }}</span>
-      <span>watching · {{ WRITE_KV }}, {{ READ_KV }}, {{ STREAM }}</span>
+      <span>watching · {{ watching }}</span>
     </footer>
   </AppShell>
 </template>
