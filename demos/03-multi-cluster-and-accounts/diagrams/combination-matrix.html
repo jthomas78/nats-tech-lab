@@ -239,7 +239,7 @@ pre .hi  { color: var(--text); }
 
     <figure id="topology-t1">
       <div class="fig-body">
-        <svg viewBox="0 0 960 286" role="img" aria-label="T1. Two disconnected three-instance clusters, za and au. Each is its own JetStream meta group of three with quorum two. ODOMETER can be created in both regions with either one shared account or one account per region because the systems are disconnected.">
+        <svg viewBox="0 0 960 322" role="img" aria-label="T1. Two disconnected three-instance clusters, za and au. Each is its own JetStream meta group of three with quorum two. ODOMETER can be created in both regions with either one shared account or one account per region because the systems are disconnected. Consumers and KV buckets stay in the region where their client creates them.">
           <text class="grp g" x="30" y="26">T1 &mdash; META GROUP za &mdash; 3 PEERS &mdash; QUORUM 2</text>
           <text class="grp g" x="530" y="26">META GROUP au &mdash; 3 PEERS &mdash; QUORUM 2</text>
 
@@ -263,8 +263,9 @@ pre .hi  { color: var(--text); }
           <text class="ro" x="544" y="170">a region loss does not change za</text>
           <text class="ro" x="544" y="188">no WAN link</text>
 
-          <text class="ro g" x="30" y="252">ONE SHARED ACCOUNT &rarr; ODOMETER in both regions: YES &mdash; two disconnected JetStream systems</text>
-          <text class="ro g" x="30" y="270">ONE ACCOUNT PER REGION &rarr; ODOMETER in both regions: YES</text>
+          <text class="ro g" x="30" y="252">consumer + KV stay in their own region</text>
+          <text class="ro g" x="30" y="286">ONE SHARED ACCOUNT &rarr; ODOMETER in both regions: YES &mdash; two disconnected JetStream systems</text>
+          <text class="ro g" x="30" y="304">ONE ACCOUNT PER REGION &rarr; ODOMETER in both regions: YES</text>
         </svg>
       </div>
       <figcaption><b>T1 &mdash; two islands.</b> Each region keeps its own group of three and its own quorum of
@@ -274,12 +275,12 @@ pre .hi  { color: var(--text); }
 
     <figure id="topology-t2-1">
       <div class="fig-body">
-        <svg viewBox="0 0 960 350" role="img" aria-label="T2.1. The za and au three-instance clusters are joined by a gateway. One six-peer JetStream meta group with majority four spans both clusters and one shared domain. One account encloses both clusters, so ODOMETER in au is refused with error 10058 and reads from au query za across the WAN.">
+        <svg viewBox="0 0 960 370" role="img" aria-label="T2.1. The za and au three-instance clusters are joined by a gateway. One six-peer JetStream meta group with majority four spans both clusters and one shared domain. One account encloses both clusters, so ODOMETER in au is refused with error 10058. Consumer PROJ_AU lives in za rather than au, and a WAN cut makes its pull fail with 10008.">
           <defs>
             <marker id="t21-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
           </defs>
           <text class="grp g" x="22" y="26">T2.1 &mdash; ONE META GROUP &mdash; 6 PEERS &mdash; MAJORITY 4 &mdash; ONE SHARED DOMAIN</text>
-          <rect class="nb" x="14" y="34" width="932" height="282" rx="4"/>
+          <rect class="nb" x="14" y="34" width="932" height="316" rx="4"/>
           <rect class="nb acct" x="30" y="52" width="900" height="236" rx="4"/>
           <text class="grp a" x="44" y="72">ACCOUNT acme &mdash; ONE STREAM NAMESPACE</text>
 
@@ -303,8 +304,10 @@ pre .hi  { color: var(--text); }
 
           <line class="gw" x1="410" y1="140" x2="550" y2="140" marker-start="url(#t21-gw)" marker-end="url(#t21-gw)"/>
           <text class="edge" x="480" y="132" text-anchor="middle">gateway</text>
-          <text class="ro r" x="30" y="278">lose either region &rarr; 3 of 6 peers &rarr; below majority 4</text>
-          <text class="ro r" x="30" y="330">ODOMETER in both regions: NO &mdash; one account is one stream namespace across the whole supercluster.</text>
+          <text class="ro" x="30" y="278">consumer PROJ_AU lives in za, not au</text>
+          <text class="ro r" x="30" y="296">WAN cut &rarr; pull fails 10008</text>
+          <text class="ro r" x="30" y="324">lose either region &rarr; 3 of 6 peers &rarr; below majority 4</text>
+          <text class="ro r" x="30" y="348">ODOMETER in both regions: NO &mdash; one account is one stream namespace across the whole supercluster.</text>
         </svg>
       </div>
       <figcaption><b>T2.1 &mdash; one shared account.</b> The gateway makes one six-peer meta group and one shared
@@ -314,12 +317,12 @@ pre .hi  { color: var(--text); }
 
     <figure id="topology-t2-2">
       <div class="fig-body">
-        <svg viewBox="0 0 960 350" role="img" aria-label="T2.2. The za and au three-instance clusters are joined by a gateway. One six-peer JetStream meta group with majority four spans both clusters and one shared domain. Separate accounts enclose the individual clusters, so both hold an ODOMETER stream, reads are local, and a publish stays in one account unless an export and import are wired.">
+        <svg viewBox="0 0 960 386" role="img" aria-label="T2.2. The za and au three-instance clusters are joined by a gateway. One six-peer JetStream meta group with majority four spans both clusters and one shared domain. Separate accounts enclose the individual clusters, so both hold an ODOMETER stream, reads are local, and a publish stays in one account unless an export and import are wired. A consumer lives with its own region's stream and still pulls successfully under a WAN cut.">
           <defs>
             <marker id="t22-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
           </defs>
           <text class="grp g" x="22" y="26">T2.2 &mdash; ONE META GROUP &mdash; 6 PEERS &mdash; MAJORITY 4 &mdash; ONE SHARED DOMAIN</text>
-          <rect class="nb" x="14" y="34" width="932" height="282" rx="4"/>
+          <rect class="nb" x="14" y="34" width="932" height="332" rx="4"/>
 
           <rect class="nb acct" x="30" y="52" width="390" height="200" rx="4"/>
           <text class="grp a" x="44" y="72">ACCOUNT acme-za &mdash; STREAM NAMESPACE</text>
@@ -348,7 +351,9 @@ pre .hi  { color: var(--text); }
           <text class="ro h" x="30" y="270">one publish enters ONE account &rarr; stored once</text>
           <text class="ro" x="30" y="288">account crossing needs explicit export / import &mdash; not wired here</text>
           <text class="ro r" x="30" y="306">lose either region &rarr; 3 of 6 peers &rarr; below majority 4</text>
-          <text class="ro g" x="30" y="330">ODOMETER in both regions: YES &mdash; two accounts are two stream namespaces. One publish is still stored once.</text>
+          <text class="ro g" x="30" y="330">consumer lives with its own region's stream</text>
+          <text class="ro g" x="30" y="348">WAN cut &rarr; pull still succeeds</text>
+          <text class="ro g" x="30" y="366">ODOMETER in both regions: YES &mdash; two accounts are two stream namespaces. One publish is still stored once.</text>
         </svg>
       </div>
       <figcaption><b>T2.2 &mdash; one account per region.</b> The gateway still makes one six-peer meta group and
@@ -497,6 +502,83 @@ pre .hi  { color: var(--text); }
   </section>
 
   <section class="sec">
+    <h2>Consumers &mdash; where the read side actually runs</h2>
+    <p class="sub">The figures above show stream placement, but a durable consumer is part of that stream's
+      read side. In T2.1 the table's <b>WAN</b> answer understates the cost: AU pays the WAN on every pull and
+      the pull stops with <code>10008</code> when ZA is cut. T2.2 keeps the read side in AU and keeps pulling.
+      <span class="badge b-good">measured</span></p>
+
+    <div class="note"><b>Rig.</b> T2 is the real demo-03 lab: za-1..3 and au-1..3 joined by one gateway, no
+      <code>domain</code> anywhere, and accounts <code>LB</code> (shared), <code>LB_ZA</code>, and
+      <code>LB_AU</code>. T1 is the same six configurations with the <code>gateway {}</code> block removed,
+      run as a throwaway copy: two islands. <span class="badge b-good">measured</span></div>
+
+    <h3>C1 &mdash; a consumer lives where the stream lives <span class="badge b-good">measured</span></h3>
+    <p class="sub">In T2 account <code>LB</code>, durable pull consumer <code>PROJ_AU</code> was created by a
+      client connected to AU on port <code>4241</code>, for a stream held in ZA. It reported
+      <code>Cluster Information: Name: za</code>, <code>Raft Group: C-R3F-xXisO9gn</code>,
+      <code>Leader: za-3</code>, and <code>Replica: za-1, za-2</code>; AU held no part of it.
+      <span class="badge b-good">measured</span></p>
+
+    <h3>C2 &mdash; a new stream or KV bucket lands where the client is <span class="badge b-good">measured</span></h3>
+    <p class="sub">In T2, <code>nats kv add t7-vehicles</code> from AU with no placement flag reported
+      <code>Cluster Information: Name: au</code> and <code>Leader: au-1</code>. The shared-account projection
+      therefore split in half: its consumer stayed in ZA while its KV write side landed in AU. A KV bucket is a
+      stream (<code>KV_t7-vehicles</code>), so the same placement rule applies. <span class="badge b-good">measured</span></p>
+
+    <h3>C3 &mdash; a remote pull crosses the WAN on every message <span class="badge b-good">measured</span></h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Operation</th><th>Gateway counter change across AU's three <code>/gatewayz</code> endpoints</th></tr></thead>
+        <tbody>
+          <tr><td>10 pulls from AU on ZA's stream</td><td><b>+51</b> gateway messages <span class="badge b-good">measured</span></td></tr>
+          <tr><td>The same 10 pulls from ZA</td><td><b>+1</b> gateway messages <span class="badge b-good">measured</span></td></tr>
+          <tr><td>KV from the same AU client</td><td>local bucket <b>+33 / +33</b>; remote bucket <b>+43 / +40</b> <span class="badge b-good">measured</span></td></tr>
+          <tr><td>Idle control traffic</td><td>approximately <b>+9 to +12</b> per 1.5 s <span class="badge b-good">measured</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub">The absolute counts include the CLI's per-invocation reconnect, so the contrast rather than
+      either raw count is the evidence: the remote consumer pays the WAN repeatedly. <span class="badge b-good">measured</span></p>
+
+    <h3>C4 &mdash; under a WAN cut, the account model decides whether the read side lives <span class="badge b-good">measured</span></h3>
+    <p class="sub">The T2 cut was <code>kill -STOP</code> on za-1, za-2, and za-3 &mdash; never a Docker network
+      disconnect &mdash; and was repeated three times. In shared account <code>LB</code>, pulling ZA's consumer
+      from AU failed with <code>could not load consumer "PROJ_AU": JetStream system temporarily unavailable (10008)</code>.
+      <span class="badge b-good">measured</span></p>
+    <p class="sub">In per-region account <code>LB_AU</code>, pulling AU's own consumer from AU succeeded
+      (<code>cons seq: 2 / str seq: 2</code>). <code>nats kv put</code> into an AU-local bucket succeeded in both
+      account models, but creating anything new failed in both: three of six peers is below majority four. An
+      account never changes quorum. <span class="badge b-good">measured</span></p>
+    <p class="sub">One <code>LB_AU</code> run returned <code>no message received: nats: timeout</code>. That was
+      an empty stream, not unavailability, and is a different answer from <code>10008</code> even though the
+      two can look alike. <span class="badge b-good">measured</span></p>
+
+    <h3>C5 &mdash; recovery loses nothing <span class="badge b-good">measured</span></h3>
+    <p class="sub">After <code>kill -CONT</code>, the consumer resumed at <code>cons seq: 32 / str seq: 32</code>;
+      nothing was lost. The meta group was healthy again with six peers online and leader <code>za-1</code>.
+      <span class="badge b-good">measured</span></p>
+
+    <h3>C6 &mdash; T1 has no remote read side <span class="badge b-good">measured</span></h3>
+    <p class="sub">T1 had two independent meta groups: ZA leader <code>t7-za-1</code>, size three; AU leader
+      <code>t7-au-3</code>, size three; quorum two each. Under the same shared account <code>LB</code>,
+      <code>ODOMETER</code> was created in both regions: ZA group <code>S-R3F-yFgzGo60</code>, leader
+      <code>t7-za-1</code>; AU group <code>S-R3F-E45MgUBg</code>, leader <code>t7-au-3</code>. There was no
+      <code>10058</code>, because without a gateway the account and stream name are not shared across the WAN.
+      <span class="badge b-good">measured</span></p>
+    <p class="sub">From AU, consumer <code>PROJ_AU</code> landed in <code>Name: au</code> with leader
+      <code>t7-au-1</code>, and KV <code>t7-vehicles</code> landed in <code>Name: au</code> with leader
+      <code>t7-au-2</code>. A ZA publication on <code>evt.odo.v1</code> with body <code>ZA-ONLY</code> was never
+      seen by the AU consumer: <code>nats: error: no message received: nats: timeout</code>.
+      <span class="badge b-good">measured</span></p>
+    <p class="sub">With all three ZA servers frozen, AU still published and pulled
+      (<code>cons seq: 1 / str seq: 1</code>), performed <code>kv put</code>, and created the new three-replica
+      stream <code>T7_NEW</code> with leader <code>t7-au-1</code>. AU's meta group remained leader
+      <code>t7-au-3</code>, size three. This is the sharp contrast with T2: T1 can create a new stream because
+      AU still has its independent quorum. <span class="badge b-good">measured</span></p>
+  </section>
+
+  <section class="sec">
     <h2>Every permutation &mdash; topology &times; account model</h2>
     <p class="sub">Five topologies, two account models, ten rows. Every <b>cluster</b> below is
       <b>3 NATS instances</b>. The one question the table answers first: <b>can <code>ODOMETER</code> be
@@ -509,6 +591,7 @@ pre .hi  { color: var(--text); }
             <th>#</th><th>Topology</th><th>WAN link</th><th>Accounts</th>
             <th><code>ODOMETER</code> in both regions?</th>
             <th>One publish stored twice?</th><th>AU read</th>
+            <th>AU read under a WAN cut</th>
             <th>Meta group / if a region dies</th><th>Evidence</th>
           </tr>
         </thead>
@@ -520,16 +603,20 @@ pre .hi  { color: var(--text); }
             refuse.</td>
           <td><span class="badge b-good">no</span> &mdash; a publish cannot reach the other side at all</td>
           <td>local</td>
+          <td><span class="badge b-good">works</span> &mdash; nothing to cut</td>
           <td>2 groups of 3, quorum 2 each. Independent.</td>
-          <td><span class="badge b-bad">inferred</span> two disconnected systems by definition</td>
+          <td><span class="badge b-good">measured</span> two gateway-less clusters, same shared account,
+            <code>ODOMETER</code> created in both, no <code>10058</code></td>
         </tr>
         <tr>
           <td><b>P2</b></td><td>2 regions, 1 cluster each</td><td><b>none</b></td><td>one per region</td>
           <td><span class="badge b-good">yes</span></td>
           <td><span class="badge b-good">no</span></td>
           <td>local</td>
+          <td><span class="badge b-good">works</span> &mdash; nothing to cut</td>
           <td>2 groups of 3, quorum 2 each</td>
-          <td><span class="badge b-bad">inferred</span></td>
+          <td><span class="badge b-good">measured</span> two gateway-less clusters, same shared account,
+            <code>ODOMETER</code> created in both, no <code>10058</code></td>
         </tr>
 
         <tr>
@@ -538,6 +625,7 @@ pre .hi  { color: var(--text); }
             (10058)</code>. One <code>ODOMETER</code> for the whole supercluster.</td>
           <td><span class="badge b-good">no</span></td>
           <td><b>WAN</b> &mdash; AU owns nothing</td>
+          <td><span class="badge b-bad">10008</span></td>
           <td>1 group of 6, majority 4. Split 3/3 &rarr; no leader, <code>stream add</code> &rarr;
             <code>10008</code>. A change freeze, not an outage.</td>
           <td><span class="badge b-good">measured</span> <code>demo 02 lab/00-the-problem.sh</code></td>
@@ -547,6 +635,7 @@ pre .hi  { color: var(--text); }
           <td><span class="badge b-good">YES</span> &mdash; same name, same subject, no code change</td>
           <td><span class="badge b-good">no</span></td>
           <td><b>local</b></td>
+          <td><span class="badge b-good">works</span></td>
           <td>1 group of 6, majority 4. Same freeze on a 3/3 split &mdash; the account does not change
             quorum.</td>
           <td><span class="badge b-good">measured</span> <code>demo 02 lab/03-odometer.sh</code> stage B</td>
@@ -559,6 +648,7 @@ pre .hi  { color: var(--text); }
             namespace.</td>
           <td><span class="badge b-good">no</span></td>
           <td><b>WAN</b></td>
+          <td><span class="badge b-bad">10008</span></td>
           <td>1 group of <b>7</b>, majority 4. Lose a region &rarr; 4 left, <b>survives</b> &mdash; but with
             <b>zero slack</b>: one more node down and it freezes. Lose the arbiter alone &rarr; 6, fine.</td>
           <td><span class="badge b-good">measured</span> quorum: demo 03 Figure C &middot;
@@ -570,6 +660,7 @@ pre .hi  { color: var(--text); }
           <td><span class="badge b-good">YES</span></td>
           <td><span class="badge b-good">no</span></td>
           <td><b>local</b></td>
+          <td><span class="badge b-good">works</span></td>
           <td>as P5 &mdash; 1 group of 7, majority 4, no slack after a region is lost</td>
           <td><span class="badge b-good">measured</span> quorum &middot;
             <span class="badge b-bad">inferred</span> stream result, from P4</td>
@@ -581,6 +672,7 @@ pre .hi  { color: var(--text); }
           <td><span class="badge b-bad">NO</span> &mdash; <code>10058</code></td>
           <td><span class="badge b-good">no</span></td>
           <td><b>WAN</b></td>
+          <td><span class="badge b-bad">10008</span></td>
           <td>1 group of <b>9</b>, majority 5. Lose a region &rarr; 6 left, survives <b>with one node of
             slack</b>. Lose the whole arbiter site &rarr; 6, fine. That slack is the only thing the extra
             two instances buy.</td>
@@ -592,6 +684,7 @@ pre .hi  { color: var(--text); }
           <td><span class="badge b-good">YES</span></td>
           <td><span class="badge b-good">no</span></td>
           <td><b>local</b></td>
+          <td><span class="badge b-good">works</span></td>
           <td>as P7 &mdash; 1 group of 9, majority 5, one node of slack after a region is lost</td>
           <td><span class="badge b-bad">inferred</span></td>
         </tr>
@@ -603,6 +696,7 @@ pre .hi  { color: var(--text); }
           <td><span class="badge b-warn">YES</span> &mdash; the <b>real</b> double capture. Both filters match
             the same publish.</td>
           <td>local</td>
+          <td><span class="badge b-base">not measured</span></td>
           <td>3 groups of 3, quorum 2 each. The other side never notices.</td>
           <td><span class="badge b-good">measured</span> demo 03 Figure D</td>
         </tr>
@@ -612,6 +706,7 @@ pre .hi  { color: var(--text); }
           <td><span class="badge b-good">YES</span></td>
           <td><span class="badge b-good">no</span> &mdash; the account wall removes the overlap as well</td>
           <td>local</td>
+          <td><span class="badge b-base">not measured</span></td>
           <td>3 groups of 3, quorum 2 each</td>
           <td><span class="badge b-bad">inferred</span> from P9 plus the measured account wall</td>
         </tr>
