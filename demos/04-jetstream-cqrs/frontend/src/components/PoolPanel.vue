@@ -45,6 +45,7 @@ import {
 import { SEED_CMD, tabsFor } from '../view/lessons.js'
 import BucketKeys from './BucketKeys.vue'
 import LagLane from './LagLane.vue'
+import PoolStrip from './PoolStrip.vue'
 
 const props = defineProps({
   head: { type: Number, default: 0 },
@@ -158,6 +159,15 @@ function km(n) {
           </div>
 
           <template v-else>
+            <!-- The strip first: it is the only drawing that can show WHY an
+                 event disappears. The lane under it answers a different
+                 question — how far behind each worker is. -->
+            <PoolStrip
+              :head="head"
+              :fold-seq="foldSeq"
+              :rows="rows"
+            />
+
             <LagLane
               title="Where each worker is, against the head of the log"
               :head="head"
@@ -686,6 +696,10 @@ header {
 
 /* One card per worker. They wrap rather than scroll: eight workers is a
    normal run and a horizontal scrollbar would hide half the lesson. */
+.lesson :deep(.lane) {
+  margin-top: 18px;
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

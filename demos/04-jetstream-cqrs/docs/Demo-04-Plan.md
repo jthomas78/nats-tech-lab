@@ -631,6 +631,8 @@ demos/04-jetstream-cqrs/
     BucketPanel.vue           NO CHANGE - its props already took a subject, 04.7.9a
     BucketKeys.vue            NO CHANGE - its props already took a subject, 04.7.9a
     LagLane.vue               EDIT - two markers become N
+    PoolStrip.vue             NEW  - 04.7.4b, the chip strip + the consumer bar
+    PoolStrip.spec.js         NEW  - 11 specs
   frontend/src/view/lessons.js      NEW  - the rail rows, the tabs, the crumb
   frontend/src/view/lessons.spec.js NEW  - written first, 14 specs
   frontend/src/view/lane.js   EDIT - laneRows(), the N-row geometry
@@ -638,6 +640,8 @@ demos/04-jetstream-cqrs/
   frontend/src/view/pool.spec.js  NEW  - written first, 22 specs
   frontend/src/view/drain.js      NEW  - 04.7.4's four runs, recorded as data
   frontend/src/view/drain.spec.js NEW  - written first, 8 specs
+  frontend/src/view/strip.js      NEW  - 04.7.4b, chip states and the window
+  frontend/src/view/strip.spec.js NEW  - written first, 16 specs
   frontend/src/config.js      EDIT - POOL_KV, POOL_WORKERS_KV
   frontend/src/styles/sides.css EDIT - --d4-lost, for loss only
   frontend/src/view/lane.js   EDIT - N markers, still pure, still specced
@@ -722,6 +726,40 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       and Redelivery gained a line saying to stop any running pool first, since
       every pool joins the same durable consumer. 169 vitest specs green,
       `npm run build` clean, checked at 1920x1080 against a live 4-worker pool.
+- [x] 04.7.4b The chip strip, 2026-09-16. The mockup's Live-tab hero — the log
+      drawn as one chip per sequence, with the pool's watermark on it and the
+      single durable consumer as a bar underneath — had never been built; the
+      Live tab opened on `LagLane` instead. The lane answers "how far behind is
+      each worker" and has nowhere to put the one event about to be thrown
+      away, which is the lesson. `PoolStrip.vue` draws it, `view/strip.js` holds
+      the state maths (16 specs, written first).
+
+      Five chip states, each tied to something the page already watches:
+      `folded`, `mark` (lastSeq — the watermark, and it belongs to the
+      CONSUMER), `flight`, `doomed` (held AND at or behind the watermark), and
+      `pending`. `doomed` is the whole point: same shape as `flight`, one
+      colour apart, because nothing about the event changed — only where the
+      watermark got to.
+
+      **The window is anchored on the action, not on the head.** A head-pinned
+      window was built first and was wrong in the only case that matters: a
+      seed puts the head 14 000 events ahead, the strip draws eight `pending`
+      chips, and the watermark sits off-screen. It now anchors on the oldest
+      event still held (the one at risk), keeps one folded chip for context,
+      and `headGap()` prints `+N more · head #M` so the log never appears to
+      stop where the chips do. Caught live at 1920x1080 against a running
+      4-worker pool: `#72024 lastSeq`, three `flight` chips named by worker,
+      four `pending`, `+1,998 more`.
+
+      Not drawn, deliberately: the mockup's MaxAckPending / AckWait figures on
+      the consumer bar. The heartbeat bucket does not carry the consumer's
+      limits, so the panel does not know them, and a plausible `1000` is
+      exactly the kind of number this demo does not put on screen. The props
+      exist and a spec covers the blank. Also not drawn: the mockup's lifelines
+      from the bar down to the worker cards — the lane sits between them in the
+      real panel, so the lines would connect nothing.
+
+      196 vitest specs green, `npm run build` clean.
 - [ ] 04.7.5 `-kill-at` and the redelivery measurement.
 - [ ] 04.7.6 `-max-pending 3` and the starvation measurement.
 - [x] 04.7.7 `deploy/nats.conf` — **no change needed, and that is the finding.**
