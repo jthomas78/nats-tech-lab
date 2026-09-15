@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NATS stream - CQRS</title>
+<style>
+:root {
+  --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+  --bg:#14171b; --panel:#1a1e23; --border:#2c3138;
+  --sync:#4d94ff; --store:#2dd4bf; --evtl:#f0b429; --hop:#8b93a1;
+  --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  --sans:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:var(--sans); font-size:13px; line-height:20px;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap {
+  max-width:1080px; margin:0 auto; padding:24px 18px 64px;
+  display:flex; flex-direction:column; gap:32px;
+}
+.head-txt { display:flex; flex-direction:column; gap:5px; }
+.eyebrow {
+  font-family:var(--mono); font-size:10px; text-transform:uppercase;
+  letter-spacing:.08em; color:var(--dim);
+}
+h1 { margin:0; font-size:20px; line-height:26px; font-weight:600; letter-spacing:-.01em; }
+h2 { margin:0; font-size:18px; line-height:24px; font-weight:600; letter-spacing:-.01em; }
+h3 { margin:0; font-size:14px; line-height:20px; font-weight:600; }
+.sub { margin:0; color:var(--muted); max-width:88ch; }
+.pattern { display:flex; flex-direction:column; gap:16px; }
+.pattern + .pattern { padding-top:28px; border-top:1px solid var(--border); }
+.diagram-head { display:flex; flex-direction:column; gap:2px; margin-top:4px; }
+figure {
+  margin:0; background:var(--panel); border:1px solid var(--border);
+  border-radius:4px; overflow:hidden;
+}
+.fig-body { padding:14px 14px 4px; overflow-x:auto; }
+figure svg { display:block; width:100%; min-width:0; max-width:100%; height:auto; color:var(--muted); }
+figcaption {
+  padding:10px 14px 12px; border-top:1px solid var(--border);
+  color:var(--muted); font-size:12px; line-height:18px;
+}
+b { color:var(--text); font-weight:600; }
+.n { fill:none; stroke:currentColor; stroke-width:1; }
+.nb { fill:none; stroke:currentColor; stroke-width:1; stroke-dasharray:4 3; stroke-opacity:.5; }
+.lbl { font-family:var(--mono); font-size:11px; fill:var(--text); }
+.lbl2,.edge { font-family:var(--mono); font-size:9.5px; fill:var(--muted); }
+.grp { font-family:var(--mono); font-size:9.5px; fill:var(--dim); letter-spacing:.07em; }
+.flow { fill:none; stroke:var(--sync); stroke-width:1.4; }
+.proj { fill:none; stroke:var(--store); stroke-width:1.4; }
+.rep { fill:none; stroke:var(--evtl); stroke-width:1.4; stroke-dasharray:5 4; }
+.ack { fill:none; stroke:var(--hop); stroke-width:1.4; stroke-dasharray:4 4; }
+.lifeline { fill:none; stroke:var(--border); stroke-width:1; stroke-dasharray:3 5; }
+.steps { display:flex; flex-direction:column; gap:10px; }
+ol { margin:0; padding-left:24px; color:var(--muted); display:flex; flex-direction:column; gap:9px; }
+.notes { display:grid; grid-template-columns:1fr 1fr; gap:24px; color:var(--muted); }
+.notes p { margin:0; }
+code { font-family:var(--mono); font-size:11px; }
+a { color:var(--sync); }
+@media(max-width:640px) { .notes { grid-template-columns:1fr; gap:12px; } }
+</style>
+</head>
+<body>
+<main class="wrap">
+<header class="head-txt">
+  <div class="eyebrow">Design discussion · Two aligned write-side persistence patterns</div>
+  <h1>NATS stream - CQRS</h1>
+  <p class="sub">Both paths begin with a caller invoking a producer and use the same NATS ingress. The persistence model is the deliberate difference.</p>
+</header>
+
+<section class="pattern" aria-labelledby="kv-title">
+  <header class="head-txt">
+    <div class="eyebrow">Pattern 1 · KV is authoritative aggregate state</div>
+    <h2 id="kv-title">Write-side: Aggregate → KV state</h2>
+    <p class="sub">A consumed message invokes the aggregate. The resulting state is committed to KV before the input message is acknowledged.</p>
+  </header>
+
+  <div class="diagram-head">
+    <h3>Relationship view</h3>
+    <p class="sub">Shared ingress on the right, write-side behavior in the centre, and the caller on the left.</p>
+  </div>
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 670" role="img" aria-label="Relationship diagram for a KV-backed write side. A caller invokes a producer, which publishes to an input stream in the rightmost NATS account. A durable consumer delivers to a message handler. The handler loads authoritative KV state, invokes the write-side aggregate, conditionally saves the new state, and acknowledges the input message after the save.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="a-event" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="a-ack" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--hop)"/></marker>
+        </defs>
+        <rect class="nb" x="330" y="30" width="290" height="600" rx="4"/>
+        <text class="grp" x="346" y="52">WRITE-SIDE SERVICE · APPLICATION</text>
+        <rect class="nb" x="660" y="30" width="280" height="600" rx="4"/>
+        <text class="grp" x="676" y="52">NATS ACCOUNT · JETSTREAM</text>
+        <rect class="n" x="14" y="100" width="110" height="48" rx="3"/>
+        <text class="lbl" x="69" y="120" text-anchor="middle">Caller</text>
+        <text class="lbl2" x="69" y="134" text-anchor="middle">business intent</text>
+        <rect class="n" x="155" y="100" width="140" height="48" rx="3"/>
+        <text class="lbl" x="225" y="120" text-anchor="middle">Producer</text>
+        <text class="lbl2" x="225" y="134" text-anchor="middle">NATS publisher</text>
+        <rect class="n" x="365" y="100" width="220" height="48" rx="3"/>
+        <text class="lbl" x="475" y="120" text-anchor="middle">Write-side aggregate</text>
+        <text class="lbl2" x="475" y="134" text-anchor="middle">business rules + transitions</text>
+        <rect class="n" x="365" y="240" width="220" height="52" rx="3"/>
+        <text class="lbl" x="475" y="261" text-anchor="middle">Message handler</text>
+        <text class="lbl2" x="475" y="276" text-anchor="middle">coordinates load / apply / save</text>
+        <path class="n" d="M690 105 L690 149 A110 9 0 0 0 910 149 L910 105"/>
+        <ellipse class="n" cx="800" cy="105" rx="110" ry="9"/>
+        <text class="lbl" x="800" y="127" text-anchor="middle">Input stream</text>
+        <text class="lbl2" x="800" y="143" text-anchor="middle">persisted input messages</text>
+        <rect class="n" x="690" y="240" width="220" height="52" rx="3"/>
+        <text class="lbl" x="800" y="261" text-anchor="middle">Durable consumer</text>
+        <text class="lbl2" x="800" y="276" text-anchor="middle">filter · delivery · ACK state</text>
+        <path class="n" d="M690 515 L690 559 A110 9 0 0 0 910 559 L910 515"/>
+        <ellipse class="n" cx="800" cy="515" rx="110" ry="9"/>
+        <text class="lbl" x="800" y="537" text-anchor="middle">Authoritative KV state</text>
+        <text class="lbl2" x="800" y="553" text-anchor="middle">aggregate state + KV revision</text>
+        <path class="flow" d="M124 124 H145" marker-end="url(#a-sync)"/>
+        <text class="edge" x="24" y="92">Invoke operation</text>
+        <path class="flow" d="M295 124 H315 V72 H640 V124 H680" marker-end="url(#a-sync)"/>
+        <text class="edge" x="355" y="66">1 · Publish message</text>
+        <path class="rep" d="M800 159 V230" marker-end="url(#a-event)"/>
+        <text class="edge" x="812" y="199">Input available</text>
+        <path class="rep" d="M690 254 H595" marker-end="url(#a-event)"/>
+        <text class="edge" x="603" y="244">2 · Deliver message</text>
+        <path class="flow" d="M690 527 H640 V370 H530 V302" marker-end="url(#a-sync)"/>
+        <text class="edge" x="650" y="363">3 · Load state + revision</text>
+        <path class="flow" d="M420 240 V158" marker-end="url(#a-sync)"/>
+        <text class="edge" x="344" y="200">4 · Invoke</text>
+        <path class="flow" d="M530 148 V230" marker-end="url(#a-sync)"/>
+        <text class="edge" x="542" y="200">New state</text>
+        <path class="proj" d="M585 278 H625 V547 H680" marker-end="url(#a-store)"/>
+        <text class="edge" x="650" y="495">5 · Save if KV revision matches</text>
+        <path class="ack" d="M585 278 H680" marker-end="url(#a-ack)"/>
+        <text class="edge" x="635" y="315">6 · ACK after save</text>
+        <text class="lbl2" x="16" y="656">Blue: call / returned state</text>
+        <text class="lbl2" x="295" y="656">Amber dashed: delivery</text>
+        <text class="lbl2" x="590" y="656">Green: committed write · Gray dashed: ACK</text>
+      </svg>
+    </div>
+    <figcaption><b>The shared path ends in authoritative KV state.</b> The producer is the NATS adapter invoked by the caller. The handler owns orchestration, while the write-side aggregate owns business decisions.</figcaption>
+  </figure>
+
+  <div class="diagram-head">
+    <h3>Sequence view</h3>
+    <p class="sub">The same components ordered in time. The caller-to-producer entry is visible but remains outside steps 1–6.</p>
+  </div>
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 710" role="img" aria-label="Sequence for a KV-backed write side. A caller invokes a producer. The producer publishes through the input stream and durable consumer. The handler loads authoritative KV state, invokes the write-side aggregate, conditionally saves the new state, and acknowledges the input message after persistence succeeds. Time flows down.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="b-event" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="b-ack" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--hop)"/></marker>
+        </defs>
+        <text class="grp" x="20" y="24">TIME FLOWS DOWN · KV-BACKED WRITE SIDE</text>
+        <rect class="n" x="10" y="50" width="90" height="48" rx="3"/>
+        <text class="lbl" x="55" y="70" text-anchor="middle">Caller</text>
+        <text class="lbl2" x="55" y="84" text-anchor="middle">intent</text>
+        <rect class="n" x="115" y="50" width="110" height="48" rx="3"/>
+        <text class="lbl" x="170" y="70" text-anchor="middle">Producer</text>
+        <text class="lbl2" x="170" y="84" text-anchor="middle">publisher</text>
+        <rect class="n" x="245" y="50" width="140" height="48" rx="3"/>
+        <text class="lbl" x="315" y="70" text-anchor="middle">NATS ingress</text>
+        <text class="lbl2" x="315" y="84" text-anchor="middle">stream + consumer</text>
+        <rect class="n" x="405" y="50" width="120" height="48" rx="3"/>
+        <text class="lbl" x="465" y="70" text-anchor="middle">Handler</text>
+        <text class="lbl2" x="465" y="84" text-anchor="middle">orchestration</text>
+        <rect class="n" x="550" y="50" width="120" height="48" rx="3"/>
+        <text class="lbl" x="610" y="70" text-anchor="middle">Aggregate</text>
+        <text class="lbl2" x="610" y="84" text-anchor="middle">business rules</text>
+        <path class="n" d="M815 57 L815 91 A65 8 0 0 0 945 91 L945 57"/>
+        <ellipse class="n" cx="880" cy="57" rx="65" ry="8"/>
+        <text class="lbl" x="880" y="77" text-anchor="middle">KV state</text>
+        <text class="lbl2" x="880" y="91" text-anchor="middle">authoritative</text>
+        <path class="lifeline" d="M55 98 V680 M170 98 V680 M315 98 V680 M465 98 V680 M610 98 V680 M880 99 V680"/>
+        <path class="flow" d="M55 140 H160" marker-end="url(#b-sync)"/>
+        <text class="edge" x="68" y="130">Invoke operation</text>
+        <path class="flow" d="M170 190 H305" marker-end="url(#b-sync)"/>
+        <text class="edge" x="183" y="180">1 · Publish message</text>
+        <path class="flow" d="M315 225 H180" marker-end="url(#b-sync)"/>
+        <text class="edge" x="190" y="215">PubAck: input stored</text>
+        <path class="rep" d="M315 280 H455" marker-end="url(#b-event)"/>
+        <text class="edge" x="328" y="270">2 · Deliver message</text>
+        <path class="flow" d="M465 340 H870" marker-end="url(#b-sync)"/>
+        <text class="edge" x="478" y="330">3 · Get aggregate key</text>
+        <path class="flow" d="M880 375 H475" marker-end="url(#b-sync)"/>
+        <text class="edge" x="485" y="365">State + KV revision R</text>
+        <path class="flow" d="M465 435 H600" marker-end="url(#b-sync)"/>
+        <text class="edge" x="478" y="425">4 · Restore + invoke</text>
+        <path class="flow" d="M610 470 H475" marker-end="url(#b-sync)"/>
+        <text class="edge" x="485" y="460">Accepted new state</text>
+        <path class="proj" d="M465 530 H870" marker-end="url(#b-store)"/>
+        <text class="edge" x="478" y="520">5 · Update state if KV revision = R</text>
+        <path class="flow" d="M880 565 H475" marker-end="url(#b-sync)"/>
+        <text class="edge" x="485" y="555">Committed at KV revision R+1</text>
+        <path class="ack" d="M465 625 H325" marker-end="url(#b-ack)"/>
+        <text class="edge" x="338" y="615">6 · ACK after save</text>
+        <text class="lbl2" x="20" y="704">Blue: call / returned data</text>
+        <text class="lbl2" x="320" y="704">Amber dashed: delivery</text>
+        <text class="lbl2" x="640" y="704">Green: persisted write · Gray dashed: ACK</text>
+      </svg>
+    </div>
+    <figcaption><b>Persistence precedes the delivery ACK.</b> The first acknowledgement confirms the input reached JetStream. The final acknowledgement confirms aggregate processing and the conditional KV save completed.</figcaption>
+  </figure>
+
+  <div class="steps" aria-labelledby="kv-steps">
+    <h3 id="kv-steps">Steps 1–6</h3>
+    <ol>
+      <li><b>Publish the message.</b> The caller first invokes the producer. The producer publishes to a subject captured by the input stream and waits for the JetStream publish acknowledgement. This confirms storage, not completion of business processing.</li>
+      <li><b>Deliver to the handler.</b> The durable consumer selects matching messages and delivers them to the write-side service. With explicit acknowledgements, a message remains outstanding until the handler acknowledges it.</li>
+      <li><b>Load the current state.</b> The handler reads the aggregate’s key from KV, keeping both the stored state and the KV revision. A missing key starts a new aggregate only when the business operation permits creation.</li>
+      <li><b>Apply business rules.</b> The handler restores the write-side aggregate and invokes the requested operation. The aggregate validates it and produces the next state; it does not call NATS or KV itself.</li>
+      <li><b>Save with a revision check.</b> The handler updates the key using the revision read in step 3, or conditionally creates a missing key. If another writer has changed it, reload and re-evaluate the operation rather than overwriting newer state.</li>
+      <li><b>Acknowledge successful processing.</b> After the save succeeds, acknowledge the input message. Redelivery after a save must be recognized as already processed; a revision check alone does not provide this.</li>
+    </ol>
+  </div>
+  <div class="notes">
+    <p><b>Caller and producer are distinct roles.</b> The caller supplies business intent. The producer is the adapter that serializes and publishes the input message.</p>
+    <p><b>Retry boundary.</b> Save and delivery ACK are separate operations. A crash between them can cause redelivery, so processing must be idempotent.</p>
+  </div>
+</section>
+
+<section class="pattern" aria-labelledby="snapshot-title">
+  <header class="head-txt">
+    <div class="eyebrow">Pattern 2 · Canonical JetStream stream is authoritative · KV is rebuildable</div>
+    <h2 id="snapshot-title">Write-side with snapshot: Aggregate → KV state</h2>
+    <p class="sub">One canonical JetStream stream is both the write-side input and the authoritative event history. KV stores a checkpoint that shortens aggregate reconstruction.</p>
+  </header>
+
+  <div class="diagram-head">
+    <h3>Relationship view</h3>
+    <p class="sub">The write side consumes input and appends accepted events through the same canonical stream. The snapshot remains derived state.</p>
+  </div>
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 670" role="img" aria-label="Relationship diagram for an event-sourced write side with a snapshot. A caller invokes a producer, which publishes to one canonical JetStream stream. That same stream is the write-side input and the authoritative event history. Its durable consumer delivers input to the handler. The handler loads a KV snapshot, reads subsequent aggregate events from the canonical stream, invokes the write-side aggregate, appends accepted events to that same stream, optionally refreshes the snapshot, and acknowledges the input after the event commit.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="c-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="c-replay" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="c-ack" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--hop)"/></marker>
+        </defs>
+        <rect class="nb" x="330" y="30" width="290" height="600" rx="4"/>
+        <text class="grp" x="346" y="52">WRITE-SIDE SERVICE · APPLICATION</text>
+        <rect class="nb" x="660" y="30" width="280" height="600" rx="4"/>
+        <text class="grp" x="676" y="52">NATS ACCOUNT · JETSTREAM</text>
+        <rect class="n" x="14" y="100" width="110" height="48" rx="3"/>
+        <text class="lbl" x="69" y="120" text-anchor="middle">Caller</text>
+        <text class="lbl2" x="69" y="134" text-anchor="middle">business intent</text>
+        <rect class="n" x="155" y="100" width="140" height="48" rx="3"/>
+        <text class="lbl" x="225" y="120" text-anchor="middle">Producer</text>
+        <text class="lbl2" x="225" y="134" text-anchor="middle">NATS publisher</text>
+        <rect class="n" x="365" y="100" width="220" height="48" rx="3"/>
+        <text class="lbl" x="475" y="120" text-anchor="middle">Write-side aggregate</text>
+        <text class="lbl2" x="475" y="134" text-anchor="middle">business rules + transitions</text>
+        <rect class="n" x="365" y="240" width="220" height="52" rx="3"/>
+        <text class="lbl" x="475" y="261" text-anchor="middle">Message handler</text>
+        <text class="lbl2" x="475" y="276" text-anchor="middle">restore · replay · decide · persist</text>
+        <path class="n" d="M690 85 L690 129 A110 9 0 0 0 910 129 L910 85"/>
+        <ellipse class="n" cx="800" cy="85" rx="110" ry="9"/>
+        <text class="lbl" x="800" y="107" text-anchor="middle">Canonical stream</text>
+        <text class="lbl2" x="800" y="123" text-anchor="middle">input + authoritative history</text>
+        <rect class="n" x="690" y="190" width="220" height="52" rx="3"/>
+        <text class="lbl" x="800" y="211" text-anchor="middle">Durable consumer</text>
+        <text class="lbl2" x="800" y="226" text-anchor="middle">filter · delivery · ACK state</text>
+        <path class="n" d="M690 515 L690 559 A110 9 0 0 0 910 559 L910 515"/>
+        <ellipse class="n" cx="800" cy="515" rx="110" ry="9"/>
+        <text class="lbl" x="800" y="537" text-anchor="middle">KV snapshot</text>
+        <text class="lbl2" x="800" y="553" text-anchor="middle">rebuildable checkpoint</text>
+        <path class="flow" d="M124 124 H145" marker-end="url(#c-sync)"/>
+        <text class="edge" x="24" y="92">Invoke operation</text>
+        <path class="flow" d="M295 124 H315 V72 H640 V104 H680" marker-end="url(#c-sync)"/>
+        <text class="edge" x="355" y="66">1 · Publish message</text>
+        <path class="rep" d="M800 139 V180" marker-end="url(#c-replay)"/>
+        <text class="edge" x="812" y="164">Input available</text>
+        <path class="rep" d="M690 204 H640 V254 H595" marker-end="url(#c-replay)"/>
+        <text class="edge" x="650" y="258">2 · Deliver message</text>
+        <path class="flow" d="M690 527 H642 V330 H540 V302" marker-end="url(#c-sync)"/>
+        <text class="edge" x="650" y="489">3a · Load snapshot</text>
+        <path class="rep" d="M910 120 H925 V345 H505 V302" marker-end="url(#c-replay)"/>
+        <text class="edge" x="650" y="337">3b · Read later events from same stream</text>
+        <path class="flow" d="M420 240 V158" marker-end="url(#c-sync)"/>
+        <text class="edge" x="344" y="200">4 · Invoke</text>
+        <path class="flow" d="M530 148 V230" marker-end="url(#c-sync)"/>
+        <text class="edge" x="542" y="200">New event</text>
+        <path class="proj" d="M585 264 H610 V145 H680" marker-end="url(#c-store)"/>
+        <text class="edge" x="620" y="176">5 · Append event to same stream</text>
+        <path class="proj" d="M585 282 H600 V547 H680" marker-end="url(#c-store)"/>
+        <text class="edge" x="650" y="505">6 · Refresh snapshot when due</text>
+        <path class="ack" d="M585 250 H630 V228 H680" marker-end="url(#c-ack)"/>
+        <text class="edge" x="430" y="218">ACK after</text>
+        <text class="edge" x="430" y="232">event commit</text>
+        <text class="lbl2" x="16" y="656">Blue: call / returned state</text>
+        <text class="lbl2" x="295" y="656">Amber dashed: delivery / replay</text>
+        <text class="lbl2" x="590" y="656">Green: committed write · Gray dashed: ACK</text>
+      </svg>
+    </div>
+    <figcaption><b>One stream has both roles.</b> It receives the input processed by the write side and retains the authoritative aggregate event history. KV contains a disposable checkpoint; losing it increases replay work but does not lose accepted history.</figcaption>
+  </figure>
+
+  <div class="diagram-head">
+    <h3>Sequence view</h3>
+    <p class="sub">The canonical stream supplies the input and subsequent aggregate history, then receives the newly accepted event before the optional snapshot refresh.</p>
+  </div>
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 960 790" role="img" aria-label="Sequence for an event-sourced write side with a KV snapshot. A caller invokes a producer. The producer publishes to one canonical JetStream stream, and a durable consumer delivers the input to the handler. The handler loads a KV snapshot, reads subsequent aggregate events from that same authoritative stream, invokes the write-side aggregate, appends the accepted event back to the same stream, optionally refreshes the snapshot, and acknowledges the input after the event commit. Time flows down.">
+        <defs>
+          <marker id="d-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="d-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="d-replay" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="d-ack" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--hop)"/></marker>
+        </defs>
+        <text class="grp" x="20" y="24">TIME FLOWS DOWN · EVENT-SOURCED WRITE SIDE WITH SNAPSHOT</text>
+        <rect class="n" x="5" y="50" width="80" height="48" rx="3"/>
+        <text class="lbl" x="45" y="70" text-anchor="middle">Caller</text>
+        <text class="lbl2" x="45" y="84" text-anchor="middle">intent</text>
+        <rect class="n" x="105" y="50" width="100" height="48" rx="3"/>
+        <text class="lbl" x="155" y="70" text-anchor="middle">Producer</text>
+        <text class="lbl2" x="155" y="84" text-anchor="middle">publisher</text>
+        <path class="n" d="M225 57 L225 91 A70 8 0 0 0 365 91 L365 57"/>
+        <ellipse class="n" cx="295" cy="57" rx="70" ry="8"/>
+        <text class="lbl" x="295" y="77" text-anchor="middle">Canonical stream</text>
+        <text class="lbl2" x="295" y="91" text-anchor="middle">input + history</text>
+        <rect class="n" x="380" y="50" width="105" height="48" rx="3"/>
+        <text class="lbl" x="432" y="70" text-anchor="middle">Consumer</text>
+        <text class="lbl2" x="432" y="84" text-anchor="middle">durable</text>
+        <rect class="n" x="505" y="50" width="100" height="48" rx="3"/>
+        <text class="lbl" x="555" y="70" text-anchor="middle">Handler</text>
+        <text class="lbl2" x="555" y="84" text-anchor="middle">orchestration</text>
+        <rect class="n" x="625" y="50" width="105" height="48" rx="3"/>
+        <text class="lbl" x="677" y="70" text-anchor="middle">Aggregate</text>
+        <text class="lbl2" x="677" y="84" text-anchor="middle">business rules</text>
+        <path class="n" d="M820 57 L820 91 A65 8 0 0 0 950 91 L950 57"/>
+        <ellipse class="n" cx="885" cy="57" rx="65" ry="8"/>
+        <text class="lbl" x="885" y="77" text-anchor="middle">KV snapshot</text>
+        <text class="lbl2" x="885" y="91" text-anchor="middle">rebuildable</text>
+        <path class="lifeline" d="M45 98 V758 M155 98 V758 M295 99 V758 M432 98 V758 M555 98 V758 M677 98 V758 M885 99 V758"/>
+        <path class="flow" d="M45 135 H145" marker-end="url(#d-sync)"/>
+        <text class="edge" x="58" y="125">Invoke operation</text>
+        <path class="flow" d="M155 180 H285" marker-end="url(#d-sync)"/>
+        <text class="edge" x="168" y="170">1 · Publish input</text>
+        <path class="flow" d="M295 215 H165" marker-end="url(#d-sync)"/>
+        <text class="edge" x="175" y="205">PubAck: stored in canonical stream</text>
+        <path class="rep" d="M295 250 H422" marker-end="url(#d-replay)"/>
+        <text class="edge" x="308" y="240">2 · Deliver input</text>
+        <path class="rep" d="M432 280 H545" marker-end="url(#d-replay)"/>
+        <text class="edge" x="445" y="270">Dispatch to handler</text>
+        <path class="flow" d="M555 320 H875" marker-end="url(#d-sync)"/>
+        <text class="edge" x="568" y="310">3a · Get snapshot</text>
+        <path class="flow" d="M885 350 H565" marker-end="url(#d-sync)"/>
+        <text class="edge" x="575" y="340">State + version + checkpoint S</text>
+        <path class="rep" d="M555 395 H305" marker-end="url(#d-replay)"/>
+        <text class="edge" x="318" y="385">3b · Read aggregate events after S</text>
+        <path class="rep" d="M295 430 H545" marker-end="url(#d-replay)"/>
+        <text class="edge" x="308" y="420">Subsequent events from same stream</text>
+        <path class="flow" d="M555 480 H667" marker-end="url(#d-sync)"/>
+        <text class="edge" x="568" y="470">4 · Restore + invoke</text>
+        <path class="flow" d="M677 515 H565" marker-end="url(#d-sync)"/>
+        <text class="edge" x="575" y="505">Accepted new event</text>
+        <path class="proj" d="M555 565 H305" marker-end="url(#d-store)"/>
+        <text class="edge" x="318" y="555">5 · Append event to same stream</text>
+        <path class="flow" d="M295 600 H545" marker-end="url(#d-sync)"/>
+        <text class="edge" x="308" y="590">PubAck: committed at sequence S+1</text>
+        <path class="proj" d="M555 650 H875" marker-end="url(#d-store)"/>
+        <text class="edge" x="568" y="640">6 · Optionally save committed state + S+1</text>
+        <path class="ack" d="M555 705 H442" marker-end="url(#d-ack)"/>
+        <text class="edge" x="455" y="695">ACK after event commit</text>
+        <text class="lbl2" x="20" y="784">Blue: call / returned data</text>
+        <text class="lbl2" x="320" y="784">Amber dashed: delivery / replay</text>
+        <text class="lbl2" x="640" y="784">Green: persisted write · Gray dashed: ACK</text>
+      </svg>
+    </div>
+    <figcaption><b>The canonical stream closes the loop.</b> It supplies the input and history used to restore the aggregate, then stores the newly accepted event. Snapshot refresh is an optimization; a failed refresh leaves the committed event intact.</figcaption>
+  </figure>
+
+  <div class="steps" aria-labelledby="snapshot-steps">
+    <h3 id="snapshot-steps">Steps 1–6</h3>
+    <ol>
+      <li><b>Publish the input.</b> The caller first invokes the producer. The producer publishes the input message to the canonical JetStream stream and waits for its publish acknowledgement.</li>
+      <li><b>Deliver to the handler.</b> A durable consumer on that same stream delivers the input message to the write-side handler and holds it pending acknowledgement.</li>
+      <li><b>Restore from snapshot and canonical history.</b> The handler reads state, aggregate version, last applied event sequence and snapshot schema version from KV, then reads this aggregate’s events after that checkpoint from the same canonical stream. If the snapshot is missing or incompatible, reconstruction begins from empty state.</li>
+      <li><b>Apply business rules.</b> The handler restores the write-side aggregate and invokes the requested operation. An accepted operation produces a new domain event; a rejected operation produces no state-changing event.</li>
+      <li><b>Commit the event first.</b> Append the accepted event to the same canonical stream with an optimistic concurrency guard and wait for its JetStream publish acknowledgement. A conflict requires reloading and re-evaluating the operation.</li>
+      <li><b>Refresh the snapshot when due.</b> Conditionally save the committed state, aggregate version and acknowledged event sequence to KV. The input may be acknowledged after the event commit; snapshot failure must not cause the accepted event to be appended again.</li>
+    </ol>
+  </div>
+  <div class="notes">
+    <p><b>Snapshots accelerate hydration.</b> They are write-side checkpoints, separate from query projections. Snapshot plus subsequent events reconstructs current aggregate state.</p>
+    <p><b>The canonical stream remains authoritative.</b> It is also the write-side input stream. Losing KV increases reconstruction work but does not lose accepted history. Keep sufficient event retention for a complete rebuild.</p>
+  </div>
+  <p class="sub">NATS references: <a href="https://docs.nats.io/nats-concepts/jetstream/consumers">consumer delivery and replay</a>, <a href="https://docs.nats.io/nats-concepts/jetstream/key-value-store">KV revisions and conditional updates</a>, and <a href="https://docs.nats.io/nats-concepts/jetstream/headers">publish concurrency headers</a>. Snapshot policy and aggregate metadata are application responsibilities.</p>
+</section>
+</main>
+<!-- Re-export from repository root:
+node demos/01-dictionary/diagrams/export-html-png.mjs demos/01-dictionary/diagrams/nats-cqrs-write-side-kv.html obsidian/V3-Platform/Architecture/Dictionary-POC/images/nats-stream-write-side-kv.png 1024 --clip=".wrap"
+-->
+</body>
+</html>

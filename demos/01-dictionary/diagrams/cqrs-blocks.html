@@ -1,0 +1,155 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Demo 01 — Event Sourcing + CQRS on NATS</title>
+<style>html,body{margin:0;background:#131416}svg{display:block;width:100%;height:auto}</style>
+</head><body>
+<svg viewBox="0 0 2000 1620" xmlns="http://www.w3.org/2000/svg" font-family="Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif">
+<defs>
+ <marker id="mb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#006FFF"/></marker>
+ <marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#27C07F"/></marker>
+ <marker id="mw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#9A7B1E"/></marker>
+ <style>
+  .t{fill:#DEE0E3;font-size:44px;font-weight:700;text-anchor:middle}
+  .st{fill:#B7BCC2;font-size:21px;text-anchor:middle}
+  .band{font-size:24px;font-weight:700;letter-spacing:.14em;text-anchor:middle}
+  .h{fill:#DEE0E3;font-size:26px;font-weight:700;text-anchor:middle}
+  .sb{fill:#7FB4FF;font-size:18px;text-anchor:middle}
+  .sg{fill:#6FD8A8;font-size:18px;text-anchor:middle}
+  .sw{fill:#D9BC6B;font-size:18px;text-anchor:middle}
+  .n{fill:#8C939B;font-size:16px;text-anchor:middle}
+  .eb{fill:none;stroke:#006FFF;stroke-width:3;marker-end:url(#mb)}
+  .eg{fill:none;stroke:#27C07F;stroke-width:3;marker-end:url(#mg)}
+  .ew{fill:none;stroke:#9A7B1E;stroke-width:3;marker-end:url(#mw)}
+  .lb{fill:#7FB4FF;font-size:18px}
+  .lg{fill:#6FD8A8;font-size:18px}
+  .lw{fill:#D9BC6B;font-size:18px}
+  .leg{fill:#B7BCC2;font-size:18px}
+ </style>
+</defs>
+<rect width="2000" height="1620" fill="#131416"/>
+
+<text class="t" x="1000" y="76">Event Sourcing + CQRS — Demo 01 shipping-service</text>
+<text class="st" x="1000" y="120">Write on the left. NATS in the middle. Read on the right.</text>
+
+<line x1="675" y1="170" x2="675" y2="1400" stroke="#4A515B" stroke-width="3" stroke-dasharray="12 12"/>
+<line x1="1325" y1="170" x2="1325" y2="1400" stroke="#4A515B" stroke-width="3" stroke-dasharray="12 12"/>
+<text class="band" x="350"  y="205" fill="#006FFF">WRITE SIDE</text>
+<text class="band" x="1000" y="205" fill="#B7BCC2">NATS</text>
+<text class="band" x="1650" y="205" fill="#27C07F">READ SIDE</text>
+
+<!-- ── LEFT: write ───────────────────────────────────────────── -->
+<rect x="90" y="240" width="520" height="120" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="270" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h" x="360" y="298">Producer</text>
+<text class="sb" x="360" y="326">Arrive · Depart · Load container</text>
+<text class="n" x="360" y="348">browser or another service, via REST / rpc.*</text>
+
+<rect x="90" y="430" width="520" height="130" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="462" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h" x="360" y="490">Command</text>
+<text class="sb" x="360" y="518">ShipHandler · ContainerHandler</text>
+<text class="n" x="360" y="540">orchestrates only — no rules here</text>
+
+<rect x="90" y="660" width="520" height="170" rx="16" fill="#0E1622" stroke="#006FFF" stroke-width="3"/>
+<rect x="122" y="692" width="46" height="46" rx="11" fill="#006FFF"/>
+<text class="h" x="360" y="720">Aggregate</text>
+<text class="sb" x="360" y="750">ShipAggregate · ContainerAggregate</text>
+<text class="n" x="360" y="776">Holds no stored state of its own.</text>
+<text class="n" x="360" y="798">Rebuilt in memory per command,</text>
+<text class="n" x="360" y="820">checks the rules, makes one new event.</text>
+
+<rect x="90" y="920" width="520" height="170" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3" stroke-dasharray="10 8"/>
+<rect x="122" y="952" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h" x="360" y="980">Write-side consumer</text>
+<text class="sg" x="360" y="1010">ordered · ephemeral · per command</text>
+<text class="n" x="360" y="1036">js.OrderedConsumer(SHIPPING, filter)</text>
+<text class="n" x="360" y="1058">reads the whole history, then</text>
+<text class="n" x="360" y="1080">is deleted again — commands.go:297</text>
+
+<path class="eb" d="M350 360 L350 420"/>
+<path class="eb" d="M350 560 L350 650"/>
+<path class="eg" d="M350 920 L350 842"/>
+<text class="lg" x="372" y="890">fold into aggregate</text>
+
+<!-- ── MIDDLE: NATS ──────────────────────────────────────────── -->
+<rect x="740" y="660" width="520" height="170" rx="16" fill="#241E0B" stroke="#9A7B1E" stroke-width="3"/>
+<rect x="772" y="692" width="46" height="46" rx="11" fill="#9A7B1E"/>
+<text class="h" x="1000" y="720">Read Store — cache</text>
+<text class="sw" x="1000" y="750">NATS KV: ships · container</text>
+<text class="n" x="1000" y="776">key {context}.ship.{shipID}</text>
+<text class="n" x="1000" y="798">fast lookup, live watch</text>
+<text class="n" x="1000" y="820">safe to throw away</text>
+
+<rect x="740" y="920" width="520" height="170" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="4"/>
+<rect x="772" y="952" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h" x="1000" y="980">Event Log = the Write Store</text>
+<text class="sg" x="1000" y="1010">JetStream stream SHIPPING</text>
+<text class="n" x="1000" y="1036">evt.{context}.shipping.ship.{id}.arrived</text>
+<text class="n" x="1000" y="1058">append-only · LimitsPolicy · kept forever</text>
+<text class="n" x="1000" y="1080">There is no separate write database.</text>
+
+<rect x="740" y="1170" width="520" height="130" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="772" y="1202" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h" x="1000" y="1230">Read-side consumers</text>
+<text class="sg" x="1000" y="1258">durable · long-lived · one per projector</text>
+<text class="n" x="1000" y="1280">ship-projector · container-projector · meta-projector</text>
+
+<!-- append + replay -->
+<path class="eb" d="M610 760 C 700 770, 700 900, 740 950"/>
+<text class="lb" x="612" y="890">append event</text>
+<path class="eg" d="M740 1030 L620 1030"/>
+<text class="lg" x="628" y="1130">replay all events</text>
+<path class="eg" d="M1000 1090 L1000 1160"/>
+
+<!-- ── RIGHT: read ───────────────────────────────────────────── -->
+<rect x="1390" y="240" width="520" height="120" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="1422" y="270" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h" x="1660" y="298">Reader</text>
+<text class="sg" x="1660" y="326">Get ship · List ships</text>
+<text class="n" x="1660" y="348">browser or another service, via REST / rpc.*</text>
+
+<rect x="1390" y="430" width="520" height="130" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="1422" y="462" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h" x="1660" y="490">Query</text>
+<text class="sg" x="1660" y="518">queries.Ships.GetShip / ListShips</text>
+<text class="n" x="1660" y="540">try KV, fall back to Postgres, refill KV</text>
+
+<rect x="1390" y="660" width="520" height="170" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="1422" y="692" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h" x="1660" y="720">Read Store — canonical</text>
+<text class="sg" x="1660" y="750">Postgres projection tables</text>
+<text class="n" x="1660" y="776">ShipState · ContainerState</text>
+<text class="n" x="1660" y="798">flat rows, built for reading</text>
+<text class="n" x="1660" y="820">the source of truth for reads</text>
+
+<rect x="1390" y="920" width="520" height="170" rx="16" fill="#0D1A14" stroke="#27C07F" stroke-width="3"/>
+<rect x="1422" y="952" width="46" height="46" rx="11" fill="#27C07F"/>
+<text class="h" x="1660" y="980">Projection</text>
+<text class="sg" x="1660" y="1010">eventhandler — folds the event in</text>
+<text class="n" x="1660" y="1036">Postgres first,</text>
+<text class="n" x="1660" y="1058">then the same value into KV</text>
+<text class="n" x="1660" y="1080">(write-through)</text>
+
+<path class="eg" d="M1260 1225 C 1330 1210, 1330 1130, 1382 1075"/>
+<text class="lg" x="1196" y="1145">deliver</text>
+<path class="eg" d="M1700 920 L1700 842"/>
+<text class="lg" x="1718" y="890">upsert</text>
+<path class="ew" d="M1390 965 C 1320 950, 1310 880, 1266 842"/>
+<text class="lw" x="1180" y="925">write through</text>
+<path class="ew" d="M1210 660 C 1290 640, 1300 540, 1382 505"/>
+<text class="lw" x="1150" y="600">1. cache hit</text>
+<path class="eg" d="M1600 660 L1600 572"/>
+<text class="lg" x="1430" y="620">2. on a miss</text>
+<path class="eg" d="M1660 430 L1660 372"/>
+
+<!-- legend -->
+<line x1="90" y1="1450" x2="1910" y2="1450" stroke="#4A515B" stroke-width="2"/>
+<rect x="90" y="1492" width="22" height="22" rx="5" fill="#006FFF"/>
+<text class="leg" x="126" y="1510">Write path (commands)</text>
+<rect x="480" y="1492" width="22" height="22" rx="5" fill="#27C07F"/>
+<text class="leg" x="516" y="1510">Read path + JetStream infrastructure</text>
+<rect x="990" y="1492" width="22" height="22" rx="5" fill="#9A7B1E"/>
+<text class="leg" x="1026" y="1510">KV cache (throw-away copy)</text>
+<rect x="1400" y="1492" width="22" height="22" rx="5" fill="none" stroke="#27C07F" stroke-width="3" stroke-dasharray="6 5"/>
+<text class="leg" x="1436" y="1510">dashed = ephemeral, deleted after use</text>
+</svg>
+</body></html>

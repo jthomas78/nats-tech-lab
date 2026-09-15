@@ -187,6 +187,7 @@
   },
   "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
+    "V3-Platform/Architecture/Dictionary-POC/images/nats-stream-write-side-kv.png",
     "V3-Platform/Architecture/Dictionary-POC/NATS Multi-Region — Pattern Cards.pdf",
     "V3-Platform/Architecture/Dictionary-POC/images/gateway-double-capture-options.png",
     "V3-Platform/Architecture/ADR/lab/ADR-055-lab-platform-compose-split-cell-and-global.md",
@@ -231,7 +232,6 @@
     "V3-Platform/Architecture/Pricing/images",
     "V3-Platform/Architecture/Pricing",
     "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay.mhtml",
-    "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay.html",
-    "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay_files/saved_resource.html"
+    "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay.html"
   ]
 }
