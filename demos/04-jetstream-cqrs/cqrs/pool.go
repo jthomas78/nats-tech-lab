@@ -116,30 +116,19 @@ func shareOf(states []*WorkerState) PoolShare {
 
 // runPool starts the workers and blocks until ctx is cancelled, or until the
 // consumer is drained when cfg.Drain is set.
-func runPool(ctx context.Context, js jetstream.JetStream, poolKV, workersKV jetstream.KeyValue, cfg PoolConfig) (PoolResult, error) {
+func runPool(ctx context.Context, js jetstream.JetStream, src Source, poolKV, workersKV jetstream.KeyValue, cfg PoolConfig) (PoolResult, error) {
 	var out PoolResult
 
 	if cfg.Drain {
 		// A drain run must start from nothing, or the second run of a
 		// comparison has no work left and reports a speed-up that is
 		// really an empty queue.
-		if err := resetPool(ctx, js, poolKV); err != nil {
+		if err := resetPool(ctx, js, src, poolKV); err != nil {
 			return out, err
 		}
 	}
 
-	consumer, err := js.CreateOrUpdateConsumer(ctx, StreamName, jetstream.ConsumerConfig{
-		Durable:       PoolConsumer,
-		FilterSubject: StreamSubject,
-		AckPolicy:     jetstream.AckExplicitPolicy,
-		DeliverPolicy: jetstream.DeliverAllPolicy,
-		// Shared by every worker. This one number is the difference
-		// between four busy workers and five idle ones.
-		MaxAckPending: cfg.MaxPending,
-		// How long the server waits for an ack before it decides the
-		// holder is dead. It is a guess about how long real work takes.
-		AckWait: cfg.AckWait,
-	})
+	consumer, err := js.CreateOrUpdateConsumer(ctx, poolStreamFor(src), poolConsumerConfig(src, cfg))
 	if err != nil {
 		return out, fmt.Errorf("pool consumer: %w", err)
 	}
@@ -439,8 +428,8 @@ func waitDrained(ctx context.Context, consumer jetstream.Consumer) error {
 // Only -drain does this. The stream is untouched -- that is the point of
 // keeping the log forever, and it is why a damaged projection is a nuisance
 // here and a catastrophe in a system that kept no log.
-func resetPool(ctx context.Context, js jetstream.JetStream, poolKV jetstream.KeyValue) error {
-	if err := js.DeleteConsumer(ctx, StreamName, PoolConsumer); err != nil &&
+func resetPool(ctx context.Context, js jetstream.JetStream, src Source, poolKV jetstream.KeyValue) error {
+	if err := js.DeleteConsumer(ctx, poolStreamFor(src), PoolConsumer); err != nil &&
 		!errors.Is(err, jetstream.ErrConsumerNotFound) {
 		return fmt.Errorf("reset pool consumer: %w", err)
 	}

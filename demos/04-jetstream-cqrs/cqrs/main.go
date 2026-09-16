@@ -193,7 +193,7 @@ func run(cmd string, args []string) error {
 		if cfg.KillAt != 0 {
 			fmt.Printf("the worker that fetches #%d will stop fetching and never ack\n", cfg.KillAt)
 		}
-		res, err := runPool(ctx, js, poolKV, workersKV, cfg)
+		res, err := runPool(ctx, js, Pool, poolKV, workersKV, cfg)
 		if err != nil {
 			return err
 		}

@@ -2105,13 +2105,36 @@ all three gates from `frontend/`.
       cqrs pool -rm              -> dropped, and again -> dropped (idempotent)
       ```
 
-- [ ] **04.8.6 The pool binds to its own log.** `runPool` takes the `Pool`
+- [x] **04.8.6 The pool binds to its own log.** `runPool` takes the `Pool`
       source instead of spelling `StreamName` and `StreamSubject` into
       itself, exactly as `rehydrate()` was changed in 04.7.16.
 
       Spec: a pool run creates no consumer on `ODOMETER` and leaves no
       unacked message there (D7). This is the defect the phase exists to
       remove, so it gets a spec of its own rather than being assumed.
+
+      Done. `poolStreamFor(src)` and `poolConsumerConfig(src, cfg)` in
+      `cqrs/pool_source.go` are pure, so the specs read the answer without a
+      server. They are handed `Live` as well as `Pool` on purpose: a function
+      hardcoded to the right answer passes a spec that only ever tries `Pool`,
+      and only a second source proves it is parameterised. `runPool` and
+      `resetPool` both take a `Source`; `main.go` passes `Pool`.
+
+      **Verified 2026-09-16** against `lab4-nats`. A stale `odometer-pool`
+      consumer was still on `ODOMETER`, created 17:54 by the old code -- the
+      exact wreckage D7 describes -- and was removed. After `cqrs pool -seed
+      10000` and `cqrs pool -drain -workers 4 -max-pending 8`, `ODOMETER`
+      carries `odometer-snapshotter` and `vehicle-projector` and nothing else,
+      both at 0 ack pending; `odometer-pool` and `odometer-pool-truth` are on
+      `ODOMETER_POOL`. The run reported 10 000 events handed out -- lesson
+      02's own log -- not `ODOMETER`'s 84 141.
+
+      One observation for 04.8.9: that run dropped 0. The pool is meant to be
+      wrong, and at 4 workers over a round-robin log it was not. The seed
+      hands each vehicle's events out in an order the workers can race on, but
+      racing is not the same as losing. Whether the damage needs a harder
+      setting, or a longer per-event pause, is a question for the screen that
+      reports it -- not a reason to change the seed now.
 
 - [ ] **04.8.7 The frontend learns the new names.** `config.js` gains
       `POOL_STREAM` and `POOL_TRUTH_KV`; `useOdometer.js` reads stream info
