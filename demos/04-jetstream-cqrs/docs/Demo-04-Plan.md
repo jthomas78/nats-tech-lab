@@ -2768,10 +2768,38 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       UI still draws those same runs are corrected to say the tab repeats the
       run itself.
 
-- [ ] **04.9.10 The documents catch up.** `CLAUDE.md` gains the new routes and
+- [x] **04.9.10 The documents catch up.** `CLAUDE.md` gains the new routes and
       says lesson 02 is driven from the screen. `BUSINESS_RULES-ODOMETER.md`
       only if a rule changes — running a pool is not a domain rule, so this is
       expected to be untouched.
+
+      `BUSINESS_RULES-ODOMETER.md` is untouched, as expected. No rule changed
+      in the whole of 04.9.
+
+      `CLAUDE.md` gains a **shim's routes** section: a table of all nine
+      routes with what each one does, the note that reads do NOT come through
+      it, and the two facts a reader gets wrong otherwise — a run outlives the
+      request that started it (D11), so `/pool/run` answers when the run ENDS,
+      and `/pool/stop` is the only way to end an open-ended one.
+
+      The task list said "the new routes". It did not anticipate that
+      **nothing would be watching the list**. `/pool/stop` arrived in 04.9.8
+      and no document noticed. So this task's spec is a live guard rather than
+      a paragraph: `cqrs/docs_test.go` reads `mux.HandleFunc(...)` out of
+      `serve.go` and fails if `CLAUDE.md` does not name the route — one `It`
+      per route, plus one that fails if the regexp matched nothing, because a
+      guard that finds no routes passes every other assertion. Red first: 10
+      failures, 9 routes and the wording. Green: 254 of 254.
+
+      It checks routes, not prose. A document that says the right words about
+      the wrong routes is the failure; a document that says the right routes
+      in its own words is fine.
+
+      Two stale numbers in `CLAUDE.md` corrected while there: the frontend
+      gate said "347 specs, 23 files" (now 431 in 29) and "7 PoolPanel.vue
+      warnings are the baseline" (now 3, and no longer all in one file). The
+      live-guard paragraph now lists all three guards, not just
+      `commands.spec.js`. The design gate now reads **04.9 is COMPLETE**.
 
 ### 12.5 What would make this phase a failure
 

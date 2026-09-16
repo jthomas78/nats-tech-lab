@@ -89,6 +89,35 @@ scheme and stay.
 demo 02 owns `lab2-*`, in the same store (`~/.config/nats/context/`). An
 unprefixed name here would silently overwrite one of theirs.
 
+## The shim's routes
+
+`cqrs serve` (port `20402`) is the only HTTP surface. It holds no rules — it
+calls the same functions the CLI calls. Reads do NOT come through it: the
+browser watches NATS over the WebSocket on `20403`.
+
+| Route | Method | What it does |
+|---|---|---|
+| `/rehydrate` | POST | rehydrates one vehicle, with and without a snapshot |
+| `/bench` | GET | the `ODOMETER_BENCH` fixture's size, in messages AND bytes |
+| `/bench/seed` | POST | fills the fixture — 10 000, 100 000 or 1 000 000 |
+| `/pool` | GET | lesson 02's state: stream size, buckets, whether a run is going |
+| `/pool/run` | POST | runs the pool once, and answers with what that run measured |
+| `/pool/stop` | POST | ends a run that is going (only Live runs open-ended) |
+| `/pool/seed` | POST | fills `ODOMETER_POOL` |
+| `/pool/rm` | POST | deletes `ODOMETER_POOL` and its three buckets |
+| `/commands/` | POST | register, travel, retire — lesson 01's write side |
+
+**Lesson 02 runs itself** (04.9). Every tab on the pool screen has a Run
+button, and every number it shows comes from a run the reader just made.
+There are no recorded measurements left in `frontend/src/view/` — deleting
+them was 04.9.9, and `frontend/src/view/recorded.spec.js` fails if any come
+back. `cqrs/docs_test.go` reads the routes out of `serve.go` and fails if
+this table falls behind.
+
+A run outlives the request that started it (D11), so `/pool/run` answers when
+the run ENDS. `/pool/stop` is the only way to end an open-ended one. The gate
+in `serve.go` allows one run at a time.
+
 ## Storage names
 
 Root rule, and it holds here: **streams are `SCREAMING_SNAKE`, KV buckets are
@@ -163,15 +192,21 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 347 specs, 23 files
-npx eslint src --ext .js,.vue       # 0 errors; 7 PoolPanel.vue warnings are the baseline
+npx vitest run                      # 431 specs, 29 files
+npx eslint src --ext .js,.vue       # 0 errors; 3 warnings are the baseline
 npm run build
 ```
 
-`frontend/src/view/commands.spec.js` is a live guard, not a unit test. It
-parses `cqrs/main.go` for the subcommands and flags that actually exist, and
-fails when the UI prints a command the binary would reject. Do not weaken it
-to make a screen pass.
+Three live guards, not unit tests. Do not weaken one to make a screen pass —
+adding to the list a guard checks is the right move.
+
+- `frontend/src/view/commands.spec.js` parses `cqrs/main.go` for the
+  subcommands and flags that actually exist, and fails when the UI prints a
+  command the binary would reject.
+- `frontend/src/view/recorded.spec.js` walks `src/` and fails if a deleted
+  recorded-measurement file or constant comes back.
+- `cqrs/docs_test.go` reads `serve.go`'s routes and fails if this file does
+  not list one.
 
 ## The design gate
 
@@ -181,12 +216,11 @@ is a request for a decision, not a backlog item to pick up.
 
 Nothing is PROPOSED right now.
 
-**04.9 is APPROVED** (2026-09-16) and is next — 04.8 is done, so it is no
-longer blocked. Lesson 02 runs
-itself: a Run button on every tab, results from a real run instead of recorded
-constants. See `docs/Demo-04-Plan.md` section 12 and
-`diagrams/lesson-02-run-buttons.html`. Approved on one condition: a progress
-bar is visible for the whole of a multi-run set (D12).
+**04.9 is COMPLETE** (2026-09-17) — lesson 02 runs itself: a Run button on
+every tab, results from a real run instead of recorded constants, and a
+progress bar for the whole of a multi-run set (D12, the condition it was
+approved on). See `docs/Demo-04-Plan.md` section 12 and
+`diagrams/lesson-02-run-buttons.html`.
 
 **04.8 is COMPLETE** (2026-09-16) — lesson 02 got its own log,
 `ODOMETER_POOL`, so the pool consumer stops misbehaving on the demo's own
