@@ -71,6 +71,10 @@ export function useOdometer() {
   const error = ref('')
   const head = ref(0)
   const messages = ref(0)
+  // Bytes travels WITH messages, never apart from it. A message count is a
+  // number a reader cannot price; bytes is what says whether a log is cheap.
+  // Plan 04.7.16 makes that a standing rule for ODOMETER and ODOMETER_BENCH.
+  const bytes = ref(0)
   const writes = reactive(new Map())
   const reads = reactive(new Map())
   const pool = reactive(new Map())
@@ -167,6 +171,7 @@ export function useOdometer() {
     const info = await jsm.streams.info(STREAM)
     head.value = Number(info.state?.last_seq ?? 0)
     messages.value = Number(info.state?.messages ?? 0)
+    bytes.value = Number(info.state?.bytes ?? 0)
   }
 
   // watchBucket drains a KV watcher forever. watch() replays every current
@@ -250,6 +255,7 @@ export function useOdometer() {
     connected,
     head,
     messages,
+    bytes,
     writes,
     reads,
     pool,

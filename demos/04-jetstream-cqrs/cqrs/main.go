@@ -24,6 +24,7 @@ import (
 //	cqrs projector
 //	cqrs query      -vehicle V1
 //	cqrs seed       -vehicle V1 -n 10000
+//	cqrs bench      -size 1000000
 //	cqrs serve      -addr :20402
 //	cqrs pool       -workers 4 -max-pending 1000 -ack-wait 30s
 
@@ -33,10 +34,13 @@ const usage = `cqrs — demo 04, JetStream as an event source
   travel      -vehicle ID -km N        record one trip
   retire      -vehicle ID -reason R    take a vehicle out of service
   rehydrate   -vehicle ID [-snapshot]  rebuild the aggregate and report the cost
+              [-source bench]           read the benchmark fixture, not the demo's log
   snapshotter                          run the write-side projector (blocks)
   projector                            run the read-side projector (blocks)
   query       -vehicle ID              read the read store — one KV get, no replay
   seed        -vehicle ID -n N [-km K]  write N trips, to make the replay worth timing
+  bench       [-size N]                 seed the rehydrate fixture on ODOMETER_BENCH (no size = report)
+              [-rm]                     delete the fixture stream and its bucket
   serve       [-addr A] [-origin O]    the command API the browser UI posts to (blocks)
   pool        -workers N                N workers on ONE durable consumer (blocks)
               [-max-pending N]          MaxAckPending, SHARED by every worker
@@ -66,6 +70,9 @@ func run(cmd string, args []string) error {
 	reason := fs.String("reason", "", "why it was retired (retire)")
 	km := fs.Float64("km", 0, "kilometres travelled (travel)")
 	n := fs.Int("n", 0, "how many trips to seed")
+	size := fs.Int("size", 0, "benchmark fixture size in events (bench)")
+	rm := fs.Bool("rm", false, "delete the benchmark fixture (bench)")
+	source := fs.String("source", "live", "which log to rehydrate from: live or bench")
 	snapshot := fs.Bool("snapshot", true, "rehydrate from the snapshot, then replay the tail")
 	addr := fs.String("addr", defaultServeAddr, "address the command API listens on")
 	workers := fs.Int("workers", 4, "how many workers bind to the pool consumer")
@@ -177,11 +184,48 @@ func run(cmd string, args []string) error {
 		if *vehicle == "" {
 			return fmt.Errorf("-vehicle is required")
 		}
-		state, err := rehydrate(ctx, js, writeKV, *vehicle, *snapshot)
+		src, kv := Live, writeKV
+		if *source == "bench" {
+			src = Bench
+			kv, err = ensureBench(setupCtx, js)
+			if err != nil {
+				return err
+			}
+		} else if *source != "live" {
+			return fmt.Errorf("-source must be live or bench")
+		}
+		state, err := rehydrate(ctx, js, kv, src, *vehicle, *snapshot)
 		if err != nil {
 			return err
 		}
 		printRehydration(*vehicle, state)
+		return nil
+
+	// bench builds the fixture the Rehydrate panel measures against. It is
+	// the SAME code the panel's button calls, so the screen and the
+	// terminal cannot report different fixtures.
+	case "bench":
+		benchKV, err := ensureBench(setupCtx, js)
+		if err != nil {
+			return err
+		}
+		if *rm {
+			return dropBench(ctx, js)
+		}
+		if *size == 0 {
+			state, err := benchState(ctx, js, benchKV)
+			if err != nil {
+				return err
+			}
+			printBench(state)
+			return nil
+		}
+		state, err := seedBench(ctx, js, benchKV, *size)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("seeded      %d events in %.0f ms\n", *size, state.ElapsedMs)
+		printBench(state)
 		return nil
 
 	case "register":

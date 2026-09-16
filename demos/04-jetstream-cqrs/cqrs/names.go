@@ -71,20 +71,68 @@ const (
 	defaultOrigin = "http://localhost:20401,http://127.0.0.1:20401"
 )
 
-// vehicleSubject is the subject one event is published on.
+// Source is one log a vehicle can be rehydrated from: a stream, the subjects
+// it holds, and the KV bucket its snapshots live in.
+//
+// There are two, and they exist for one reason. `ODOMETER` is the demo -- the
+// Overview lane, both bucket tabs and the event log are all drawn from it, and
+// a million-event fixture dropped into it would bury every one of them.
+// `ODOMETER_BENCH` is a disposable fixture nothing else reads, so the
+// rehydrate measurement can be as big as it likes.
+//
+// Before phase 04.7.16, rehydrate() spelled StreamName and vehicleFilter()
+// into itself and could therefore only ever read one log. Handing it a Source
+// is the whole of that change.
+type Source struct {
+	Stream        string // the stream to replay
+	StreamSubject string // everything that stream holds
+	WriteKV       string // where {state, lastSeq} snapshots live
+	prefix        string // subject prefix for one vehicle's events
+}
+
+// Live is the demo's own log. Every tab except Rehydrate is drawn from it.
+var Live = Source{
+	Stream:        StreamName,
+	StreamSubject: StreamSubject,
+	WriteKV:       WriteKV,
+	prefix:        "evt.odometer.vehicle",
+}
+
+// Bench is the rehydrate fixture. Disposable: purging it costs the demo
+// nothing, because nothing else on the screen reads it.
+//
+// `evt.odometer-bench.>` does NOT overlap `evt.odometer.>` -- the second
+// token differs, so the two streams may share a server. Hyphen, not a dot:
+// a dot would split the token and put the fixture inside the demo's filter.
+var Bench = Source{
+	Stream:        "ODOMETER_BENCH",
+	StreamSubject: "evt.odometer-bench.>",
+	WriteKV:       "odometer-bench-write",
+	prefix:        "evt.odometer-bench.vehicle",
+}
+
+// VehicleSubject is the subject one event is published on.
 //
 // The first token is the fixed literal `evt`, never a wildcard: an open first
 // token textually overlaps $SYS.> and $JS.API.>, and JetStream refuses such a
 // stream without NoAck.
-func vehicleSubject(id, eventType string) string {
-	return fmt.Sprintf("evt.odometer.vehicle.%s.%s", id, eventType)
+func (s Source) VehicleSubject(id, eventType string) string {
+	return fmt.Sprintf("%s.%s.%s", s.prefix, id, eventType)
 }
 
-// vehicleFilter matches every event of one vehicle. It is both the replay
+// VehicleFilter matches every event of one vehicle. It is both the replay
 // filter and the scope of the optimistic-append header.
-func vehicleFilter(id string) string {
-	return fmt.Sprintf("evt.odometer.vehicle.%s.>", id)
+func (s Source) VehicleFilter(id string) string {
+	return fmt.Sprintf("%s.%s.>", s.prefix, id)
 }
+
+// vehicleSubject and vehicleFilter are the LIVE source's subjects, kept as
+// plain functions because the write path only ever writes to the demo's own
+// log. They delegate so that there is one spelling of the subject, not two
+// that can drift apart.
+func vehicleSubject(id, eventType string) string { return Live.VehicleSubject(id, eventType) }
+
+func vehicleFilter(id string) string { return Live.VehicleFilter(id) }
 
 // workerKey is the KV key for one pool worker in PoolWorkersKV. Zero padded
 // so `nats kv ls` lists ten workers in the order a reader expects.

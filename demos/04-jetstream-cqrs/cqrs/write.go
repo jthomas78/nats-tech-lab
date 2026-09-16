@@ -60,7 +60,9 @@ type Rehydrated struct {
 // asynchronous, so it trails the stream. Code that read the snapshot and
 // stopped there would be a bug, not a shortcut, which is why the tail replay
 // below is unconditional.
-func rehydrate(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue, id string, withSnapshot bool) (Rehydrated, error) {
+// The `src` argument is what lets the same code measure two different logs:
+// Live for the demo, Bench for the fixture the Rehydrate panel seeds (04.7.16).
+func rehydrate(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue, src Source, id string, withSnapshot bool) (Rehydrated, error) {
 	start := time.Now()
 	out := Rehydrated{UsedSnapshot: withSnapshot, FromSeq: 1}
 
@@ -74,7 +76,7 @@ func rehydrate(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValu
 		out.FromSeq = snap.LastSeq + 1
 	}
 
-	err := replay(ctx, js, vehicleFilter(id), out.FromSeq, func(seq uint64, subject string, data []byte) error {
+	err := replay(ctx, js, src, src.VehicleFilter(id), out.FromSeq, func(seq uint64, subject string, data []byte) error {
 		e, err := decode(subject, data)
 		if err != nil {
 			return err
@@ -142,7 +144,7 @@ const replayInactiveThreshold = 30 * time.Second
 // Stopping is decided by the server, not by a timeout: every JetStream
 // message reports how many are still pending, and pending==0 is the end of
 // the history as it stood when the replay began.
-func replay(ctx context.Context, js jetstream.JetStream, filter string, fromSeq uint64, fn func(seq uint64, subject string, data []byte) error) error {
+func replay(ctx context.Context, js jetstream.JetStream, src Source, filter string, fromSeq uint64, fn func(seq uint64, subject string, data []byte) error) error {
 	cfg := jetstream.OrderedConsumerConfig{
 		FilterSubjects:    []string{filter},
 		InactiveThreshold: replayInactiveThreshold,
@@ -154,12 +156,12 @@ func replay(ctx context.Context, js jetstream.JetStream, filter string, fromSeq 
 		cfg.OptStartSeq = fromSeq
 	}
 
-	consumer, err := js.OrderedConsumer(ctx, StreamName, cfg)
+	consumer, err := js.OrderedConsumer(ctx, src.Stream, cfg)
 	if err != nil {
 		return fmt.Errorf("replay consumer: %w", err)
 	}
 	// Registered first so it runs LAST: stop the iterator, then delete.
-	defer deleteReplayConsumer(js, consumer)
+	defer deleteReplayConsumer(js, src, consumer)
 
 	if consumer.CachedInfo().NumPending == 0 {
 		return nil
@@ -203,14 +205,14 @@ func replay(ctx context.Context, js jetstream.JetStream, filter string, fromSeq 
 // A failure here is logged and not returned. The rehydration succeeded; the
 // InactiveThreshold above collects the consumer either way, and failing a
 // command over tidying would be the wrong trade.
-func deleteReplayConsumer(js jetstream.JetStream, consumer jetstream.Consumer) {
+func deleteReplayConsumer(js jetstream.JetStream, src Source, consumer jetstream.Consumer) {
 	name := consumer.CachedInfo().Name
 	if name == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := js.DeleteConsumer(ctx, StreamName, name); err != nil &&
+	if err := js.DeleteConsumer(ctx, src.Stream, name); err != nil &&
 		!errors.Is(err, jetstream.ErrConsumerNotFound) {
 		log.Printf("replay: could not delete consumer %s: %v", name, err)
 	}
@@ -303,7 +305,7 @@ func conflictBackoff(attempt int) time.Duration {
 func handleCommand(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue, id string, withSnapshot bool, decide func(Vehicle) (Event, error)) (Rehydrated, uint64, error) {
 	const attempts = 5
 	for attempt := 1; ; attempt++ {
-		state, err := rehydrate(ctx, js, kv, id, withSnapshot)
+		state, err := rehydrate(ctx, js, kv, Live, id, withSnapshot)
 		if err != nil {
 			return state, 0, err
 		}

@@ -290,7 +290,7 @@ func runServe(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue
 	// same function the CLI calls, so the tab and `cqrs rehydrate` cannot
 	// drift apart.
 	rehydrateOne := func(ctx context.Context, id string, withSnapshot bool) (Rehydrated, error) {
-		return rehydrate(ctx, js, kv, id, withSnapshot)
+		return rehydrate(ctx, js, kv, Live, id, withSnapshot)
 	}
 
 	srv := &http.Server{

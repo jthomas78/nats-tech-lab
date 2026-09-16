@@ -1308,7 +1308,19 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       what is in it — the stream name, how many events, **how many bytes on
       disk**, and which sizes are seeded — and when it does not, it says so and
       offers the button. The byte figure is the stream's own `state.bytes`, so
-      it is what the server reports and not an estimate of ours. A reader must
+      it is what the server reports and not an estimate of ours.
+
+      **Standing rule, set by the user 2026-09-16: a length is never shown on
+      its own.** Anywhere this demo reports a stream's message count, it
+      reports the bytes that count consumes as well. A message count is a
+      number a reader cannot price; bytes is the number that decided 100M was
+      refused, and hiding it anywhere would make the same mistake available
+      again on another screen.
+
+      It applies to `ODOMETER` and `ODOMETER_BENCH` — the two streams — and to
+      nothing else for now. KV buckets are out of scope: a bucket's size is
+      bounded by its key count, and nothing on screen invites a reader to grow
+      one by a factor of a hundred. A reader must
       never have to leave the screen to find out whether there is anything to
       measure.
 

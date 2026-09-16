@@ -27,7 +27,7 @@ func seed(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue, id
 		return 0, fmt.Errorf("-n must be greater than 0")
 	}
 
-	state, err := rehydrate(ctx, js, kv, id, true)
+	state, err := rehydrate(ctx, js, kv, Live, id, true)
 	if err != nil {
 		return 0, err
 	}
