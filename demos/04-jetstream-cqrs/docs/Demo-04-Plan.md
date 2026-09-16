@@ -1276,25 +1276,70 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       `GET /rehydrate` then pick a source. Nothing about the fold changes, and
       no business rule changes: it is the same replay over a different log.
 
-      Seeding is a CLI command, NOT a panel button. A million appends is a
-      write, and 04.7.15 just established that the Rehydrate tab does not
-      write. The panel measures what the fixture already holds and says so when
-      the fixture is missing.
+      **Seeding IS a panel button. Decided by the user 2026-09-16, reversing
+      what this entry said an hour earlier.**
+
+      The earlier note said a panel button would contradict 04.7.15. It does
+      not, and the distinction is worth writing down because it is the same
+      distinction the whole demo turns on:
+
+      - 04.7.15 keeps the tab from changing THE LOG IT IS MEASURING. Register /
+        Record trip / Retire append to `ODOMETER`, which the Overview lane and
+        both bucket tabs are drawn from, and a write there while a measurement
+        is on screen changes the thing being measured.
+      - Seeding BUILDS a fixture on a different stream, before any measurement
+        exists. `ODOMETER_BENCH` is not shown anywhere else and is not what the
+        rest of lesson 01 is about.
+
+      So the rule 04.7.15 actually established is narrower than it was written,
+      and this entry states it properly: **the Rehydrate tab never writes to
+      the log it measures against while measuring it.** Seeding is a separate
+      act with a separate stream, and it is allowed.
+
+      The button must also PRINT ITS COMMAND. Section 10.9 already lists "a tab
+      that shows a number without the command that produced it" as a failure of
+      this phase, and every other tab in the demo prints one. So under the seed
+      control sits the exact `cqrs` invocation that does the same thing, and a
+      reader who would rather watch a million appends scroll past in a terminal
+      can copy it. The button is a convenience, not a second mechanism: it must
+      run the SAME seeding code the CLI runs, not a parallel implementation.
+
+      The panel also reports the fixture. When `ODOMETER_BENCH` exists it shows
+      what is in it — the stream name, how many events, which sizes are seeded
+      — and when it does not, it says so and offers the button. A reader must
+      never have to leave the screen to find out whether there is anything to
+      measure.
 
       The seeder should leave a deliberate TAIL — write the snapshot at some
       `lastSeq` short of the head — so the snapshot side still replays a few
       events. A fixture whose snapshot is exactly at the head would quietly
       stop exercising the one mechanic `CLAUDE.md` calls easy to get wrong.
 
-      **Still open, and the one thing blocking a start:** fixed sizes
-      (10 000 / 100 000 / 1 000 000) or a length the reader types?
+      **Sizes: fixed, offered as a choice on the control.** The user asked for
+      "a button with length/size on the screen", so the size is picked on the
+      panel and not typed into a URL. Three: 10 000, 100 000, 1 000 000. Three
+      points are enough to show a slope, and a fixed list cannot be asked for
+      10^9 by somebody leaning on a key.
 
-      - Fixed sizes are faster to read, cannot be asked for 10^9, and three
-        points are enough to show a slope.
-      - A typed length is more honest and lets a reader try to disprove us.
+      A typed length stays possible later. It is more honest and lets a reader
+      try to disprove us, but it is not what makes the slope visible, and it is
+      the part that needs a cap, a validator and an error state. Not first.
 
-      Recommendation: fixed sizes first. Add the typed length afterwards only
-      if three points read as too tidy to believe.
+      One number is not yet known and must be measured before the button ships:
+      **how long a million appends actually takes.** If it is minutes, the
+      button needs progress and a way to stop, and the three sizes may need to
+      become two. That measurement is the first task of the build, not an
+      afterthought — a button that looks hung is worse than no button.
+
+      **Docs that move in the same commit as the button.** `README.md` line 280
+      says "It reads and never writes", and the sentences under it say the
+      command row is not on this tab. That is true of the tab as built TODAY and
+      must stay until the button exists. When it does, that bullet becomes the
+      narrower rule this entry states: the tab never writes to `ODOMETER`, and
+      the one button it does have builds `ODOMETER_BENCH`, which nothing else
+      reads. `frontend/src/view/lessons.js` keeps `readOnly: true` either way —
+      it governs the CommandBar door, not every control on the tab, and
+      `StreamCqrsPanel.spec.js` already proves that is what it means.
 
       One clean-up belongs to this task. `bench-1` is already in `ODOMETER` —
       10 001 of its 84 141 messages — and it is exactly the mixing this task
