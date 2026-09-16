@@ -2458,12 +2458,36 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       live check found it, not a spec. `/pool/seed` now reads the size from
       a body as well as the query, and refuses a body it cannot parse.
 
-- [ ] **04.9.3 The seed group moves above the tabs** (D1). New component,
+- [x] **04.9.3 The seed group moves above the tabs** (D1). New component,
       same shape as `BenchFixture.vue`: stream named once with count and
       bytes, one primary button, the terminal commands printed under it (D2).
 
       Spec: it renders above the tab strip, not inside a tab; the commands
       shown are the commands the button runs.
+
+      Done 2026-09-16. `frontend/src/components/PoolFixture.vue`,
+      `frontend/src/pool/api.js`, specs beside both. Verified in the browser
+      against `lab4-nats`: Delete it removed `ODOMETER_POOL` (gone from
+      `nats stream ls`), Seed the log rebuilt it, and the header read
+      10 000 events / 791.1 KiB against the server's 810 120 bytes.
+
+      Two things the task list did not anticipate, both found by looking
+      rather than by a spec:
+
+      The panel header already printed the log's name, count and bytes, so
+      the new group made two. The header's copy is gone; the group reports
+      it once (D1).
+
+      Neither source of that length can supply it alone. The stream watch
+      sees an APPEND and never a deletion — a dropped stream simply stops
+      sending — so after Delete it the page still read 10 000 events for a
+      log the server said was gone. The GET sees the log as it was when it
+      was asked and never moves. The later of the two now wins: a press
+      refreshes from the GET, an event refreshes from the wire.
+
+      `commands.spec.js` was strengthened, not weakened: it read one
+      hard-coded boolean flag (`-drain`) and now reads the boolean set from
+      `main.go` itself, so `cqrs pool -rm` passes for the right reason.
 
 - [ ] **04.9.4 Progress comes from the workers bucket** (D3). A composable
       turns the existing `odometer-pool-workers` watch into a percentage, a

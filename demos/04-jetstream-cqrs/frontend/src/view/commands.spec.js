@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { DRAIN_SOURCE } from './drain.js'
-import { BENCH_SIZES, benchCmd, LESSONS, POOL_SEED_CMD, SEED_CMD, SHOWCASE_COMMANDS, tabsFor } from './lessons.js'
+import { BENCH_SIZES, benchCmd, LESSONS, POOL_RM_CMD, POOL_SEED_CMD, SEED_CMD, SHOWCASE_COMMANDS, tabsFor } from './lessons.js'
 import { REDELIVERY_SOURCE } from './redelivery.js'
 
 // Walk up to the demo folder rather than hard-coding a depth: vitest's root
@@ -38,6 +38,11 @@ function findMainGo(from = process.cwd()) {
 const mainGo = readFileSync(findMainGo(), 'utf8')
 
 const SUBCOMMANDS = new Set([...mainGo.matchAll(/case "([a-z-]+)":/g)].map((m) => m[1]))
+
+// The booleans, read from the same file. `cqrs pool -rm` and `-drain` take no
+// value, and Go rejects `-rm true` as a stray argument, so a spec that
+// demanded one would be wrong about the binary rather than about the UI.
+const BOOL_FLAGS = new Set([...mainGo.matchAll(/fs\.Bool\("([a-z-]+)"/g)].map((m) => m[1]))
 const FLAGS = new Set(
   [...mainGo.matchAll(/fs\.(?:String|Int|Bool|Uint64|Duration)\("([a-z-]+)"/g)].map((m) => m[1]),
 )
@@ -53,7 +58,7 @@ const tabCmds = LESSONS.flatMap((l) => tabsFor(l.key))
 // run it instead of pressing the button, so it has to parse.
 const benchCmds = BENCH_SIZES.map(benchCmd)
 
-const printed = [...DRAIN_SOURCE, ...REDELIVERY_SOURCE, SEED_CMD, POOL_SEED_CMD, ...benchCmds, ...tabCmds]
+const printed = [...DRAIN_SOURCE, ...REDELIVERY_SOURCE, SEED_CMD, POOL_SEED_CMD, POOL_RM_CMD, ...benchCmds, ...tabCmds]
 
 // A flag is printed either as `-name value` or as `-name=value`. Go's flag
 // package requires the second form for a false boolean, so the guard has to
@@ -83,13 +88,15 @@ describe('the commands this UI prints', () => {
     }
   })
 
-  it('gives every flag a value, because none of these are booleans but -drain', () => {
+  it('gives every flag that is not a boolean a value', () => {
     for (const line of printed) {
       const words = line.trim().split(/\s+/)
       words.forEach((w, i) => {
-        // `-flag=value` carries its own value, and `-drain` is the one
-        // valueless boolean. Everything else takes the next word.
-        if (!w.startsWith('-') || w === '-drain' || w.includes('=')) return
+        // `-flag=value` carries its own value, and a boolean stands alone.
+        // Which flags ARE boolean is read from main.go, not listed here: a
+        // list would go stale the first time the binary grew one, and the
+        // spec would then demand a value Go does not want.
+        if (!w.startsWith('-') || BOOL_FLAGS.has(flagName(w)) || w.includes('=')) return
         expect(words[i + 1]).toBeDefined()
         expect(words[i + 1].startsWith('-')).toBe(false)
       })

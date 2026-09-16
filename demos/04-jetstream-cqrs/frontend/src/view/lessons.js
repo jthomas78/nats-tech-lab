@@ -81,6 +81,17 @@ export const SEED_CMD = 'cqrs seed -vehicle truck-7 -n 2000'
 // slowly turn a 10 000-event demo into a 40 000-event one.
 export const POOL_SEED_CMD = 'cqrs pool -seed 10000'
 
+// The other half of the seed group (04.9.3). A reader who seeded a million
+// events and wants the disk back should not have to guess the flag, and the
+// button that does it prints this.
+export const POOL_RM_CMD = 'cqrs pool -rm'
+
+// What one seeded event costs on ODOMETER_POOL, measured against the live
+// server 2026-09-16: 810 120 bytes for 10 000 events. Used to price a seed
+// BEFORE it happens, on an empty log where the real divisor is not available
+// yet. Once the log holds anything, its own bytes-per-event wins.
+export const POOL_BYTES_PER_EVENT = 81
+
 // The command that builds the rehydrate fixture, for one size.
 //
 // It lives here for the same reason SEED_CMD does: this file owns "which

@@ -4,7 +4,7 @@
 
 import PrimeVue from 'primevue/config'
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DRAIN_RUNS, DRAIN_SOURCE } from '../view/drain.js'
 import {
@@ -19,6 +19,17 @@ import {
 } from '../view/starvation.js'
 import { formatCount } from '../view/format.js'
 import PoolPanel from './PoolPanel.vue'
+
+// PoolFixture reads /pool on mount (04.9.3), so mounting the panel now
+// touches the network. Stubbed, not left to fail quietly: a unit suite that
+// waits on a socket is a suite that is slow for a reason nobody can see.
+beforeEach(() => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ stream: 'ODOMETER_POOL', exists: false, events: 0, bytes: 0 }),
+  })
+})
 
 const mountPanel = (props = {}) =>
   mount(PoolPanel, { props, global: { plugins: [PrimeVue] } })

@@ -55,6 +55,7 @@ import {
   workerRows,
 } from '../view/pool.js'
 import { POOL_SEED_CMD, tabsFor } from '../view/lessons.js'
+import PoolFixture from './PoolFixture.vue'
 import { formatBytes, formatCount } from '../view/format.js'
 import BucketKeys from './BucketKeys.vue'
 import LagLane from './LagLane.vue'
@@ -117,13 +118,10 @@ const starvation = starvationRows()
 
 const STATUS_TONE = { working: 'on', waiting: 'off', killed: 'lost' }
 
-// The log this lesson folds, named once, with its length and its price. It is
-// read off the wire every time. The panel used to carry "74 109 events" as
-// prose, which disagreed with view/drain.js's recorded 10 029 on the tab next
-// door -- and a reader who noticed had no way to tell which was true.
-const logSize = computed(
-  () => `${POOL_STREAM} · ${formatCount(props.messages)} events · ${formatBytes(props.bytes)}`,
-)
+// The log's length used to be reported here as well as in the seed group
+// below. One report, and it is the group's (04.9.3, D1): two copies of one
+// live number is the contradiction 04.8.9 removed once already, even when
+// both copies happen to agree.
 
 function km(n) {
   return `${Math.round(Number(n) || 0).toLocaleString('en-GB')} km`
@@ -152,10 +150,6 @@ function km(n) {
         severity="danger"
         :value="`${health.killed} silent`"
       />
-      <code
-        class="log-size"
-        data-testid="pool-log-size"
-      >{{ logSize }}</code>
       <code class="cmd">{{ current.cmd }}</code>
     </header>
 
@@ -165,6 +159,14 @@ function km(n) {
       the log out of order, and the fold refuses what arrives behind it
       (BR-OD08). This lesson counts what that costs.
     </p>
+
+    <!-- The seed group, ABOVE the tab strip (D1). The log is the same log
+         on all four tabs, so a seed control inside one of them would read as
+         belonging to that tab's measurement. -->
+    <PoolFixture
+      :messages="props.messages"
+      :bytes="props.bytes"
+    />
 
     <Tabs
       v-model:value="tab"
