@@ -26,7 +26,7 @@
 
 import { DeliverPolicy, jetstream, jetstreamManager } from '@nats-io/jetstream'
 import { Kvm } from '@nats-io/kv'
-import { nanos, wsconnect } from '@nats-io/nats-core'
+import { wsconnect } from '@nats-io/nats-core'
 import { computed, reactive, ref, shallowRef } from 'vue'
 
 import { NATS_WS, POOL_KV, POOL_WORKERS_KV, READ_KV, STREAM, WRITE_KV } from '../config.js'
@@ -56,6 +56,13 @@ function newViewerId() {
 // A unique name per viewer means a closed tab leaves one behind, and a demo
 // that is opened and closed twenty times should not leave twenty consumers in
 // `nats consumer ls`.
+//
+// MILLISECONDS, and it is passed to the client in milliseconds. That is not
+// obvious, so it is written down here: `consumers.get()` calls `nanos()` on
+// this value ITSELF. Converting first and passing nanos does the conversion
+// twice, and 30 seconds becomes 30_000_000 seconds -- 347 days. The demo did
+// exactly that until 2026-09-16, and 29 dead viewer consumers were sitting on
+// the stream with a 347-day lease when it was found.
 const VIEWER_TTL_MS = 30_000
 
 export function useOdometer() {
@@ -194,7 +201,7 @@ export function useOdometer() {
       name_prefix: viewer,
       opt_start_seq: start,
       deliver_policy: DeliverPolicy.StartSequence,
-      inactive_threshold: nanos(VIEWER_TTL_MS),
+      inactive_threshold: VIEWER_TTL_MS,
     })
     const msgs = await consumer.consume()
     closers.push(() => msgs.stop())

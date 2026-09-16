@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -256,12 +257,49 @@ func appendEvent(ctx context.Context, js jetstream.JetStream, id string, e Event
 	return ack.Sequence, nil
 }
 
+// Conflict retry timing. Five attempts, so four waits.
+//
+// The numbers are small on purpose. A conflict means another writer appended
+// to this vehicle in the gap between our rehydrate and our append, and that
+// writer has already finished -- we are not waiting for it, we are waiting to
+// stop colliding with the OTHER losers of the same race.
+const (
+	retryBase = 2 * time.Millisecond
+	retryCap  = 50 * time.Millisecond
+)
+
+// conflictBackoff is how long to wait before retry number `attempt`.
+//
+// Two properties matter and neither is the delay itself.
+//
+// CAPPED, so a long queue of writers on one vehicle does not turn into a long
+// queue of sleepers. Doubling without a cap reaches seconds by attempt 10, and
+// the command API would hold a request open for no reason.
+//
+// JITTERED, which is the part that is easy to leave out and is the whole
+// point. A fixed delay makes every loser of a race wake at the same instant
+// and collide again -- the sleep then does nothing except make the collision
+// slower. The random half is what actually pulls the writers apart.
+func conflictBackoff(attempt int) time.Duration {
+	d := retryBase << (attempt - 1)
+	if d > retryCap || d <= 0 {
+		d = retryCap
+	}
+	// Half fixed, half random: never longer than d, never zero-spread.
+	return d/2 + time.Duration(rand.Int64N(int64(d/2)+1))
+}
+
 // handleCommand is the whole write path: rehydrate, decide, append, retry.
 //
 // decide is the only place the domain is called. It gets the rehydrated
 // aggregate and returns one event or one rule error. A rule error is final
 // and is returned as-is; a conflict is not an error the user caused, so it is
 // retried silently.
+//
+// A retry is NOT free and it is not a spin: each attempt rehydrates from the
+// log and appends again, both over the network. It still waits between
+// attempts, because without a wait every writer that lost one race re-enters
+// the next one at the same moment as all the others.
 func handleCommand(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue, id string, withSnapshot bool, decide func(Vehicle) (Event, error)) (Rehydrated, uint64, error) {
 	const attempts = 5
 	for attempt := 1; ; attempt++ {
@@ -275,7 +313,15 @@ func handleCommand(ctx context.Context, js jetstream.JetStream, kv jetstream.Key
 		}
 		seq, err := appendEvent(ctx, js, id, event, state.LastSeq)
 		if errors.Is(err, ErrConflict) && attempt < attempts {
-			continue
+			// The caller's context ends the wait too. A cancelled
+			// command that sleeps anyway is a command that answers
+			// after nobody is listening.
+			select {
+			case <-time.After(conflictBackoff(attempt)):
+				continue
+			case <-ctx.Done():
+				return state, 0, ctx.Err()
+			}
 		}
 		if err != nil {
 			return state, 0, err

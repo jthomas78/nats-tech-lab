@@ -1038,31 +1038,6 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       Status line claimed all phases were done.
 
 - [x] 04.7.11 BR-OD09 — a poison event must not stop a fold, 2026-09-16.
-- [x] 04.7.12 replay reads with `Messages()`, not `Next()` — and the headline
-      number is remeasured, 2026-09-16.
-
-      `Consumer.Next()` on an ORDERED consumer resets the consumer on every
-      call: the client deletes the server-side consumer and creates a new one
-      per message. `replay()` called it once per event, so rehydrating a
-      10001-event vehicle created 10001 consumers. Proven live — an ordered
-      consumer's name carries a serial, and the server showed
-      `5yL5cUQZHSfSpLY8WvMDXR_32469` delivering stream sequence 32478.
-
-      The measured cost of a full replay fell from **8.2 s to 25 ms** for the
-      same 10001 events, so the demo's headline finding was about 99% consumer
-      bookkeeping. The README table, the "about 600x" claim (which was also
-      wrong arithmetic — 8.2 s over 0.6 ms is 13667, not 600) and
-      `diagrams/cqrs-blocks.html` were all rewritten to the remeasured
-      **about 23x**.
-
-      The consumer is now deleted explicitly when the replay ends, and
-      `InactiveThreshold` is set to 30 s as a backstop for a process killed
-      mid-replay. The client's own default is 5 minutes, which is why stale
-      replay consumers were visible in `nats consumer ls`.
-
-      No business rule changed. This is an I/O defect in `write.go`, and the
-      rules in `domain.go` never saw the difference.
-
       Found by a design review of the demo, not by a failing run. Both
       long-lived consumers nak'd every error from `project` /
       `foldIntoSnapshot`, and `decode` errors are among them. The stream
@@ -1091,6 +1066,57 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       thing BR-OD08 exists to end. A message is dropped here by a fold that
       says why, on a `DROPPED` line, or it is not dropped at all.
 
+- [x] 04.7.12 replay reads with `Messages()`, not `Next()` — and the headline
+      number is remeasured, 2026-09-16.
+
+      `Consumer.Next()` on an ORDERED consumer resets the consumer on every
+      call: the client deletes the server-side consumer and creates a new one
+      per message. `replay()` called it once per event, so rehydrating a
+      10001-event vehicle created 10001 consumers. Proven live — an ordered
+      consumer's name carries a serial, and the server showed
+      `5yL5cUQZHSfSpLY8WvMDXR_32469` delivering stream sequence 32478.
+
+      The measured cost of a full replay fell from **8.2 s to 25 ms** for the
+      same 10001 events, so the demo's headline finding was about 99% consumer
+      bookkeeping. The README table, the "about 600x" claim (which was also
+      wrong arithmetic — 8.2 s over 0.6 ms is 13667, not 600) and
+      `diagrams/cqrs-blocks.html` were all rewritten to the remeasured
+      **about 23x**.
+
+      The consumer is now deleted explicitly when the replay ends, and
+      `InactiveThreshold` is set to 30 s as a backstop for a process killed
+      mid-replay. The client's own default is 5 minutes, which is why stale
+      replay consumers were visible in `nats consumer ls`.
+
+      No business rule changed. This is an I/O defect in `write.go`, and the
+      rules in `domain.go` never saw the difference.
+
+- [x] 04.7.13 the conflict retry waits, and stale consumers stop piling up,
+      2026-09-16.
+
+      Two small defects, both found by a source review and both confirmed on
+      the running server.
+
+      **The retry did not wait.** `handleCommand` retried a conflicting append
+      with a bare `continue`. Five attempts, four retries, no delay between
+      them. Each attempt is real network work — a rehydrate and an append — so
+      it was not a hot spin, but every writer that lost one race re-entered the
+      next one at the same instant. `conflictBackoff` now waits, capped at
+      50 ms, and **jittered**: the random half is the part that does the work,
+      because a fixed delay only makes the same collision happen later. The
+      wait is cancelled by the caller's context. Specs in `backoff_test.go`.
+
+      **The browser's viewer consumers never expired.** `useOdometer.js` passed
+      `nanos(VIEWER_TTL_MS)` as `inactive_threshold`. That API takes
+      MILLISECONDS and calls `nanos()` on the value itself, so the conversion
+      ran twice and 30 seconds became 30 000 000 seconds — 347 days. Every tab
+      ever opened left a consumer behind with a year-long lease. There were
+      **29** on the stream when this was found. Fixed by passing the value in
+      milliseconds, which is what the client asked for.
+
+      The Go side of the same problem was 04.7.12. Neither is a business rule;
+      both are I/O.
+
 ### 10.9 What would make this phase a failure
 
 - A number in `odometer-write` or `odometer-read` changed (D1).
@@ -1102,3 +1128,4 @@ No new host port. The pool is a CLI process, like `snapshotter` and
 - Lesson 01's Overview tab showing one bucket instead of two (D10).
 - A consumer that nak's a failure no retry can fix (BR-OD09), or a
   `MaxDeliver` cap that drops a message without saying so.
+
