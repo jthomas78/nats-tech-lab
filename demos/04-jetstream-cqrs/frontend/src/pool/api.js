@@ -97,3 +97,74 @@ export function seedPool(size, opts = {}) {
 export function dropPool(opts = {}) {
   return askPool('/pool/rm', 'POST', undefined, opts)
 }
+
+// describeRun turns the answer to POST /pool/run into what a row shows.
+//
+// Three outcomes, not two. `busy` is its own kind because the shim allows one
+// run at a time and answers 409 (D8): that is an ANSWER — somebody else is
+// measuring — and a screen that showed it as a fault would send the reader
+// looking for a bug.
+//
+// The rate is computed here, once. Two tabs each dividing events by seconds is
+// two places to divide by zero, and the answer would be `Infinity` on screen.
+export function describeRun({ status, body = {} }) {
+  if (status === 409) {
+    return {
+      kind: 'busy',
+      error: body.error ?? 'PoolRunning',
+      message: body.message ?? 'a pool is already running',
+    }
+  }
+  if (status !== 200) {
+    return {
+      kind: 'broken',
+      error: body.error ?? `HTTP ${status}`,
+      message: body.message ?? 'the write side would not run the pool',
+    }
+  }
+  const seconds = Number(body.elapsedMs ?? 0) / 1000
+  const events = Number(body.events ?? 0)
+  const share = body.share ?? {}
+  return {
+    kind: 'ok',
+    workers: Number(body.workers ?? 0),
+    maxPending: Number(body.maxPending ?? 0),
+    ackWait: String(body.ackWait ?? ''),
+    killAt: Number(body.killAt ?? 0),
+    events,
+    acked: Number(body.acked ?? 0),
+    dropped: Number(body.dropped ?? 0),
+    seconds,
+    rate: seconds > 0 ? Math.round(events / seconds) : 0,
+    share: {
+      workers: Number(share.workers ?? 0),
+      busy: Number(share.busy ?? 0),
+      idle: Number(share.idle ?? 0),
+      acked: Array.isArray(share.acked) ? share.acked.map(Number) : [],
+    },
+  }
+}
+
+// runPool starts one pool and waits for it to finish.
+//
+// It can take ninety seconds to answer, and that is on purpose (D3): the run
+// is a plain POST that returns when the run ends, and the PROGRESS comes from
+// the KV watch the page already has open. No second channel to keep in step.
+export async function runPool(cfg, { fetchImpl = globalThis.fetch, base = COMMAND_API } = {}) {
+  try {
+    const res = await fetchImpl(`${base}/pool/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    })
+    let parsed = {}
+    try {
+      parsed = await res.json()
+    } catch {
+      // A body that is not JSON is still an answer; the status carries it.
+    }
+    return describeRun({ status: res.status, body: parsed })
+  } catch (err) {
+    return poolUnreachable(err?.message ?? String(err))
+  }
+}

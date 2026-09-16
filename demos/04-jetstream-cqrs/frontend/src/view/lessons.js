@@ -79,7 +79,12 @@ export const SEED_CMD = 'cqrs seed -vehicle truck-7 -n 2000'
 // The size matches DefaultPoolSize in cqrs/pool_seed.go. A re-seed replaces
 // what is there rather than adding to it, so pressing this twice does not
 // slowly turn a 10 000-event demo into a 40 000-event one.
-export const POOL_SEED_CMD = 'cqrs pool -seed 10000'
+//
+// The number is exported on its own as well: the Run buttons re-seed to the
+// same size between runs (D7), and a second copy of "10000" written out
+// beside the command is a copy that can go stale.
+export const POOL_SEED_EVENTS = 10_000
+export const POOL_SEED_CMD = `cqrs pool -seed ${POOL_SEED_EVENTS}`
 
 // The other half of the seed group (04.9.3). A reader who seeded a million
 // events and wants the disk back should not have to guess the flag, and the
@@ -160,3 +165,28 @@ export function poolRunCmd({ workers, maxPending, ackWait, killAt } = {}) {
   if (killAt != null) words.push('-kill-at', String(killAt))
   return words.join(' ')
 }
+
+// Lesson 02 · Starvation — the four caps one press runs (04.9.6, D12).
+//
+// Not shortened, and the order is the order they run in. A cap of 1 is the
+// clearest possible starvation setup: eight workers and ONE message in flight
+// for the whole consumer. A cap of 64 is already past the point where the cap
+// binds with eight workers, so it is the honest control row. Two points are
+// not a curve, which is why the middle two stay.
+export const STARVATION_CAPS = Object.freeze([1, 3, 8, 64])
+
+// Eight, on every cap. The tab varies one knob; Performance varies the other.
+export const STARVATION_WORKERS = 8
+
+// What the press COSTS, not what it measures.
+//
+// This is an estimate, and it is allowed to be one: D4 asks the screen to
+// price a press before the reader commits ninety seconds to it. Every number
+// the tab REPORTS comes from the run. Re-measure it if the caps or the
+// baseline event count change.
+//
+// Timed against the live server 2026-09-17 at the 10 000-event baseline: the
+// four runs took 7.6 / 3.6 / 2.8 / 2.6 s and the three re-seeds 5 s each, so
+// the whole set was 32 s. Rounded up, because an estimate that runs under is
+// the one that makes a reader think the screen has hung.
+export const STARVATION_SECONDS = 40

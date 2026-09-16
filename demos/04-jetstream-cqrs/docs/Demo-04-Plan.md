@@ -2577,13 +2577,60 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       Not yet mounted on a tab — 04.9.6 to 04.9.8 do that. No live check: the
       component starts nothing on its own.
 
-- [ ] **04.9.6 Starvation runs four caps — 1 / 3 / 8 / 64** (D7, D12). Re-seeds between runs.
+- [x] **04.9.6 Starvation runs four caps — 1 / 3 / 8 / 64** (D7, D12). Re-seeds between runs.
       Rows fill in as each run ends; a row not yet run is greyed, never
       filled (D5). The bar stays up for the whole set.
 
       Spec, red first: before any run the table has four empty rows; after two
       runs it has two filled and two empty; the recorded constants are gone
       from the component.
+
+      Done 2026-09-17. `StarvationRuns.vue` + 10 specs, driven by `useRunSet`
+      so 04.9.7 inherits the sequencer. `PoolPanel.vue` lost the
+      `starvation-measured` card and the `starvation-term` block; its spec now
+      asserts both are ABSENT, so the recorded numbers cannot come back by
+      accident. `view/starvation.js` itself still exists — deleting it is
+      04.9.9.
+
+      **Found by clicking, not by a spec.** The first live press produced a
+      correct table and a bar frozen at `0% — Starvation · run 1 of 4`.
+      `StarvationRuns.vue` exposed `observe` and nothing called it, so D3 — the
+      progress bar reads the `odometer-pool-workers` bucket — was not wired at
+      all. Fixed with a `workers` prop and a deep `watch`, plus a spec that
+      presses Run, feeds worker rows, and demands the bar move. Lesson: a
+      `defineExpose` with no caller passes every unit test there is.
+
+      A second live defect followed: the bar went BACKWARDS to 0% during each
+      re-seed, because `reseeding()` zeroed the fraction while the run index
+      still pointed at the run that had just finished. A finished run is
+      finished, so `reseeding()` now holds the fraction at 1, `observe()`
+      ignores heartbeats while re-seeding (the bucket still holds the old
+      run's numbers and is emptied under it), and the fraction is monotonic
+      within a run. Sampled live, the whole set now reads
+      2 → 25 → 25 (re-seeding) → 47 → 50 → 72 → 75 → 97%, forward only.
+
+      Live numbers, 10 000 events on `ODOMETER_POOL`, 8 workers:
+
+      | cap | time | rate | workers acked | folded | dropped |
+      |---|---|---|---|---|---|
+      | 1 | 9.6s | 1 042/s | 8 of 8 | 10 000 | 0 |
+      | 3 | 4.5s | 2 205/s | 8 of 8 | 10 000 | 0 |
+      | 8 | 2.9s | 3 398/s | 8 of 8 | 10 000 | 0 |
+      | 64 | 3.0s | 3 381/s | 8 of 8 | 10 000 | 0 |
+
+      **The task list did not anticipate this: the pool no longer drops
+      anything.** Every cap folds all 10 000 events with 8 of 8 workers acking
+      and `dropped = 0`. Tried at cap 1000 and at 100 000 events — still zero.
+      The recorded table this tab used to print (74 109 events, up to 42 197
+      dropped) was measured BEFORE 04.8 moved lesson 02 onto `ODOMETER_POOL`.
+      The fold is per vehicle (`snapshotKey(id)`) and `cqrs/pool_seed.go`
+      round-robins over TEN vehicles, so eight workers almost never meet on the
+      same vehicle — despite the comment at `cqrs/pool_seed.go:55-57` claiming
+      they "collide constantly". The seeder was NOT changed: that is outside
+      04.9's approved scope. The prose was made honest instead — a run that
+      drops nothing is reported as a real answer. **Raised with the user:**
+      the cap is still a clear speed dial (9.6s → 2.9s) but has lost its loss
+      dial, so the tab's headline claim is now only half demonstrated.
 
 - [ ] **04.9.7 Performance runs four worker counts** (D7, D9, D12). Same
       shape. The tab is renamed from `1 vs 4` to `Performance` in

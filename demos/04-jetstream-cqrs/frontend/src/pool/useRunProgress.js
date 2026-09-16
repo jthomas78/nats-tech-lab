@@ -107,7 +107,10 @@ export function useRunProgress({ session = globalThis.sessionStorage } = {}) {
   // a log being rebuilt is not a pool that has stopped.
   const reseeding = () => {
     reseed.value = true
-    fraction.value = 0
+    // The run that just ended is FINISHED, so the set holds the boundary it
+    // reached. Zeroing it here is what sent the bar back to 0% in front of a
+    // reader on 2026-09-17: run 1 of 4 reached 12%, then the re-seed undid it.
+    fraction.value = 1
     mark.value = 0
     movedAt.value = 0
     quietFor.value = 0
@@ -128,9 +131,15 @@ export function useRunProgress({ session = globalThis.sessionStorage } = {}) {
   // than read from the clock so a spec can state the time it means.
   const observe = (rows, now = Date.now()) => {
     if (!plan.value) return
-    reseed.value = false
+    // A heartbeat that arrives DURING a re-seed still carries the last run's
+    // numbers, and the bucket is emptied under it. Neither is progress, so the
+    // bar ignores both until nextRun() says the next run has begun.
+    if (reseed.value) return
     const acked = ackedIn(rows)
-    fraction.value = plan.value.events > 0 ? acked / plan.value.events : 0
+    const share = plan.value.events > 0 ? acked / plan.value.events : 0
+    // Within one run the bar only ever goes forward. A bucket that blinks is a
+    // watch artefact, not a pool that un-acked 4 000 events.
+    fraction.value = Math.max(fraction.value, share)
     if (movedAt.value === 0 || acked > mark.value) {
       mark.value = acked
       movedAt.value = now

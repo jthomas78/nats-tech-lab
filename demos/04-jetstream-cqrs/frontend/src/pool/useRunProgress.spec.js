@@ -162,3 +162,23 @@ describe('a page reload in the middle of a set', () => {
     expect(after.running.value).toBe(false)
   })
 })
+
+describe('the bar never runs backwards', () => {
+  // Found in the browser: run 1 finished at 12%, then the re-seed put the bar
+  // back to 0%. A reader watching that learns the screen is lying to them, not
+  // that a log is being rebuilt. A run that ENDED is a run that is DONE, so
+  // the re-seed holds the set at the boundary it reached.
+  it('holds the finished run at its boundary while re-seeding', () => {
+    const p = useRunProgress({ session })
+    p.start({ label: 'Starvation', runs: 4, events: 10_000, ackWaitMs: 30_000 })
+
+    p.observe(rows(5_000))
+    expect(p.percent.value).toBe(13)
+
+    p.reseeding()
+    expect(p.percent.value).toBe(25)
+
+    p.nextRun()
+    expect(p.percent.value).toBe(25)
+  })
+})
