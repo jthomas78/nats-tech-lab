@@ -1219,42 +1219,97 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       screen at 1128px: `bench-1` on Rehydrate shows no Register / Record trip
       / Retire row, and Overview shows it again.
 
-- [ ] 04.7.16 Rehydrate can measure a log it chose the size of.
+- [ ] 04.7.16 Rehydrate can measure a log it chose the size of, on a stream of
+      its own. PROPOSED — the design gate applies, one question is still open.
 
-      Raised by the user on 2026-09-16, same look at the same panel.
+      Raised by the user on 2026-09-16.
 
       Today the only vehicle worth measuring is `bench-1`, and it exists
-      because somebody built it by hand: one register and 10 000 trips. It is
-      shared with every other tab and its size cannot be changed.
+      because somebody built it by hand: one register and 10 000 trips, straight
+      into `ODOMETER`. It is shared with every other tab and its size cannot be
+      changed.
 
       One size proves one dot. The claim this demo makes is that the gap GROWS
-      WITH THE LOG — that the cold side gets slower every time a trip is
-      recorded and the snapshot side does not. A single measurement cannot
-      show a slope, and the panel currently states that growth in prose while
-      showing one number. That is the weakest sentence on the screen.
+      WITH THE LOG — the cold side gets slower every time a trip is recorded and
+      the snapshot side does not. A single measurement cannot show a slope, and
+      the panel currently states that growth in prose while showing one number.
+      That is the weakest sentence on the screen.
 
-      Wanted: rehydration measured at several log lengths — 10 000, 100 000,
-      1 000 000 — or a field that takes a length and builds a vehicle of it.
+      **Decided 2026-09-16 by the user: the benchmark gets its own stream.**
 
-      Open questions, and the design gate applies to all of them:
+      `ODOMETER` is the demo. It carries `V1`, `truck-7` and whatever a reader
+      types into the command row, it is what the Overview lane and both bucket
+      tabs are drawn from, and it keeps everything on purpose. A million-event
+      fixture appended to it would bury the demo inside its own benchmark: the
+      log tab becomes unreadable, the lane's head number stops meaning
+      anything, and the one stream a reader is asked to understand is mostly
+      filler. `bench-1` already does a small version of this — it is 10 001 of
+      the current 84 141 messages, and it is the reason the log tab's head
+      number surprises people.
 
-      - Fixed sizes or a typed length? A typed length is more honest and lets
-        the user disprove us; fixed sizes are faster to read and cannot be
-        asked for 10^9.
-      - WHO builds the events? This is the hard part. A million events is a
-        million appends to `ODOMETER`, and the current stream already carries
-        84 141. That is a write, on a tab whose whole claim in 04.7.15 is that
-        it never writes. A seeded vehicle may have to be built by a separate
-        command, not by the panel.
-      - Retention. `ODOMETER` keeps everything on purpose. A million-event
-        vehicle is not a demo that is torn down afterwards; it is a stream
-        that stays big.
-      - Where do the benchmark vehicles live? A benchmark vehicle in the same
-        picker as `V1` and `truck-7` mixes a fixture in with the demo.
+      So:
 
-      No work starts until those are answered. The measurement is the point of
-      this demo, and a benchmark that quietly changes the thing it measures is
-      worse than the one dot we have now.
+      | Kind | Name | Note |
+      |---|---|---|
+      | Stream | `ODOMETER_BENCH` | the fixture. Disposable. |
+      | Subject | `evt.odometer-bench.vehicle.{id}.{event}` | |
+      | KV | `odometer-bench-write` | the fixture's snapshot |
+
+      The subject does not overlap `evt.odometer.>` — the second token differs —
+      so JetStream will hold both streams at once. The first token stays the
+      fixed literal `evt` for the reason `names.go` already gives: an open first
+      token textually overlaps `$SYS.>` and JetStream refuses the stream.
+
+      Two properties follow from the split, and both are worth having:
+
+      - **`ODOMETER_BENCH` can be deleted.** `ODOMETER` cannot — an aggregate's
+        history IS the aggregate. A fixture has no such claim, so `nats stream
+        rm ODOMETER_BENCH` is a supported move and the demo still runs.
+      - **A benchmark vehicle never enters the vehicle picker.** The picker is
+        built from the two `odometer-*` buckets, and the fixture writes to a
+        bucket of its own. `bench-1` is in that picker today, and that is the
+        mixing the user objected to.
+
+      The real work is not the seeding. It is that `rehydrate()` currently
+      spells `StreamName`, `WriteKV` and `vehicleFilter` into itself, and must
+      instead be handed the three as one value — a source. The CLI and
+      `GET /rehydrate` then pick a source. Nothing about the fold changes, and
+      no business rule changes: it is the same replay over a different log.
+
+      Seeding is a CLI command, NOT a panel button. A million appends is a
+      write, and 04.7.15 just established that the Rehydrate tab does not
+      write. The panel measures what the fixture already holds and says so when
+      the fixture is missing.
+
+      The seeder should leave a deliberate TAIL — write the snapshot at some
+      `lastSeq` short of the head — so the snapshot side still replays a few
+      events. A fixture whose snapshot is exactly at the head would quietly
+      stop exercising the one mechanic `CLAUDE.md` calls easy to get wrong.
+
+      **Still open, and the one thing blocking a start:** fixed sizes
+      (10 000 / 100 000 / 1 000 000) or a length the reader types?
+
+      - Fixed sizes are faster to read, cannot be asked for 10^9, and three
+        points are enough to show a slope.
+      - A typed length is more honest and lets a reader try to disprove us.
+
+      Recommendation: fixed sizes first. Add the typed length afterwards only
+      if three points read as too tidy to believe.
+
+      One clean-up belongs to this task. `bench-1` is already in `ODOMETER` —
+      10 001 of its 84 141 messages — and it is exactly the mixing this task
+      ends. Once the fixture lives on `ODOMETER_BENCH` it comes out:
+
+      ```bash
+      nats --context lab4-odometer stream purge ODOMETER \
+        --subject 'evt.odometer.vehicle.bench-1.>'
+      nats --context lab4-odometer kv del odometer-write vehicle.bench-1
+      nats --context lab4-odometer kv del odometer-read vehicle.bench-1
+      ```
+
+      A purge by subject, not a stream delete: the rest of `ODOMETER` is the
+      demo and must survive. The two folds keep their positions, so nothing
+      re-reads and nothing re-projects — the keys are simply gone.
 
 ### 10.9 What would make this phase a failure
 
