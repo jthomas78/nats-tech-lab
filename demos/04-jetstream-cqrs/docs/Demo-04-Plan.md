@@ -2165,11 +2165,28 @@ all three gates from `frontend/`.
       Gates: 337 vitest specs in 23 files, eslint 0 errors (7 `PoolPanel.vue`
       warnings are the baseline), `npm run build` clean.
 
-- [ ] **04.8.8 The damage is measured against the right fold.**
+- [x] **04.8.8 The damage is measured against the right fold.**
       `foldDamage()` subtracts `odometer-pool-truth`, not `odometer-read`
       (D3). Spec, red first: given a damaged pool fold and a correct truth
       fold, the drift is the difference between those two and the read model
       is not consulted.
+
+      Done. `foldDamage(poolRows, truthRows)` returns `truthKm`, and a spec
+      pins the returned keys exactly so `readKm` cannot come back by accident.
+
+      Both sides of the subtraction must have folded the SAME log or the
+      answer means nothing. `odometer-read` folds `ODOMETER`; lesson 02 folds
+      `ODOMETER_POOL` and has never published an event `ODOMETER` can see, so
+      subtracting the read model would report the pool's ENTIRE total as
+      damage. It worked before 04.8 only because the pool was folding
+      `ODOMETER` too -- the defect 04.8.6 removed.
+
+      The `PoolPanel` prop `reads` became `truth`, the odometer-pool tab now
+      lists `odometer-pool-truth` beside `odometer-pool` (a spec asserts
+      `odometer-read` is NOT on that tab), and `App.vue` passes `poolTruth`
+      and names the bucket in the wiring footer once it exists.
+
+      Gates: 338 vitest specs, eslint 0 errors, build clean.
 
 - [ ] **04.8.9 Lesson 02 says which log it is reading.** Every `ODOMETER` on
       the lesson becomes `ODOMETER_POOL`. The `74 109 events` prose in

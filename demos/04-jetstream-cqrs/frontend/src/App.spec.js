@@ -12,6 +12,7 @@ vi.mock('./nats/useOdometer.js', () => ({
   useOdometer: () => ({
     status: ref('connected'), error: ref(''), head: ref(9), messages: ref(8), bytes: ref(2048),
     writes: new Map(), reads: new Map(), pool: new Map(), poolWorkers: new Map(),
+    poolTruth: new Map(),
     log: ref([]), vehicles: ref(['V1']), lags: ref({ head: 9, writeSeq: 8, readSeq: 7 }),
     connect: vi.fn(), disconnect: vi.fn(),
   }),

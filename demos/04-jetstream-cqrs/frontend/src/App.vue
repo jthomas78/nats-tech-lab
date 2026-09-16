@@ -15,6 +15,7 @@ import {
   COMMAND_API,
   NATS_WS,
   POOL_KV,
+  POOL_TRUTH_KV,
   POOL_WORKERS_KV,
   READ_KV,
   STREAM,
@@ -23,7 +24,7 @@ import {
 import { useOdometer } from './nats/useOdometer.js'
 import { crumbFor, railSections } from './view/lessons.js'
 
-const { status, error, head, messages, bytes, writes, reads, pool, poolWorkers, log, vehicles, lags, connect, disconnect } =
+const { status, error, head, messages, bytes, writes, reads, pool, poolWorkers, poolTruth, log, vehicles, lags, connect, disconnect } =
   useOdometer()
 
 onMounted(connect)
@@ -51,13 +52,14 @@ const isLesson02 = computed(() => view.value === 'lesson-02')
 const sections = railSections()
 const crumb = computed(() => crumbFor(view.value))
 
-// What the page is actually watching, not what it hoped to. The two pool
+// What the page is actually watching, not what it hoped to. The three pool
 // buckets only exist once somebody has run `cqrs pool`, so naming them
 // unconditionally would claim a subscription the page has not got.
 const watching = computed(() => {
   const names = [WRITE_KV, READ_KV, STREAM]
   if (pool.size) names.push(POOL_KV)
   if (poolWorkers.size) names.push(POOL_WORKERS_KV)
+  if (poolTruth.size) names.push(POOL_TRUTH_KV)
   return names.join(', ')
 })
 
@@ -133,7 +135,7 @@ const watching = computed(() => {
       :head="head"
       :workers="poolWorkers"
       :pool="pool"
-      :reads="reads"
+      :truth="poolTruth"
     />
 
     <footer class="wiring">

@@ -31,8 +31,11 @@ function workers() {
   ])
 }
 
-const pool = () => new Map([['truck-7', { id: 'truck-7', totalKm: 1200, lastSeq: 90 }]])
-const reads = () => new Map([['truck-7', { id: 'truck-7', totalKm: 1478, lastSeq: 94 }]])
+const pool = () => new Map([['pool-01', { id: 'pool-01', totalKm: 1200, lastSeq: 90 }]])
+// odometer-pool-truth: the SAME log the pool folds, folded correctly. Not
+// odometer-read -- that folds ODOMETER, which lesson 02 no longer touches
+// (04.8.8, D3).
+const truth = () => new Map([['pool-01', { id: 'pool-01', totalKm: 1478, lastSeq: 94 }]])
 
 describe('PoolPanel — the tab strip', () => {
   it('offers the four conditions and the bucket the pool folds into', () => {
@@ -71,7 +74,7 @@ describe('PoolPanel — nothing running', () => {
 
 describe('PoolPanel — the live pool', () => {
   it('draws one card per worker', () => {
-    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), reads: reads() })
+    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), truth: truth() })
     expect(w.find('[data-testid="worker-1"]').exists()).toBe(true)
     expect(w.find('[data-testid="worker-2"]').exists()).toBe(true)
   })
@@ -86,8 +89,8 @@ describe('PoolPanel — the live pool', () => {
     expect(w.find('[data-testid="lag-lane"]').exists()).toBe(true)
   })
 
-  it('shows the fold damage against the read model', () => {
-    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), reads: reads() })
+  it('shows the fold damage against the correct fold of the same log', () => {
+    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), truth: truth() })
     const text = w.find('[data-testid="fold-damage"]').text()
     expect(text).toContain('278 km')
   })
@@ -322,13 +325,17 @@ describe('PoolPanel — 1 vs 4', () => {
 // read-only view lesson 01 gives odometer-write and odometer-read. Without it
 // the damage is one total you have to trust.
 describe('PoolPanel — odometer-pool', () => {
-  it('lists the pool bucket beside the read model', async () => {
-    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), reads: reads() })
+  // Beside the CORRECT fold of the SAME log, not beside the read model. The
+  // read model folds ODOMETER, so a row-by-row comparison with it would be
+  // two different questions side by side (04.8.8, D3).
+  it('lists the pool bucket beside the correct fold of the same log', async () => {
+    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), truth: truth() })
     w.vm.tab = 'pool'
     await w.vm.$nextTick()
     const text = w.find('[data-testid="pool-buckets"]').text()
     expect(text).toContain('odometer-pool')
-    expect(text).toContain('odometer-read')
+    expect(text).toContain('odometer-pool-truth')
+    expect(text).not.toContain('odometer-read')
   })
 
   it('prints nats kv ls for the bucket it is showing', async () => {
@@ -346,19 +353,19 @@ describe('PoolPanel — caught up', () => {
   const caught = () => new Map([['truck-7', { id: 'truck-7', totalKm: 1478, lastSeq: 94 }]])
 
   it('explains an idle pool and prints the command that feeds it', () => {
-    const w = mountPanel({ head: 94, workers: workers(), pool: caught(), reads: reads() })
+    const w = mountPanel({ head: 94, workers: workers(), pool: caught(), truth: truth() })
     const hint = w.find('[data-testid="pool-caught-up"]')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toContain('cqrs seed -vehicle truck-7 -n 2000')
   })
 
   it('says the same thing where the bars are, because zero bars read as broken too', () => {
-    const w = mountPanel({ head: 94, workers: workers(), pool: caught(), reads: reads() })
+    const w = mountPanel({ head: 94, workers: workers(), pool: caught(), truth: truth() })
     expect(w.find('[data-testid="starvation-caught-up"]').exists()).toBe(true)
   })
 
   it('stays quiet while the fold is still behind the head — there IS work', () => {
-    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), reads: reads() })
+    const w = mountPanel({ head: 94, workers: workers(), pool: pool(), truth: truth() })
     expect(w.find('[data-testid="pool-caught-up"]').exists()).toBe(false)
     expect(w.find('[data-testid="starvation-caught-up"]').exists()).toBe(false)
   })

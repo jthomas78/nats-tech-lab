@@ -92,18 +92,27 @@ export function ackBars(rows = []) {
 // the watermark — so its total is SHORT. It can never be over: a dropped
 // event is a fact that is gone, and nothing counts one twice.
 //
-// Null when there is nothing to compare. A drift of 0 against an empty read
-// model is not "no damage", it is "no measurement", and the two must not look
+// The correct fold is odometer-pool-truth (04.8.8, D3), NOT odometer-read.
+// Both sides of this subtraction must have folded the SAME log or the answer
+// means nothing. odometer-read folds ODOMETER; lesson 02 folds ODOMETER_POOL
+// and has never published an event ODOMETER can see, so subtracting the read
+// model would report the pool's entire total as damage.
+//
+// It happened to work before 04.8 only because the pool was folding ODOMETER
+// too — which is the defect that phase removed.
+//
+// Null when there is nothing to compare. A drift of 0 against an empty truth
+// fold is not "no damage", it is "no measurement", and the two must not look
 // the same on screen.
-export function foldDamage(poolRows = [], readRows = []) {
-  if (!poolRows.length || !readRows.length) return null
+export function foldDamage(poolRows = [], truthRows = []) {
+  if (!poolRows.length || !truthRows.length) return null
   const sum = (rows) => rows.reduce((t, r) => t + (Number(r.totalKm) || 0), 0)
   const poolKm = sum(poolRows)
-  const readKm = sum(readRows)
-  const drift = poolKm - readKm
+  const truthKm = sum(truthRows)
+  const drift = poolKm - truthKm
   return {
     poolKm,
-    readKm,
+    truthKm,
     drift,
     damaged: drift !== 0,
     vehicles: poolRows.length,

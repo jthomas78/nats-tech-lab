@@ -31,7 +31,7 @@ import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 
-import { POOL_KV, READ_KV } from '../config.js'
+import { POOL_KV, POOL_TRUTH_KV } from '../config.js'
 import { DRAIN_SOURCE, MEASURED_AT, drainRows } from '../view/drain.js'
 import RedeliveryTimeline from './RedeliveryTimeline.vue'
 import {
@@ -65,8 +65,11 @@ const props = defineProps({
   workers: { type: Object, default: () => new Map() },
   // KV odometer-pool — the pool's own, deliberately damaged fold.
   pool: { type: Object, default: () => new Map() },
-  // KV odometer-read — the correct fold, to measure the damage against.
-  reads: { type: Object, default: () => new Map() },
+  // KV odometer-pool-truth — the SAME log, folded correctly, one message at
+  // a time. This is what the damage is measured against (04.8.8, D3).
+  // Deliberately not odometer-read: that folds ODOMETER, a log lesson 02 no
+  // longer touches, so subtracting it would call the whole pool total damage.
+  truth: { type: Object, default: () => new Map() },
 })
 
 const TABS = tabsFor('lesson-02')
@@ -77,7 +80,7 @@ const rows = computed(() => workerRows(props.workers))
 const health = computed(() => poolHealth(rows.value))
 const bars = computed(() => ackBars(rows.value))
 const poolRows = computed(() => [...props.pool.values()])
-const readRows = computed(() => [...props.reads.values()])
+const truthRows = computed(() => [...props.truth.values()])
 
 // How far the pool's own fold has reached: the furthest any vehicle in its
 // bucket has been folded to, the same measure the other two sides use.
@@ -91,7 +94,7 @@ const laneRows = computed(() => poolLaneRows(props.head, rows.value, foldSeq.val
 // panel says which one it is and prints the way out.
 const caughtUp = computed(() => poolCaughtUp(props.head, foldSeq.value, health.value))
 
-const damage = computed(() => foldDamage(poolRows.value, readRows.value))
+const damage = computed(() => foldDamage(poolRows.value, truthRows.value))
 const kill = computed(() => redelivery(rows.value))
 
 // Recorded, not watched. The only numbers on this panel that did not come
@@ -236,7 +239,7 @@ function km(n) {
               data-testid="fold-damage"
             >
               <p class="eyebrow">
-                Fold damage · {{ POOL_KV }} against {{ READ_KV }}
+                Fold damage · {{ POOL_KV }} against {{ POOL_TRUTH_KV }}
               </p>
               <dl class="kv">
                 <dt>events acked</dt>
@@ -249,8 +252,8 @@ function km(n) {
                 <dd :class="{ lost: damage.damaged }">
                   {{ km(damage.poolKm) }}
                 </dd>
-                <dt>total, read model</dt>
-                <dd>{{ km(damage.readKm) }}</dd>
+                <dt>total, correct fold</dt>
+                <dd>{{ km(damage.truthKm) }}</dd>
                 <dt>drift</dt>
                 <dd :class="{ lost: damage.damaged }">
                   {{ damage.drift > 0 ? '+' : '' }}{{ km(damage.drift) }}
@@ -676,11 +679,13 @@ function km(n) {
         </TabPanel>
 
         <!-- odometer-pool — the read-only view, `nats kv ls` on the screen.
-             Beside odometer-read, because the pool's damage is per vehicle:
-             a single total tells you kilometres are missing, this tells you
-             which vehicle lost them. BucketKeys takes side="read" for both,
-             since the pool holds the same ReadEntry shape the read model does
-             (cqrs/read.go) — that is the whole point of comparing them. -->
+             Beside odometer-pool-truth, because the pool's damage is per
+             vehicle: a single total tells you kilometres are missing, this
+             tells you which vehicle lost them. Both fold the SAME log,
+             ODOMETER_POOL, which is what makes a row-by-row comparison mean
+             anything (04.8.8, D3). BucketKeys takes side="read" for both,
+             since both hold the ReadEntry shape from cqrs/read.go — the same
+             project() builds them, pointed at two different buckets. -->
         <TabPanel value="pool">
           <div
             class="cols"
@@ -694,8 +699,8 @@ function km(n) {
             />
             <BucketKeys
               side="read"
-              :bucket="READ_KV"
-              :rows="readRows"
+              :bucket="POOL_TRUTH_KV"
+              :rows="truthRows"
               :head="head"
             />
           </div>

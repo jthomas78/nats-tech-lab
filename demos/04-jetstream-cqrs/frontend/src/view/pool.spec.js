@@ -85,33 +85,51 @@ describe('ackBars', () => {
   })
 })
 
+// 04.8.8 — the damage is measured against the RIGHT fold (D3).
+//
+// Both folds must read the SAME log, or the subtraction is meaningless. Until
+// 04.8 the pool folded ODOMETER and was compared with odometer-read, which
+// folds ODOMETER too, so it happened to work. Lesson 02 now has its own log,
+// ODOMETER_POOL, and odometer-read has never seen a single event from it --
+// subtracting it would report the whole pool total as damage.
+//
+// The correct fold is odometer-pool-truth: the same log, folded one message at
+// a time, in order, by a consumer capped at one.
 describe('foldDamage', () => {
-  const pool = [{ id: 'truck-7', totalKm: 41902, lastSeq: 118 }]
-  const read = [{ id: 'truck-7', totalKm: 42180, lastSeq: 118 }]
+  const pool = [{ id: 'pool-01', totalKm: 41902, lastSeq: 118 }]
+  const truth = [{ id: 'pool-01', totalKm: 42180, lastSeq: 118 }]
 
   it('reports the drift between the pool fold and the correct one', () => {
-    const d = foldDamage(pool, read)
+    const d = foldDamage(pool, truth)
     expect(d.poolKm).toBe(41902)
-    expect(d.readKm).toBe(42180)
+    expect(d.truthKm).toBe(42180)
     expect(d.drift).toBe(-278)
   })
 
+  // The read model is a different question about a different log. Naming it
+  // here at all was the defect.
+  it('has no notion of a read model left in what it reports', () => {
+    const d = foldDamage(pool, truth)
+    expect(Object.keys(d).sort()).toEqual(['damaged', 'drift', 'poolKm', 'truthKm', 'vehicles'])
+    expect(d.readKm).toBeUndefined()
+  })
+
   it('is short, never over — a dropped event is gone, it is never counted twice', () => {
-    expect(foldDamage(pool, read).drift).toBeLessThan(0)
+    expect(foldDamage(pool, truth).drift).toBeLessThan(0)
   })
 
   it('reports no damage when the two folds agree', () => {
-    const d = foldDamage(read, read)
+    const d = foldDamage(truth, truth)
     expect(d.drift).toBe(0)
     expect(d.damaged).toBe(false)
   })
 
-  it('refuses to compare against a read model that is not there', () => {
+  it('refuses to compare against a correct fold that is not there', () => {
     expect(foldDamage(pool, [])).toBeNull()
   })
 
   it('refuses to compare when the pool has folded nothing', () => {
-    expect(foldDamage([], read)).toBeNull()
+    expect(foldDamage([], truth)).toBeNull()
   })
 })
 
