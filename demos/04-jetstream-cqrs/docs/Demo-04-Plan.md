@@ -2228,11 +2228,32 @@ all three gates from `frontend/`.
       347 specs / 23 files, eslint 0 errors (7 baseline `PoolPanel.vue`
       warnings), `npm run build` clean.
 
-- [ ] **04.8.10 The documents catch up.** `CLAUDE.md`'s storage table gains
+- [x] **04.8.10 The documents catch up.** `CLAUDE.md`'s storage table gains
       `ODOMETER_POOL` and `odometer-pool-truth` and says lesson 02 owns them;
       the `ODOMETER_BENCH` isolation paragraph gains its mirror for the pool.
       `README.md` if it names the stream. No business rule changes (11.3), so
       `BUSINESS_RULES-ODOMETER.md` is not touched.
+
+      Done 2026-09-16. `CLAUDE.md`: the storage table gains `ODOMETER_POOL`
+      and `odometer-pool-truth`; the isolation paragraph gains the pool's
+      mirror of `ODOMETER_BENCH`'s, including the `ODOMETER`-is-a-prefix
+      warning and the `/ODOMETER(?!_POOL)/` boundary match; the bytes rule
+      now names `ODOMETER_POOL`; the frontend gate reads 347 specs / 23
+      files; 04.8 is marked COMPLETE and 04.9 is unblocked.
+
+      `README.md`: `nats kv ls` now lists a second stream and three buckets;
+      a new "Lesson 02 has its own log" section explains the hyphen and why
+      the pool is kept off `ODOMETER`; the damage is compared against
+      `odometer-pool-truth` with a note on why `odometer-read` cannot be
+      used; `cqrs pool -seed 10000` is the first of the four runs; the
+      `consumer info` line names `ODOMETER_POOL`.
+
+      The recorded redelivery run keeps its `cqrs seed` commands, with a note
+      that the top-up is now `cqrs pool -seed 40`. The measurement was taken
+      on `ODOMETER` and rewriting the commands would claim a run that never
+      happened.
+
+      `BUSINESS_RULES-ODOMETER.md` untouched, as 11.3 said.
 
 ### 11.9 What would make this phase a failure
 

@@ -99,16 +99,34 @@ Root rule, and it holds here: **streams are `SCREAMING_SNAKE`, KV buckets are
 | Stream | `ODOMETER` | the log — the only source of truth |
 | KV | `odometer-write` | write-side snapshot: `{state, lastSeq}` |
 | KV | `odometer-read` | read model, denormalised |
+| Stream | `ODOMETER_POOL` | lesson 02's OWN log — nothing else reads it |
 | KV | `odometer-pool` | lesson 02 — a THIRD fold, deliberately wrong |
+| KV | `odometer-pool-truth` | lesson 02 — the same log folded correctly |
 | KV | `odometer-pool-workers` | lesson 02 — one key per worker |
 | Stream | `ODOMETER_BENCH` | the rehydrate fixture, disposable |
 | KV | `odometer-bench-write` | the fixture's snapshots |
 
 Two buckets, not one. The split is the demo — you can see it in `nats kv ls`.
 
-`odometer-pool` is kept apart from `odometer-read` on purpose: the pool is
-deliberately wrong, and a demo that damaged the read model to show that would
-have nothing correct left to compare against.
+`ODOMETER_POOL` and its three buckets belong to lesson 02 and to nothing else.
+Its subject is `evt.odometer-pool.>`, which does not overlap `evt.odometer.>`
+because the second token differs — a DOT instead of the hyphen would put the
+pool inside the demo's own filter, the same trap `ODOMETER_BENCH` avoids the
+same way. Build it with `cqrs pool -seed N`.
+
+The split exists because the pool MISBEHAVES on purpose: its consumer starves
+and redelivers, and under `-kill-at` it abandons messages unacked. Before
+04.8 that happened on `ODOMETER`, the log every other screen is drawn from.
+
+Careful: `ODOMETER` is a PREFIX of `ODOMETER_POOL`, so a half-copied name
+still reads as plausible. A check for "does this name appear" must match on a
+boundary — the frontend spec uses `/ODOMETER(?!_POOL)/`.
+
+`odometer-pool` is kept apart from `odometer-pool-truth` on purpose: the pool
+is deliberately wrong, and a demo that damaged the correct fold to show that
+would have nothing left to compare against. The damage is measured against
+`odometer-pool-truth` and never against `odometer-read` — that bucket folds a
+different log.
 
 `ODOMETER_BENCH` is a fixture, not the demo. Its subject is
 `evt.odometer-bench.>`, which does not overlap `evt.odometer.>` because the
@@ -125,7 +143,8 @@ the bytes that count consumes as well. A length is a number nobody can price:
 100 000 000 events sounds reasonable right up to the moment you learn it is
 7.6 GB.
 
-It applies to `ODOMETER` and `ODOMETER_BENCH`, and to nothing else for now.
+It applies to `ODOMETER`, `ODOMETER_BENCH` and `ODOMETER_POOL`, and to
+nothing else for now.
 `frontend/src/view/format.js` has `formatBytes()`; `useOdometer.js` already
 carries `bytes` beside `messages`.
 
@@ -144,7 +163,7 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 328 specs, 22 files
+npx vitest run                      # 347 specs, 23 files
 npx eslint src --ext .js,.vue       # 0 errors; 7 PoolPanel.vue warnings are the baseline
 npm run build
 ```
@@ -162,13 +181,14 @@ is a request for a decision, not a backlog item to pick up.
 
 Nothing is PROPOSED right now.
 
-**04.9 is APPROVED** (2026-09-16), and blocked on 04.8 — lesson 02 runs
+**04.9 is APPROVED** (2026-09-16) and is next — 04.8 is done, so it is no
+longer blocked. Lesson 02 runs
 itself: a Run button on every tab, results from a real run instead of recorded
 constants. See `docs/Demo-04-Plan.md` section 12 and
 `diagrams/lesson-02-run-buttons.html`. Approved on one condition: a progress
 bar is visible for the whole of a multi-run set (D12).
 
-**04.8 is APPROVED** (2026-09-16) and in progress — lesson 02 gets its own log,
+**04.8 is COMPLETE** (2026-09-16) — lesson 02 got its own log,
 `ODOMETER_POOL`, so the pool consumer stops misbehaving on the demo's own
 stream. See `docs/Demo-04-Plan.md` section 11, decisions D8 to D12.
 

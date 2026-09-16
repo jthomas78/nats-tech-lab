@@ -177,9 +177,10 @@ nats --context lab4-odometer kv ls
 One stream, `ODOMETER`. Two buckets, `odometer-write` and `odometer-read`.
 The split is the demo.
 
-Run the worker pool (see **Lesson 02** below) and two more appear:
-`odometer-pool` and `odometer-pool-workers`. They are lesson 02's, and they do
-not exist until you run it.
+Run the worker pool (see **Lesson 02** below) and a second stream and three
+more buckets appear: `ODOMETER_POOL`, `odometer-pool`, `odometer-pool-truth`
+and `odometer-pool-workers`. They are lesson 02's, and they do not exist until
+you run it.
 
 ### 10. Stop and clean up
 
@@ -368,10 +369,31 @@ Three facts decide everything that follows.
 - **Demand order is not log order.** Worker 3 can be folding event 6 while
   worker 1 has already folded event 7.
 
-The pool folds into its own bucket, `odometer-pool`. It is a third projection
-of the same log and it is kept apart from `odometer-read` on purpose: the pool
-is deliberately damaged, and a demo that damaged the read model to show that
-would have nothing correct left to compare against.
+### Lesson 02 has its own log
+
+Since 2026-09-16 the pool reads `ODOMETER_POOL`, **not** `ODOMETER`. Its
+subject is `evt.odometer-pool.>`, which does not overlap `evt.odometer.>`
+because the SECOND token differs — a dot instead of the hyphen would put the
+pool straight back inside the demo's own filter.
+
+The split is not tidiness. The pool's consumer starves and redelivers on
+purpose, and under `-kill-at` it abandons messages unacked. One press on
+lesson 02 used to leave all of that on the log every other screen here is
+drawn from.
+
+Build it and fold it correctly in one step:
+
+```bash
+./cqrs pool -seed 10000
+```
+
+That writes 10 000 events to `ODOMETER_POOL` and folds them one at a time,
+in order, into `odometer-pool-truth`. Nothing else reads that log.
+
+The pool folds the same log into `odometer-pool`. That is the damaged
+projection, kept apart from `odometer-pool-truth` on purpose: the pool is
+deliberately wrong, and a demo that damaged the correct fold to show that
+would have nothing left to compare against.
 
 ### What the damage looks like
 
@@ -387,8 +409,12 @@ dropped     7 refused by BR-OD08 — out of order, terminated, gone
 
 **The pool's total is short, never double.** A dropped event is a fact that is
 gone: the fold's position never moves back, so nothing repairs it. Compare
-`odometer-pool` against `odometer-read` and the difference is the cost of the
-extra workers, in kilometres.
+`odometer-pool` against `odometer-pool-truth` and the difference is the cost
+of the extra workers, in kilometres.
+
+Both sides have to have folded the **same** log or the answer means nothing.
+`odometer-read` folds `ODOMETER`, which lesson 02 never publishes to, so
+subtracting it would report the pool's entire total as damage.
 
 `BR-OD08` cannot fire while `-max-pending 1`. One message in flight is one
 message in flight, whatever the worker count, so the pool behaves and proves
@@ -400,6 +426,7 @@ Each one is the same pool under a different condition. They are the four tabs
 in the UI.
 
 ```bash
+./cqrs pool -seed 10000                                  # build the log first
 ./cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s   # Live
 ./cqrs pool -workers 8 -max-pending 3                    # Starvation
 ./cqrs pool -workers 4 -ack-wait 30s -kill-at 94         # Redelivery
@@ -432,6 +459,11 @@ worker that gets the event back is never the worker that lost it.
 ./cqrs pool -workers 4 -ack-wait 5s -kill-at 74079
 ./cqrs seed -vehicle truck-7 -n 40
 ```
+
+Those two runs were measured before lesson 02 got its own log, so they used
+`cqrs seed` to top up `ODOMETER`. On `ODOMETER_POOL` the top-up is
+`./cqrs pool -seed 40`, and the sequence numbers will be smaller. The
+measurement stands; the commands to repeat it have moved.
 
 Two things fall out of it.
 
@@ -520,7 +552,7 @@ sampled while a capped pool ran, the consumer reported `num_ack_pending 3` and
 `num_waiting 4`–`5` of the 8, every time:
 
 ```bash
-nats --context lab4-odometer consumer info ODOMETER odometer-pool -j
+nats --context lab4-odometer consumer info ODOMETER_POOL odometer-pool -j
 ```
 
 Over a **run**, no — every worker gets a turn. Set the cap for the loss you
