@@ -1117,6 +1117,61 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       The Go side of the same problem was 04.7.12. Neither is a business rule;
       both are I/O.
 
+- [x] 04.7.14 the UI can answer the demo's headline question, 2026-09-16.
+
+      The last of the design review's findings. `cqrs serve` rehydrated with
+      the snapshot always on and threw the measurement away, so the one
+      question this demo exists to answer — "how much does a snapshot buy
+      you?" — could only be asked from a terminal. The browser showed the
+      RESULT of every fold and never the COST of a rebuild.
+
+      `GET /rehydrate?id=…&snapshot=…` now calls the same `rehydrate()` the
+      CLI calls and reports what it measured. Lesson 01 gains a fifth tab
+      that runs both modes and puts the two costs side by side.
+
+      It is a GET because it appends nothing. `snapshot` defaults to TRUE:
+      the expensive mode must never be reached by a typo in a query string.
+
+      Four rules in the panel, and each one is a spec:
+
+      - it never measures on mount — a rebuild from seq 1 reads the whole
+        log for that vehicle, so a human presses the button
+      - it needs one vehicle — an aggregate is one vehicle
+      - changing the vehicle clears both halves — V1's numbers under V2's
+        name is a lie the screen would tell silently
+      - the two sides must AGREE before any ratio is shown. If they rebuilt
+        different states the comparison is void and says so. 04.7.12 is why:
+        this demo has already published one headline number that was mostly
+        measurement overhead, and a flattering multiple is exactly how that
+        happened.
+
+      `fetchBoth` runs the two sides SEQUENTIALLY. Two rehydrations in flight
+      measure each other as well as themselves.
+
+      Measured live on bench-1 (10 001 events), three runs:
+
+      ```
+      cold  34.1 ms / 25.1 ms / 23.4 ms      from seq 1, 10 001 events
+      warm   1.29 ms / 1.16 ms / 1.18 ms     from the snapshot, 0 events
+      ```
+
+      About 21x, which agrees with the README's remeasured 23x. The first
+      warm call after a restart cost 7.3 ms — ordered-consumer setup, not
+      replay — so the panel's number moves on a cold process. That is the
+      honest behaviour and it is not smoothed.
+
+      One spec outside the new files changed. `view/commands.spec.js` holds
+      every printed command to the Go flag set, and it did not know Go's
+      `-flag=value` form. `-snapshot=false` is not a style choice: Go cannot
+      take a false boolean as a separate word, and `-snapshot false` parses
+      as `-snapshot=true` plus a stray argument. The guard now reads the name
+      out of both forms and additionally REFUSES `-flag false`.
+
+      No business rule changed. Rehydration judges no command, so the
+      endpoint carries no rule code and `BUSINESS_RULES-ODOMETER.md` is
+      untouched.
+
+
 ### 10.9 What would make this phase a failure
 
 - A number in `odometer-write` or `odometer-read` changed (D1).

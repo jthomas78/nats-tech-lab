@@ -246,7 +246,7 @@ grows: a guide, and one row per lesson.
 | Rail row | What it shows |
 |---|---|
 | **How it works** | this README, and the diagrams |
-| **01 · Stream + CQRS** | four tabs — Overview, the log, and each bucket |
+| **01 · Stream + CQRS** | five tabs — Overview, the log, each bucket, and Rehydrate |
 | **02 · Scaling a consumer** | four tabs — Live, Starvation, Redelivery, 1 vs 4 |
 
 Lesson 01's Overview tab is the argument: the lag lane, and both buckets side
@@ -266,6 +266,24 @@ path. That split is the demo.
 
 A command typed in the terminal lands in the same stream and shows up on the
 screen. The UI is a second door, not a second truth.
+
+Lesson 01's **Rehydrate** tab is the demo's headline question, measured while
+you watch. Pick a vehicle, press **Run both**, and the write side rebuilds that
+aggregate twice — once from sequence 1, once from the snapshot plus the tail —
+and reports what each one cost. The three buttons are the whole control: **Run
+both**, or either side on its own.
+
+Four things about that tab are deliberate.
+
+- **It never runs on its own.** A rebuild from sequence 1 reads every event that
+  vehicle ever had. That must not happen because somebody clicked a tab.
+- **It reads and never writes.** It is a `GET`, it appends nothing, and you can
+  press it as often as you like.
+- **It needs one vehicle.** An aggregate is one vehicle, so "all vehicles" is
+  not a thing you can rehydrate.
+- **It will not flatter itself.** If the two sides rebuild different states, the
+  panel prints no speed-up at all — only the reason. Section *The number used to
+  be wrong* below is why that rule is in the code.
 
 ## The finding
 

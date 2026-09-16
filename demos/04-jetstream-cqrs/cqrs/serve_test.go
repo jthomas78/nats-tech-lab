@@ -40,6 +40,15 @@ func failingRunner(err error) commandRunner {
 	}
 }
 
+// api builds the handler these specs drive.
+//
+// The rehydrate runner is a stub. This file is about commands; the read-only
+// rehydrate endpoint has its own spec file, and a command spec that had to
+// name a rehydration would be describing two things at once.
+func api(run commandRunner) http.Handler {
+	return newCommandAPI(run, stubRehydrate(Rehydrated{}, nil), []string{testOrigin})
+}
+
 func post(h http.Handler, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Origin", testOrigin)
@@ -62,7 +71,7 @@ var _ = Describe("the command API", func() {
 
 	Describe("a command the domain allows", func() {
 		It("answers 200 with the sequence the event landed on", func() {
-			h := newCommandAPI(fakeRunner(registered(), 129), []string{testOrigin})
+			h := api(fakeRunner(registered(), 129))
 			rec := post(h, "/commands/travel", `{"id":"truck-7","km":42}`)
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
@@ -70,14 +79,14 @@ var _ = Describe("the command API", func() {
 		})
 
 		It("registers an unknown vehicle", func() {
-			h := newCommandAPI(fakeRunner(unregistered(), 1), []string{testOrigin})
+			h := api(fakeRunner(unregistered(), 1))
 			rec := post(h, "/commands/register", `{"id":"truck-7","plate":"CA 41-208"}`)
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
 		})
 
 		It("retires a registered vehicle", func() {
-			h := newCommandAPI(fakeRunner(registered(), 130), []string{testOrigin})
+			h := api(fakeRunner(registered(), 130))
 			rec := post(h, "/commands/retire", `{"id":"truck-7","reason":"scrapped"}`)
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
@@ -90,7 +99,7 @@ var _ = Describe("the command API", func() {
 	Describe("a command the domain refuses", func() {
 		DescribeTable("answers 409 and names the rule",
 			func(path, body string, state Vehicle, rule, errName string) {
-				h := newCommandAPI(fakeRunner(state, 0), []string{testOrigin})
+				h := api(fakeRunner(state, 0))
 				rec := post(h, path, body)
 
 				Expect(rec.Code).To(Equal(http.StatusConflict))
@@ -127,7 +136,7 @@ var _ = Describe("the command API", func() {
 		// under two different rules. The shim must read the rule from the
 		// endpoint, not from the error alone.
 		It("calls the same error BR-OD02 on travel and BR-OD05 on retire", func() {
-			h := newCommandAPI(fakeRunner(unregistered(), 0), []string{testOrigin})
+			h := api(fakeRunner(unregistered(), 0))
 
 			Expect(decodeBody(post(h, "/commands/travel", `{"id":"g","km":1}`))).
 				To(HaveKeyWithValue("rule", "BR-OD02"))
@@ -138,12 +147,12 @@ var _ = Describe("the command API", func() {
 
 	Describe("a request the shim itself cannot use", func() {
 		It("answers 400 when the body is not JSON", func() {
-			h := newCommandAPI(fakeRunner(registered(), 1), []string{testOrigin})
+			h := api(fakeRunner(registered(), 1))
 			Expect(post(h, "/commands/travel", `not json`).Code).To(Equal(http.StatusBadRequest))
 		})
 
 		It("answers 400 when id is missing", func() {
-			h := newCommandAPI(fakeRunner(registered(), 1), []string{testOrigin})
+			h := api(fakeRunner(registered(), 1))
 			rec := post(h, "/commands/travel", `{"km":42}`)
 
 			Expect(rec.Code).To(Equal(http.StatusBadRequest))
@@ -151,7 +160,7 @@ var _ = Describe("the command API", func() {
 		})
 
 		It("answers 405 for a GET", func() {
-			h := newCommandAPI(fakeRunner(registered(), 1), []string{testOrigin})
+			h := api(fakeRunner(registered(), 1))
 			req := httptest.NewRequest(http.MethodGet, "/commands/travel", nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
@@ -160,14 +169,14 @@ var _ = Describe("the command API", func() {
 		})
 
 		It("answers 404 for an unknown command", func() {
-			h := newCommandAPI(fakeRunner(registered(), 1), []string{testOrigin})
+			h := api(fakeRunner(registered(), 1))
 			Expect(post(h, "/commands/explode", `{"id":"x"}`).Code).To(Equal(http.StatusNotFound))
 		})
 	})
 
 	Describe("a write side that is not working", func() {
 		It("answers 502, and does not dress the failure up as a rule", func() {
-			h := newCommandAPI(failingRunner(context.DeadlineExceeded), []string{testOrigin})
+			h := api(failingRunner(context.DeadlineExceeded))
 			rec := post(h, "/commands/travel", `{"id":"truck-7","km":42}`)
 
 			Expect(rec.Code).To(Equal(http.StatusBadGateway))
@@ -175,7 +184,7 @@ var _ = Describe("the command API", func() {
 		})
 
 		It("answers 503 when optimistic concurrency ran out of retries", func() {
-			h := newCommandAPI(failingRunner(ErrConflict), []string{testOrigin})
+			h := api(failingRunner(ErrConflict))
 			rec := post(h, "/commands/travel", `{"id":"truck-7","km":42}`)
 
 			Expect(rec.Code).To(Equal(http.StatusServiceUnavailable))
@@ -187,14 +196,14 @@ var _ = Describe("the command API", func() {
 	// is cross-origin. Without these headers the UI gets nothing.
 	Describe("CORS", func() {
 		It("allows the configured origin", func() {
-			h := newCommandAPI(fakeRunner(registered(), 1), []string{testOrigin})
+			h := api(fakeRunner(registered(), 1))
 			rec := post(h, "/commands/travel", `{"id":"truck-7","km":42}`)
 
 			Expect(rec.Header().Get("Access-Control-Allow-Origin")).To(Equal(testOrigin))
 		})
 
 		It("stays silent for an origin that is not configured", func() {
-			h := newCommandAPI(fakeRunner(registered(), 1), []string{testOrigin})
+			h := api(fakeRunner(registered(), 1))
 			req := httptest.NewRequest(http.MethodPost, "/commands/travel", strings.NewReader(`{"id":"x","km":1}`))
 			req.Header.Set("Origin", "http://evil.example")
 			rec := httptest.NewRecorder()
@@ -204,7 +213,7 @@ var _ = Describe("the command API", func() {
 		})
 
 		It("answers the preflight", func() {
-			h := newCommandAPI(fakeRunner(registered(), 1), []string{testOrigin})
+			h := api(fakeRunner(registered(), 1))
 			req := httptest.NewRequest(http.MethodOptions, "/commands/travel", nil)
 			req.Header.Set("Origin", testOrigin)
 			rec := httptest.NewRecorder()

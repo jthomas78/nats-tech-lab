@@ -32,12 +32,13 @@ describe('the rail is a lesson index', () => {
 })
 
 describe('the tabs each lesson carries', () => {
-  it('gives lesson 01 the overview and one tab per storage object', () => {
+  it('gives lesson 01 the overview, one tab per storage object, and rehydrate', () => {
     expect(tabsFor('lesson-01').map((t) => t.label)).toEqual([
       'Overview',
       'ODOMETER',
       'odometer-write',
       'odometer-read',
+      'Rehydrate',
     ])
   })
 

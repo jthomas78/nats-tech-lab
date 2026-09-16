@@ -31,6 +31,11 @@ export const LESSONS = Object.freeze([
       { key: 'stream', label: STREAM, cmd: `nats stream view ${STREAM}` },
       { key: 'write', label: WRITE_KV, cmd: `nats kv ls ${WRITE_KV}` },
       { key: 'read', label: READ_KV, cmd: `nats kv ls ${READ_KV}` },
+      // 04.7.14 — the demo's headline question, and the only tab that asks
+      // the write side to DO something rather than showing what it already
+      // did. It gets a tab and not a corner of Overview because "how much
+      // does a snapshot buy you" is the question this whole demo exists for.
+      { key: 'rehydrate', label: 'Rehydrate', cmd: 'cqrs rehydrate -vehicle V1 -snapshot=false' },
     ]),
   }),
   Object.freeze({

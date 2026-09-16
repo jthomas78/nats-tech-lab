@@ -11,6 +11,7 @@
 //   ODOMETER        the log itself, newest first
 //   odometer-write  every key a RULE is checked against
 //   odometer-read   every key a QUESTION is answered from
+//   Rehydrate       the demo's headline question, measured on demand
 //
 // D10 — the Overview tab must show BOTH buckets side by side. CLAUDE.md says
 // "Two buckets, not one. The split is the demo", and the per-bucket tabs exist
@@ -35,6 +36,7 @@ import BucketKeys from './BucketKeys.vue'
 import BucketPanel from './BucketPanel.vue'
 import EventLog from './EventLog.vue'
 import LagLane from './LagLane.vue'
+import RehydratePanel from './RehydratePanel.vue'
 
 const props = defineProps({
   vehicle: { type: String, default: null },
@@ -196,6 +198,12 @@ const logLabel = computed(() =>
             :rows="readRows"
             :head="head"
           />
+        </TabPanel>
+
+        <!-- Rehydrate — the headline question. It is the only tab that asks
+             the write side to do work, so it never runs on its own. -->
+        <TabPanel value="rehydrate">
+          <RehydratePanel :vehicle="vehicle" />
         </TabPanel>
       </TabPanels>
     </Tabs>

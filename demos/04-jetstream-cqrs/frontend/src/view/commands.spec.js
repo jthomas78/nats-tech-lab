@@ -51,6 +51,13 @@ const tabCmds = LESSONS.flatMap((l) => tabsFor(l.key))
 
 const printed = [...DRAIN_SOURCE, ...REDELIVERY_SOURCE, SEED_CMD, ...tabCmds]
 
+// A flag is printed either as `-name value` or as `-name=value`. Go's flag
+// package requires the second form for a false boolean, so the guard has to
+// read the name out of both.
+function flagName(word) {
+  return word.replace(/^-+/, '').split('=')[0]
+}
+
 describe('the commands this UI prints', () => {
   it('found the Go flag set, so a silent pass is not possible', () => {
     expect(SUBCOMMANDS.has('pool')).toBe(true)
@@ -68,7 +75,7 @@ describe('the commands this UI prints', () => {
     expect(SUBCOMMANDS.has(words[1])).toBe(true)
     for (const w of words.slice(2)) {
       if (!w.startsWith('-')) continue
-      expect(FLAGS.has(w.replace(/^-+/, ''))).toBe(true)
+      expect(FLAGS.has(flagName(w))).toBe(true)
     }
   })
 
@@ -76,10 +83,22 @@ describe('the commands this UI prints', () => {
     for (const line of printed) {
       const words = line.trim().split(/\s+/)
       words.forEach((w, i) => {
-        if (!w.startsWith('-') || w === '-drain') return
+        // `-flag=value` carries its own value, and `-drain` is the one
+        // valueless boolean. Everything else takes the next word.
+        if (!w.startsWith('-') || w === '-drain' || w.includes('=')) return
         expect(words[i + 1]).toBeDefined()
         expect(words[i + 1].startsWith('-')).toBe(false)
       })
+    }
+  })
+
+  // `-snapshot=false` is not a style choice. Go's flag package cannot take a
+  // false boolean as a separate word -- `-snapshot false` parses as
+  // `-snapshot=true` followed by a stray argument, and the demo would then
+  // measure the cheap mode while claiming to measure the expensive one.
+  it('spells a false boolean with =, the only form Go parses', () => {
+    for (const line of printed) {
+      expect(line).not.toMatch(/-[a-z-]+ (true|false)\b/)
     }
   })
 })

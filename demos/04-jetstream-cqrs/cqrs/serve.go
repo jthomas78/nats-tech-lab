@@ -29,6 +29,32 @@ import (
 // NATS while still calling the real rules.
 type commandRunner func(ctx context.Context, id string, decide func(Vehicle) (Event, error)) (uint64, error)
 
+// rehydrateRunner is the READ-ONLY side of the shim: rebuild one aggregate
+// and report what it cost. The real one is rehydrate(); the specs pass a
+// fake, which is how they measure nothing and still prove the wiring.
+//
+// It takes withSnapshot because that flag is the whole lesson. The screen
+// calls this twice with the two values and puts the answers side by side.
+type rehydrateRunner func(ctx context.Context, id string, withSnapshot bool) (Rehydrated, error)
+
+// rehydrateResult is one half of the comparison, as JSON.
+//
+// ElapsedMs is a float, not a rounded integer. The snapshot side of a small
+// vehicle finishes in well under a millisecond, and an integer would print
+// the demo's best number as 0.
+type rehydrateResult struct {
+	ID           string  `json:"id"`
+	UsedSnapshot bool    `json:"usedSnapshot"`
+	FromSeq      uint64  `json:"fromSeq"`
+	EventsRead   int     `json:"eventsRead"`
+	LastSeq      uint64  `json:"lastSeq"`
+	ElapsedMs    float64 `json:"elapsedMs"`
+	// The state both sides must agree on. A comparison whose halves
+	// rebuilt different vehicles is not a comparison.
+	Status string `json:"status"`
+	Plate  string `json:"plate"`
+}
+
 // commandReq is the body of all three commands. Each field is used by one of
 // them and ignored by the others.
 type commandReq struct {
@@ -95,8 +121,9 @@ var errorNames = map[error]string{
 // the page is served from another port, so every real request is
 // cross-origin, but a wildcard would let any page on the machine drive the
 // demo.
-func newCommandAPI(run commandRunner, allowedOrigins []string) http.Handler {
+func newCommandAPI(run commandRunner, rehydrateOne rehydrateRunner, allowedOrigins []string) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/rehydrate", rehydrateHandler(rehydrateOne, allowedOrigins))
 	mux.HandleFunc("/commands/", func(w http.ResponseWriter, r *http.Request) {
 		setCORS(w, r, allowedOrigins)
 
@@ -149,6 +176,61 @@ func newCommandAPI(run commandRunner, allowedOrigins []string) http.Handler {
 	return mux
 }
 
+// rehydrateHandler answers "how much does a snapshot buy you" for one vehicle.
+//
+// It is a GET because it changes nothing: it reads the log and the snapshot
+// bucket and appends neither. A POST here would be a lie about what the
+// button does.
+//
+// The default is snapshot=true. A missing flag must not replay ten thousand
+// events because somebody mistyped a query string -- the expensive mode is
+// always the one you asked for on purpose.
+func rehydrateHandler(rehydrateOne rehydrateRunner, allowedOrigins []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setCORS(w, r, allowedOrigins)
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, refusal{
+				Error: "MethodNotAllowed", Message: "rehydrate reads; use GET",
+			})
+			return
+		}
+
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, refusal{
+				Error: "BadRequest", Message: "id is required",
+			})
+			return
+		}
+
+		out, err := rehydrateOne(r.Context(), id, r.URL.Query().Get("snapshot") != "false")
+		if err != nil {
+			// No rule code. Rehydrating refuses no command, so there is no
+			// business rule here to name -- see describe().
+			writeJSON(w, http.StatusBadGateway, refusal{
+				Error: "Unavailable", Message: err.Error(),
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, rehydrateResult{
+			ID:           id,
+			UsedSnapshot: out.UsedSnapshot,
+			FromSeq:      out.FromSeq,
+			EventsRead:   out.EventsRead,
+			LastSeq:      out.LastSeq,
+			ElapsedMs:    float64(out.Elapsed) / float64(time.Millisecond),
+			Status:       string(out.Vehicle.Status),
+			Plate:        out.Vehicle.Plate,
+		})
+	}
+}
+
 // describe classifies one failure.
 //
 // A rule refusal is 409: the request was well formed and the domain said no,
@@ -179,7 +261,7 @@ func setCORS(w http.ResponseWriter, r *http.Request, allowed []string) {
 	for _, a := range allowed {
 		if origin == a {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			w.Header().Set("Vary", "Origin")
 			return
@@ -204,9 +286,16 @@ func runServe(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue
 		return seq, err
 	}
 
+	// The read-only half. This is the demo's headline question wired to the
+	// same function the CLI calls, so the tab and `cqrs rehydrate` cannot
+	// drift apart.
+	rehydrateOne := func(ctx context.Context, id string, withSnapshot bool) (Rehydrated, error) {
+		return rehydrate(ctx, js, kv, id, withSnapshot)
+	}
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           newCommandAPI(run, origins),
+		Handler:           newCommandAPI(run, rehydrateOne, origins),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
