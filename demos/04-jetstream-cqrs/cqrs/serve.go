@@ -126,15 +126,40 @@ var errorNames = map[error]string{
 	ErrConflict:          "ErrConflict",
 }
 
-// newCommandAPI builds the handler. allowedOrigins is an exact-match list --
-// the page is served from another port, so every real request is
-// cross-origin, but a wildcard would let any page on the machine drive the
-// demo.
-func newCommandAPI(run commandRunner, rehydrateOne rehydrateRunner, seedBenchFixture benchRunner, readBench benchReader, allowedOrigins []string) http.Handler {
+// apiDeps is everything the shim calls out to.
+//
+// A struct rather than a parameter list. The shim grew a seventh collaborator
+// in 04.9 and a positional call of that length is a bug waiting for two
+// arguments of the same type to be swapped -- benchRunner and benchReader
+// already differ by one word.
+type apiDeps struct {
+	run          commandRunner
+	rehydrateOne rehydrateRunner
+	seedBench    benchRunner
+	readBench    benchReader
+	runPool      poolRunner
+	seedPool     poolSeeder
+	dropPool     poolDropper
+	readPool     poolReader
+	// origins is an exact-match list -- the page is served from another
+	// port, so every real request is cross-origin, but a wildcard would let
+	// any page on the machine drive the demo.
+	origins []string
+}
+
+// newCommandAPI builds the handler.
+func newCommandAPI(d apiDeps) http.Handler {
+	run, allowedOrigins := d.run, d.origins
+	gate := &poolGate{}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/rehydrate", rehydrateHandler(rehydrateOne, allowedOrigins))
-	mux.HandleFunc("/bench", benchStateHandler(readBench, allowedOrigins))
-	mux.HandleFunc("/bench/seed", benchSeedHandler(seedBenchFixture, allowedOrigins))
+	mux.HandleFunc("/rehydrate", rehydrateHandler(d.rehydrateOne, allowedOrigins))
+	mux.HandleFunc("/bench", benchStateHandler(d.readBench, allowedOrigins))
+	mux.HandleFunc("/bench/seed", benchSeedHandler(d.seedBench, allowedOrigins))
+	mux.HandleFunc("/pool", poolStateHandler(d.readPool, gate, allowedOrigins))
+	mux.HandleFunc("/pool/run", poolRunHandler(gate, d.runPool, allowedOrigins))
+	mux.HandleFunc("/pool/seed", poolSeedHandler(gate, d.seedPool, allowedOrigins))
+	mux.HandleFunc("/pool/rm", poolRemoveHandler(gate, d.dropPool, allowedOrigins))
 	mux.HandleFunc("/commands/", func(w http.ResponseWriter, r *http.Request) {
 		setCORS(w, r, allowedOrigins)
 
@@ -343,9 +368,43 @@ func runServe(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue
 		return benchState(ctx, js, benchKV)
 	}
 
+	// Lesson 02, driven from the screen (plan 04.9). Every one of these is
+	// the same function `cqrs pool` calls, so the command printed under a
+	// button is what the button does and not a description of it.
+	//
+	// The buckets are opened per call, not at startup. `cqrs pool -rm`
+	// deletes them while the shim is running, and a shim holding a handle to
+	// a deleted bucket would answer every later press with a stale error.
+	runOnePool := func(ctx context.Context, src Source, cfg PoolConfig) (PoolResult, error) {
+		poolKV, err := ensureKV(ctx, js, PoolKV)
+		if err != nil {
+			return PoolResult{}, err
+		}
+		workersKV, err := ensureExpiringKV(ctx, js, PoolWorkersKV, PoolWorkerTTL)
+		if err != nil {
+			return PoolResult{}, err
+		}
+		return runPool(ctx, js, src, poolKV, workersKV, cfg)
+	}
+	seedPoolLog := func(ctx context.Context, size int) (PoolState, error) {
+		return seedPool(ctx, js, size)
+	}
+	dropPoolLog := func(ctx context.Context) error { return dropPool(ctx, js) }
+	readPoolLog := func(ctx context.Context) (PoolState, error) { return poolState(ctx, js) }
+
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           newCommandAPI(run, rehydrateOne, seedFixture, readFixture, origins),
+		Addr: addr,
+		Handler: newCommandAPI(apiDeps{
+			run:          run,
+			rehydrateOne: rehydrateOne,
+			seedBench:    seedFixture,
+			readBench:    readFixture,
+			runPool:      runOnePool,
+			seedPool:     seedPoolLog,
+			dropPool:     dropPoolLog,
+			readPool:     readPoolLog,
+			origins:      origins,
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

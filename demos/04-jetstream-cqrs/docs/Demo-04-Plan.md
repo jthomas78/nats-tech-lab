@@ -2419,7 +2419,7 @@ trade the approval was given on.
 
 Specs first, red before green. **None of these start until 04.8 is green.**
 
-- [ ] **04.9.1 The shim can run a pool.** `POST /pool/run` takes workers,
+- [x] **04.9.1 The shim can run a pool.** `POST /pool/run` takes workers,
       max-pending, ack-wait, kill-at and drain, calls `runPool()` in-process
       (D10), and returns the `PoolResult` when the run ends. One run at a
       time — a second request while one is running is refused by the shim, not
@@ -2429,12 +2429,34 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       names the run that is holding the lock; the handler writes nothing to
       `ODOMETER`.
 
-- [ ] **04.9.2 The shim can seed and drop the pool's log.** `POST /pool/seed`
+      Done 2026-09-16. `cqrs/serve_pool.go`, specs in `cqrs/pool_api_test.go`.
+      Verified live against `lab4-nats`: 8 workers over `ODOMETER_POOL`
+      acked 10 000 of 10 000, 0 dropped, 2 822 ms, share
+      1252/1247/1244/1251/1252/1246/1250/1258. A second `POST /pool/run`
+      two seconds in was refused 409 `PoolRunning` — "a run is already in
+      progress: 8 workers, max-pending 1000, ack-wait 30s, started 2s ago".
+      Not anticipated by the task list: `newCommandAPI` had grown to a
+      nine-argument positional call, so it now takes an `apiDeps` struct;
+      and the struct for a run in flight is `activeRun`, because
+      `pool_cmd.go` already owns the name `poolRun` as a `poolAction`.
+      The run uses `context.WithoutCancel` so a closed tab does not kill it
+      (D11).
+
+- [x] **04.9.2 The shim can seed and drop the pool's log.** `POST /pool/seed`
       and `POST /pool/rm` over 04.8's `-seed` and `-rm`. `GET /pool` reports
       the log, in events and bytes.
 
       Spec: seeding twice leaves one log's worth, not two; the report never
       returns a count without bytes.
+
+      Done 2026-09-16. Verified live: two seeds in a row both left
+      10 000 events / 810 120 bytes, matching `nats stream info`. `/pool`
+      reports `events` and `bytes` together, and both seed and rm answer
+      409 under a live run. Not anticipated: `/pool/run` takes a JSON body
+      while `/bench/seed` takes `?size=`, so a caller who seeded with
+      `{"size":99}` was answered 200 and quietly given the default. The
+      live check found it, not a spec. `/pool/seed` now reads the size from
+      a body as well as the query, and refuses a body it cannot parse.
 
 - [ ] **04.9.3 The seed group moves above the tabs** (D1). New component,
       same shape as `BenchFixture.vue`: stream named once with count and

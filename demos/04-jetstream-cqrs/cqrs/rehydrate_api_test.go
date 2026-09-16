@@ -40,9 +40,13 @@ func get(h http.Handler, path string) *httptest.ResponseRecorder {
 // rehydrateAPI builds the handler with a stubbed command runner, mirroring
 // what api() does for the command specs.
 func rehydrateAPI(r rehydrateRunner) http.Handler {
-	return newCommandAPI(fakeRunner(registered(), 1), r,
-		stubBench(BenchState{}, nil, nil), readOnly(BenchState{}),
-		[]string{testOrigin})
+	return newCommandAPI(apiDeps{
+		run:          fakeRunner(registered(), 1),
+		rehydrateOne: r,
+		seedBench:    stubBench(BenchState{}, nil, nil),
+		readBench:    readOnly(BenchState{}),
+		origins:      []string{testOrigin},
+	})
 }
 
 var _ = Describe("the rehydrate endpoint", func() {

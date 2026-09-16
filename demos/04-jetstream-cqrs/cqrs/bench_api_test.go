@@ -27,12 +27,13 @@ func stubBench(out BenchState, err error, asked *[]int) benchRunner {
 }
 
 func benchAPI(seed benchRunner, read benchReader) http.Handler {
-	return newCommandAPI(
-		fakeRunner(registered(), 1),
-		stubRehydrate(Rehydrated{}, nil),
-		seed, read,
-		[]string{testOrigin},
-	)
+	return newCommandAPI(apiDeps{
+		run:          fakeRunner(registered(), 1),
+		rehydrateOne: stubRehydrate(Rehydrated{}, nil),
+		seedBench:    seed,
+		readBench:    read,
+		origins:      []string{testOrigin},
+	})
 }
 
 func seeded() BenchState {
@@ -137,15 +138,16 @@ var _ = Describe("the benchmark endpoints", func() {
 		// this the query parameter could be ignored entirely and every spec
 		// above would still pass.
 		api := func(asked *[]string) http.Handler {
-			return newCommandAPI(
-				fakeRunner(registered(), 1),
-				func(_ context.Context, src Source, _ string, _ bool) (Rehydrated, error) {
+			return newCommandAPI(apiDeps{
+				run: fakeRunner(registered(), 1),
+				rehydrateOne: func(_ context.Context, src Source, _ string, _ bool) (Rehydrated, error) {
 					*asked = append(*asked, src.Stream)
 					return Rehydrated{}, nil
 				},
-				stubBench(seeded(), nil, nil), readOnly(seeded()),
-				[]string{testOrigin},
-			)
+				seedBench: stubBench(seeded(), nil, nil),
+				readBench: readOnly(seeded()),
+				origins:   []string{testOrigin},
+			})
 		}
 
 		It("reads the benchmark when asked to", func() {

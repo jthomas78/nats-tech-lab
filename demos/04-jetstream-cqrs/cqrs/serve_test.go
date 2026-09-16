@@ -46,9 +46,13 @@ func failingRunner(err error) commandRunner {
 // rehydrate endpoint has its own spec file, and a command spec that had to
 // name a rehydration would be describing two things at once.
 func api(run commandRunner) http.Handler {
-	return newCommandAPI(run, stubRehydrate(Rehydrated{}, nil),
-		stubBench(BenchState{}, nil, nil), readOnly(BenchState{}),
-		[]string{testOrigin})
+	return newCommandAPI(apiDeps{
+		run:          run,
+		rehydrateOne: stubRehydrate(Rehydrated{}, nil),
+		seedBench:    stubBench(BenchState{}, nil, nil),
+		readBench:    readOnly(BenchState{}),
+		origins:      []string{testOrigin},
+	})
 }
 
 func post(h http.Handler, path, body string) *httptest.ResponseRecorder {
