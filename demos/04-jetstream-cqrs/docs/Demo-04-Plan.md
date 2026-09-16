@@ -1305,8 +1305,10 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       run the SAME seeding code the CLI runs, not a parallel implementation.
 
       The panel also reports the fixture. When `ODOMETER_BENCH` exists it shows
-      what is in it — the stream name, how many events, which sizes are seeded
-      — and when it does not, it says so and offers the button. A reader must
+      what is in it — the stream name, how many events, **how many bytes on
+      disk**, and which sizes are seeded — and when it does not, it says so and
+      offers the button. The byte figure is the stream's own `state.bytes`, so
+      it is what the server reports and not an estimate of ours. A reader must
       never have to leave the screen to find out whether there is anything to
       measure.
 
@@ -1325,11 +1327,34 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       try to disprove us, but it is not what makes the slope visible, and it is
       the part that needs a cap, a validator and an error state. Not first.
 
-      One number is not yet known and must be measured before the button ships:
-      **how long a million appends actually takes.** If it is minutes, the
-      button needs progress and a way to stop, and the three sizes may need to
-      become two. That measurement is the first task of the build, not an
-      afterthought — a button that looks hung is worse than no button.
+      **Measured 2026-09-16, before any of this was built, because the answer
+      decided the shape of the button.** Async publish to a file-backed
+      LimitsPolicy stream on the demo's own server:
+
+      | Appends | Wall clock |
+      |---|---|
+      | 10 000 | 37 ms |
+      | 100 000 | 219 ms |
+      | 1 000 000 | 2.195 s |
+
+      **100 000 000 was asked for and refused, 2026-09-16.** At this event size
+      the log costs about 76 bytes a message on disk, so 100M events is roughly
+      **7.6 GB** — and the machine had 23 GB free. The time would have been
+      fine (about four minutes, extrapolating); the disk would not. A demo
+      fixture must never be able to fill the disk it runs on, so the size list
+      stays at three and the largest stays at a million.
+
+      That refusal is the reason for a requirement the entry did not have:
+      **the panel must show the fixture's SIZE IN BYTES, not only its length.**
+      A reader choosing 1 000 000 is spending disk, and a screen that shows
+      only a message count hides the cost of the button it is offering.
+
+      Linear, and a million lands in about two seconds. So the button needs NO
+      progress bar, NO cancel, and no background job: a plain synchronous POST
+      that returns when the acks are in is honest and is over before a reader
+      wonders whether it worked. All three sizes stay. Re-measure if the
+      seeder ever stops publishing asynchronously — one round trip per event
+      instead of batched acks is a different number entirely.
 
       **Docs that move in the same commit as the button.** `README.md` line 280
       says "It reads and never writes", and the sentences under it say the
