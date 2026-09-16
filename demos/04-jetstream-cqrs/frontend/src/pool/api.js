@@ -168,3 +168,30 @@ export async function runPool(cfg, { fetchImpl = globalThis.fetch, base = COMMAN
     return poolUnreachable(err?.message ?? String(err))
   }
 }
+
+// stopPool cancels the run in flight (04.9.8, D6).
+//
+// It sends no body. The shim's gate is the only thing that knows which run
+// holds the lock, and a stop that named a run could name the wrong one — the
+// run the screen last read about may have ended and been replaced.
+//
+// `stopped: false` is a normal answer, not a fault: pressing Stop a moment
+// after a run ended by itself is the same request as pressing it a moment
+// earlier, and the reader got what they asked for either way.
+export async function stopPool({ fetchImpl = globalThis.fetch, base = COMMAND_API } = {}) {
+  try {
+    const res = await fetchImpl(`${base}/pool/stop`, { method: 'POST' })
+    let parsed = {}
+    try {
+      parsed = await res.json()
+    } catch {
+      // A body that is not JSON is still an answer; the status carries it.
+    }
+    if (res.status !== 200) {
+      return { kind: 'broken', error: parsed.error ?? 'Refused', message: parsed.message ?? `HTTP ${res.status}` }
+    }
+    return { kind: 'ok', stopped: Boolean(parsed.stopped), message: parsed.message ?? '' }
+  } catch (err) {
+    return poolUnreachable(err?.message ?? String(err))
+  }
+}

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PoolFixture from './PoolFixture.vue'
 import PoolPanel from './PoolPanel.vue'
 import * as api from '../pool/api.js'
-import { POOL_RM_CMD, POOL_SEED_CMD } from '../view/lessons.js'
+import { POOL_POLL_MS, POOL_RM_CMD, POOL_SEED_CMD } from '../view/lessons.js'
 import { formatCount } from '../view/format.js'
 
 // The acceptance test for the pool's seed group, task 04.9.3 (D1, D2).
@@ -191,5 +191,35 @@ describe('where it sits', () => {
     expect(fixtureAt).toBeGreaterThan(-1)
     expect(tabsAt).toBeGreaterThan(-1)
     expect(fixtureAt).toBeLessThan(tabsAt)
+  })
+})
+
+// Found by clicking, not by a spec (04.9.8).
+//
+// The fixture read the shim ONCE, on mount. A run that started after that —
+// from another tab, or from a terminal — never reached the screen, and a run
+// that ENDED left the page thinking the shim was still held. Every Run button
+// on lesson 02 then stayed grey until the reader reloaded.
+describe('PoolFixture — it keeps asking', () => {
+  it('re-reads the shim while the page is open', async () => {
+    vi.useFakeTimers()
+    const read = vi.spyOn(api, 'fetchPool').mockResolvedValue(seeded)
+    const w = mountFixture()
+    await flushPromises()
+    expect(read).toHaveBeenCalledTimes(1)
+
+    read.mockResolvedValue({ ...seeded, running: true, runningWorkers: 4 })
+    await vi.advanceTimersByTimeAsync(POOL_POLL_MS)
+    await flushPromises()
+    expect(read.mock.calls.length).toBeGreaterThan(1)
+    expect(w.emitted('state').at(-1)[0].running).toBe(true)
+
+    // And it stops when the page does. A timer that outlives its component is
+    // a leak that only shows up as a test that never finishes.
+    w.unmount()
+    const after = read.mock.calls.length
+    await vi.advanceTimersByTimeAsync(POOL_POLL_MS * 3)
+    expect(read.mock.calls.length).toBe(after)
+    vi.useRealTimers()
   })
 })

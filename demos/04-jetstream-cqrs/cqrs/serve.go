@@ -158,6 +158,7 @@ func newCommandAPI(d apiDeps) http.Handler {
 	mux.HandleFunc("/bench/seed", benchSeedHandler(d.seedBench, allowedOrigins))
 	mux.HandleFunc("/pool", poolStateHandler(d.readPool, gate, allowedOrigins))
 	mux.HandleFunc("/pool/run", poolRunHandler(gate, d.runPool, allowedOrigins))
+	mux.HandleFunc("/pool/stop", poolStopHandler(gate, allowedOrigins))
 	mux.HandleFunc("/pool/seed", poolSeedHandler(gate, d.seedPool, allowedOrigins))
 	mux.HandleFunc("/pool/rm", poolRemoveHandler(gate, d.dropPool, allowedOrigins))
 	mux.HandleFunc("/commands/", func(w http.ResponseWriter, r *http.Request) {

@@ -297,6 +297,60 @@ func poolRunHandler(gate *poolGate, run poolRunner, allowedOrigins []string) htt
 	}
 }
 
+// poolStopResult is the answer to Stop.
+//
+// `stopped` is false when nothing was running, and that is a 200, not a 4xx.
+// Pressing Stop on a run that has just finished by itself is the same request
+// as pressing it a moment earlier; answering with an error would make the
+// screen show a fault where nothing went wrong.
+type poolStopResult struct {
+	Stopped bool   `json:"stopped"`
+	Message string `json:"message"`
+}
+
+// poolStopHandler cancels the run in flight (plan 04.9.8, decision D6).
+//
+// It takes no body. The gate is the only thing that knows which run holds the
+// lock, and a stop that named a run in its body could name the wrong one --
+// the run it described may have ended and been replaced between the read and
+// the press.
+//
+// Only Live starts an open-ended run, so only Live shows this button. The
+// multi-run tabs finish by themselves, and offering them a Stop would suggest
+// they might not.
+func poolStopHandler(gate *poolGate, allowedOrigins []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setCORS(w, r, allowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, refusal{
+				Error: "MethodNotAllowed", Message: "stopping a pool changes something; use POST",
+			})
+			return
+		}
+
+		run := gate.current()
+		if run == nil {
+			writeJSON(w, http.StatusOK, poolStopResult{
+				Stopped: false, Message: "no pool is running",
+			})
+			return
+		}
+
+		// Cancel only. The lock is released by the request that took it, so
+		// two Stops in a row cannot unlock somebody else's run.
+		run.cancel()
+		writeJSON(w, http.StatusOK, poolStopResult{
+			Stopped: true,
+			Message: fmt.Sprintf("stopped a run of %d workers, max-pending %d, ack-wait %s",
+				run.Config.Workers, run.Config.MaxPending, run.Config.AckWait),
+		})
+	}
+}
+
 // The fixture half: seed, drop, report (plan 04.9.2).
 //
 // Same shape as the benchmark's endpoints, and for the same reason: the

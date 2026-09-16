@@ -49,7 +49,7 @@ const usage = `cqrs — demo 04, JetStream as an event source
               -workers N                N workers on ONE durable consumer (blocks)
               [-max-pending N]          MaxAckPending, SHARED by every worker
               [-ack-wait D]             how long the server waits for an ack
-              [-kill-at SEQ]            the worker holding SEQ goes silent — a real kill
+              [-kill-at N]              the worker holding the Nth message of the run goes silent
               [-drain]                  rebuild from seq 1, stop when empty, print the time
 
   -url  NATS url (default ` + defaultURL + `)
@@ -82,7 +82,7 @@ func run(cmd string, args []string) error {
 	workers := fs.Int("workers", 4, "how many workers bind to the pool consumer")
 	maxPending := fs.Int("max-pending", 1000, "MaxAckPending on the pool consumer — shared by every worker")
 	ackWait := fs.Duration("ack-wait", 30*time.Second, "AckWait on the pool consumer")
-	killAt := fs.Uint64("kill-at", 0, "the worker that fetches this sequence stops fetching and never acks")
+	killAt := fs.Uint64("kill-at", 0, "the worker that fetches the Nth message of this run stops fetching and never acks")
 	drain := fs.Bool("drain", false, "rebuild the pool projection from seq 1, stop when drained, print the elapsed time")
 	poolSize := fs.Int("seed", 0, "build lesson 02's own log, ODOMETER_POOL, with N events (pool)")
 	origin := fs.String("origin", defaultOrigin, "comma-separated list of browser origins allowed to send commands")
@@ -191,7 +191,7 @@ func run(cmd string, args []string) error {
 			cfg.Workers, PoolConsumer, cfg.MaxPending, cfg.AckWait)
 		fmt.Printf("folding into KV %s — heartbeats in KV %s\n", PoolKV, PoolWorkersKV)
 		if cfg.KillAt != 0 {
-			fmt.Printf("the worker that fetches #%d will stop fetching and never ack\n", cfg.KillAt)
+			fmt.Printf("the worker that fetches message #%d of this run will stop fetching and never ack\n", cfg.KillAt)
 		}
 		res, err := runPool(ctx, js, Pool, poolKV, workersKV, cfg)
 		if err != nil {

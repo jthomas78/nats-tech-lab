@@ -432,7 +432,9 @@ in the UI.
 ./cqrs pool -workers 4 -ack-wait 30s -kill-at 94         # Redelivery
 ```
 
-`-kill-at` is real fault injection, not a label. The worker that fetches that
+`-kill-at` is real fault injection, not a label. It counts the messages of
+THIS RUN, not stream sequences — a re-seed leaves the stream numbering where
+it stopped, so a fixed sequence stops existing. The worker that fetches that
 sequence stops fetching and **never acks and never naks** — exactly what the
 server sees when a process is killed. It must not nak: a nak redelivers at
 once and hides the `AckWait` wait, which is the only thing the flag exists to
@@ -619,7 +621,7 @@ drops nothing, and the count climbs hard with the worker count.
 | `projector` | run the read-side projector (blocks) |
 | `query -vehicle ID` | read the read store — one KV get, no replay |
 | `serve` | run the command API the UI posts to (blocks) |
-| `pool -workers N [-max-pending N] [-ack-wait D] [-kill-at SEQ] [-drain]` | N workers racing on one durable consumer (blocks) |
+| `pool -workers N [-max-pending N] [-ack-wait D] [-kill-at N] [-drain]` | N workers racing on one durable consumer (blocks) |
 
 ## Status
 

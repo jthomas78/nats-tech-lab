@@ -83,7 +83,10 @@ const many = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
       >
         {{ many(props.workers, 'worker') }} ·
         {{ many(props.runs, 'run') }} ·
-        about {{ props.seconds }} seconds
+        <!-- A run with no stated duration is the open-ended one (D6). It
+             has no price in seconds, and "about 0 seconds" read as a run
+             that does nothing. -->
+        {{ props.seconds > 0 ? `about ${props.seconds} seconds` : 'until you stop it' }}
       </span>
     </div>
 

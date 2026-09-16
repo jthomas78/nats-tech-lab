@@ -47,9 +47,18 @@ import {
   redelivery,
   workerRows,
 } from '../view/pool.js'
-import { POOL_SEED_CMD, POOL_SEED_EVENTS, tabsFor } from '../view/lessons.js'
+import {
+  LIVE_PLAN,
+  LIVE_SECONDS,
+  POOL_SEED_CMD,
+  POOL_SEED_EVENTS,
+  REDELIVERY_PLAN,
+  REDELIVERY_SECONDS,
+  tabsFor,
+} from '../view/lessons.js'
 import PoolFixture from './PoolFixture.vue'
 import PerformanceRuns from './PerformanceRuns.vue'
+import SingleRun from './SingleRun.vue'
 import StarvationRuns from './StarvationRuns.vue'
 import { formatBytes, formatCount } from '../view/format.js'
 import BucketKeys from './BucketKeys.vue'
@@ -80,6 +89,19 @@ const current = computed(() => TABS.find((t) => t.key === tab.value) ?? TABS[0])
 
 const rows = computed(() => workerRows(props.workers))
 const health = computed(() => poolHealth(rows.value))
+
+// Who holds the shim (D8). NOT health.running.
+//
+// health.running means "the workers bucket has rows", and those rows outlive
+// the run that wrote them — a worker writes a last heartbeat and stops, the
+// key stays. Locking on it greyed every Run button for good after the first
+// run of the day. The shim is the authority: it owns the lock, it refuses the
+// second run, and GET /pool says so. PoolFixture re-reads that on a timer and
+// hands the answer up here.
+const shimRunning = ref(false)
+const onFixtureState = (s) => {
+  shimRunning.value = s?.kind === 'ok' ? Boolean(s.running) : false
+}
 const bars = computed(() => ackBars(rows.value))
 const poolRows = computed(() => [...props.pool.values()])
 const truthRows = computed(() => [...props.truth.values()])
@@ -156,6 +178,7 @@ function km(n) {
     <PoolFixture
       :messages="props.messages"
       :bytes="props.bytes"
+      @state="onFixtureState"
     />
 
     <Tabs
@@ -175,6 +198,19 @@ function km(n) {
       <TabPanels>
         <!-- LIVE — the pool as it is running right now. -->
         <TabPanel value="live">
+          <!-- D6 — the ONLY Stop button in the demo. Live runs open-ended:
+               it folds until somebody stops it, which is what the tab is for
+               and what makes it the one run that can hang about. -->
+          <SingleRun
+            label="Start the pool"
+            :plan="LIVE_PLAN"
+            :events="props.messages || POOL_SEED_EVENTS"
+            :seconds="LIVE_SECONDS"
+            :locked="shimRunning"
+            :workers="props.workers"
+            stoppable
+          />
+
           <div
             v-if="!health.running"
             class="card idle-card"
@@ -365,7 +401,7 @@ function km(n) {
                is how a screen shows numbers after a run that never happened. -->
           <StarvationRuns
             :events="props.messages || POOL_SEED_EVENTS"
-            :locked="health.running"
+            :locked="shimRunning"
             :workers="props.workers"
           />
 
@@ -373,6 +409,17 @@ function km(n) {
 
         <!-- REDELIVERY — a watermark makes this safe, and slow. -->
         <TabPanel value="redelivery">
+          <!-- No Stop (D6). This run ends by itself: the drain finishes once
+               the abandoned message has been redelivered and acked. -->
+          <SingleRun
+            label="Kill a worker mid-run"
+            :plan="REDELIVERY_PLAN"
+            :events="props.messages || POOL_SEED_EVENTS"
+            :seconds="REDELIVERY_SECONDS"
+            :locked="shimRunning"
+            :workers="props.workers"
+          />
+
           <div
             v-if="!kill"
             class="card idle-card"
@@ -386,9 +433,10 @@ function km(n) {
             </p>
             <code class="run">{{ current.cmd }}</code>
             <p class="note cmp">
-              Stop any pool you already have running first. Every pool joins
-              the same durable consumer, so a second one just shares the work
-              and you cannot tell whose worker went quiet.
+              Every pool joins the same durable consumer, so two at once would
+              just share the work and you could not tell whose worker went
+              quiet. You cannot start a second one from here: the shim runs
+              one at a time and says who has it.
             </p>
           </div>
 
@@ -505,7 +553,7 @@ function km(n) {
         <TabPanel value="scaling">
           <PerformanceRuns
             :events="props.messages || POOL_SEED_EVENTS"
-            :locked="health.running"
+            :locked="shimRunning"
             :workers="props.workers"
           />
         </TabPanel>

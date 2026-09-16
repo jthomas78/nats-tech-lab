@@ -38,7 +38,8 @@ type PoolConfig struct {
 	AckWait    time.Duration
 
 	// KillAt is real fault injection, not a label. The worker that fetches
-	// this sequence stops fetching and never acks and never naks -- exactly
+	// the KillAt'th message OF THIS RUN stops fetching and never acks and
+	// never naks -- exactly
 	// what the server observes when a process is killed. It must not nak:
 	// a nak redelivers at once and hides the AckWait wait, which is the
 	// only thing this flag exists to show.
@@ -144,6 +145,12 @@ func runPool(ctx context.Context, js jetstream.JetStream, src Source, poolKV, wo
 	// the worker that gets it back.
 	clock := newKillClock()
 
+	// One switch for the whole pool. It counts the messages this run hands
+	// out, NOT stream sequences: a re-seed leaves the stream numbering where
+	// it stopped, so a fixed sequence stops existing after the first re-seed
+	// and the fault silently never fires.
+	kill := newKillSwitch(cfg.KillAt)
+
 	start := time.Now()
 	for i := 0; i < cfg.Workers; i++ {
 		state := &WorkerState{Worker: i + 1, Status: "waiting"}
@@ -151,7 +158,7 @@ func runPool(ctx context.Context, js jetstream.JetStream, src Source, poolKV, wo
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			work(runCtx, consumer, poolKV, workersKV, state, &mu, cfg, clock)
+			work(runCtx, consumer, poolKV, workersKV, state, &mu, cfg, clock, kill)
 		}()
 	}
 
@@ -192,6 +199,30 @@ type killClock struct {
 	at map[uint64]time.Time
 }
 
+// killSwitch decides which message of the run the fault lands on.
+//
+// It counts FIRST deliveries only. A redelivery is what the kill causes, so
+// counting one would move the target while the run is under way.
+type killSwitch struct {
+	mu   sync.Mutex
+	at   uint64
+	seen uint64
+}
+
+func newKillSwitch(at uint64) *killSwitch {
+	return &killSwitch{at: at}
+}
+
+func (k *killSwitch) fires(firstDelivery bool) bool {
+	if k == nil || k.at == 0 || !firstDelivery {
+		return false
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.seen++
+	return k.seen == k.at
+}
+
 func newKillClock() *killClock {
 	return &killClock{at: map[uint64]time.Time{}}
 }
@@ -220,7 +251,7 @@ func (c *killClock) since(seq uint64, now time.Time) (time.Duration, bool) {
 // One message at a time, on purpose. A batch of ten would hide which worker
 // holds which sequence, and holding is the thing the panel draws.
 func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV jetstream.KeyValue,
-	state *WorkerState, mu *sync.Mutex, cfg PoolConfig, clock *killClock) {
+	state *WorkerState, mu *sync.Mutex, cfg PoolConfig, clock *killClock, kill *killSwitch) {
 
 	beat := time.NewTicker(PoolHeartbeat)
 	defer beat.Stop()
@@ -257,7 +288,7 @@ func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV je
 			// worker simply stops existing as far as the pool is
 			// concerned, and the server finds out the slow way -- when
 			// AckWait expires. That wait is the lesson.
-			if cfg.KillAt != 0 && seq == cfg.KillAt && meta.NumDelivered == 1 {
+			if kill.fires(meta.NumDelivered == 1) {
 				clock.killed(seq, time.Now())
 				mu.Lock()
 				state.Status, state.Holding = "killed", seq

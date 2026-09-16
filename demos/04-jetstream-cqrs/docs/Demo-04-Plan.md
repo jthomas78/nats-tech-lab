@@ -2678,12 +2678,49 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       about anything the reader can see happen. Same decision needed as in
       04.9.6.
 
-- [ ] **04.9.8 Live gets Run and Stop; Redelivery gets Run** (D6, D8). Live is
+- [x] **04.9.8 Live gets Run and Stop; Redelivery gets Run** (D6, D8). Live is
       the only Stop button. Redelivery's "stop any pool you already have
       running first" prose is deleted — the shim refuses it now.
 
       Spec: only Live renders a Stop control; Redelivery's Run is disabled
       while another run holds the lock.
+
+      Done 2026-09-17. `POST /pool/stop` in `cqrs/serve_pool.go` (4 Ginkgo
+      specs), `stopPool()` in `frontend/src/pool/api.js`, and one new
+      component — `SingleRun.vue`, 10 specs. One run has nothing to sequence
+      and nothing to re-seed between, so it uses `useRunProgress` directly
+      rather than `useRunSet`. `stoppable` is a prop, so D6 is one decision in
+      one place. `LIVE_PLAN` and `REDELIVERY_PLAN` live in `view/lessons.js`
+      and the tab header prints `poolRunCmd(...)` of the same object, so the
+      header and the button cannot disagree.
+
+      The panel spec had to change shape. Every `TabPanel` renders whether or
+      not its tab is selected, so "which tab am I on" cannot tell two runs
+      apart; the specs identify a run by the PLAN object it carries.
+
+      Three defects the task list did not anticipate, all found by clicking:
+
+      1. **`-kill-at` had stopped injecting anything.** It named a STREAM
+         SEQUENCE, and a re-seed does not reset those — the log now runs from
+         490 001 to 500 000, so `-kill-at 94` named a message that no longer
+         existed. The Redelivery lesson ran clean and reported a clean run,
+         which is the worst kind of broken. The flag now counts the messages
+         of THIS RUN (`killSwitch` in `cqrs/pool.go`, 4 specs); `main.go`'s
+         help and `README.md` say so. Verified live: `worker 1: killed while
+         holding #490094`, then `worker 3: REDELIVERED #490094 after 30.005s`.
+      2. **Every Run button greyed for good after the first run.** The lock
+         read `health.running`, which is "the workers bucket has rows" — and
+         those rows outlive the run that wrote them. The shim is the
+         authority (D8), so `PoolFixture` now re-reads `GET /pool` every
+         `POOL_POLL_MS` (2 s) and hands the answer up; `PoolPanel` locks on
+         that. No new transport: it is the GET the fixture already made.
+      3. **Live priced itself at "about 0 seconds".** It has no duration —
+         it runs until Stop. `RunControl` now says "until you stop it".
+
+      Live numbers, 10 000 events: Live folded 10 000 in 17.4 s / 576 per s,
+      then Stop ended it from the screen and the shim reported it stopped.
+      Redelivery folded 9 999 in 31.1 s / 322 per s with 1 dropped — the
+      30 s AckWait is the whole of the run's duration, which is the lesson.
 
 - [ ] **04.9.9 The recorded data is deleted** (D5). `view/drain.js` and the
       starvation and redelivery constants go, along with their specs. The

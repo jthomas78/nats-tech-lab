@@ -8,6 +8,30 @@ export const SHOWCASE_COMMANDS = Object.freeze({
   info: `nats stream info ${STREAM}`,
 })
 
+// The two runs that happen ONCE (04.9.8). They are declared here, above the
+// tab list, because the tab header and the Run button must print the same
+// line — a header that disagrees with the button under it is worse than no
+// header at all.
+//
+// Live does NOT drain (D6). It runs open-ended until Stop, which is what
+// makes it the only stoppable tab.
+export const LIVE_PLAN = Object.freeze({
+  workers: 4, maxPending: 1000, ackWait: '30s', drain: false,
+})
+
+// Redelivery injects a real fault: the worker that fetches this sequence
+// stops fetching and never acks and never naks. The run then has to wait out
+// the whole ack-wait before the server hands the message to somebody else,
+// which is the thing the tab is about.
+export const REDELIVERY_PLAN = Object.freeze({
+  workers: 4, ackWait: '30s', killAt: 94, drain: true,
+})
+
+// The ack-wait dominates: the run cannot finish before the abandoned message
+// is redelivered. 30s of waiting plus the drain either side of it.
+export const REDELIVERY_SECONDS = 45
+export const LIVE_SECONDS = 0
+
 export const LESSONS = Object.freeze([
   Object.freeze({
     key: 'lesson-01',
@@ -34,9 +58,9 @@ export const LESSONS = Object.freeze([
     // four subjects. D10a — odometer-pool-workers gets no tab, because the
     // Live tab already draws its contents as worker cards.
     tabs: Object.freeze([
-      { key: 'live', label: 'Live', cmd: 'cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s' },
+      { key: 'live', label: 'Live', cmd: poolRunCmd(LIVE_PLAN) },
       { key: 'starvation', label: 'Starvation', cmd: 'cqrs pool -workers 8 -max-pending 3' },
-      { key: 'redelivery', label: 'Redelivery', cmd: 'cqrs pool -workers 4 -ack-wait 30s -kill-at 94' },
+      { key: 'redelivery', label: 'Redelivery', cmd: poolRunCmd(REDELIVERY_PLAN) },
       // Renamed 04.9.7. "1 vs 4" was a lie about the tab's own contents: it
       // has held four worker counts since it was written. The header prints
       // ONE command; the tab prints the four it actually runs.
@@ -89,6 +113,14 @@ export const POOL_SEED_CMD = `cqrs pool -seed ${POOL_SEED_EVENTS}`
 // events and wants the disk back should not have to guess the flag, and the
 // button that does it prints this.
 export const POOL_RM_CMD = 'cqrs pool -rm'
+
+// How often the seed group re-reads GET /pool (04.9.8).
+//
+// The shim is the only thing that knows whether a run is in flight, and the
+// answer changes without the page doing anything: a run ends by itself, or
+// somebody starts one in a terminal. Two seconds is slow enough to be free
+// and quick enough that a Run button does not stay grey after a run ends.
+export const POOL_POLL_MS = 2000
 
 // What one seeded event costs on ODOMETER_POOL, measured against the live
 // server 2026-09-16: 810 120 bytes for 10 000 events. Used to price a seed
@@ -156,8 +188,11 @@ export function crumbFor(view) {
 // A field left out is left off the line. Handing the binary `-kill-at 0` is
 // not the same request as not mentioning it: 0 is the value that means "kill
 // nothing", and printing it invites a reader to think a fault was injected.
-export function poolRunCmd({ workers, maxPending, ackWait, killAt } = {}) {
-  const words = ['cqrs', 'pool', '-drain']
+// `drain` defaults to true because four of the five runs drain. The Live tab
+// is the exception (D6): it runs open-ended until Stop, so printing `-drain`
+// under it would describe a different run from the one the button makes.
+export function poolRunCmd({ workers, maxPending, ackWait, killAt, drain = true } = {}) {
+  const words = drain ? ['cqrs', 'pool', '-drain'] : ['cqrs', 'pool']
   if (workers != null) words.push('-workers', String(workers))
   if (maxPending != null) words.push('-max-pending', String(maxPending))
   if (ackWait != null) words.push('-ack-wait', String(ackWait))

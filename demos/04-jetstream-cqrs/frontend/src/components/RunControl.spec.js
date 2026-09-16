@@ -125,3 +125,15 @@ describe('the bar, while the set runs', () => {
     expect(at(w, 'run-stalled').exists()).toBe(false)
   })
 })
+
+// The Live run has no duration to state: it folds until somebody stops it
+// (D6). "about 0 seconds" was what that printed, which reads as a run that
+// does nothing.
+describe('RunControl — a run with no end', () => {
+  it('says it runs until you stop it, instead of pricing it at zero', () => {
+    const w = mount(RunControl, { props: plan({ runs: 1, seconds: 0 }) })
+    const cost = w.get('[data-testid="run-cost"]').text()
+    expect(cost).toContain('until you stop it')
+    expect(cost).not.toContain('0 seconds')
+  })
+})

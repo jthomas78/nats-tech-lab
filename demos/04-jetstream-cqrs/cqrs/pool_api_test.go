@@ -559,3 +559,59 @@ var _ = Describe("the pool fixture endpoints", func() {
 		})
 	})
 })
+
+// Stopping the run in flight (plan 04.9.8, decision D6).
+//
+// Live is the only tab that starts an open-ended run, so it is the only tab
+// with a Stop button. The gate has held the cancel func since 04.9.1 for
+// exactly this: the gate is the only thing that knows WHICH run to stop, and
+// a stop that took a run description in its body could stop the wrong one.
+var _ = Describe("stopping the run in flight", func() {
+
+	held := func() (http.Handler, chan struct{}, chan struct{}) {
+		hold := make(chan struct{})
+		runner, entered := enteredOnce(stubPool(drained(), nil, nil, hold))
+		h := poolAPI(runner)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			post(h, "/pool/run", `{"workers":4,"maxPending":1000,"ackWait":"30s"}`)
+		}()
+		Eventually(entered).Should(BeClosed())
+		return h, hold, done
+	}
+
+	It("cancels the run, so the runner returns without the hold being released", func() {
+		h, hold, done := held()
+		defer close(hold)
+
+		rec := post(h, "/pool/stop", `{}`)
+		Expect(rec.Code).To(Equal(http.StatusOK))
+		// The proof is the run ENDING. The hold is still shut, so only the
+		// cancelled context can have let stubPool return.
+		Eventually(done).Should(BeClosed())
+	})
+
+	It("names the run it stopped, in the flags the reader typed", func() {
+		h, hold, done := held()
+		defer func() { close(hold); Eventually(done).Should(BeClosed()) }()
+
+		body := decodeBody(post(h, "/pool/stop", `{}`))
+		Expect(body["stopped"]).To(BeTrue())
+		Expect(body["message"]).To(ContainSubstring("4 workers"))
+	})
+
+	// Not an error. Pressing Stop on a run that has just finished by itself
+	// is the same request as pressing it a moment earlier, and a 4xx would
+	// make the screen show a fault where nothing went wrong.
+	It("says so plainly when there is nothing to stop", func() {
+		rec := post(poolAPI(stubPool(drained(), nil, nil, nil)), "/pool/stop", `{}`)
+		Expect(rec.Code).To(Equal(http.StatusOK))
+		Expect(decodeBody(rec)["stopped"]).To(BeFalse())
+	})
+
+	It("refuses a GET, because stopping changes something", func() {
+		rec := get(poolAPI(stubPool(drained(), nil, nil, nil)), "/pool/stop")
+		Expect(rec.Code).To(Equal(http.StatusMethodNotAllowed))
+	})
+})

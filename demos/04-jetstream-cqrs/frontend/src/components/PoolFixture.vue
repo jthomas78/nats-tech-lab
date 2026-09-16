@@ -31,13 +31,13 @@
 // Careful with the name: ODOMETER is a PREFIX of ODOMETER_POOL, so a
 // half-copied name still reads as plausible. Nothing here may name the demo's
 // own log; the spec holds it to /ODOMETER(?!_POOL)/.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import Button from 'primevue/button'
 
 import { dropPool, fetchPool, seedPool } from '../pool/api.js'
 import { POOL_STREAM } from '../config.js'
-import { POOL_BYTES_PER_EVENT, POOL_RM_CMD, POOL_SEED_CMD } from '../view/lessons.js'
+import { POOL_BYTES_PER_EVENT, POOL_POLL_MS, POOL_RM_CMD, POOL_SEED_CMD } from '../view/lessons.js'
 import { formatBytes, formatCount } from '../view/format.js'
 
 // The length is reported ONCE, here, and neither source can supply it alone.
@@ -100,7 +100,18 @@ async function load() {
 
 // Reading what the log holds is a GET. It changes nothing, so it may run on
 // mount — unlike a seed, which may not.
-onMounted(load)
+// And it reads again, on a timer. One read on mount was a snapshot, and a
+// snapshot is always stale: a run that ended by itself left every Run button
+// on the lesson grey until the reader reloaded. Found by clicking.
+let ticker = null
+onMounted(() => {
+  load()
+  ticker = setInterval(load, POOL_POLL_MS)
+})
+onUnmounted(() => {
+  if (ticker) clearInterval(ticker)
+  ticker = null
+})
 
 async function press(what, call) {
   if (locked.value) return

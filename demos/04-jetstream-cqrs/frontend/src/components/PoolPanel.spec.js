@@ -11,7 +11,12 @@ import {
   REDELIVERY_SOURCE,
   redeliveryRows,
 } from '../view/redelivery.js'
-import { PERFORMANCE_WORKERS, STARVATION_CAPS } from '../view/lessons.js'
+import {
+  LIVE_PLAN,
+  PERFORMANCE_WORKERS,
+  REDELIVERY_PLAN,
+  STARVATION_CAPS,
+} from '../view/lessons.js'
 import { formatCount } from '../view/format.js'
 import PoolPanel from './PoolPanel.vue'
 
@@ -418,5 +423,85 @@ describe('lesson 02 names its own log and nothing else', () => {
     const hint = w.get('[data-testid="pool-caught-up"]').text()
     expect(hint).toContain('cqrs pool -seed')
     expect(hint).not.toContain('cqrs seed ')
+  })
+})
+
+// Run buttons on the two single-run tabs (04.9.8, D6, D8).
+//
+// Every TabPanel renders, hidden or not, so "which tab am I on" cannot tell
+// these two runs apart. They are told apart by the PLAN they carry, which is
+// the thing that actually differs — and which the tab header prints.
+describe('PoolPanel — Live and Redelivery run themselves', () => {
+  const singles = () =>
+    mountPanel().findAllComponents({ name: 'SingleRun' })
+
+  const withPlan = (plan) =>
+    singles().find((c) => c.props('plan') === plan)
+
+  it('gives Live and Redelivery a run of their own, and nothing else', () => {
+    const plans = singles().map((c) => c.props('plan'))
+    expect(plans).toHaveLength(2)
+    expect(plans).toContain(LIVE_PLAN)
+    expect(plans).toContain(REDELIVERY_PLAN)
+  })
+
+  it('offers a Run on each of them', () => {
+    for (const plan of [LIVE_PLAN, REDELIVERY_PLAN]) {
+      const one = withPlan(plan)
+      expect(one).toBeTruthy()
+      expect(one.find('[data-testid="run-go"]').exists()).toBe(true)
+    }
+  })
+
+  // D6 — Live runs open-ended, so it is the only run that can be stopped.
+  // Redelivery ends by itself and must not suggest otherwise. The claim is
+  // about the PROP, because the control only draws Stop once a run is under
+  // way: a spec that read the button would pass on a run that would grow one.
+  it('gives the Stop control to Live and to nothing else', () => {
+    expect(withPlan(LIVE_PLAN).props('stoppable')).toBe(true)
+    expect(withPlan(REDELIVERY_PLAN).props('stoppable')).toBe(false)
+    // The multi-run tabs have no SingleRun at all, which is the strongest
+    // form of "cannot be stopped".
+    expect(singles()).toHaveLength(2)
+  })
+
+  // D8 — the screen refuses a second pool instead of warning about one, so
+  // the warning goes. The shim knows; the prose only guessed.
+  it('no longer tells the reader to stop a pool by hand', () => {
+    expect(mountPanel().text()).not.toContain('Stop any pool you already have running')
+  })
+})
+
+// What locks a Run button (04.9.8, D8). Found by clicking.
+//
+// The panel used to lock on `health.running`, which is "the workers bucket
+// has rows in it". Those rows OUTLIVE the run — a worker writes a last
+// heartbeat and stops, the key stays. So the first run of the day greyed
+// every Run button on lesson 02 for good.
+//
+// The shim is the authority: it holds the lock, it refuses the second run,
+// and it says so in GET /pool. That is what the buttons must read.
+describe('PoolPanel — what greys a Run button', () => {
+  const lockedFlags = (w) =>
+    ['SingleRun', 'StarvationRuns', 'PerformanceRuns'].flatMap((name) =>
+      w.findAllComponents({ name }).map((c) => c.props('locked')),
+    )
+
+  const withShim = async (running) => {
+    const w = mountPanel({ workers: workers() })
+    w.findComponent({ name: 'PoolFixture' }).vm.$emit('state', {
+      kind: 'ok', running, runningWorkers: running ? 4 : 0,
+    })
+    await w.vm.$nextTick()
+    return w
+  }
+
+  it('greys every run while the shim holds one', async () => {
+    expect(lockedFlags(await withShim(true))).not.toContain(false)
+  })
+
+  // The stale rows are still there. They must not lock anything.
+  it('frees them again when the shim is idle, worker rows and all', async () => {
+    expect(lockedFlags(await withShim(false))).not.toContain(true)
   })
 })

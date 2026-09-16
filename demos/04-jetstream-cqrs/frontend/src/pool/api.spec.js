@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { describePool, describeRun, dropPool, fetchPool, runPool, seedPool } from './api.js'
+import { describePool, describeRun, dropPool, fetchPool, runPool, seedPool, stopPool } from './api.js'
 
 // The HTTP client for lesson 02's own log (plan 04.9.2, 04.9.3).
 //
@@ -176,5 +176,39 @@ describe('runPool', () => {
     expect(calls[0].url).toContain('/pool/run')
     expect(calls[0].init.method).toBe('POST')
     expect(JSON.parse(calls[0].init.body)).toEqual({ workers: 8, maxPending: 1, drain: true })
+  })
+})
+
+// Stopping the run in flight (04.9.8, D6).
+describe('stopPool', () => {
+  it('posts to the stop route with no body naming a run', async () => {
+    const calls = []
+    const fetchImpl = async (url, init) => {
+      calls.push([url, init])
+      return { status: 200, json: async () => ({ stopped: true, message: 'stopped a run of 4 workers' }) }
+    }
+    const out = await stopPool({ fetchImpl, base: 'http://x' })
+
+    expect(calls[0][0]).toBe('http://x/pool/stop')
+    expect(calls[0][1].method).toBe('POST')
+    expect(out.kind).toBe('ok')
+    expect(out.stopped).toBe(true)
+  })
+
+  // Nothing running is an ANSWER, not a fault. A reader who pressed Stop a
+  // moment after the run ended by itself got what they asked for.
+  it('treats "nothing was running" as a normal answer', async () => {
+    const fetchImpl = async () => ({
+      status: 200, json: async () => ({ stopped: false, message: 'no pool is running' }),
+    })
+    const out = await stopPool({ fetchImpl, base: 'http://x' })
+    expect(out.kind).toBe('ok')
+    expect(out.stopped).toBe(false)
+  })
+
+  it('reports a shim that does not answer', async () => {
+    const fetchImpl = async () => { throw new Error('connection refused') }
+    const out = await stopPool({ fetchImpl, base: 'http://x' })
+    expect(out.kind).toBe('broken')
   })
 })
