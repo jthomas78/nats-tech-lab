@@ -164,6 +164,8 @@ numbers side by side, "snapshots are faster" is a claim, not a finding.
 - [x] **04.5** `seed` + `rehydrate` timing, and write the finding into the README.
 - [x] **04.6** A UI for the demo — see section 9.
 - [ ] **04.7** A worker pool in front of the fold — see section 10. APPROVED 2026-09-15, in progress.
+- [ ] **04.8** Lesson 02 gets its own log — see section 11. APPROVED 2026-09-16, in progress.
+- [ ] **04.9** Lesson 02 runs itself — see section 12. APPROVED 2026-09-16, blocked on 04.8.
 
 ---
 
@@ -1754,3 +1756,555 @@ No new host port. The pool is a CLI process, like `snapshotter` and
 - A consumer that nak's a failure no retry can fix (BR-OD09), or a
   `MaxDeliver` cap that drops a message without saying so.
 
+
+---
+
+## 11. Phase 04.8 — lesson 02 gets its own log (APPROVED)
+
+**Status:** APPROVED 2026-09-16, in progress. Proposed the same day; the five
+design questions were answered in two rounds and became D8 to D12.
+
+Asked for by the user 2026-09-16, choosing "give lesson 02 its own stream" over
+"leave it on `ODOMETER`". The reason given was isolation: a lesson should own
+the event source it teaches from.
+
+This phase adds nothing to section 1's "Out" list. No Postgres, no cluster, no
+gateway, no operator mode, no Temporal, no `{context}` token.
+
+### 11.1 Why
+
+The confirmation first, because the answer was not obvious from the screen.
+Lesson 02 reads `ODOMETER`: `pool.go` binds the durable consumer
+`odometer-pool` to `StreamName` with `FilterSubject: StreamSubject`. It
+publishes nothing into that stream — it reads it and writes two KV buckets. So
+what the two lessons share is a **consumer on a log**, not events.
+
+Two reasons that is worth fixing, and only the second one is tidiness.
+
+**The pool consumer is not a passive reader.** The Starvation tab runs
+`-max-pending 3`. The Redelivery tab runs `-kill-at 94`. Both deliberately
+leave messages unacked and force the server to redeliver them — on the log
+lesson 01 is drawing live at the same moment. A lesson whose entire point is to
+misbehave should not misbehave on the demo's only source of truth.
+
+**Lesson 02 wants a big log and cannot have one.** Starvation and out-of-order
+delivery only appear over many events, and `-drain` is only comparable between
+runs if every run reads the same count — `PoolPanel.vue` says exactly that on
+screen, naming 74 109 events. Those events come from `cqrs seed`, which writes
+into `Live`. So making lesson 02 interesting today means burying lesson 01's
+event log and both bucket lists under tens of thousands of rows. That is the
+problem `ODOMETER_BENCH` was created to solve for Performance, and it is
+unsolved for lesson 02.
+
+### 11.2 Design decisions
+
+**D1 — a third `Source`, not a rename.** `names.go` already carries the shape:
+a `Source` is a stream, the subjects it holds, and the KV bucket its snapshots
+live in, and there are two of them (`Live`, `Bench`). This phase adds a third.
+`ODOMETER` keeps every byte it has, `Live` is untouched, and no number on
+lesson 01 moves. A bucket or stream name is a stream name: renaming one does
+not migrate its contents, it orphans them. So this is an addition, never a
+move, and the existing `odometer-pool` data is discarded rather than migrated.
+
+**D2 — the name is `ODOMETER_POOL`, subject `evt.odometer-pool.>`.** Not
+`ODOMETER_02`. The other two streams are named for what they hold, not for
+which lesson opens them: `ODOMETER_BENCH` is the bench fixture, and a reader
+who meets it in `nats stream ls` learns something from the name. `ODOMETER_02`
+would only be readable with the plan open beside it.
+
+There is no clash with the KV bucket `odometer-pool`. NATS stores that bucket
+as the stream `KV_odometer-pool`, and the repo's casing rule — streams
+`SCREAMING_SNAKE`, buckets `lowercase-kebab` — is what keeps the pair legible.
+`ODOMETER` and `odometer-write` are the same pattern.
+
+The second subject token differs from `evt.odometer.>` by a **hyphen, not a
+dot**, the same trick `ODOMETER_BENCH` uses. A dot would split the token and
+put every pool event back inside the demo's own filter, which is the exact
+failure this phase exists to prevent.
+
+**D3 — the correct fold moves with the pool.** This is the real cost of D1, and
+the reason this is a phase and not a flag.
+
+The pool's damage is not a number the pool knows. `view/pool.js` computes it:
+`foldDamage(poolRows, readRows)` subtracts the total kilometres in
+`odometer-read` from the total in `odometer-pool`. That comparison is only
+honest while both buckets fold the **same events**. Move the pool to its own
+stream and leave the comparison alone, and the screen would subtract two
+unrelated logs and print the difference as damage.
+
+So `ODOMETER_POOL` gets a correct fold of its own: one consumer, one worker,
+`MaxAckPending: 1`, written to a new bucket. That bucket is the right answer
+the damaged one is measured against, and it is built by the same command that
+seeds the log, before any pool run happens.
+
+**D4 — the pool's log owns its own seed.** `cqrs seed` writes to `Live` and
+stays that way. The precedent is `cqrs bench -size N`: the fixture's own
+subcommand seeds the fixture's own stream. So the seed is a flag on `pool`, not
+a source selector on `seed`. Seeding also builds the correct fold from D3 in
+the same run, because a log with no right answer beside it cannot be measured.
+
+**D5 — the pool's log is disposable, and says so.** `cqrs pool -rm` mirrors
+`cqrs bench -rm`: drop the stream, its consumers and its buckets. Nothing else
+reads them, so removal costs the demo nothing. This is what makes a large seed
+safe to offer.
+
+**D6 — the count on screen is live, and carries its bytes.** `PoolPanel.vue`
+currently states 74 109 events as prose. Once the log is the lesson's own, that
+number is a fact the screen can read, and the standing rule from 2026-09-16
+applies to it: a count is never shown without its bytes. The pool tabs report
+`ODOMETER_POOL · N events · X MiB` the way lesson 01 already reports `ODOMETER`.
+
+**D7 — the two logs never cross.** Lesson 01 never reads `ODOMETER_POOL`, and
+lesson 02 never reads `ODOMETER`. This is the mirror of the rule already in
+`CLAUDE.md` for `ODOMETER_BENCH`, and it is the whole point of the phase. A
+command, label or panel on either lesson that names the other lesson's stream
+is a defect.
+
+**D8 — the correct fold is `odometer-pool-truth`.** Settled by the user
+2026-09-16, choosing it over `odometer-pool-read`. "Read model" is lesson 01's
+idea, and borrowing the word one lesson over would invite a reader to think
+this bucket answers queries. It does not. It exists to be subtracted from.
+
+**D9 — the seed is a fixed list, and it replaces.** Settled by the user
+2026-09-16, choosing a fixed list like `cqrs bench` over a free `-n`. Two
+consequences worth spelling out, because the second one is load-bearing.
+
+A fixed log is what makes `-drain` comparable **between sessions**, not only
+within one. Today's "1 vs 4" chart is measured against whatever `ODOMETER`
+happened to hold that day, so a run from last week cannot be set beside a run
+from today. A fixed size turns those four bars into a result the demo can keep.
+
+That promise only holds if `-seed` **rebuilds**, never appends. An appending
+seed lets the count drift and quietly breaks every stored comparison.
+`ODOMETER_POOL` is purged and rewritten on every seed, and the screen says
+`replaces what is there` the way the bench fixture already does.
+
+The baseline size itself is the one open question left — see 11.7.
+
+**D10 — the bare command reports; flags run.** Settled by the user 2026-09-16,
+choosing a report over starting four workers. This matches `cqrs bench`, which
+reports when given no size, and it makes the one command a reader is most
+likely to type by accident read-only.
+
+Nothing on screen changes. All five lesson-02 tabs already print full commands
+with explicit flags (`cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s`),
+so every documented run still works character for character. What changes is
+only the undocumented naked command, which today consumes a log and writes KV
+with no warning.
+
+The run flags keep their current defaults when present, so `-drain` alone still
+means four workers. What triggers a run rather than a report is 11.7's second
+question.
+
+**D11 — the baseline is 10 000 events, on a fixed list of three.** Settled by
+the user 2026-09-16, choosing the measured evidence over the 100 000 they had
+asked for. The list mirrors `BenchSizes` exactly: 10 000, 100 000, 1 000 000,
+with 10 000 the default and the size every printed command uses.
+
+The evidence is `view/drain.js`, measured 2026-09-15 on NATS 2.14.3 in Docker
+on a laptop, over 10 029 events: 23.5 s at one worker, 12.2 s at two, 6.3 s at
+four, 4.8 s at eight. The fold writes a KV entry per event, so the
+single-worker rate of 426 events/s is the floor — and that slowness is the
+lesson, not a defect to tune away. At 100 000 events the single-worker bar
+alone would take about four minutes and the whole four-bar chart about eight.
+A reader who presses that and sees nothing for four minutes has been handed a
+broken screen, not a measurement.
+
+Disk was never the objection. At the recorded 83 bytes per event, 100 000
+events is about 8.3 MB.
+
+The larger two sizes stay on the list so a reader who wants a bigger log can
+seed it deliberately and wait for it on purpose. Only the default is small.
+
+**D12 — any run flag starts the pool; no flag reports.** Settled by the user
+2026-09-16, completing D10. `-workers`, `-max-pending`, `-ack-wait`, `-kill-at`
+or `-drain` present means run, with today's defaults for whichever are absent.
+Nothing present means report.
+
+Chosen over "only `-workers` starts a run" because every command already
+printed on the five lesson-02 tabs then keeps working character for character,
+including `cqrs pool -drain`, which a `-workers`-only rule would have turned
+into a report.
+
+### 11.3 Business rules
+
+**No new business rule, and no change to an existing one.** BR-OD08 is what the
+pool breaks, and it is enforced in `domain.go` against an event and a position.
+Neither of those knows which stream it arrived from, so moving the log changes
+nothing it checks. `BUSINESS_RULES-ODOMETER.md` is therefore not edited in this
+phase — stated here so nobody goes looking for the missing edit.
+
+### 11.4 Storage
+
+| Kind | Name | Role | New? |
+|---|---|---|---|
+| Stream | `ODOMETER` | unchanged — lesson 01 only | no |
+| KV | `odometer-write` | unchanged | no |
+| KV | `odometer-read` | unchanged | no |
+| Stream | `ODOMETER_BENCH` | unchanged — Performance only | no |
+| Stream | `ODOMETER_POOL` | lesson 02's own log, disposable | **yes** |
+| KV | `odometer-pool-truth` | the correct fold of `ODOMETER_POOL` (D3, D8) | **yes** |
+| KV | `odometer-pool` | the pool's damaged fold — now folds `ODOMETER_POOL` | changed |
+| KV | `odometer-pool-workers` | unchanged | no |
+| Consumer | `odometer-pool` | now bound to `ODOMETER_POOL` | changed |
+| Consumer | `odometer-pool-truth` | one worker, `MaxAckPending: 1` | **yes** |
+
+Every name here is settled (D8) and follows the demo's storage rule unchanged.
+
+### 11.5 CLI surface
+
+Three flags added to the existing `pool` subcommand. No new subcommand.
+
+```
+cqrs pool                report what ODOMETER_POOL holds, in events and bytes
+cqrs pool -seed N        rebuild ODOMETER_POOL at N events, and its correct fold
+cqrs pool -rm            drop ODOMETER_POOL, its consumers and its buckets
+cqrs pool -workers 4 ... run the pool, exactly as today
+```
+
+`-seed` and `-rm` are mutually exclusive and neither runs workers. The existing
+`-workers`, `-max-pending`, `-ack-wait`, `-kill-at` and `-drain` keep their
+meanings exactly; they simply point at a different stream.
+
+The bare command reports rather than running (D10, D12). `-seed` takes a size
+from the fixed list 10 000 / 100 000 / 1 000 000, not a free number, defaults
+to 10 000, and replaces rather than appends (D9, D11).
+
+### 11.6 The UI
+
+No new tab and no new panel. Lesson 02 keeps its five tabs.
+
+What changes is what they name. Every `ODOMETER` on lesson 02 becomes
+`ODOMETER_POOL`, the `74 109 events` prose becomes a live count with its bytes
+(D6), and `foldDamage()` compares `odometer-pool` against the new correct-fold
+bucket instead of `odometer-read` (D3).
+
+`useOdometer.js` reads stream info for `STREAM` today. It gains the same for
+the pool's stream. `config.js` gains `POOL_STREAM` beside the existing
+`POOL_KV`, and `commands.spec.js` — the live guard — keeps every printed
+command honest against `main.go` without being weakened.
+
+### 11.7 Open questions — all settled
+
+Nothing is open. Five questions were asked and all five are answered, in two
+rounds on 2026-09-16: D8 (`odometer-pool-truth`), D9 (a fixed seed that
+replaces), D10 (the bare command reports), D11 (10 000 as the baseline, on a
+fixed list of three) and D12 (any run flag starts the pool).
+
+One of those reversed the request that produced it. 100 000 events was asked
+for as the baseline; the measured drain times said that would make the "1 vs 4"
+chart take about eight minutes, and 10 000 was chosen instead with 100 000 kept
+on the list. The reasoning is in D11 and the measurement is in `view/drain.js`.
+
+**One inconsistency this phase must fix.** `PoolPanel.vue` tells the reader
+that `-drain` replays 74 109 events, while `view/drain.js` records the
+measurement as 10 029. One of those is stale. A fixed seed removes the
+disagreement at the source, and the number on screen becomes a fact read from
+the stream rather than prose (D6).
+
+### 11.8 Tasks
+
+Specs first, red before green, in both suites. Go work is 04.8.1 to 04.8.6 and
+runs `ginkgo ./...` from `cqrs/`; frontend work is 04.8.7 to 04.8.9 and runs
+all three gates from `frontend/`.
+
+- [ ] **04.8.1 The third `Source`.** `names.go` gains `Pool`, with
+      `ODOMETER_POOL`, `evt.odometer-pool.>`, prefix
+      `evt.odometer-pool.vehicle` and `PoolTruthKV = "odometer-pool-truth"`,
+      plus `PoolTruthConsumer`. `Live` and `Bench` are not touched.
+
+      Spec: the three sources' subjects do not overlap — no filter matches an
+      event of another source, and the second token is separated by a hyphen,
+      never a dot (D2). This is the one mistake that would silently undo the
+      whole phase, so it is the first spec written.
+
+- [ ] **04.8.2 `cqrs pool -seed N` builds the log.** Mirrors `seedBench`:
+      purge the stream, publish one registration and N-1 identical trips with
+      async publish, report elapsed. N comes from a fixed list of 10 000 /
+      100 000 / 1 000 000 and defaults to 10 000 (D11); an unlisted size is
+      refused by name, the way `ErrUnknownBenchSize` already does it.
+
+      Spec: seeding twice leaves N events, not 2N (D9). An unlisted size is
+      refused. Nothing is written to `ODOMETER`.
+
+- [ ] **04.8.3 The correct fold.** One consumer, one worker,
+      `MaxAckPending: 1`, folding `ODOMETER_POOL` into `odometer-pool-truth`.
+      It runs to completion inside `-seed`, so the right answer is on disk
+      before any pool run exists to be measured against it (D3).
+
+      Spec: after a seed, the truth bucket's total kilometres equal the seeded
+      history exactly, and no event was dropped.
+
+      If this makes the seed take more than a few seconds, report the measured
+      number rather than quietly swapping the fold for arithmetic. A computed
+      total would prove nothing about the fold.
+
+- [ ] **04.8.4 `cqrs pool -rm`.** Drops `ODOMETER_POOL`, both consumers and
+      all three buckets. Mirrors `bench -rm`, including tolerating a stream
+      that is not there. Spec: removal is idempotent, and `ODOMETER` survives
+      it untouched.
+
+- [ ] **04.8.5 The bare command reports.** No flag prints what
+      `ODOMETER_POOL` holds, in events **and bytes** — the standing rule from
+      2026-09-16 (D6). Any of `-workers`, `-max-pending`, `-ack-wait`,
+      `-kill-at` or `-drain` runs the pool instead, with today's defaults for
+      whichever are absent (D12). `-seed` and `-rm` stay mutually exclusive
+      and run no workers.
+
+      Spec: the bare command starts no consumer and writes no KV; each run
+      flag alone starts the pool; a count is never printed without its bytes.
+
+- [ ] **04.8.6 The pool binds to its own log.** `runPool` takes the `Pool`
+      source instead of spelling `StreamName` and `StreamSubject` into
+      itself, exactly as `rehydrate()` was changed in 04.7.16.
+
+      Spec: a pool run creates no consumer on `ODOMETER` and leaves no
+      unacked message there (D7). This is the defect the phase exists to
+      remove, so it gets a spec of its own rather than being assumed.
+
+- [ ] **04.8.7 The frontend learns the new names.** `config.js` gains
+      `POOL_STREAM` and `POOL_TRUTH_KV`; `useOdometer.js` reads stream info
+      for the pool's log the way it already does for `STREAM`, and watches
+      the truth bucket beside the other two.
+
+      Spec: the composable reports the pool stream's count and bytes
+      together, never one without the other.
+
+- [ ] **04.8.8 The damage is measured against the right fold.**
+      `foldDamage()` subtracts `odometer-pool-truth`, not `odometer-read`
+      (D3). Spec, red first: given a damaged pool fold and a correct truth
+      fold, the drift is the difference between those two and the read model
+      is not consulted.
+
+- [ ] **04.8.9 Lesson 02 says which log it is reading.** Every `ODOMETER` on
+      the lesson becomes `ODOMETER_POOL`. The `74 109 events` prose in
+      `PoolPanel.vue` becomes a live count with its bytes (D6) — it
+      contradicts `view/drain.js`'s recorded 10 029 today, and a fixed seed
+      is what lets the screen stop guessing.
+
+      Spec: no label, command or panel on lesson 02 names `ODOMETER`, and no
+      count on it appears without bytes. `commands.spec.js` stays green
+      untouched — it is the guard, not a cost of this change.
+
+- [ ] **04.8.10 The documents catch up.** `CLAUDE.md`'s storage table gains
+      `ODOMETER_POOL` and `odometer-pool-truth` and says lesson 02 owns them;
+      the `ODOMETER_BENCH` isolation paragraph gains its mirror for the pool.
+      `README.md` if it names the stream. No business rule changes (11.3), so
+      `BUSINESS_RULES-ODOMETER.md` is not touched.
+
+### 11.9 What would make this phase a failure
+
+- `ODOMETER` renamed, or any number in `odometer-write` or `odometer-read`
+  changed (D1).
+- A pool run leaving an unacked message or a durable consumer on `ODOMETER`.
+- Lesson 02 naming `ODOMETER`, or lesson 01 naming `ODOMETER_POOL` (D7).
+- `foldDamage()` still subtracting `odometer-read` from a fold of a different
+  log (D3).
+- A subject that puts pool events inside `evt.odometer.>` (D2).
+- An event count on lesson 02 shown without its bytes (D6).
+- `-seed` appending to `ODOMETER_POOL` instead of rebuilding it (D9). A log
+  whose count drifts cannot be compared between sessions.
+- A bare `cqrs pool` still consuming a log and writing KV (D10).
+- An event count in `PoolPanel.vue` prose that the stream does not confirm.
+- A "1 vs 4" run that takes minutes rather than under a minute (D11).
+- `commands.spec.js` weakened to make a screen pass.
+
+---
+
+## 12. Phase 04.9 — lesson 02 runs itself (APPROVED)
+
+**Status:** APPROVED 2026-09-16. Proposed and approved the same day; the
+three open questions were answered on approval and became D10 to D12.
+
+**Blocked on 04.8.** Nothing here starts until lesson 02 owns its own log.
+
+**Mockup:** `diagrams/lesson-02-run-buttons.html` — five screens.
+
+**Depends on 04.8.** This phase is only safe once lesson 02 owns
+`ODOMETER_POOL`. A Run button that damaged `ODOMETER` would put the demo's own
+log under a consumer designed to misbehave, one press away from a reader who
+did not read the warning.
+
+### 12.1 Why
+
+Lesson 02 asks the reader to open a terminal, and then shows them a table of
+numbers measured on somebody else's laptop in September. Lesson 01 does not
+work that way: Performance has a Seed button, a progress bar, a measured
+result and the terminal command printed beside it. Lesson 02 should match.
+
+Two defects are being removed, not one:
+
+- **No button.** Every other lesson surface can be driven from the screen.
+- **Hardcoded results.** `view/drain.js`, the starvation rows and the
+  redelivery rows are recorded constants. They are honest about being
+  recorded, but a reader cannot reproduce them by pressing anything, and they
+  already disagree with the prose (`PoolPanel.vue` says 74 109 events; the
+  recording says 10 029).
+
+### 12.2 Design decisions
+
+**D1 — the seed group goes above the tabs.** All five tabs read one log, so
+the group that reports and rebuilds it is not inside any of them. Same
+component shape as `BenchFixture.vue`: name the stream once, with its count
+and its bytes, one primary button, and the terminal command underneath.
+
+**D2 — every Run button prints its command.** Not a tooltip, not a footnote —
+a visible `<code>` block under the button, listing every command the press
+will run, in order. Lesson 01 established this (plan section 10.9): a number
+this demo shows must be reproducible in a terminal.
+
+**D3 — progress comes from the KV bucket, not from a new protocol.** The pool
+already publishes worker state to `odometer-pool-workers`, and the page
+already watches that bucket over the NATS WebSocket. So the run is a plain
+POST that returns when the run ends, and the progress bar is driven by the
+watch that is already open. No Server-Sent Events, no polling loop, no
+long-lived HTTP connection.
+
+This is the decision that keeps the phase small. It also keeps the screen
+honest: the bar is showing what the workers actually reported, not what the
+shim guessed.
+
+**D4 — a run is priced before it happens.** "8 workers · 4 runs · about 90
+seconds", beside the button. A screen that goes quiet for ninety seconds looks
+broken, and a reader who was never told the cost is spending time they did not
+agree to.
+
+**D5 — a row that has not been run is greyed out, never filled in.** The
+recorded tables are deleted, not kept as a fallback. A fallback would be a
+screen that shows numbers after a run that failed.
+
+**D6 — Live is the only tab that can be stopped mid-run.** It runs
+open-ended; the others run to completion and stop themselves. Giving all five
+a Stop button would suggest the other four might hang.
+
+**D7 — the multi-run tabs re-seed between runs.** Starvation runs four caps
+and Performance runs four worker counts. Run 2 of any of them would start on a
+drained consumer and finish instantly. The re-seed is part of the progress the
+bar reports.
+
+**D8 — the screen refuses a second pool, instead of warning about one.** The
+redelivery tab currently says "stop any pool you already have running first".
+With one owner of the log, the screen knows, and disables the button.
+
+**D9 — `1 vs 4` is renamed `Performance`.** It matches lesson 01, where the
+same idea sits under the same word. The old name was already wrong: the tab
+compares four worker counts, not two.
+
+### 12.3 The three questions, answered on approval
+
+**D10 — the shim runs the pool in-process.** `runPool()` is called directly,
+not shelled out to. It is testable that way, and the printed command is
+already guarded by `commands.spec.js`, which parses `main.go` and fails when
+the screen prints a command the binary would reject. Shelling out would buy a
+guarantee that guard already gives.
+
+**D11 — a closed browser tab does not stop the run.** The workers keep going
+and the next page load picks them up from `odometer-pool-workers`, which it is
+already watching. This is what a terminal run does, and a screen that silently
+killed a 90-second measurement because someone switched tabs would be worse
+than one that did not.
+
+**D12 — both full lists stay, and the progress bar is the condition.**
+Starvation runs 3 / 8 / 64 / 1000. Performance runs 1 / 2 / 4 / 8. Neither is
+shortened: the tab exists to show the shape of a curve, and two points are not
+a curve.
+
+The user approved the wait on one condition — **there must be a progress bar
+showing activity throughout**. That is not a nicety here, it is what makes the
+90 seconds acceptable. So:
+
+- The bar is visible from the first press to the last run, never disappearing
+  between runs.
+- It reports the run in progress AND the position in the set ("run 3 of 4").
+- The re-seed between runs (D7) is inside the bar, not a gap in it.
+- A bar that has not moved for longer than `-ack-wait` says so rather than
+  sitting still, because a stalled pool is a thing this lesson deliberately
+  causes.
+
+A tab that cannot show progress does not get a multi-run button. That is the
+trade the approval was given on.
+
+### 12.4 Tasks
+
+Specs first, red before green. **None of these start until 04.8 is green.**
+
+- [ ] **04.9.1 The shim can run a pool.** `POST /pool/run` takes workers,
+      max-pending, ack-wait, kill-at and drain, calls `runPool()` in-process
+      (D10), and returns the `PoolResult` when the run ends. One run at a
+      time — a second request while one is running is refused by the shim, not
+      by the screen (D8).
+
+      Spec: a second run is refused while the first is in flight; the refusal
+      names the run that is holding the lock; the handler writes nothing to
+      `ODOMETER`.
+
+- [ ] **04.9.2 The shim can seed and drop the pool's log.** `POST /pool/seed`
+      and `POST /pool/rm` over 04.8's `-seed` and `-rm`. `GET /pool` reports
+      the log, in events and bytes.
+
+      Spec: seeding twice leaves one log's worth, not two; the report never
+      returns a count without bytes.
+
+- [ ] **04.9.3 The seed group moves above the tabs** (D1). New component,
+      same shape as `BenchFixture.vue`: stream named once with count and
+      bytes, one primary button, the terminal commands printed under it (D2).
+
+      Spec: it renders above the tab strip, not inside a tab; the commands
+      shown are the commands the button runs.
+
+- [ ] **04.9.4 Progress comes from the workers bucket** (D3). A composable
+      turns the existing `odometer-pool-workers` watch into a percentage, a
+      run index and a stall flag. No new transport.
+
+      Spec: given worker rows, it reports the right percentage; it reports a
+      stall when no row has moved for longer than `-ack-wait`; it survives a
+      page reload mid-run (D11).
+
+- [ ] **04.9.5 Every Run button is priced and prints its commands** (D2, D4).
+      One shared control component, used by all four tabs, so the four cannot
+      drift apart.
+
+      Spec: the stated cost matches the number of runs the press will make;
+      every command printed is one `commands.spec.js` accepts.
+
+- [ ] **04.9.6 Starvation runs four caps** (D7, D12). Re-seeds between runs.
+      Rows fill in as each run ends; a row not yet run is greyed, never
+      filled (D5). The bar stays up for the whole set.
+
+      Spec, red first: before any run the table has four empty rows; after two
+      runs it has two filled and two empty; the recorded constants are gone
+      from the component.
+
+- [ ] **04.9.7 Performance runs four worker counts** (D7, D9, D12). Same
+      shape. The tab is renamed from `1 vs 4` to `Performance` in
+      `view/lessons.js`. Bars rescale to the slowest run so far.
+
+      Spec: no tab on lesson 02 is labelled `1 vs 4`; bars appear only for
+      completed runs.
+
+- [ ] **04.9.8 Live gets Run and Stop; Redelivery gets Run** (D6, D8). Live is
+      the only Stop button. Redelivery's "stop any pool you already have
+      running first" prose is deleted — the shim refuses it now.
+
+      Spec: only Live renders a Stop control; Redelivery's Run is disabled
+      while another run holds the lock.
+
+- [ ] **04.9.9 The recorded data is deleted** (D5). `view/drain.js` and the
+      starvation and redelivery constants go, along with their specs. The
+      stale `74 109 events` prose goes with them.
+
+      Spec: no measured number on lesson 02 comes from a constant.
+
+- [ ] **04.9.10 The documents catch up.** `CLAUDE.md` gains the new routes and
+      says lesson 02 is driven from the screen. `BUSINESS_RULES-ODOMETER.md`
+      only if a rule changes — running a pool is not a domain rule, so this is
+      expected to be untouched.
+
+### 12.5 What would make this phase a failure
+
+- A number on lesson 02 that no button can reproduce.
+- A progress bar that disappears between runs in a set.
+- A second pool started from the screen while one is running.
+- `ODOMETER` touched by anything on lesson 02.
+- A printed command the binary would reject, or `commands.spec.js` weakened to
+  let one through.

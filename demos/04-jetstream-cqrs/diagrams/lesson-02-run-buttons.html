@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 02 — every number comes from a run you started (04.8 proposal)</title>
+<style>
+  :root {
+    --bg: #131416; --panel: #1A1E23; --line: #4A515B;
+    --text: #DEE0E3; --muted: #B7BCC2; --accent: #006FFF;
+    --green: #27C07F; --warn: #9A7B1E; --red: #E05A5A;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 24px 60px; background: var(--bg); color: var(--text);
+    font: 13px/20px Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 6px; max-width: 84ch; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
+  }
+  .screen { margin-top: 34px; }
+  .screen > h2 {
+    font-size: 13px; margin: 0 0 4px; font-weight: 600;
+    padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .screen > h2 span { color: var(--muted); font-weight: 400; }
+  .why { color: var(--muted); font-size: 12px; margin: 8px 0 14px; max-width: 86ch; }
+
+  .tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .tabs div { padding: 7px 2px 9px; color: var(--muted); font-size: 12.5px; }
+  .tabs div.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 500; }
+
+  .group {
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+    padding: 12px 14px; margin-bottom: 12px;
+  }
+  .group.bad  { border-color: rgba(224,90,90,.55); }
+  .group.good { border-color: rgba(39,192,127,.55); }
+  .group.busy { border-color: rgba(0,111,255,.55); }
+  .ghead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .ghead b { font-size: 12px; font-weight: 600; }
+  .ghead .n { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .says { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin: 0; }
+  .says b { color: var(--text); }
+
+  code {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    border: 1px solid rgba(0,111,255,.35); border-radius: 4px; padding: 1px 6px;
+    background: rgba(0,111,255,.08);
+  }
+  code.plain { color: var(--muted); border-color: var(--line); background: transparent; }
+  .note { color: var(--muted); font-size: 11.5px; margin: 8px 0 0; max-width: 84ch; }
+
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .btn {
+    border: 1px solid var(--line); border-radius: 4px; padding: 5px 13px;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .btn.p { border-color: var(--accent); background: rgba(0,111,255,.15); color: var(--text); }
+  .btn.stop { border-color: rgba(224,90,90,.5); color: var(--red); }
+  .btn.off { opacity: .4; }
+  .cost { color: var(--muted); font-size: 11.5px; }
+
+  /* progress */
+  .prog { margin-top: 12px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 5px; }
+  .prog-head { display: flex; justify-content: space-between; gap: 12px; margin: 0; font-size: 11.5px; }
+  .prog-head .mono { color: var(--muted); font-family: var(--mono); }
+  .bar { overflow: hidden; height: 6px; margin-top: 7px; border-radius: 3px; background: var(--line); }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+
+  /* the alternative-command strip */
+  .alt { margin-top: 12px; }
+  .alt p { margin: 0; color: var(--muted); font-size: 11.5px; }
+  .alt ul { margin: 5px 0 0; padding: 0; list-style: none; }
+  .alt li { margin-top: 3px; }
+
+  table { margin-top: 12px; border-collapse: collapse; font-size: 12px; width: 100%; }
+  th, td { padding: 5px 14px 5px 0; text-align: left; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; }
+  td.ok { color: var(--green); }
+  td.lost { color: var(--red); }
+  tr.ctl td { color: var(--muted); }
+  tr.now td { color: var(--text); }
+  tr.pending td { opacity: .4; }
+  .track { display: inline-block; width: 110px; height: 6px; border-radius: 3px; background: var(--line); vertical-align: middle; margin-right: 8px; }
+  .track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+  .track i.base { background: var(--muted); }
+  .track i.ok { background: var(--green); }
+
+  .bar-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; font-size: 12px; }
+  .bar-row .who { width: 90px; color: var(--muted); }
+  .bar-row .track { width: 340px; height: 9px; }
+  .bar-row .right { font-family: var(--mono); font-size: 11.5px; }
+
+  .cards { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .wcard { border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; min-width: 128px; }
+  .wcard .w { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .wcard .s { font-size: 12px; margin-top: 3px; }
+  .wcard.busy { border-color: rgba(0,111,255,.5); }
+  .wcard.idle { opacity: .5; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .legend div { font-size: 11.5px; color: var(--muted); }
+  .legend b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Demo 04 · phase 04.8 · proposal</p>
+  <h1>Lesson 02 — every number comes from a run you started</h1>
+  <p class="sub">
+    Today lesson 02 shows recorded tables and says "start it yourself in a
+    terminal". This proposal gives the lesson its own log
+    (<code class="plain">ODOMETER_POOL</code>, already approved in 04.8) and a
+    Run button on every tab. The button prints the terminal command beside it,
+    exactly the way Performance does on lesson 01. Nothing is hardcoded — a
+    table is empty until you have run the thing it measures.
+  </p>
+
+  <!-- ══════════════ SCREEN 1 ══════════════ -->
+  <div class="screen">
+    <h2>1 · Stream information <span>— the same group as lesson 01 Performance, above the tabs</span></h2>
+    <p class="why">
+      One group, one job: say what <code class="plain">ODOMETER_POOL</code>
+      holds, and put it there. It sits <b>above</b> the tab strip because all
+      five tabs read the same log. A count is never shown without its bytes.
+    </p>
+
+    <div class="group">
+      <div class="ghead">
+        <b>Stream information</b>
+        <span class="n">seeded in 2 140 ms</span>
+      </div>
+      <p class="says">
+        <code class="plain">ODOMETER_POOL</code> ·
+        <b>10 000</b> events · <b>811 KiB</b> ·
+        correct fold <code class="plain">odometer-pool-truth</code> · <b>10 000</b> folded
+      </p>
+      <div class="controls">
+        <span class="btn p">Seed the log</span>
+        <span class="btn">Delete it</span>
+        <span class="cost">10 000 events · ~811 KiB · replaces what is there</span>
+      </div>
+      <div class="alt">
+        <p>Or run it in a terminal — same code, same log:</p>
+        <ul>
+          <li><code>cqrs pool -seed 10000</code></li>
+          <li><code>cqrs pool -rm</code></li>
+        </ul>
+      </div>
+      <p class="note">
+        Seeding <b>replaces</b>, it never appends. A log that grew every time
+        you pressed the button would make two sessions impossible to compare.
+      </p>
+    </div>
+
+    <div class="group">
+      <div class="ghead"><b>Not seeded yet</b></div>
+      <p class="says"><code class="plain">ODOMETER_POOL</code> · <b>0</b> events · <b>0 B</b></p>
+      <div class="controls">
+        <span class="btn p">Seed the log</span>
+        <span class="btn off">Delete it</span>
+      </div>
+      <p class="note">
+        Every Run button on every tab below is disabled until this says
+        10 000. A pool run against an empty log measures nothing.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════ SCREEN 2 ══════════════ -->
+  <div class="screen">
+    <h2>2 · Live <span>— start the pool, watch the workers, stop it</span></h2>
+    <p class="why">
+      Live is the only tab that runs <b>open-ended</b>. The others run to
+      completion. So Live is the only one with a Stop button.
+    </p>
+
+    <div class="tabs">
+      <div class="on">Live</div><div>Starvation</div><div>Redelivery</div><div>Performance</div><div>odometer-pool</div>
+    </div>
+
+    <div class="group">
+      <div class="ghead"><b>Run the pool</b></div>
+      <div class="controls">
+        <span class="btn p">Run</span>
+        <span class="cost">4 workers · max-pending 1000 · ack-wait 30s</span>
+      </div>
+      <div class="alt">
+        <p>Or run it in a terminal:</p>
+        <ul><li><code>cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s</code></li></ul>
+      </div>
+    </div>
+
+    <div class="group busy">
+      <div class="ghead"><b>Running</b><span class="n">4 workers</span></div>
+      <div class="prog">
+        <p class="prog-head">
+          <span>Folding <b>ODOMETER_POOL</b></span>
+          <span class="mono">6 431 / 10 000 · 64%</span>
+        </p>
+        <div class="bar"><span style="width:64%"></span></div>
+      </div>
+      <div class="cards">
+        <div class="wcard busy"><div class="w">worker.01</div><div class="s">busy · seq 6 431</div></div>
+        <div class="wcard busy"><div class="w">worker.02</div><div class="s">busy · seq 6 428</div></div>
+        <div class="wcard busy"><div class="w">worker.03</div><div class="s">busy · seq 6 430</div></div>
+        <div class="wcard idle"><div class="w">worker.04</div><div class="s">idle</div></div>
+      </div>
+      <div class="controls"><span class="btn stop">Stop</span></div>
+    </div>
+  </div>
+
+  <!-- ══════════════ SCREEN 3 ══════════════ -->
+  <div class="screen">
+    <h2>3 · Starvation <span>— one Run, four caps, a table that fills as it goes</span></h2>
+    <p class="why">
+      This is the change the recorded table was hiding. The tab runs the same
+      pool at four values of <code class="plain">-max-pending</code>, one after
+      another, and writes each row when that run finishes. A row you have not
+      run yet is greyed out, not invented.
+    </p>
+
+    <div class="tabs">
+      <div>Live</div><div class="on">Starvation</div><div>Redelivery</div><div>Performance</div><div>odometer-pool</div>
+    </div>
+
+    <div class="group">
+      <div class="ghead"><b>Before you press it</b></div>
+      <div class="controls">
+        <span class="btn p">Run all four caps</span>
+        <span class="cost">8 workers · 4 runs · about 90 seconds</span>
+      </div>
+      <p class="note">
+        The cost is stated <b>before</b> the press, the way the seed button on
+        lesson 01 does it. Ninety seconds of a silent screen looks broken.
+      </p>
+      <div class="alt">
+        <p>Or run them in a terminal — same code, same log:</p>
+        <ul>
+          <li><code>cqrs pool -seed 10000</code></li>
+          <li><code>cqrs pool -workers 8 -max-pending 3 -drain</code></li>
+          <li><code>cqrs pool -workers 8 -max-pending 8 -drain</code></li>
+          <li><code>cqrs pool -workers 8 -max-pending 64 -drain</code></li>
+          <li><code>cqrs pool -workers 8 -max-pending 1000 -drain</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="group busy">
+      <div class="ghead"><b>Running</b><span class="n">run 3 of 4</span></div>
+      <div class="prog">
+        <p class="prog-head">
+          <span>Cap <b>64</b> — 8 workers</span>
+          <span class="mono">4 902 / 10 000 · 49%</span>
+        </p>
+        <div class="bar"><span style="width:49%"></span></div>
+      </div>
+      <table>
+        <thead><tr><th>MaxAckPending</th><th>time</th><th>rate</th><th>workers that acked</th><th>folded</th><th>dropped</th><th>loss</th></tr></thead>
+        <tbody>
+          <tr class="now"><td><code class="plain">3</code></td><td><span class="track"><i style="width:100%"></i></span>31.4 s</td><td>319/s</td><td class="ok">3 of 8</td><td>9 983</td><td class="lost">17</td><td class="lost">0.2%</td></tr>
+          <tr class="now"><td><code class="plain">8</code></td><td><span class="track"><i style="width:62%"></i></span>19.6 s</td><td>511/s</td><td class="ok">8 of 8</td><td>9 120</td><td class="lost">880</td><td class="lost">8.8%</td></tr>
+          <tr class="pending"><td><code class="plain">64</code></td><td colspan="6">running…</td></tr>
+          <tr class="pending"><td><code class="plain">1000</code></td><td colspan="6">not run yet</td></tr>
+        </tbody>
+      </table>
+      <div class="controls"><span class="btn stop">Stop</span></div>
+    </div>
+
+    <div class="group good">
+      <div class="ghead"><b>Done</b><span class="n">your run · 2026-09-16 14:22</span></div>
+      <table>
+        <thead><tr><th>MaxAckPending</th><th>time</th><th>rate</th><th>workers that acked</th><th>folded</th><th>dropped</th><th>loss</th></tr></thead>
+        <tbody>
+          <tr><td><code class="plain">3</code></td><td><span class="track"><i style="width:100%"></i></span>31.4 s</td><td>319/s</td><td class="ok">3 of 8</td><td>9 983</td><td class="lost">17</td><td class="lost">0.2%</td></tr>
+          <tr><td><code class="plain">8</code></td><td><span class="track"><i style="width:62%"></i></span>19.6 s</td><td>511/s</td><td class="ok">8 of 8</td><td>9 120</td><td class="lost">880</td><td class="lost">8.8%</td></tr>
+          <tr><td><code class="plain">64</code></td><td><span class="track"><i style="width:29%"></i></span>9.1 s</td><td>1 099/s</td><td class="ok">8 of 8</td><td>6 744</td><td class="lost">3 256</td><td class="lost">32.6%</td></tr>
+          <tr class="ctl"><td><code class="plain">1000</code></td><td><span class="track"><i class="base" style="width:24%"></i></span>7.6 s</td><td>1 316/s</td><td class="ok">8 of 8</td><td>6 301</td><td class="lost">3 699</td><td class="lost">37.0%</td></tr>
+        </tbody>
+      </table>
+      <div class="controls">
+        <span class="btn p">Run again</span>
+        <span class="cost">replaces this table</span>
+      </div>
+      <p class="note">
+        The numbers are <b>yours</b>, from your laptop, a minute ago. The old
+        screen showed numbers recorded on someone else's machine in September
+        and asked you to believe them.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════ SCREEN 4 ══════════════ -->
+  <div class="screen">
+    <h2>4 · Performance <span>— four drains, one bar chart, built as they finish</span></h2>
+    <p class="why">
+      Same shape as Starvation. Four runs at 1, 2, 4 and 8 workers. Each bar
+      appears when its run ends, and the bars rescale to the slowest so far.
+      The tab is called <b>Performance</b>, to match lesson 01 — it is the
+      same idea in the same place. Its old name, "1 vs 4", was already wrong:
+      the tab runs four sizes, not two.
+    </p>
+
+    <div class="tabs">
+      <div>Live</div><div>Starvation</div><div>Redelivery</div><div class="on">Performance</div><div>odometer-pool</div>
+    </div>
+
+    <div class="group busy">
+      <div class="ghead"><b>Time to drain 10 000 events</b><span class="n">run 3 of 4</span></div>
+      <div class="bar-row"><span class="who">1 worker</span><span class="track"><i class="base" style="width:100%"></i></span><span class="right">23.5 s</span></div>
+      <div class="bar-row"><span class="who">2 workers</span><span class="track"><i class="ok" style="width:52%"></i></span><span class="right">12.2 s</span></div>
+      <div class="bar-row"><span class="who">4 workers</span><span class="track"><i style="width:18%"></i></span><span class="right">running…</span></div>
+      <div class="bar-row"><span class="who">8 workers</span><span class="track"></span><span class="right">—</span></div>
+      <div class="prog">
+        <p class="prog-head"><span>4 workers</span><span class="mono">1 780 / 10 000 · 18%</span></p>
+        <div class="bar"><span style="width:18%"></span></div>
+      </div>
+      <div class="controls"><span class="btn stop">Stop</span></div>
+      <div class="alt">
+        <p>Or run them in a terminal:</p>
+        <ul>
+          <li><code>cqrs pool -workers 1 -drain</code></li>
+          <li><code>cqrs pool -workers 2 -drain</code></li>
+          <li><code>cqrs pool -workers 4 -drain</code></li>
+          <li><code>cqrs pool -workers 8 -drain</code></li>
+        </ul>
+      </div>
+      <p class="note">
+        Every run re-seeds the log first, otherwise run 2 starts on a drained
+        consumer and finishes instantly. The re-seed is part of the progress.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════ SCREEN 5 ══════════════ -->
+  <div class="screen">
+    <h2>5 · Redelivery <span>— one Run, because fault injection needs a controlled log</span></h2>
+    <div class="tabs">
+      <div>Live</div><div>Starvation</div><div class="on">Redelivery</div><div>Performance</div><div>odometer-pool</div>
+    </div>
+    <div class="group">
+      <div class="ghead"><b>Kill a worker mid-fold</b></div>
+      <div class="controls">
+        <span class="btn p">Run</span>
+        <span class="cost">4 workers · kills the worker holding seq 94 · about 30 seconds</span>
+      </div>
+      <div class="alt">
+        <p>Or run it in a terminal:</p>
+        <ul><li><code>cqrs pool -workers 4 -ack-wait 30s -kill-at 94</code></li></ul>
+      </div>
+      <p class="note">
+        The old screen said "stop any pool you already have running first".
+        With its own log and a Run button, the screen can refuse the press
+        instead of asking you to remember.
+      </p>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div><b>Blue border</b> — running right now</div>
+    <div><b>Green border</b> — finished, numbers are yours</div>
+    <div><b>Grey rows</b> — not run yet; never invented</div>
+    <div><b>Every group</b> prints the terminal command that does the same thing</div>
+  </div>
+
+</div>
+</body>
+</html>

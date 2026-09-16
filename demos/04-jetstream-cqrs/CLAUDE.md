@@ -144,7 +144,7 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 326 specs, 22 files
+npx vitest run                      # 328 specs, 22 files
 npx eslint src --ext .js,.vue       # 0 errors; 7 PoolPanel.vue warnings are the baseline
 npm run build
 ```
@@ -160,8 +160,20 @@ A phase entry in `docs/Demo-04-Plan.md` stays **PROPOSED** until the user
 approves it. No tasks, no tests, no code before that. An entry marked PROPOSED
 is a request for a decision, not a backlog item to pick up.
 
-Nothing is PROPOSED right now. 04.7.18 (Performance gets one target picker and
-one seed button) was approved and completed 2026-09-16.
+Nothing is PROPOSED right now.
+
+**04.9 is APPROVED** (2026-09-16), and blocked on 04.8 — lesson 02 runs
+itself: a Run button on every tab, results from a real run instead of recorded
+constants. See `docs/Demo-04-Plan.md` section 12 and
+`diagrams/lesson-02-run-buttons.html`. Approved on one condition: a progress
+bar is visible for the whole of a multi-run set (D12).
+
+**04.8 is APPROVED** (2026-09-16) and in progress — lesson 02 gets its own log,
+`ODOMETER_POOL`, so the pool consumer stops misbehaving on the demo's own
+stream. See `docs/Demo-04-Plan.md` section 11, decisions D8 to D12.
+
+04.7.18 (Performance gets one target picker and one seed button) was approved
+and completed 2026-09-16.
 
 ## Two mechanics that are easy to get wrong
 
