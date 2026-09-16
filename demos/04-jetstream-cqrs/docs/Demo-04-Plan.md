@@ -2018,11 +2018,16 @@ all three gates from `frontend/`.
       never a dot (D2). This is the one mistake that would silently undo the
       whole phase, so it is the first spec written.
 
-- [ ] **04.8.2 `cqrs pool -seed N` builds the log.** Mirrors `seedBench`:
-      purge the stream, publish one registration and N-1 identical trips with
-      async publish, report elapsed. N comes from a fixed list of 10 000 /
-      100 000 / 1 000 000 and defaults to 10 000 (D11); an unlisted size is
-      refused by name, the way `ErrUnknownBenchSize` already does it.
+- [x] **04.8.2 `cqrs pool -seed N` builds the log.** Mirrors `seedBench`:
+      purge the stream, publish one registration per vehicle and the rest as
+      identical trips with async publish, report elapsed. The log is spread
+      over ten vehicles, `pool-01` to `pool-10` (more vehicles than the
+      biggest worker count, so the workers collide), and trips go round robin
+      so no worker can take one vehicle's history in one contiguous run.
+
+      N comes from a fixed list of 10 000 / 100 000 / 1 000 000 and defaults
+      to 10 000 (D11); an unlisted size is refused by name, the way
+      `ErrUnknownBenchSize` already does it.
 
       Spec: seeding twice leaves N events, not 2N (D9). An unlisted size is
       refused. Nothing is written to `ODOMETER`.
