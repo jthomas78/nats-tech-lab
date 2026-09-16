@@ -40,6 +40,27 @@ var _ = Describe("the event codec", func() {
 			_, err := decode("evt.odometer.vehicle.V1.exploded", []byte(`{}`))
 			Expect(err).To(HaveOccurred())
 		})
+
+		// BR-OD09. The type is in the subject, so no payload will ever make
+		// this event readable. A consumer must be able to tell that apart
+		// from "NATS was down for a second" without matching on a string.
+		It("is permanent, so a consumer can stop retrying it", func() {
+			_, err := decode("evt.odometer.vehicle.V1.exploded", []byte(`{}`))
+			Expect(err).To(MatchError(ErrUndecodable))
+			Expect(Permanent(err)).To(BeTrue())
+		})
+
+		It("says the same about a subject with no type at all", func() {
+			_, err := decode("nodots", []byte(`{}`))
+			Expect(Permanent(err)).To(BeTrue())
+		})
+
+		// A body that is not the shape its type promises is the same class of
+		// problem: the bytes are in the log for ever and will not improve.
+		It("says the same about a body that does not fit its type", func() {
+			_, err := decode("evt.odometer.vehicle.V1.travelled", []byte(`{"km":"far"}`))
+			Expect(Permanent(err)).To(BeTrue())
+		})
 	})
 
 	Context("the vehicle id in a subject", func() {
@@ -51,6 +72,15 @@ var _ = Describe("the event codec", func() {
 		It("refuses a subject of the wrong shape", func() {
 			_, err := vehicleIDFrom("evt.odometer.vehicle.V1")
 			Expect(err).To(HaveOccurred())
+		})
+
+		// BR-OD09 again. The stream filter is `evt.odometer.>`, which is
+		// wider than the subject this code writes, so anything published on
+		// `evt.odometer.anything` lands in the log and reaches both folds.
+		It("is permanent, because a subject never changes shape", func() {
+			_, err := vehicleIDFrom("evt.odometer.oops")
+			Expect(err).To(MatchError(ErrUndecodable))
+			Expect(Permanent(err)).To(BeTrue())
 		})
 	})
 })

@@ -469,7 +469,7 @@ to show.
 
 ### 10.3 Business rules
 
-**Three new fold rules. `BUSINESS_RULES-ODOMETER.md` is updated in the same
+**Four new fold rules. `BUSINESS_RULES-ODOMETER.md` is updated in the same
 commit as the code.**
 
 | ID | Rule | Error | Enforced by |
@@ -477,6 +477,11 @@ commit as the code.**
 | BR-OD06 | A fold applies an event only when its stream sequence is ahead of the fold's position | — | `Fold.Next` |
 | BR-OD07 | A sequence equal to the fold's position is a redelivery and is ignored | — | `Fold.Next` |
 | BR-OD08 | A sequence behind the fold's position is out of order and is refused | `ErrOutOfOrder` | `Fold.Next` |
+| BR-OD09 | An event this code cannot read is permanent: it is dropped, never retried | `ErrUndecodable` | `decode`, `vehicleIDFrom`, `Permanent` |
+
+BR-OD09 was added late, by 04.7.11. It is the same lesson as BR-OD08 against a
+different failure: a fold that retries what it can never apply hangs, and this
+one hung the whole demo rather than quietly shortening a total.
 
 `Fold` is a small type in `domain.go` holding one `uint64` position. It holds
 no state and reads no total; it answers "may this event be applied". The caller
@@ -1032,6 +1037,36 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       the old rail and now describes the three-row lesson index (D9), and the
       Status line claimed all phases were done.
 
+- [x] 04.7.11 BR-OD09 — a poison event must not stop a fold, 2026-09-16.
+
+      Found by a design review of the demo, not by a failing run. Both
+      long-lived consumers nak'd every error from `project` /
+      `foldIntoSnapshot`, and `decode` errors are among them. The stream
+      filter is `evt.odometer.>`, wider than the subject the code writes, so
+
+      ```bash
+      nats --context lab4-odometer pub evt.odometer.oops '{}'
+      ```
+
+      put an event in the log that neither fold could read. The nak
+      redelivered it, for ever, and `MaxAckPending: 1` held everything behind
+      it. Both KV buckets stopped, with one log line per `AckWait` as the only
+      sign. The pool had the same hole for `ErrUndecodable`, having already
+      solved the identical problem for `ErrOutOfOrder`.
+
+      The fix is the one BR-OD08 already established, applied to a second
+      class of failure: `ErrUndecodable` in `domain.go`, a `Permanent(err)`
+      predicate over both it and `ErrOutOfOrder`, and `Term()` instead of
+      `Nak()` in all three consumers. Specs first — `domain_test.go` for the
+      predicate, `codec_test.go` for the three ways a body or subject can be
+      unreadable.
+
+      **No `MaxDeliver` was added, and that is the finding.** A cap looks like
+      the same fix and is its opposite: the server gives up without telling
+      the client, so a transient failure becomes a silent loss — the exact
+      thing BR-OD08 exists to end. A message is dropped here by a fold that
+      says why, on a `DROPPED` line, or it is not dropped at all.
+
 ### 10.9 What would make this phase a failure
 
 - A number in `odometer-write` or `odometer-read` changed (D1).
@@ -1041,3 +1076,5 @@ No new host port. The pool is a CLI process, like `snapshotter` and
 - `partition()` or a `nats.conf` subject mapping appearing anywhere (D7).
 - A rail row that is not a lesson or the guide (D9).
 - Lesson 01's Overview tab showing one bucket instead of two (D10).
+- A consumer that nak's a failure no retry can fix (BR-OD09), or a
+  `MaxDeliver` cap that drops a message without saying so.

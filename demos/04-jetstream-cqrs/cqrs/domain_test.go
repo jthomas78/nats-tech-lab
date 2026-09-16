@@ -4,6 +4,8 @@ package main
 // points straight at the rule it broke.
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -227,6 +229,29 @@ var _ = Describe("the fold position", func() {
 			_, err := Fold{LastSeq: 42}.Next(7)
 			Expect(err.Error()).To(ContainSubstring("7"))
 			Expect(err.Error()).To(ContainSubstring("42"))
+		})
+	})
+
+	Context("BR-OD09 — an event the code cannot read is permanent", func() {
+		It("names ErrUndecodable as permanent", func() {
+			Expect(Permanent(ErrUndecodable)).To(BeTrue())
+		})
+
+		It("names ErrOutOfOrder as permanent too", func() {
+			Expect(Permanent(ErrOutOfOrder)).To(BeTrue())
+		})
+
+		It("sees through a wrapped error", func() {
+			Expect(Permanent(fmt.Errorf("decode: %w", ErrUndecodable))).To(BeTrue())
+		})
+
+		// This is the half that matters. NATS being unreachable is the
+		// caller's bad luck, not a bad event, and retrying fixes it. Calling
+		// it permanent would throw away an event that was always valid.
+		It("leaves an ordinary failure alone", func() {
+			Expect(Permanent(errors.New("nats: connection closed"))).To(BeFalse())
+			Expect(Permanent(ErrNonPositiveKm)).To(BeFalse())
+			Expect(Permanent(nil)).To(BeFalse())
 		})
 	})
 

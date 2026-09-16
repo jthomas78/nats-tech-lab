@@ -56,12 +56,23 @@ func runProjector(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyV
 	}
 
 	sub, err := consumer.Consume(func(msg jetstream.Msg) {
-		if err := project(ctx, kv, msg); err != nil {
+		switch err := project(ctx, kv, msg); {
+		case Permanent(err):
+			// BR-OD09. Term, not nak. These bytes are in the log for
+			// good and the next delivery reads exactly like this one,
+			// so a nak here redelivers the same event for ever -- and
+			// with MaxAckPending 1 the whole read model stops behind
+			// it. Terminating drops ONE event, loudly, and lets the
+			// rest of the log through.
+			_ = msg.Term()
+			log.Printf("projector: DROPPED %s — %v", msg.Subject(), err)
+		case err != nil:
+			// A bad moment, not a bad event. Retry.
 			log.Printf("projector: %v", err)
 			_ = msg.Nak()
-			return
+		default:
+			_ = msg.Ack()
 		}
-		_ = msg.Ack()
 	})
 	if err != nil {
 		return fmt.Errorf("read consume: %w", err)

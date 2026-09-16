@@ -49,7 +49,36 @@ var (
 	// retrying: the same event would be refused again, for ever. The caller
 	// terminates the message instead of nak'ing it, and the loss is counted.
 	ErrOutOfOrder = errors.New("event is behind the fold")
+
+	// ErrUndecodable is BR-OD09. The event is in the log and this code
+	// cannot read it -- an unknown event type, a subject of the wrong
+	// shape, or a body that does not fit the type its subject promises.
+	//
+	// The stream filter is `evt.odometer.>`, which is wider than the subject
+	// this code writes. So one `nats pub evt.odometer.oops` puts an event in
+	// the log that every fold will choke on, for ever.
+	ErrUndecodable = errors.New("event cannot be decoded")
 )
+
+// Permanent reports whether a failure is one that retrying cannot fix.
+//
+// This is the difference between a bad EVENT and a bad MOMENT. NATS being
+// unreachable is a bad moment: the event was always valid and a retry gets
+// it. An event whose type nobody knows is a bad event: the bytes are in the
+// log for ever and the tenth delivery reads exactly like the first.
+//
+// A caller nak's a bad moment and terminates a bad event. Getting this
+// backwards is how a demo hangs: BR-OD06..08 already showed that a fold
+// which nak's what it can never apply redelivers the same message until
+// somebody notices, and with MaxAckPending 1 nothing behind it moves either.
+//
+// There is deliberately NO MaxDeliver backstop on any consumer in this demo.
+// A server that gives up after N tries tells nobody -- the client never hears
+// it -- and silent loss is the exact thing BR-OD08 exists to end. A message
+// is dropped here by a fold that says why, in a log line, or not at all.
+func Permanent(err error) bool {
+	return errors.Is(err, ErrUndecodable) || errors.Is(err, ErrOutOfOrder)
+}
 
 // Status is the vehicle lifecycle. Three values, and the zero value means
 // "we have never seen this vehicle" -- which is what a replay of an empty

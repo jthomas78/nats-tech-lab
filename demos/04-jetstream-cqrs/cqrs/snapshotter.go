@@ -38,12 +38,20 @@ func runSnapshotter(ctx context.Context, js jetstream.JetStream, kv jetstream.Ke
 	}
 
 	sub, err := consumer.Consume(func(msg jetstream.Msg) {
-		if err := foldIntoSnapshot(ctx, kv, msg); err != nil {
+		switch err := foldIntoSnapshot(ctx, kv, msg); {
+		case Permanent(err):
+			// BR-OD09, and the same reasoning as the projector's. One
+			// unreadable event must not stop the snapshot: a snapshot
+			// that stops trailing the stream makes every rehydration
+			// after it replay a tail that only grows.
+			_ = msg.Term()
+			log.Printf("snapshot: DROPPED %s — %v", msg.Subject(), err)
+		case err != nil:
 			log.Printf("snapshot: %v", err)
 			_ = msg.Nak()
-			return
+		default:
+			_ = msg.Ack()
 		}
-		_ = msg.Ack()
 	})
 	if err != nil {
 		return fmt.Errorf("snapshot consume: %w", err)
@@ -111,10 +119,15 @@ func foldIntoSnapshot(ctx context.Context, kv jetstream.KeyValue, msg jetstream.
 
 // vehicleIDFrom pulls the id out of evt.odometer.vehicle.{id}.{event}.
 // Fixed arity, read by position -- the id is never split on.
+//
+// A subject of the wrong shape is ErrUndecodable, BR-OD09. The stream filter
+// is `evt.odometer.>`, wider than anything this code writes, so a stray
+// `nats pub evt.odometer.oops` really does arrive here -- and a subject does
+// not change shape between deliveries.
 func vehicleIDFrom(subject string) (string, error) {
 	parts := strings.Split(subject, ".")
 	if len(parts) != 5 {
-		return "", fmt.Errorf("subject %q is not a vehicle event", subject)
+		return "", fmt.Errorf("%w: subject %q is not a vehicle event", ErrUndecodable, subject)
 	}
 	return parts[3], nil
 }

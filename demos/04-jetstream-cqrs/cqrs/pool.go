@@ -296,6 +296,13 @@ func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV je
 			publishWorker(ctx, workersKV, state, mu)
 
 			switch err := foldIntoPool(ctx, poolKV, msg, meta); {
+			case errors.Is(err, ErrUndecodable):
+				// BR-OD09. Term, like a late event -- and counted
+				// apart from one, because Dropped on screen means
+				// "the pool lost this to racing" and an unreadable
+				// event was never the pool's fault.
+				_ = msg.Term()
+				log.Printf("worker %d: DROPPED #%d — %v", state.Worker, seq, err)
 			case errors.Is(err, ErrOutOfOrder):
 				// BR-OD08. Term, not nak. The fold's position never
 				// moves backwards, so a retry can only be refused
