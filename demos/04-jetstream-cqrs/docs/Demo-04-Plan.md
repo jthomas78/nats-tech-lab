@@ -2535,12 +2535,47 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       Not wired to a screen yet — that is 04.9.5 to 04.9.8. No live check:
       this task touches no storage and starts no run.
 
-- [ ] **04.9.5 Every Run button is priced and prints its commands** (D2, D4).
+- [x] **04.9.5 Every Run button is priced and prints its commands** (D2, D4).
       One shared control component, used by all four tabs, so the four cannot
       drift apart.
 
       Spec: the stated cost matches the number of runs the press will make;
       every command printed is one `commands.spec.js` accepts.
+
+      Done. `frontend/src/components/RunControl.vue`, 13 specs in
+      `RunControl.spec.js`, red before green. The component knows nothing
+      about pools: it is handed a price, a list of commands and a percentage,
+      and it emits `run` and `stop`. The tab owns the run; this owns the way a
+      run is offered. It also carries the bar (D12) and the Stop control the
+      Live tab will ask for in 04.9.8 (D6).
+
+      What the task list did not say, and had to be decided:
+
+      **The printed command is BUILT, not written.** `poolRunCmd()` in
+      `view/lessons.js` takes the same four numbers that drive the run itself.
+      A hand-written string beside a POST is two claims about one run, and
+      only one of them would be checked. `commands.spec.js` now exercises the
+      builder over four shapes — plain, capped, with an ack-wait, and with
+      `-kill-at` — so a renamed flag fails the guard instead of failing in
+      front of a reader.
+
+      **A field left out is left OFF the line.** `-kill-at 0` is not the same
+      request as no `-kill-at`: zero means "kill nothing", and printing it
+      invites a reader to think a fault was injected when none was.
+
+      **`-drain` is what makes it a run.** The bare `cqrs pool` reports and
+      changes nothing (section 11, D12), so every built command carries it.
+
+      **"1 runs" was worth a spec of its own.** The price is proved
+      parameterised by two inputs — 8 workers / 4 runs / 90 s and 1 worker /
+      1 run / 20 s — because a price that was really a fixed string would pass
+      a single-input spec.
+
+      **The bar is not drawn before the first press.** A bar sitting at 0% on
+      a page nobody has pressed reads as a run that failed to start.
+
+      Not yet mounted on a tab — 04.9.6 to 04.9.8 do that. No live check: the
+      component starts nothing on its own.
 
 - [ ] **04.9.6 Starvation runs four caps — 1 / 3 / 8 / 64** (D7, D12). Re-seeds between runs.
       Rows fill in as each run ends; a row not yet run is greyed, never

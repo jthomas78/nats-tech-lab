@@ -138,3 +138,25 @@ export function crumbFor(view) {
   const lesson = lessonFor(view)
   return { lesson: lesson.label, title: lesson.title, heading: lesson.heading }
 }
+
+// The command one press of a Run button is equivalent to (04.9.5, D2).
+//
+// Built, not written out, because the same four numbers drive the run itself.
+// A hand-written string beside a POST is two claims about one run, and only
+// one of them is checked.
+//
+// `-drain` is what makes it a run: the bare `cqrs pool` reports and changes
+// nothing (section 11, D12). The order of the flags is the order they are
+// listed here, so two presses of the same tab print the same line.
+//
+// A field left out is left off the line. Handing the binary `-kill-at 0` is
+// not the same request as not mentioning it: 0 is the value that means "kill
+// nothing", and printing it invites a reader to think a fault was injected.
+export function poolRunCmd({ workers, maxPending, ackWait, killAt } = {}) {
+  const words = ['cqrs', 'pool', '-drain']
+  if (workers != null) words.push('-workers', String(workers))
+  if (maxPending != null) words.push('-max-pending', String(maxPending))
+  if (ackWait != null) words.push('-ack-wait', String(ackWait))
+  if (killAt != null) words.push('-kill-at', String(killAt))
+  return words.join(' ')
+}

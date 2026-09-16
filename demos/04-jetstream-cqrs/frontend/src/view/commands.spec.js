@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { DRAIN_SOURCE } from './drain.js'
-import { BENCH_SIZES, benchCmd, LESSONS, POOL_RM_CMD, POOL_SEED_CMD, SEED_CMD, SHOWCASE_COMMANDS, tabsFor } from './lessons.js'
+import { BENCH_SIZES, benchCmd, LESSONS, POOL_RM_CMD, POOL_SEED_CMD, poolRunCmd, SEED_CMD, SHOWCASE_COMMANDS, tabsFor } from './lessons.js'
 import { REDELIVERY_SOURCE } from './redelivery.js'
 
 // Walk up to the demo folder rather than hard-coding a depth: vitest's root
@@ -58,7 +58,18 @@ const tabCmds = LESSONS.flatMap((l) => tabsFor(l.key))
 // run it instead of pressing the button, so it has to parse.
 const benchCmds = BENCH_SIZES.map(benchCmd)
 
-const printed = [...DRAIN_SOURCE, ...REDELIVERY_SOURCE, SEED_CMD, POOL_SEED_CMD, POOL_RM_CMD, ...benchCmds, ...tabCmds]
+// Lesson 02's Run buttons print a BUILT command, not a written one, so the
+// guard has to exercise the builder rather than a string. Every shape the
+// tabs ask for: a plain run, a capped run, one with an ack-wait, and one with
+// a fault injected.
+const runCmds = [
+  poolRunCmd({ workers: 8 }),
+  poolRunCmd({ workers: 8, maxPending: 1 }),
+  poolRunCmd({ workers: 8, maxPending: 1000, ackWait: '30s' }),
+  poolRunCmd({ workers: 8, maxPending: 1000, ackWait: '30s', killAt: 5000 }),
+]
+
+const printed = [...DRAIN_SOURCE, ...REDELIVERY_SOURCE, SEED_CMD, POOL_SEED_CMD, POOL_RM_CMD, ...benchCmds, ...tabCmds, ...runCmds]
 
 // A flag is printed either as `-name value` or as `-name=value`. Go's flag
 // package requires the second form for a false boolean, so the guard has to
