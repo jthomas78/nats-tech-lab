@@ -37,11 +37,10 @@ export const LESSONS = Object.freeze([
       { key: 'live', label: 'Live', cmd: 'cqrs pool -workers 4 -max-pending 1000 -ack-wait 30s' },
       { key: 'starvation', label: 'Starvation', cmd: 'cqrs pool -workers 8 -max-pending 3' },
       { key: 'redelivery', label: 'Redelivery', cmd: 'cqrs pool -workers 4 -ack-wait 30s -kill-at 94' },
-      // The header prints ONE command; the tab itself prints the whole run as
-      // a terminal (view/drain.js). Keep the two spelled the same way — a
-      // header that disagrees with the block underneath it is worse than no
-      // header at all.
-      { key: 'scaling', label: '1 vs 4', cmd: 'cqrs pool -workers N -drain' },
+      // Renamed 04.9.7. "1 vs 4" was a lie about the tab's own contents: it
+      // has held four worker counts since it was written. The header prints
+      // ONE command; the tab prints the four it actually runs.
+      { key: 'scaling', label: 'Performance', cmd: 'cqrs pool -workers N -drain' },
       // The read-only view, like the bucket lists on lesson 01 Showcase. Without this tab the pool's damage is only ever a single total,
       // and you cannot see WHICH vehicle lost the kilometres.
       { key: 'pool', label: POOL_KV, cmd: `nats kv ls ${POOL_KV}` },
@@ -190,3 +189,23 @@ export const STARVATION_WORKERS = 8
 // the whole set was 32 s. Rounded up, because an estimate that runs under is
 // the one that makes a reader think the screen has hung.
 export const STARVATION_SECONDS = 40
+
+// Lesson 02 · Performance — the four worker counts one press runs (04.9.7, D9).
+//
+// Doubling, not a spread: 1 is the control (one worker cannot race itself, so
+// it folds the whole log), and each step after it doubles. A reader can then
+// read "did doubling the workers halve the time" straight off the column
+// instead of doing arithmetic.
+export const PERFORMANCE_WORKERS = Object.freeze([1, 2, 4, 8])
+
+// The cap stays PUT across all four runs, and that is the whole design of the
+// tab. Starvation varies the cap at eight workers; this varies the workers at
+// one cap. A tab that moved both would measure neither.
+export const PERFORMANCE_MAX_PENDING = 1000
+
+// What the press COSTS, same as STARVATION_SECONDS and on the same terms.
+//
+// Timed live 2026-09-17 at the 10 000-event baseline: 1 worker is the slow
+// one and the rest are quick, so the runs dominate less than the three
+// re-seeds do. Rounded up.
+export const PERFORMANCE_SECONDS = 50

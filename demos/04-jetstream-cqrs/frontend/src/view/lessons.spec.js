@@ -47,7 +47,7 @@ describe('the tabs each lesson carries', () => {
       'Live',
       'Starvation',
       'Redelivery',
-      '1 vs 4',
+      'Performance',
       'odometer-pool',
     ])
   })

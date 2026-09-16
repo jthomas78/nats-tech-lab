@@ -2632,12 +2632,51 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       the cap is still a clear speed dial (9.6s → 2.9s) but has lost its loss
       dial, so the tab's headline claim is now only half demonstrated.
 
-- [ ] **04.9.7 Performance runs four worker counts** (D7, D9, D12). Same
+- [x] **04.9.7 Performance runs four worker counts** (D7, D9, D12). Same
       shape. The tab is renamed from `1 vs 4` to `Performance` in
       `view/lessons.js`. Bars rescale to the slowest run so far.
 
       Spec: no tab on lesson 02 is labelled `1 vs 4`; bars appear only for
       completed runs.
+
+      Done 2026-09-17. `PerformanceRuns.vue` + 12 specs, on the same
+      `useRunSet` sequencer as Starvation — the two tabs now differ only in
+      which knob they turn and what they call the column. D9 is enforced by a
+      spec: every run in the set asks for the SAME `maxPending`
+      (`PERFORMANCE_MAX_PENDING`, 1000), so a change in the table can only be
+      attributed to the workers.
+
+      The tab label is now `Performance`. `1 vs 4` was always wrong about its
+      own contents — the tab has held four worker counts since it was written.
+
+      `PoolPanel.vue` lost the recorded bars, the "what the pool bought" and
+      "what it cost" cards and the `drain-term` terminal; its spec asserts all
+      five testids are ABSENT. That was the panel's last recorded number, so
+      lesson 02 no longer shows anything it did not watch happen.
+      `view/drain.js` itself still exists — deleting it is 04.9.9.
+
+      Live, 10 000 events on `ODOMETER_POOL`, cap 1000:
+
+      | workers | time | rate | speed-up | folded | dropped |
+      |---|---|---|---|---|---|
+      | 1 | 10.5s | 949/s | 1.0x | 10 000 | 0 |
+      | 2 | 6.4s | 1 555/s | 1.6x | 10 000 | 0 |
+      | 4 | 4.1s | 2 411/s | 2.5x | 10 000 | 0 |
+      | 8 | 3.1s | 3 187/s | 3.4x | 10 000 | 0 |
+
+      The bar ran 2 → 25 → 50 → 75 → 100%, forward only. The speed-up curve
+      flattens exactly as the recorded table claimed (3.4x from eight workers,
+      not 8x), so that half of the lesson survives the move to live runs.
+
+      **The same finding as 04.9.6: dropped is 0 on every row.** The recorded
+      table showed 3 082 dropped at four workers and 5 691 at eight. Those
+      were measured on `ODOMETER` before 04.8. On `ODOMETER_POOL` the fold is
+      per vehicle over ten round-robined vehicles, so the workers do not
+      collide. The tab's "what it cost" half is therefore no longer
+      demonstrated — the prose says the speed is free only while the dropped
+      column stays at zero, which is honest, but it is no longer a warning
+      about anything the reader can see happen. Same decision needed as in
+      04.9.6.
 
 - [ ] **04.9.8 Live gets Run and Stop; Redelivery gets Run** (D6, D8). Live is
       the only Stop button. Redelivery's "stop any pool you already have

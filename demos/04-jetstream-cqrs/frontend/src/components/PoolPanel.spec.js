@@ -6,13 +6,12 @@ import PrimeVue from 'primevue/config'
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { DRAIN_RUNS, DRAIN_SOURCE } from '../view/drain.js'
 import {
   REDELIVERY_MEASURED_AT,
   REDELIVERY_SOURCE,
   redeliveryRows,
 } from '../view/redelivery.js'
-import { STARVATION_CAPS } from '../view/lessons.js'
+import { PERFORMANCE_WORKERS, STARVATION_CAPS } from '../view/lessons.js'
 import { formatCount } from '../view/format.js'
 import PoolPanel from './PoolPanel.vue'
 
@@ -255,14 +254,13 @@ describe('PoolPanel — redelivery measured', () => {
   })
 })
 
-// The point of the whole file. `-drain` has not been run (plan task 04.7.4),
-// so this tab has no numbers, and a later change that fills it in with
-// plausible ones must fail here.
-// These its exist to keep the screen tied to a real run. The panel's one
-// exception to "everything here was watched live" is this tab, so the figures
-// it draws must be the recorded ones — if somebody edits the markup and a
-// number drifts from view/drain.js, these fail.
-describe('PoolPanel — 1 vs 4', () => {
+// Performance, run live (04.9.7). This tab held the panel's ONE exception to
+// "everything here was watched live" — four rows measured on 2026-09-15 under
+// a heading that said "1 vs 4" about its own four rows. The exception is gone.
+//
+// These its guard the absence. A recorded number cannot creep back as a
+// fallback without failing here.
+describe('PoolPanel — Performance, run live', () => {
   const scaling = async (props = {}) => {
     const w = mountPanel(props)
     w.vm.tab = 'scaling'
@@ -270,57 +268,34 @@ describe('PoolPanel — 1 vs 4', () => {
     return w
   }
 
-  it('draws one bar per recorded run', async () => {
+  it('offers the run table instead of a recorded one', async () => {
     const w = await scaling()
-    for (const r of DRAIN_RUNS) {
-      expect(w.find(`[data-testid="drain-${r.workers}"]`).exists()).toBe(true)
+    expect(w.find('[data-testid="performance-runs"]').exists()).toBe(true)
+  })
+
+  it('has one empty row per worker count, and no bar on any of them', async () => {
+    const w = await scaling()
+    const rows = w.findAll('[data-testid^="performance-workers-"]')
+    expect(rows.map((r) => r.attributes('data-testid')))
+      .toEqual(PERFORMANCE_WORKERS.map((n) => `performance-workers-${n}`))
+    expect(rows.every((r) => r.classes('empty'))).toBe(true)
+  })
+
+  // The recorded cards and the terminal that produced them are GONE, not
+  // hidden. A fallback is how a screen shows numbers after a run that never
+  // happened.
+  it('no longer draws the recorded cards or their terminal', async () => {
+    const w = await scaling()
+    for (const id of ['scaling-measured', 'pool-bought', 'pool-cost', 'drain-term', 'drain-4']) {
+      expect(w.find(`[data-testid="${id}"]`).exists()).toBe(false)
     }
   })
 
-  it('prints the measured drain time on the bar', async () => {
+  it('names the one-worker run as the control', async () => {
     const w = await scaling()
-    expect(w.find('[data-testid="drain-4"]').text()).toContain('6.3 s')
-  })
-
-  // The two cards are the lesson. A reader who sees only the first one has
-  // been told a half-truth, so both are asserted together.
-  it('says what the pool bought', async () => {
-    const w = await scaling()
-    const text = w.find('[data-testid="pool-bought"]').text()
-    expect(text).toContain('1600 events/s')
-    expect(text).toContain('3.7x')
-    expect(text).toContain('no')
-  })
-
-  it('says what it cost, beside what it bought', async () => {
-    const w = await scaling()
-    const text = w.find('[data-testid="pool-cost"]').text()
-    expect(text).toContain('3082')
-    expect(text).toContain('31%')
-    expect(text).toContain('57%')
-  })
-
-  it('shows the one-worker run dropping nothing — the control', async () => {
-    const w = await scaling()
-    expect(w.find('[data-testid="pool-cost"]').text()).toContain('0')
-    expect(w.find('[data-testid="drain-1"]').text()).toContain('23.5 s')
-  })
-
-  it('says where and when the runs were made', async () => {
-    const w = await scaling()
-    expect(w.find('[data-testid="scaling-measured"]').text()).toContain('2026-09-15')
-  })
-
-  it('prints every command that produced them', async () => {
-    const w = await scaling()
-    const text = w.find('[data-testid="drain-term"]').text()
-    for (const line of DRAIN_SOURCE) expect(text).toContain(line)
+    expect(w.find('[data-testid="performance-runs"]').text()).toContain('control')
   })
 })
-
-// The pool folds into a bucket, so that bucket can be browsed — the same
-// read-only view lesson 01 gives odometer-write and odometer-read. Without it
-// the damage is one total you have to trust.
 describe('PoolPanel — odometer-pool', () => {
   // Beside the CORRECT fold of the SAME log, not beside the read model. The
   // read model folds ODOMETER, so a row-by-row comparison with it would be
