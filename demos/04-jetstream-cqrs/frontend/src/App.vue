@@ -231,13 +231,10 @@ watch(vehicles, (next) => {
         {{ error }}
       </p>
 
-      <CommandBar
-        :vehicle="vehicle"
-        :pending="pending"
-        :outcomes="outcomes"
-        @run="run"
-      />
-
+      <!-- The write door goes THROUGH the panel, not above it. This file still
+           owns what the door is and what pressing it does; the panel owns
+           whether the open tab should show one at all. Rehydrate is marked
+           readOnly in lessons.js and gets no door (04.7.15). -->
       <StreamCqrsPanel
         :vehicle="vehicle"
         :write-doc="writeDoc"
@@ -248,7 +245,16 @@ watch(vehicles, (next) => {
         :head="head"
         :positions="positions"
         :scope="scope"
-      />
+      >
+        <template #write-door>
+          <CommandBar
+            :vehicle="vehicle"
+            :pending="pending"
+            :outcomes="outcomes"
+            @run="run"
+          />
+        </template>
+      </StreamCqrsPanel>
     </template>
 
     <PoolPanel

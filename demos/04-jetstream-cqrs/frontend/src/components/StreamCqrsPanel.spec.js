@@ -86,3 +86,79 @@ describe('the storage objects that left the rail', () => {
     expect(mountPanel(ALL).find('svg').exists()).toBe(true)
   })
 })
+
+// 04.7.15 — the write door does not follow you onto Rehydrate.
+//
+// CommandBar used to sit in App.vue as a SIBLING of this panel, so it was on
+// screen for every tab of lesson 01. On the four tabs that show what the log
+// already holds that is the point: you press Register, and you watch the
+// tables move. On Rehydrate it is wrong. That tab appends nothing — it
+// rebuilds an aggregate twice and reports what each rebuild cost — and a row
+// of write buttons above it invites you to change the thing being measured
+// while it is being measured.
+//
+// The door is passed in as a SLOT, not as props. App.vue still owns what the
+// door is and what pressing it does; this panel owns only whether the tab you
+// are looking at has any business showing one. Prop-drilling `pending` and
+// `outcomes` through here would have moved that ownership for no gain.
+//
+// A CSS rule that merely hides it would pass a screenshot and fail this.
+const DOOR = { slots: { 'write-door': '<p data-testid="fake-door">door</p>' } }
+
+const mountWithDoor = (props) =>
+  mount(StreamCqrsPanel, {
+    props,
+    slots: DOOR.slots,
+    global: { plugins: [PrimeVue] },
+  })
+
+describe('the write door belongs to the tabs that write', () => {
+  it('shows the door on the tab that opens', () => {
+    const w = mountWithDoor(VEHICLE)
+
+    expect(w.vm.tab).toBe('overview')
+    expect(w.find('[data-testid="fake-door"]').exists()).toBe(true)
+  })
+
+  it('shows the door on every tab that reads the log back', async () => {
+    const w = mountWithDoor(VEHICLE)
+
+    for (const key of ['stream', 'write', 'read']) {
+      w.vm.tab = key
+      await w.vm.$nextTick()
+      expect(w.find('[data-testid="fake-door"]').exists()).toBe(true)
+    }
+  })
+
+  it('takes the door away on Rehydrate, which appends nothing', async () => {
+    const w = mountWithDoor(VEHICLE)
+
+    w.vm.tab = 'rehydrate'
+    await w.vm.$nextTick()
+
+    expect(w.find('[data-testid="fake-door"]').exists()).toBe(false)
+  })
+
+  it('gives the door back when you leave Rehydrate again', async () => {
+    const w = mountWithDoor(VEHICLE)
+
+    w.vm.tab = 'rehydrate'
+    await w.vm.$nextTick()
+    w.vm.tab = 'overview'
+    await w.vm.$nextTick()
+
+    expect(w.find('[data-testid="fake-door"]').exists()).toBe(true)
+  })
+
+  // The panel must not invent the answer per tab key. lessons.js says which
+  // tabs write, so a fifth read-only tab added later is handled without
+  // touching this component.
+  it('asks the lesson which tabs write, and does not hardcode a key', async () => {
+    const w = mountWithDoor(VEHICLE)
+
+    w.vm.tab = 'rehydrate'
+    await w.vm.$nextTick()
+
+    expect(w.vm.current.readOnly).toBe(true)
+  })
+})

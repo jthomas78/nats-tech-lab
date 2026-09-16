@@ -35,7 +35,16 @@ export const LESSONS = Object.freeze([
       // the write side to DO something rather than showing what it already
       // did. It gets a tab and not a corner of Overview because "how much
       // does a snapshot buy you" is the question this whole demo exists for.
-      { key: 'rehydrate', label: 'Rehydrate', cmd: 'cqrs rehydrate -vehicle V1 -snapshot=false' },
+      // readOnly is read by StreamCqrsPanel: a read-only tab is shown WITHOUT
+      // the write door. Rehydrate rebuilds an aggregate and measures it, so a
+      // Register / Record trip / Retire row above it would be an invitation to
+      // change the thing being measured while it is being measured (04.7.15).
+      {
+        key: 'rehydrate',
+        label: 'Rehydrate',
+        cmd: 'cqrs rehydrate -vehicle V1 -snapshot=false',
+        readOnly: true,
+      },
     ]),
   }),
   Object.freeze({

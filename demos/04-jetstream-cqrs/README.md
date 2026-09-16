@@ -278,7 +278,10 @@ Four things about that tab are deliberate.
 - **It never runs on its own.** A rebuild from sequence 1 reads every event that
   vehicle ever had. That must not happen because somebody clicked a tab.
 - **It reads and never writes.** It is a `GET`, it appends nothing, and you can
-  press it as often as you like.
+  press it as often as you like. The write-side command row is not on this tab
+  either — it is on the four tabs that show what the log already holds, where
+  pressing a button and watching the tables move is the point. Above a
+  measurement it would only invite you to change the thing being measured.
 - **It needs one vehicle.** An aggregate is one vehicle, so "all vehicles" is
   not a thing you can rehydrate.
 - **It will not flatter itself.** If the two sides rebuild different states, the

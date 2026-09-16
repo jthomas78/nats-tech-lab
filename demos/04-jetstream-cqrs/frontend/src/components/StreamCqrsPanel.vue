@@ -69,6 +69,16 @@ const logLabel = computed(() =>
     class="lesson"
     data-testid="stream-cqrs-panel"
   >
+    <!-- The write door. App.vue owns WHAT it is; this panel owns only whether
+         the tab you are looking at has any business showing one. A tab marked
+         readOnly in lessons.js gets no door: Rehydrate measures a rebuild, and
+         a row of write buttons above it invites you to change the thing being
+         measured while it is being measured (04.7.15). -->
+    <slot
+      v-if="!current.readOnly"
+      name="write-door"
+    />
+
     <header>
       <p class="eyebrow">
         Lesson 01 · one log, two sides

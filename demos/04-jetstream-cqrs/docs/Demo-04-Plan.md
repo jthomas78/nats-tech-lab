@@ -1172,6 +1172,90 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       untouched.
 
 
+- [x] 04.7.15 the write door does not follow you onto the Rehydrate tab,
+      2026-09-16.
+
+      Raised by the user on 2026-09-16, looking at the finished 04.7.14 panel.
+
+      `CommandBar` is a SIBLING of `StreamCqrsPanel` in `App.vue`, not a part
+      of it, so it is on screen for every tab of lesson 01. On Overview,
+      `ODOMETER`, `odometer-write` and `odometer-read` that is right: those
+      tabs show what the log already holds, and the bar is the door that puts
+      something new in it. You press a button, you watch the tables move.
+
+      On Rehydrate it is wrong. That tab appends nothing. It rebuilds an
+      aggregate twice and reports what each rebuild cost. A Register / Record
+      trip / Retire row above it is an invitation to change the thing being
+      measured while it is being measured, and the user reported the two
+      fighting for space as well.
+
+      The fix is placement, not deletion. Nothing about the write side is
+      removed, and no rule moves.
+
+      Done with a SLOT, not by drilling props. `App.vue` renders `CommandBar`
+      into `<template #write-door>` and still owns what the door is, what
+      `pending` means and what pressing it does. `StreamCqrsPanel` owns one
+      question only: does the open tab have any business showing a door.
+
+      Passing `pending` and `outcomes` down as props would have moved that
+      ownership into the panel for no gain, and given the panel a reason to
+      know about commands it does not run.
+
+      The panel does not test the tab KEY either. `lessons.js` marks the
+      Rehydrate tab `readOnly: true`, and the panel reads that flag. A sixth
+      read-only tab is then one line in the lesson and no change here.
+
+      Five specs in `StreamCqrsPanel.spec.js`, and they drive the tab rather
+      than the stylesheet — a CSS rule that merely hid the bar would pass a
+      screenshot and fail these:
+
+      - the door is there on the tab that opens
+      - the door is there on `ODOMETER`, `odometer-write` and `odometer-read`
+      - the door is GONE on Rehydrate
+      - the door comes back when you leave Rehydrate
+      - the panel asks the lesson, and does not hardcode `'rehydrate'`
+
+      299 frontend specs green, eslint 0 errors, build green. Verified on
+      screen at 1128px: `bench-1` on Rehydrate shows no Register / Record trip
+      / Retire row, and Overview shows it again.
+
+- [ ] 04.7.16 Rehydrate can measure a log it chose the size of.
+
+      Raised by the user on 2026-09-16, same look at the same panel.
+
+      Today the only vehicle worth measuring is `bench-1`, and it exists
+      because somebody built it by hand: one register and 10 000 trips. It is
+      shared with every other tab and its size cannot be changed.
+
+      One size proves one dot. The claim this demo makes is that the gap GROWS
+      WITH THE LOG — that the cold side gets slower every time a trip is
+      recorded and the snapshot side does not. A single measurement cannot
+      show a slope, and the panel currently states that growth in prose while
+      showing one number. That is the weakest sentence on the screen.
+
+      Wanted: rehydration measured at several log lengths — 10 000, 100 000,
+      1 000 000 — or a field that takes a length and builds a vehicle of it.
+
+      Open questions, and the design gate applies to all of them:
+
+      - Fixed sizes or a typed length? A typed length is more honest and lets
+        the user disprove us; fixed sizes are faster to read and cannot be
+        asked for 10^9.
+      - WHO builds the events? This is the hard part. A million events is a
+        million appends to `ODOMETER`, and the current stream already carries
+        84 141. That is a write, on a tab whose whole claim in 04.7.15 is that
+        it never writes. A seeded vehicle may have to be built by a separate
+        command, not by the panel.
+      - Retention. `ODOMETER` keeps everything on purpose. A million-event
+        vehicle is not a demo that is torn down afterwards; it is a stream
+        that stays big.
+      - Where do the benchmark vehicles live? A benchmark vehicle in the same
+        picker as `V1` and `truck-7` mixes a fixture in with the demo.
+
+      No work starts until those are answered. The measurement is the point of
+      this demo, and a benchmark that quietly changes the thing it measures is
+      worse than the one dot we have now.
+
 ### 10.9 What would make this phase a failure
 
 - A number in `odometer-write` or `odometer-read` changed (D1).
