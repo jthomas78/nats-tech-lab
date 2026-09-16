@@ -2063,10 +2063,19 @@ all three gates from `frontend/`.
       later change pushes a set past 90 s, the fix is the seed size and that
       goes back through the gate.
 
-- [ ] **04.8.4 `cqrs pool -rm`.** Drops `ODOMETER_POOL`, both consumers and
+- [x] **04.8.4 `cqrs pool -rm`.** Drops `ODOMETER_POOL`, both consumers and
       all three buckets. Mirrors `bench -rm`, including tolerating a stream
       that is not there. Spec: removal is idempotent, and `ODOMETER` survives
       it untouched.
+
+      The drop list is a VALUE, `poolRemovalPlan`, and the specs are about the
+      list rather than about the deleting. `ODOMETER` is a prefix of
+      `ODOMETER_POOL`; a drop written against a prefix, or one name pasted
+      from the wrong constant, deletes the demo and prints "dropped".
+
+      **Verified 2026-09-16** against `lab4-nats`. After a drop the server
+      still holds `ODOMETER`, `ODOMETER_BENCH`, `odometer-write`,
+      `odometer-read` and `odometer-bench-write`. A second drop is a no-op.
 
 - [ ] **04.8.5 The bare command reports.** No flag prints what
       `ODOMETER_POOL` holds, in events **and bytes** — the standing rule from
