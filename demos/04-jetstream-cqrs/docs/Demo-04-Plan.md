@@ -2489,13 +2489,51 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       hard-coded boolean flag (`-drain`) and now reads the boolean set from
       `main.go` itself, so `cqrs pool -rm` passes for the right reason.
 
-- [ ] **04.9.4 Progress comes from the workers bucket** (D3). A composable
+- [x] **04.9.4 Progress comes from the workers bucket** (D3). A composable
       turns the existing `odometer-pool-workers` watch into a percentage, a
       run index and a stall flag. No new transport.
 
       Spec: given worker rows, it reports the right percentage; it reports a
       stall when no row has moved for longer than `-ack-wait`; it survives a
       page reload mid-run (D11).
+
+      Done. `frontend/src/pool/useRunProgress.js`, 11 specs in
+      `useRunProgress.spec.js`, red before green. No new transport: the only
+      input is the worker rows the `odometer-pool-workers` watch already
+      delivers, and the only field read from a row is `acked` — the same
+      discipline as `view/pool.js`, which refuses to report a number the
+      heartbeat does not carry.
+
+      What the task list did not say, and had to be decided:
+
+      **The percentage is of the SET, not of the run in flight.** Run 2 of 4
+      half done is 37.5%. A bar that showed 50% there would jump BACKWARDS the
+      moment run 3 started, which reads as a fault. D12 asks for one bar for
+      the whole set, so the arithmetic has to match.
+
+      **The stall threshold is handed in, not held here.** `ackWaitMs` comes
+      from the plan the caller starts, so the Redelivery tab (30 s) and a
+      short Live run measure a stall against their own `-ack-wait`. Proved
+      parameterised by two different inputs, 30 000 ms and 5 000 ms, per the
+      standing trap.
+
+      **Quiet is not stalled.** Below `-ack-wait` a silent worker is a worker
+      waiting for a redelivery. That IS lesson 02, not a fault, so the flag
+      only lifts once the wait is exceeded, and drops again on the next ack.
+
+      **The re-seed between runs keeps the bar up** (D12) and restarts the
+      stall clock. A log being rebuilt has no workers acking, and without the
+      reset every set would report a stall in the gap.
+
+      **D11 is sessionStorage, not the shim.** `GET /pool` knows a run is in
+      flight, but it cannot know the browser intended four of them. The plan
+      is parked under `lesson02.runset` and read back on construction; a
+      parked plan that will not parse is discarded rather than allowed to stop
+      the screen drawing. `finish()` clears it, so a finished set does not
+      come back on the next reload.
+
+      Not wired to a screen yet — that is 04.9.5 to 04.9.8. No live check:
+      this task touches no storage and starts no run.
 
 - [ ] **04.9.5 Every Run button is priced and prints its commands** (D2, D4).
       One shared control component, used by all four tabs, so the four cannot
