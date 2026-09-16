@@ -2032,7 +2032,7 @@ all three gates from `frontend/`.
       Spec: seeding twice leaves N events, not 2N (D9). An unlisted size is
       refused. Nothing is written to `ODOMETER`.
 
-- [ ] **04.8.3 The correct fold.** One consumer, one worker,
+- [x] **04.8.3 The correct fold.** One consumer, one worker,
       `MaxAckPending: 1`, folding `ODOMETER_POOL` into `odometer-pool-truth`.
       It runs to completion inside `-seed`, so the right answer is on disk
       before any pool run exists to be measured against it (D3).
@@ -2043,6 +2043,25 @@ all three gates from `frontend/`.
       If this makes the seed take more than a few seconds, report the measured
       number rather than quietly swapping the fold for arithmetic. A computed
       total would prove nothing about the fold.
+
+      **Measured 2026-09-16** against `lab4-nats`, 10 000 events:
+
+      | step | time |
+      |---|---|
+      | publish | 48 ms |
+      | fold at `MaxAckPending: 1` | 5.25 s |
+      | whole seed | 5.3 s |
+
+      The fold is 99% of it — about 1 900 events a second, which is what one
+      event at a time costs. The arithmetic was not swapped in: the truth
+      bucket holds 10 keys totalling 9 990 km, folded.
+
+      This corrects D12's cost table in section 12. A re-seed was priced at
+      about 2 s and really costs 5.3 s, so a four-run set is **about 73 s**,
+      not 60 s. That is still inside the 90 s the screen quotes before the
+      press, so the seed stays at 10 000 and the approval is unchanged. If a
+      later change pushes a set past 90 s, the fix is the seed size and that
+      goes back through the gate.
 
 - [ ] **04.8.4 `cqrs pool -rm`.** Drops `ODOMETER_POOL`, both consumers and
       all three buckets. Mirrors `bench -rm`, including tolerating a stream

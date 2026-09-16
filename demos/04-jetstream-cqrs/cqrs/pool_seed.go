@@ -176,8 +176,24 @@ func seedPool(ctx context.Context, js jetstream.JetStream, size int) (PoolState,
 		return PoolState{}, err
 	}
 
+	// The right answer is thrown away with the log it described.
+	truth, err := ensureKV(ctx, js, Pool.WriteKV)
+	if err != nil {
+		return PoolState{}, err
+	}
+	if err := resetPoolTruth(ctx, js, truth); err != nil {
+		return PoolState{}, err
+	}
+
 	start := time.Now()
 	if err := publishPoolFixture(ctx, js, plan); err != nil {
+		return PoolState{}, err
+	}
+	// Folded here, not lazily on first use (D3). The right answer has to be
+	// on disk BEFORE any pool run exists to be measured against it --
+	// otherwise the first run pays for building its own yardstick, and the
+	// delay lands inside the number the lesson prints.
+	if err := foldPoolTruth(ctx, js, truth); err != nil {
 		return PoolState{}, err
 	}
 	elapsed := time.Since(start)
@@ -191,45 +207,68 @@ func seedPool(ctx context.Context, js jetstream.JetStream, size int) (PoolState,
 	return state, nil
 }
 
+// poolEvent is one event of the seeded history, before it is published.
+//
+// The list is built separately from the publishing so it can be READ. A
+// history that only exists as the side effect of a loop cannot be checked for
+// the property lesson 02 depends on -- that no vehicle gets two trips in a
+// row -- and that property is easy to lose in a refactor and impossible to
+// notice afterwards.
+type poolEvent struct {
+	Vehicle string
+	Subject string
+	Event   Event
+}
+
+// poolEvents is the whole seeded history, in publish order.
+func poolEvents(plan poolPlan) []poolEvent {
+	out := make([]poolEvent, 0, plan.Events)
+	add := func(v string, e Event) {
+		out = append(out, poolEvent{
+			Vehicle: v,
+			Subject: Pool.VehicleSubject(v, e.EventType()),
+			Event:   e,
+		})
+	}
+
+	// A vehicle exists before it travels. Registration first for all of
+	// them, so a worker cannot receive a trip for a vehicle it has never
+	// seen -- that is a DIFFERENT defect from the one this lesson teaches,
+	// and mixing the two would make the damage unreadable.
+	for _, v := range plan.Vehicles {
+		add(v, Registered{Plate: v})
+	}
+
+	// Round robin, not vehicle by vehicle. A log grouped by vehicle would
+	// let a worker take a whole vehicle's history in one contiguous run and
+	// fold it in perfect order, which is the one thing this lesson must not
+	// arrange by accident.
+	for i := 0; i < plan.TripsPer; i++ {
+		for _, v := range plan.Vehicles {
+			add(v, Travelled{Km: poolKm})
+		}
+	}
+	// The remainder is written, not dropped, and still round robin: the
+	// first Extra vehicles each get one more.
+	for i := 0; i < plan.Extra; i++ {
+		add(plan.Vehicles[i], Travelled{Km: poolKm})
+	}
+	return out
+}
+
 // publishPoolFixture appends the history.
 //
 // Async publish: every event is still acked by the server, the acks are just
 // collected at the end instead of one round trip each. That is the difference
 // between a million appends taking seconds and taking minutes.
 func publishPoolFixture(ctx context.Context, js jetstream.JetStream, plan poolPlan) error {
-	travelled, err := encode(Travelled{Km: poolKm})
-	if err != nil {
-		return err
-	}
-
-	for _, v := range plan.Vehicles {
-		registered, err := encode(Registered{Plate: v})
+	for _, e := range poolEvents(plan) {
+		body, err := encode(e.Event)
 		if err != nil {
 			return err
 		}
-		subject := Pool.VehicleSubject(v, Registered{}.EventType())
-		if _, err := js.PublishMsgAsync(&nats.Msg{Subject: subject, Data: registered}); err != nil {
-			return fmt.Errorf("seed %s: %w", v, err)
-		}
-	}
-
-	// Round robin, not vehicle by vehicle. A log grouped by vehicle would
-	// let a worker take a whole vehicle's history in one contiguous run
-	// and fold it in perfect order, which is the one thing this lesson
-	// must not accidentally arrange.
-	for i := 0; i < plan.TripsPer; i++ {
-		for _, v := range plan.Vehicles {
-			subject := Pool.VehicleSubject(v, Travelled{}.EventType())
-			if _, err := js.PublishMsgAsync(&nats.Msg{Subject: subject, Data: travelled}); err != nil {
-				return fmt.Errorf("seed %s at trip %d: %w", v, i+1, err)
-			}
-		}
-	}
-	for i := 0; i < plan.Extra; i++ {
-		v := plan.Vehicles[i]
-		subject := Pool.VehicleSubject(v, Travelled{}.EventType())
-		if _, err := js.PublishMsgAsync(&nats.Msg{Subject: subject, Data: travelled}); err != nil {
-			return fmt.Errorf("seed %s remainder: %w", v, err)
+		if _, err := js.PublishMsgAsync(&nats.Msg{Subject: e.Subject, Data: body}); err != nil {
+			return fmt.Errorf("seed %s: %w", e.Vehicle, err)
 		}
 	}
 
