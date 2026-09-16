@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 01 — three tabs (04.7.17 proposal)</title>
+<style>
+  :root {
+    --bg: #131416;
+    --panel: #1A1E23;
+    --line: #4A515B;
+    --text: #DEE0E3;
+    --muted: #B7BCC2;
+    --accent: #006FFF;
+    --green: #27C07F;
+    --warn: #9A7B1E;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 24px 60px;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/20px Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 6px; max-width: 80ch; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
+  }
+  .screen { margin-top: 34px; }
+  .screen > h2 {
+    font-size: 13px; margin: 0 0 10px; font-weight: 600;
+    padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .screen > h2 span { color: var(--muted); font-weight: 400; }
+
+  /* tab strip */
+  .tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .tabs div { padding: 7px 2px 9px; color: var(--muted); font-size: 12.5px; }
+  .tabs div.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 500; }
+
+  /* group card */
+  .group {
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+    padding: 12px 14px; margin-bottom: 12px;
+  }
+  .group.dim { background: transparent; }
+  .ghead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .ghead b { font-size: 12px; font-weight: 600; }
+  .ghead .n { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  code {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    border: 1px solid rgba(0,111,255,.35); border-radius: 4px; padding: 1px 6px;
+    background: rgba(0,111,255,.08);
+  }
+  .note { color: var(--muted); font-size: 11.5px; margin: 6px 0 0; }
+  .fill {
+    border: 1px dashed var(--line); border-radius: 4px; color: var(--muted);
+    font-family: var(--mono); font-size: 11px; padding: 14px; text-align: center;
+  }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .side { border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; }
+  .side.w { border-top: 2px solid var(--accent); }
+  .side.r { border-top: 2px solid var(--green); }
+  .side h4 { margin: 0 0 6px; font-size: 11.5px; font-weight: 600; }
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  .doc {
+    border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px;
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  }
+  .doc b { color: var(--text); font-weight: 600; }
+  .lane { height: 10px; border-radius: 5px; background: rgba(0,111,255,.25); position: relative; }
+  .lane i { position: absolute; inset: 0 34% 0 0; background: var(--accent); border-radius: 5px; }
+  .lane.g { background: rgba(39,192,127,.22); }
+  .lane.g i { inset: 0 12% 0 0; background: var(--green); }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    border: 1px solid var(--line); border-radius: 4px; padding: 4px 12px;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .btn.p { border-color: var(--accent); background: rgba(0,111,255,.15); color: var(--text); }
+  .gone { color: var(--warn); }
+  .legend { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .legend ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+  .legend li { margin-bottom: 4px; }
+  .legend b { color: var(--text); }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Demo 04 · plan 04.7.17 · proposal</p>
+  <h1>Lesson 01 — three tabs, not five</h1>
+  <p class="sub">
+    Today: Overview · ODOMETER · odometer-write · odometer-read · Rehydrate.
+    Two of those are the argument and three are one storage object each.
+    Proposed: three tabs, each answering a different question.
+  </p>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section class="screen">
+    <h2>1 · Overview <span>— what is this, and what does it look like drawn</span></h2>
+    <div class="tabs"><div class="on">Overview</div><div>Showcase</div><div>Performance</div></div>
+
+    <div class="group">
+      <div class="ghead"><b>Stream + CQRS — the short version</b></div>
+      <div class="fill">lesson summary · 3–4 short paragraphs · NEW</div>
+      <p class="note">Reference links: BUSINESS_RULES-ODOMETER.md · CLAUDE.md · JetStream docs</p>
+    </div>
+
+    <div class="group">
+      <div class="ghead">
+        <b>What it does</b>
+        <span class="note">README.md, rendered — reused, not retyped</span>
+      </div>
+      <div class="fill">AboutPanel.vue &nbsp;·&nbsp; existing component, moved here whole</div>
+      <p class="note">
+        Second sub-view: <b>Classes and sequences</b> — diagrams/demo04-jetstream-cqrs.html in a frame.
+      </p>
+    </div>
+
+    <p class="note gone">
+      The rail's “Guide · How it works” row is deleted. This tab is the only door to it now.
+    </p>
+  </section>
+
+  <!-- ============ SHOWCASE ============ -->
+  <section class="screen">
+    <h2>2 · Showcase <span>— watch it work, always on ODOMETER</span></h2>
+    <div class="tabs"><div>Overview</div><div class="on">Showcase</div><div>Performance</div></div>
+
+    <div class="group">
+      <div class="ghead">
+        <b>Write side</b>
+        <code>POST http://127.0.0.1:20402/commands/…</code>
+        <span class="n">unchanged</span>
+      </div>
+      <div class="btnrow">
+        <span class="btn p">Register</span><span class="btn p">Record trip</span><span class="btn p">Retire</span>
+        <span class="btn">vehicle id</span><span class="btn">plate / km / reason</span>
+      </div>
+      <p class="note">No button is greyed out by a rule. domain.go refuses, not this page.</p>
+    </div>
+
+    <div class="group">
+      <div class="ghead"><b>How far behind each side is</b><span class="n">all vehicles · unchanged</span></div>
+      <div class="stack">
+        <div class="lane"><i></i></div>
+        <div class="lane g"><i></i></div>
+      </div>
+      <p class="note">odometer-write · snapshot at 84141 &nbsp;|&nbsp; odometer-read · projected to 84141</p>
+    </div>
+
+    <div class="group">
+      <div class="ghead">
+        <b>KV Stores</b>
+        <code>nats kv ls odometer-write</code>
+        <code>nats kv ls odometer-read</code>
+        <span class="n">NEW group · two old tabs fold in here</span>
+      </div>
+      <div class="cols">
+        <div class="side w">
+          <h4>odometer-write · 7 keys</h4>
+          <div class="stack">
+            <div class="doc"><b>vehicle.truck-7</b> · registered · CA 41-208 · lastSeq 74109
+              <br><span style="color:var(--warn)">shown only when a vehicle is picked</span></div>
+            <div class="fill">key list — every key a RULE is checked against</div>
+          </div>
+        </div>
+        <div class="side r">
+          <h4>odometer-read · 7 keys</h4>
+          <div class="stack">
+            <div class="doc"><b>vehicle.truck-7</b> · 74 327.0 km · 74 097 trips
+              <br><span style="color:var(--warn)">shown only when a vehicle is picked</span></div>
+            <div class="fill">key list — every key a QUESTION is answered from</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Two buckets, side by side. CLAUDE.md: “Two buckets, not one. The split is the demo.”</p>
+    </div>
+
+    <div class="group">
+      <div class="ghead">
+        <b>Stream · ODOMETER</b>
+        <code>nats stream view ODOMETER</code>
+        <code>nats stream info ODOMETER</code>
+        <span class="n">84 141 events · 6.6 MiB on disk &nbsp;← NEW</span>
+      </div>
+      <div class="fill">event log, newest first — existing EventLog.vue</div>
+      <p class="note">
+        The count never travels without the bytes. Standing rule, set 2026-09-16.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ PERFORMANCE ============ -->
+  <section class="screen">
+    <h2>3 · Performance <span>— what does it cost, measured</span></h2>
+    <div class="tabs"><div>Overview</div><div>Showcase</div><div class="on">Performance</div></div>
+
+    <div class="group dim">
+      <p class="note gone" style="margin:0 0 10px">
+        No sub-tab strip while there is only one thing here. A tablist of one is a heading that costs a click.
+      </p>
+      <div class="group">
+        <div class="ghead"><b>Rehydrate — how much does a snapshot buy you?</b><span class="n">unchanged</span></div>
+        <div class="fill">seed control · ODOMETER_BENCH · 10 000 / 100 000 / 1 000 000</div>
+        <div class="cols" style="margin-top:10px">
+          <div class="side"><h4>From sequence 1</h4><div class="doc" style="color:#E06C6C">2071 ms · 1 000 000 events</div></div>
+          <div class="side"><h4>From the snapshot, then the tail</h4><div class="doc" style="color:var(--green)">1.3 ms · 50 events</div></div>
+        </div>
+        <p class="note">About 1645x faster. Both sides rebuilt the same state.</p>
+      </div>
+      <p class="note">
+        The bench fixture lives on <b>ODOMETER_BENCH</b>, which is why it is not in Showcase.
+        Showcase is the demo's own log.
+      </p>
+    </div>
+  </section>
+
+  <div class="legend">
+    <p class="eyebrow">What moves</p>
+    <ul>
+      <li><b>Deleted:</b> the rail row “Guide · How it works”, and the tabs <b>odometer-write</b> and <b>odometer-read</b>.</li>
+      <li><b>Kept, moved:</b> every panel on screen today. The per-vehicle document survives inside KV Stores.</li>
+      <li><b>New:</b> the lesson summary block, the <code>nats</code> lines on KV Stores and Stream, and the stream's size in bytes.</li>
+      <li><b>Code:</b> <code>cmd</code> moves off the tab and onto the group, because Showcase stacks four groups. <code>readOnly</code> is deleted — the write door is simply part of Showcase.</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>

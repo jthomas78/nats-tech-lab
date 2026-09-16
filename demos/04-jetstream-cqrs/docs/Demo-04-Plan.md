@@ -1396,6 +1396,104 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       demo and must survive. The two folds keep their positions, so nothing
       re-reads and nothing re-projects — the keys are simply gone.
 
+- [ ] 04.7.17 Lesson 01 is three tabs, not five. PROPOSED — the design gate
+      applies. Asked for by the user 2026-09-16 as a layout review.
+
+      The strip has five tabs and they are not five of the same thing. Two of
+      them are the argument (Overview, Rehydrate) and three of them are one
+      storage object each (ODOMETER, odometer-write, odometer-read). That is
+      the same mistake the rail had before 04.7.9: a reader cannot tell which
+      rows are a lesson and which rows are data, so they read them as peers.
+
+      Three tabs, each answering a different question:
+
+        Overview     what is this, and what does it look like drawn
+        Showcase     watch it work, on ODOMETER
+        Performance  what does it cost, measured
+
+      **Overview.** The user's own note settles what goes in it: it is
+      "closer to what's in How it works". So it IS that page, not a second
+      one — `AboutPanel.vue` is reused as the tab's body, with a short
+      lesson summary and reference links above it. A retyped explanation
+      here would be a second thing to keep true, which is the sentence
+      already at the top of `AboutPanel.vue`.
+
+      The rail's `Guide · How it works` row is then DELETED (decided by the
+      user 2026-09-16). One room, one door. Lesson 02 loses its intro, which
+      it never used: the pool tabs explain themselves and `AboutPanel` is
+      lesson 01's drawing.
+
+      **Showcase.** Always `ODOMETER`. Never the bench stream — a tab whose
+      job is "watch it work" must show the log the rest of the demo talks
+      about. Four groups, top to bottom, in this order:
+
+        1. Write side · POST /commands/…     the door, unchanged
+        2. How far behind each side is       the lag lane, unchanged
+        3. KV Stores                         odometer-write left,
+                                             odometer-read right
+        4. Stream                            ODOMETER, newest first
+
+      The order is the causal one. You send a command, you watch the two
+      sides trail the log, you look at what each side folded, and then you
+      look at the log itself. A reader who scrolls the tab reads the CQRS
+      story in the order it happens.
+
+      Groups 3 and 4 each print the `nats` command that shows the same thing
+      in a terminal (`nats kv ls odometer-write`, `nats stream view ODOMETER`).
+      That is section 10.9's rule — a number without its command is a claim.
+
+      The `odometer-write` and `odometer-read` tabs are dropped. Their
+      contents are not: when a vehicle is picked, each side of the KV Stores
+      group shows THAT VEHICLE'S DOCUMENT on top and the full key list under
+      it (decided by the user 2026-09-16). Nothing on screen today is lost.
+
+      Group 4 gains the stream's size and its bytes. That is the standing
+      rule from 04.7.16 reaching `ODOMETER` at last: a message count is
+      never shown without the memory it consumes. `useOdometer.js` already
+      reads both and nothing draws them yet.
+
+      **Performance.** `RehydratePanel.vue` unchanged, seed control and all.
+      It keeps writing to `ODOMETER_BENCH`, which is why it is NOT in
+      Showcase: Showcase is the demo's own log, and the fixture is not.
+
+      No sub-tab strip is drawn while there is only one thing under
+      Performance. A tablist of one is a heading that costs a click. The
+      strip appears when a second measurement lands.
+
+      **What this changes in code.**
+
+      The tab's command moves. `lessons.js` gives each tab ONE `cmd` and
+      `StreamCqrsPanel.vue` prints it in the header, which worked while a tab
+      was one storage object. Showcase stacks four groups and two of them
+      need their own line, so `cmd` moves from the tab onto the group. The
+      header keeps a command only where a tab still has exactly one.
+
+      `readOnly` can go. It exists so the write door is hidden on Rehydrate
+      (04.7.15). With three tabs the door is simply part of the Showcase tab
+      and appears nowhere else, which is the same rule expressed as
+      structure rather than as a flag. `StreamCqrsPanel.spec.js`'s five door
+      specs are rewritten to assert the tab, not the flag.
+
+      Section 10.9's bullet "Lesson 01's Overview tab showing one bucket
+      instead of two (D10)" moves with the buckets: it becomes Showcase's
+      KV Stores group. The rule does not weaken — `CLAUDE.md` says "Two
+      buckets, not one. The split is the demo" — only the tab it names
+      changes, and it changes in the same commit.
+
+      **Naming.** `Showcase`, not `Demo` — the whole screen is a demo, so a
+      tab called Demo inside it says nothing. Not `Live` either: lesson 02
+      already has a tab with that key, and two different Live tabs in one
+      app is a trap for whoever reads the specs.
+
+      **Tests.** `StreamCqrsPanel.spec.js` is rewritten around three tabs:
+      the door is on Showcase and nowhere else; Showcase draws the four
+      groups in that order; both buckets are present (D10); a picked vehicle
+      shows document-then-list on each side; Performance holds the rehydrate
+      panel and no sub-strip. `commands.spec.js` still holds every printed
+      command to the flags `main.go` defines, and it gains the two `nats`
+      lines. `lessons.spec.js` loses the guide row from `railSections()`.
+
+
 ### 10.9 What would make this phase a failure
 
 - A number in `odometer-write` or `odometer-read` changed (D1).

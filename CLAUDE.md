@@ -268,9 +268,13 @@ unaffected.
 
 **`demos/04-jetstream-cqrs/` has its own `CLAUDE.md`. Read that, not this file,
 for anything inside that folder.** It is a sealed unit — one NATS server (port
-4422) and one small Go binary, no Postgres, no services, no frontends, no
+4422), one small Go binary and one Vue app, no Postgres, no services, no
 cluster and no operator mode. Its plan, business rules and diagrams all live
 inside the folder, not in `.claude/plans/` or `obsidian/`.
+
+The Vue app and its HTTP shim (`cqrs serve`) arrived in phase 04.6 — the
+"no frontend" line above was lifted then, and only then. Everything else on
+the not-in-scope list still holds.
 
 It lifts demo 02's odometer domain and adds the write side demo 02 has not got:
 a command checked against the state the log already holds, rehydrated **with

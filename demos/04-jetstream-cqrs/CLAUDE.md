@@ -23,6 +23,7 @@ in a shared `diagrams/` directory.
 | Business rules | `BUSINESS_RULES-ODOMETER.md` |
 | Diagrams (HTML + exported PNG) | `diagrams/` |
 | Lab shell intro text | `README.md` |
+| UI layout mockups | `diagrams/*.html` (dark UniFi palette) |
 | Go module | `cqrs/` |
 | Compose | `deploy/compose.yaml` |
 
@@ -98,8 +99,35 @@ Root rule, and it holds here: **streams are `SCREAMING_SNAKE`, KV buckets are
 | Stream | `ODOMETER` | the log — the only source of truth |
 | KV | `odometer-write` | write-side snapshot: `{state, lastSeq}` |
 | KV | `odometer-read` | read model, denormalised |
+| KV | `odometer-pool` | lesson 02 — a THIRD fold, deliberately wrong |
+| KV | `odometer-pool-workers` | lesson 02 — one key per worker |
+| Stream | `ODOMETER_BENCH` | the rehydrate fixture, disposable |
+| KV | `odometer-bench-write` | the fixture's snapshots |
 
 Two buckets, not one. The split is the demo — you can see it in `nats kv ls`.
+
+`odometer-pool` is kept apart from `odometer-read` on purpose: the pool is
+deliberately wrong, and a demo that damaged the read model to show that would
+have nothing correct left to compare against.
+
+`ODOMETER_BENCH` is a fixture, not the demo. Its subject is
+`evt.odometer-bench.>`, which does not overlap `evt.odometer.>` because the
+second token differs — a DOT instead of the hyphen would put the fixture
+inside the demo's own filter. Build it with `cqrs bench -size N`, delete it
+with `cqrs bench -rm`. Nothing else may be added to it, and nothing on the
+other tabs may read from it.
+
+## A count is never shown without its bytes
+
+Standing rule, set by the user 2026-09-16. Anywhere this demo reports a
+stream's message count — on screen, in the CLI, in a JSON body — it reports
+the bytes that count consumes as well. A length is a number nobody can price:
+100 000 000 events sounds reasonable right up to the moment you learn it is
+7.6 GB.
+
+It applies to `ODOMETER` and `ODOMETER_BENCH`, and to nothing else for now.
+`frontend/src/view/format.js` has `formatBytes()`; `useOdometer.js` already
+carries `bytes` beside `messages`.
 
 ## Quality rules
 
@@ -111,6 +139,28 @@ Same as the root file, scaled down:
    `write.go` or `read.go`.
 4. `BUSINESS_RULES-ODOMETER.md` and `docs/Demo-04-Plan.md` change in the same
    commit as the rule.
+
+The frontend has its own three, and all three must pass before a UI task is
+done. Run them from `frontend/`:
+
+```bash
+npx vitest run                      # 318 specs, 21 files
+npx eslint src --ext .js,.vue       # 0 errors; 7 PoolPanel.vue warnings are the baseline
+npm run build
+```
+
+`frontend/src/view/commands.spec.js` is a live guard, not a unit test. It
+parses `cqrs/main.go` for the subcommands and flags that actually exist, and
+fails when the UI prints a command the binary would reject. Do not weaken it
+to make a screen pass.
+
+## The design gate
+
+A phase entry in `docs/Demo-04-Plan.md` stays **PROPOSED** until the user
+approves it. No tasks, no tests, no code before that. An entry marked PROPOSED
+is a request for a decision, not a backlog item to pick up.
+
+Currently PROPOSED: **04.7.17**, the lesson 01 three-tab layout.
 
 ## Two mechanics that are easy to get wrong
 
