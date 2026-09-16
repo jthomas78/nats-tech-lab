@@ -49,6 +49,42 @@ const (
 	// position, one damaged projection.
 	PoolConsumer = "odometer-pool"
 
+	// PoolStream is lesson 02's own log (plan 04.8, D1 and D2).
+	//
+	// The pool used to bind its durable consumer to ODOMETER, so the
+	// deliberately broken consumer in the lesson was misbehaving on the
+	// demo's own log. It published nothing there, which is why nobody
+	// noticed -- the sharing was a CONSUMER, not events.
+	//
+	// Named for what it holds, not for the lesson it is shown on. Every
+	// other stream here is named that way, and a lesson can be renumbered.
+	PoolStream = "ODOMETER_POOL"
+
+	// PoolStreamSubject does NOT overlap StreamSubject, because the second
+	// token differs. Hyphen, not a dot: `evt.odometer.pool.>` keeps
+	// `odometer` as the second token, so `evt.odometer.>` would match every
+	// event of it and the isolation would be a comment rather than a fact.
+	PoolStreamSubject = "evt.odometer-pool.>"
+
+	// PoolTruthKV is the CORRECT fold of PoolStream, and the reason 04.8 is
+	// a phase and not a flag.
+	//
+	// The screen measures the pool's damage by subtracting a correct fold
+	// from the pool's own. That correct fold used to be ReadKV -- fine
+	// while both folded ODOMETER, and nonsense the moment the pool moved to
+	// a log of its own. Without this bucket the screen would subtract two
+	// unrelated logs and print the difference as damage.
+	//
+	// `-truth` and not `-read`: a "read model" is lesson 01's idea, shaped
+	// for a question. This is not shaped for anything. It is the answer.
+	PoolTruthKV = "odometer-pool-truth"
+
+	// PoolTruthConsumer folds PoolStream correctly: one worker, and
+	// MaxAckPending 1 so it cannot reorder itself. It is the control the
+	// whole lesson is measured against, so it is built to be slow and
+	// right, which is the opposite of PoolConsumer beside it.
+	PoolTruthConsumer = "odometer-pool-truth"
+
 	// PoolWorkerTTL expires a worker's heartbeat key. A worker that is
 	// killed stops appearing on screen without anything having to delete
 	// its key, which is what makes -kill-at visible in the browser.
@@ -74,11 +110,13 @@ const (
 // Source is one log a vehicle can be rehydrated from: a stream, the subjects
 // it holds, and the KV bucket its snapshots live in.
 //
-// There are two, and they exist for one reason. `ODOMETER` is the demo -- the
+// There are three, and they exist for one reason. `ODOMETER` is the demo -- the
 // Overview lane, both bucket tabs and the event log are all drawn from it, and
 // a million-event fixture dropped into it would bury every one of them.
 // `ODOMETER_BENCH` is a disposable fixture nothing else reads, so the
-// rehydrate measurement can be as big as it likes.
+// rehydrate measurement can be as big as it likes. `ODOMETER_POOL` is lesson
+// 02's own log, for the same reason in reverse: the consumer that reads it is
+// deliberately broken, and it must not be broken on the demo's own log.
 //
 // Before phase 04.7.16, rehydrate() spelled StreamName and vehicleFilter()
 // into itself and could therefore only ever read one log. Handing it a Source
@@ -109,6 +147,20 @@ var Bench = Source{
 	StreamSubject: "evt.odometer-bench.>",
 	WriteKV:       "odometer-bench-write",
 	prefix:        "evt.odometer-bench.vehicle",
+}
+
+// Pool is lesson 02's log. Disposable in the same way Bench is: lesson 01
+// never reads it, and lesson 02 never reads anything else (D7).
+//
+// Its WriteKV is the correct fold. That is not a shortcut -- for this log the
+// snapshot of the truth and the correct fold are the same object, and a fourth
+// bucket holding a second copy of the right answer would be one more thing
+// that can disagree.
+var Pool = Source{
+	Stream:        PoolStream,
+	StreamSubject: PoolStreamSubject,
+	WriteKV:       PoolTruthKV,
+	prefix:        "evt.odometer-pool.vehicle",
 }
 
 // VehicleSubject is the subject one event is published on.

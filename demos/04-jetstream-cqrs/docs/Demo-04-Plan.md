@@ -2008,7 +2008,7 @@ Specs first, red before green, in both suites. Go work is 04.8.1 to 04.8.6 and
 runs `ginkgo ./...` from `cqrs/`; frontend work is 04.8.7 to 04.8.9 and runs
 all three gates from `frontend/`.
 
-- [ ] **04.8.1 The third `Source`.** `names.go` gains `Pool`, with
+- [x] **04.8.1 The third `Source`.** `names.go` gains `Pool`, with
       `ODOMETER_POOL`, `evt.odometer-pool.>`, prefix
       `evt.odometer-pool.vehicle` and `PoolTruthKV = "odometer-pool-truth"`,
       plus `PoolTruthConsumer`. `Live` and `Bench` are not touched.
