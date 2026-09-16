@@ -1219,8 +1219,11 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       screen at 1128px: `bench-1` on Rehydrate shows no Register / Record trip
       / Retire row, and Overview shows it again.
 
-- [ ] 04.7.16 Rehydrate can measure a log it chose the size of, on a stream of
-      its own. PROPOSED — the design gate applies, one question is still open.
+- [x] 04.7.16 Rehydrate can measure a log it chose the size of, on a stream of
+      its own. DONE 2026-09-16 — approved by the user, then built. The sizes
+      are fixed (10 000 / 100 000 / 1 000 000), the control prints its own
+      command, and the panel reports the fixture as a count AND a size on
+      disk.
 
       Raised by the user on 2026-09-16.
 

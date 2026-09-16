@@ -25,6 +25,7 @@ import { computed, ref, watch } from 'vue'
 
 import Button from 'primevue/button'
 
+import BenchFixture from './BenchFixture.vue'
 import { fetchBoth, fetchRehydration } from '../rehydrate/api.js'
 import { formatCount } from '../view/format.js'
 import { formatMs, formatSpeedup, trailsBy, verdict } from '../view/rehydrate.js'
@@ -32,6 +33,15 @@ import { formatMs, formatSpeedup, trailsBy, verdict } from '../view/rehydrate.js
 const props = defineProps({
   vehicle: { type: String, default: null },
 })
+
+// WHICH log is being rebuilt, and whose history it is.
+//
+// null means the demo's own log and the vehicle the picker is on. A seeded
+// fixture sets it to the bench stream instead — those vehicles live in a
+// different bucket, so they never appear in the picker and could not be
+// reached any other way.
+const target = ref(null)
+const active = computed(() => target.value ?? { source: 'live', vehicle: props.vehicle })
 
 const cold = ref(null)
 const warm = ref(null)
@@ -46,6 +56,7 @@ watch(
     cold.value = null
     warm.value = null
     ranAt.value = null
+    target.value = null
   },
 )
 
@@ -56,10 +67,23 @@ const ratio = computed(() =>
   result.value.kind === 'measured' ? formatSpeedup(result.value.ratio) : '',
 )
 
+// A new target is a new subject. The old numbers are cleared rather than left
+// under the new name — the same reason switching the picker clears them.
+function measure(next) {
+  target.value = next
+  cold.value = null
+  warm.value = null
+  ranAt.value = null
+}
+
+function backToLive() {
+  measure(null)
+}
+
 async function runBoth() {
-  if (!props.vehicle || busy.value) return
+  if (!active.value.vehicle || busy.value) return
   busy.value = 'both'
-  const both = await fetchBoth(props.vehicle)
+  const both = await fetchBoth(active.value.vehicle, { source: active.value.source })
   cold.value = both.cold
   warm.value = both.warm
   ranAt.value = new Date()
@@ -67,9 +91,11 @@ async function runBoth() {
 }
 
 async function runOne(snapshot) {
-  if (!props.vehicle || busy.value) return
+  if (!active.value.vehicle || busy.value) return
   busy.value = snapshot ? 'warm' : 'cold'
-  const out = await fetchRehydration(props.vehicle, snapshot)
+  const out = await fetchRehydration(active.value.vehicle, snapshot, {
+    source: active.value.source,
+  })
   if (snapshot) warm.value = out
   else cold.value = out
   ranAt.value = new Date()
@@ -119,16 +145,35 @@ function rows(out) {
       </p>
     </header>
 
+    <BenchFixture @measure="measure" />
+
     <p
-      v-if="!vehicle"
+      v-if="!active.vehicle"
       class="empty"
       data-testid="rehydrate-needs-vehicle"
     >
-      Pick a vehicle above. An aggregate is one vehicle, so there is no such
-      thing as rehydrating all of them.
+      Pick a vehicle above, or seed a fixture and measure that. An aggregate is
+      one vehicle, so there is no such thing as rehydrating all of them.
     </p>
 
     <template v-else>
+      <p
+        class="target"
+        data-testid="rehydrate-target"
+      >
+        Measuring <code>{{ active.vehicle }}</code> on
+        <code>{{ active.source === 'bench' ? 'ODOMETER_BENCH' : 'ODOMETER' }}</code>.
+        <button
+          v-if="active.source === 'bench'"
+          type="button"
+          class="back"
+          data-testid="rehydrate-back-to-live"
+          @click="backToLive"
+        >
+          Measure the demo's own log instead
+        </button>
+      </p>
+
       <div class="controls">
         <Button
           label="Run both"
@@ -388,6 +433,28 @@ dd {
   max-width: 80ch;
   color: var(--p-text-muted-color);
   font-size: 12px;
+}
+
+.target {
+  margin: 12px 0 0;
+  color: var(--p-text-muted-color);
+  font-size: 12px;
+}
+
+.target code {
+  color: var(--p-text-color);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.back {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--d4-read);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .empty,

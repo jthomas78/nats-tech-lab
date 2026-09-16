@@ -47,7 +47,9 @@ describe('it never measures on its own', () => {
     const w = mountPanel()
     await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
     await flushPromises()
-    expect(both).toHaveBeenCalledWith('V1')
+    // The source is spelled out on every call. A default that silently
+    // pointed the headline number at the wrong log would look like a result.
+    expect(both).toHaveBeenCalledWith('V1', { source: 'live' })
     expect(w.find('[data-testid="rehydrate-verdict"]').text()).toContain('23x')
   })
 })
@@ -107,5 +109,38 @@ describe('it never flatters the comparison', () => {
     await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
     await flushPromises()
     expect(w.find('[data-testid="rehydrate-stale"]').text()).toContain('trailed by 2')
+  })
+})
+
+describe('it can measure a seeded fixture', () => {
+  it('rebuilds the bench vehicle on the bench stream', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue({
+      kind: 'ok',
+      stream: 'ODOMETER_BENCH',
+      exists: true,
+      events: 1000000,
+      bytes: 83000000,
+      sizes: [10000, 100000, 1000000],
+      fixtures: [
+        { size: 1000000, vehicle: 'bench-1m', events: 1000000, snapSeq: 999950, tailLeft: 50 },
+      ],
+      elapsedMs: 2195,
+    })
+    const both = vi.spyOn(api, 'fetchBoth').mockResolvedValue({ cold, warm })
+    const w = mountPanel({ vehicle: null })
+    await flushPromises()
+
+    // With no vehicle picked there is nothing to rebuild -- until a fixture
+    // is handed over. The bench vehicles live in another bucket, so they
+    // never appear in the picker.
+    expect(w.find('[data-testid="rehydrate-needs-vehicle"]').exists()).toBe(true)
+
+    await w.find('[data-testid="bench-measure-bench-1m"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="rehydrate-target"]').text()).toContain('ODOMETER_BENCH')
+
+    await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
+    await flushPromises()
+    expect(both).toHaveBeenCalledWith('bench-1m', { source: 'bench' })
   })
 })

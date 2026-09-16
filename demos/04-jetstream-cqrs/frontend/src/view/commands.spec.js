@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { DRAIN_SOURCE } from './drain.js'
-import { LESSONS, SEED_CMD, tabsFor } from './lessons.js'
+import { BENCH_SIZES, benchCmd, LESSONS, SEED_CMD, tabsFor } from './lessons.js'
 import { REDELIVERY_SOURCE } from './redelivery.js'
 
 // Walk up to the demo folder rather than hard-coding a depth: vitest's root
@@ -49,7 +49,11 @@ const tabCmds = LESSONS.flatMap((l) => tabsFor(l.key))
   .map((t) => t?.cmd)
   .filter((c) => c?.startsWith('cqrs '))
 
-const printed = [...DRAIN_SOURCE, ...REDELIVERY_SOURCE, SEED_CMD, ...tabCmds]
+// The seed button prints one of these under itself. A reader is invited to
+// run it instead of pressing the button, so it has to parse.
+const benchCmds = BENCH_SIZES.map(benchCmd)
+
+const printed = [...DRAIN_SOURCE, ...REDELIVERY_SOURCE, SEED_CMD, ...benchCmds, ...tabCmds]
 
 // A flag is printed either as `-name value` or as `-name=value`. Go's flag
 // package requires the second form for a false boolean, so the guard has to

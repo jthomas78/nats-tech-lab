@@ -92,6 +92,22 @@ export function lessonFor(view) {
 // that says so has to be able to print the way out of it.
 export const SEED_CMD = 'cqrs seed -vehicle truck-7 -n 2000'
 
+// The command that builds the rehydrate fixture, for one size.
+//
+// It lives here for the same reason SEED_CMD does: this file owns "which
+// command produces what you are looking at". The Rehydrate panel prints this
+// under its seed button, so a reader who would rather watch a million appends
+// go past in a terminal has the exact line — and view/commands.spec.js holds
+// it to the flags cqrs/main.go actually defines.
+export function benchCmd(size) {
+  return `cqrs bench -size ${size}`
+}
+
+// What the panel offers. It is a fallback: the real list comes from the server
+// (GET /bench), so the screen can never offer a size the server would refuse.
+// This is what it draws before the first answer arrives.
+export const BENCH_SIZES = Object.freeze([10000, 100000, 1000000])
+
 export function tabsFor(view) {
   if (view === GUIDE.key) return []
   return LESSONS.find((l) => l.key === view)?.tabs ?? []

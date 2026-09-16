@@ -44,3 +44,26 @@ export function foldedInto(seq, { writeSeq = 0, readSeq = 0 } = {}) {
   if (s <= Number(readSeq)) sides.push('read')
   return sides
 }
+
+// Bytes, printed so a reader can price them at a glance.
+//
+// Plan 04.7.16 makes this a standing rule: anywhere this demo shows a stream's
+// message count, it shows the bytes that count consumes as well. A length is a
+// number nobody can price — 100 000 000 events sounds reasonable right up to
+// the moment you learn it is 7.6 GB.
+//
+// Binary units, because that is what `nats stream info` prints and a reader is
+// meant to be able to check this screen against a terminal.
+export function formatBytes(bytes) {
+  const n = Number(bytes)
+  if (!Number.isFinite(n) || n < 0) return '0 B'
+  if (n < 1024) return `${Math.trunc(n)} B`
+  const units = ['KiB', 'MiB', 'GiB', 'TiB', 'PiB']
+  let value = n / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(1)} ${units[unit]}`
+}

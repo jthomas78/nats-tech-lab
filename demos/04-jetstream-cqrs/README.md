@@ -273,17 +273,27 @@ aggregate twice — once from sequence 1, once from the snapshot plus the tail �
 and reports what each one cost. The three buttons are the whole control: **Run
 both**, or either side on its own.
 
-Four things about that tab are deliberate.
+Five things about that tab are deliberate.
 
 - **It never runs on its own.** A rebuild from sequence 1 reads every event that
   vehicle ever had. That must not happen because somebody clicked a tab.
-- **It reads and never writes.** It is a `GET`, it appends nothing, and you can
-  press it as often as you like. The write-side command row is not on this tab
-  either — it is on the four tabs that show what the log already holds, where
-  pressing a button and watching the tables move is the point. Above a
+- **The measurement reads and never writes.** It is a `GET`, it appends nothing,
+  and you can press it as often as you like. The write-side command row is not
+  on this tab — it is on the four tabs that show what the log already holds,
+  where pressing a button and watching the tables move is the point. Above a
   measurement it would only invite you to change the thing being measured.
+- **The one thing that does write builds a different log.** The seed control at
+  the top of the tab fills `ODOMETER_BENCH`, a throwaway stream, with 10 000,
+  100 000 or 1 000 000 events, so the rebuild below has real work to do. It
+  never touches `ODOMETER`, and it runs before any measurement of it exists —
+  which is why it does not break the rule above. The button prints its own
+  command (`cqrs bench -size 1000000`) so you can do the same thing in a
+  terminal, and the panel reports what the fixture holds as **both a count and
+  a size on disk**. A million events is about 2.2 seconds. `cqrs bench -rm`
+  deletes the whole thing.
 - **It needs one vehicle.** An aggregate is one vehicle, so "all vehicles" is
-  not a thing you can rehydrate.
+  not a thing you can rehydrate. The bench vehicles are not in the picker —
+  they are in another bucket — so the fixture table hands them over itself.
 - **It will not flatter itself.** If the two sides rebuild different states, the
   panel prints no speed-up at all — only the reason. Section *The number used to
   be wrong* below is why that rule is in the code.
