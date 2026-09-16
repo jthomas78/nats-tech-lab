@@ -11,6 +11,7 @@
 
 import { computed, ref, watch } from 'vue'
 
+import RedeliveryTimeline from './RedeliveryTimeline.vue'
 import RunControl from './RunControl.vue'
 import { runPool, stopPool } from '../pool/api.js'
 import { useRunProgress } from '../pool/useRunProgress.js'
@@ -99,6 +100,14 @@ const commands = computed(() => [poolRunCmd(props.plan)])
       <b :class="result.dropped ? 'lost' : 'ok'">{{ result.dropped.toLocaleString('en-GB') }}</b>
       dropped. {{ result.share.busy }} of {{ result.share.workers }} workers acked.
     </p>
+
+    <!-- The fault the run injected, drawn from the run that injected it
+         (04.9.9). Absent unless the run redelivered something: a drawing of a
+         redelivery that did not happen is worse than no drawing. -->
+    <RedeliveryTimeline
+      v-if="result?.redelivery"
+      :run="result.redelivery"
+    />
 
     <p
       v-if="broken"

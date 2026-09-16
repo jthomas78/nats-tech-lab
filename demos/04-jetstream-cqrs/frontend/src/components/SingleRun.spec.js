@@ -148,3 +148,41 @@ describe('the bar', () => {
     await flushPromises()
   })
 })
+
+// 04.9.9 — the Redelivery tab draws the run the reader just made.
+//
+// The drawing is the lesson: the table says the event was dropped, the line
+// says WHEN the fold moved past it, which is while the AckWait was still
+// counting. It used to be a recorded row, so it said the same thing after
+// every press.
+describe('SingleRun — the redelivery it drew', () => {
+  const redelivery = {
+    killSeq: 490_094, killedWorker: 1, toWorker: 3, delivery: 2,
+    waitedSeconds: 30.005, ackWait: '30s', foldAt: 499_994, ranOn: 9_900,
+    recovered: false,
+  }
+
+  const pressWith = async (over) => {
+    vi.spyOn(api, 'runPool').mockResolvedValue(ok(over))
+    const w = make()
+    await at(w, 'run-go').trigger('click')
+    await flushPromises()
+    return w
+  }
+
+  it('draws nothing before the first press', () => {
+    expect(make().findComponent({ name: 'RedeliveryTimeline' }).exists()).toBe(false)
+  })
+
+  // A run with no kill in it redelivered nothing, and a drawing of nothing is
+  // a drawing of a fault that did not happen.
+  it('draws nothing when the run redelivered nothing', async () => {
+    const w = await pressWith({ redelivery: null })
+    expect(w.findComponent({ name: 'RedeliveryTimeline' }).exists()).toBe(false)
+  })
+
+  it('draws the redelivery the run reported', async () => {
+    const w = await pressWith({ dropped: 1, redelivery })
+    expect(w.findComponent({ name: 'RedeliveryTimeline' }).props('run')).toEqual(redelivery)
+  })
+})

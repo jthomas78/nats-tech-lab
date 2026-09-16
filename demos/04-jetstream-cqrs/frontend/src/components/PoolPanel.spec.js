@@ -7,11 +7,6 @@ import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  REDELIVERY_MEASURED_AT,
-  REDELIVERY_SOURCE,
-  redeliveryRows,
-} from '../view/redelivery.js'
-import {
   LIVE_PLAN,
   PERFORMANCE_WORKERS,
   REDELIVERY_PLAN,
@@ -211,10 +206,14 @@ describe('PoolPanel — redelivery', () => {
   })
 })
 
-// The measurement, drawn (plan task 04.7.5). These its exist so the figures on
-// screen stay tied to view/redelivery.js — if somebody edits the markup and a
-// number drifts from the recorded runs, these fail.
-describe('PoolPanel — redelivery measured', () => {
+// 04.9.9 — the recorded card is gone.
+//
+// It held two runs measured on 2026-09-16 and shown after every press, on a
+// tab that can now run the same fault itself. The drawing survived; it is
+// drawn from the run the reader made, inside SingleRun, and not from a file.
+//
+// These its guard the absence, the way the Performance ones below do.
+describe('PoolPanel — Redelivery keeps no recorded card', () => {
   const open = async () => {
     const w = mountPanel({ head: 94, workers: workers() })
     w.vm.tab = 'redelivery'
@@ -222,40 +221,19 @@ describe('PoolPanel — redelivery measured', () => {
     return w
   }
 
-  it('shows the recorded runs whether or not a pool is running', async () => {
-    const w = await open()
-    const card = w.find('[data-testid="redelivery-measured"]')
-    expect(card.exists()).toBe(true)
-    expect(card.text()).toContain(REDELIVERY_MEASURED_AT)
+  it('shows no recorded measurement card', async () => {
+    expect((await open()).find('[data-testid="redelivery-measured"]').exists()).toBe(false)
   })
 
-  it('draws one row per recorded run, with that runs own figures', async () => {
-    const w = await open()
-    for (const r of redeliveryRows()) {
-      const row = w.find(`[data-testid="redelivery-${r.ackWait}"]`)
-      expect(row.exists()).toBe(true)
-      expect(row.text()).toContain(String(r.waitedSeconds))
-      expect(row.text()).toContain(r.handoff)
-      expect(row.text()).toContain('dropped')
-    }
+  it('prints no recorded command block', async () => {
+    expect((await open()).find('[data-testid="redelivery-term"]').exists()).toBe(false)
   })
 
-  it('says the redelivery went to a different worker', async () => {
-    const w = await open()
-    expect(w.find('[data-testid="redelivery-measured"]').text()).toContain('different worker')
-  })
-
-  it('says the wait recovered nothing, which is the finding', async () => {
-    const w = await open()
-    const text = w.find('[data-testid="redelivery-measured"]').text()
-    expect(text).toContain('dropped on arrival')
-    expect(text).toContain('not a recovery')
-  })
-
-  it('prints the commands that produced the runs', async () => {
-    const w = await open()
-    const term = w.find('[data-testid="redelivery-term"]')
-    for (const line of REDELIVERY_SOURCE) expect(term.text()).toContain(line)
+  // The drawing belongs to the run now, so the panel must not hold one of its
+  // own — two time lines on one tab, one live and one recorded, is worse than
+  // the recorded card was.
+  it('draws no time line of its own', async () => {
+    expect((await open()).findComponent({ name: 'RedeliveryTimeline' }).exists()).toBe(false)
   })
 })
 
@@ -397,14 +375,11 @@ describe('lesson 02 names its own log and nothing else', () => {
     expect(size).toMatch(/KiB|MiB|bytes/)
   })
 
-  // The count is LIVE. The panel used to print "74 109 events" as prose in its
-  // own header, which contradicted view/drain.js's recorded 10 029 on the next
-  // tab over. It now follows the wire.
-  //
-  // The recorded-run footnotes elsewhere on this screen still name 74 109, and
-  // they must: those are the provenance of numbers that were actually measured
-  // on a log of that size. A live count and a recorded one are different
-  // claims, so only the live one is checked here.
+  // The count is LIVE. The panel used to print a recorded count as prose in
+  // its own header, which contradicted the recorded 10 029 on the next tab
+  // over. It now follows the wire.
+  // Nothing on this screen names a recorded count any more (04.9.9), so the
+  // live one is the only claim left to check.
   it('reads the count off the wire, not out of the prose', async () => {
     const w = mountPanel({ head: 94, messages: 10_000, bytes: 810_000, workers: workers(), pool: pool() })
     const size = () => w.get('[data-testid="pool-log-size"]').text()

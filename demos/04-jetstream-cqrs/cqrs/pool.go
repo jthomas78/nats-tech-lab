@@ -78,6 +78,63 @@ type PoolResult struct {
 	Dropped int
 	Elapsed time.Duration
 	Share   PoolShare
+	// Redelivery is nil unless the run injected a fault and the server
+	// handed the event back. Nil and a zero record are different facts:
+	// one run had no kill in it, the other was killed and never got the
+	// event back at all.
+	Redelivery *PoolRedelivery
+}
+
+// PoolRedelivery is the one event a -kill-at run cost, measured by the run
+// that caused it (04.9.9).
+//
+// It used to be a row in view/redelivery.js, read off a log by hand. Nothing
+// about it has to be: the kill clock already times the silence, the message
+// says which delivery it is, and the projection says where the watermark had
+// reached by the time the event came back. The screen draws this.
+//
+// FoldAt is the interesting one. It is the vehicle's own watermark, read
+// AFTER the fold refused the event, so FoldAt minus Seq is how far the other
+// workers travelled while the killed worker was silent. That distance is why
+// the wait bought nothing (BR-OD08).
+type PoolRedelivery struct {
+	Seq          uint64
+	KilledWorker int
+	ToWorker     int
+	Delivery     uint64
+	Waited       time.Duration
+	AckWait      time.Duration
+	FoldAt       uint64
+	// Outcome is "dropped" or "folded". A redelivery in a pool is almost
+	// never a recovery, and the word says which happened rather than
+	// leaving the reader to infer it from a number.
+	Outcome string
+}
+
+// redeliveryLog holds the first redelivery of a run.
+//
+// The first, for the same reason the kill clock keeps the first kill: a later
+// redelivery is a different silence, and the tab asks about the one the fault
+// caused.
+type redeliveryLog struct {
+	mu    sync.Mutex
+	first *PoolRedelivery
+}
+
+func newRedeliveryLog() *redeliveryLog { return &redeliveryLog{} }
+
+func (l *redeliveryLog) note(r PoolRedelivery) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.first == nil {
+		l.first = &r
+	}
+}
+
+func (l *redeliveryLog) get() *PoolRedelivery {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.first
 }
 
 // PoolShare is where the work landed. Totals cannot show it: one worker doing
@@ -151,6 +208,9 @@ func runPool(ctx context.Context, js jetstream.JetStream, src Source, poolKV, wo
 	// and the fault silently never fires.
 	kill := newKillSwitch(cfg.KillAt)
 
+	// What the fault actually cost, measured rather than recorded (04.9.9).
+	rlog := newRedeliveryLog()
+
 	start := time.Now()
 	for i := 0; i < cfg.Workers; i++ {
 		state := &WorkerState{Worker: i + 1, Status: "waiting"}
@@ -158,7 +218,7 @@ func runPool(ctx context.Context, js jetstream.JetStream, src Source, poolKV, wo
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			work(runCtx, consumer, poolKV, workersKV, state, &mu, cfg, clock, kill)
+			work(runCtx, consumer, poolKV, workersKV, state, &mu, cfg, clock, kill, rlog)
 		}()
 	}
 
@@ -179,6 +239,7 @@ func runPool(ctx context.Context, js jetstream.JetStream, src Source, poolKV, wo
 	out.Share = shareOf(states)
 	mu.Unlock()
 	out.Events = out.Acked + out.Dropped
+	out.Redelivery = rlog.get()
 	return out, nil
 }
 
@@ -196,7 +257,15 @@ func runPool(ctx context.Context, js jetstream.JetStream, src Source, poolKV, wo
 // silence, and overwriting would shorten the wait being measured.
 type killClock struct {
 	mu sync.Mutex
-	at map[uint64]time.Time
+	at map[uint64]killMark
+}
+
+// killMark is when the silence started and who started it. The worker is
+// remembered here because the worker that gets the event back is never the
+// worker that lost it, and the screen names both.
+type killMark struct {
+	when   time.Time
+	worker int
 }
 
 // killSwitch decides which message of the run the fault lands on.
@@ -224,34 +293,35 @@ func (k *killSwitch) fires(firstDelivery bool) bool {
 }
 
 func newKillClock() *killClock {
-	return &killClock{at: map[uint64]time.Time{}}
+	return &killClock{at: map[uint64]killMark{}}
 }
 
-func (c *killClock) killed(seq uint64, when time.Time) {
+func (c *killClock) killed(seq uint64, worker int, when time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, seen := c.at[seq]; !seen {
-		c.at[seq] = when
+		c.at[seq] = killMark{when: when, worker: worker}
 	}
 }
 
 // since reports how long the sequence has been silent. The false answer means
 // nobody killed it, and that is reported rather than returned as zero -- a
 // zero wait and no wait at all are different facts.
-func (c *killClock) since(seq uint64, now time.Time) (time.Duration, bool) {
+func (c *killClock) since(seq uint64, now time.Time) (time.Duration, int, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	at, ok := c.at[seq]
+	mark, ok := c.at[seq]
 	if !ok {
-		return 0, false
+		return 0, 0, false
 	}
-	return now.Sub(at), true
+	return now.Sub(mark.when), mark.worker, true
 }
 
 // One message at a time, on purpose. A batch of ten would hide which worker
 // holds which sequence, and holding is the thing the panel draws.
 func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV jetstream.KeyValue,
-	state *WorkerState, mu *sync.Mutex, cfg PoolConfig, clock *killClock, kill *killSwitch) {
+	state *WorkerState, mu *sync.Mutex, cfg PoolConfig, clock *killClock, kill *killSwitch,
+	rlog *redeliveryLog) {
 
 	beat := time.NewTicker(PoolHeartbeat)
 	defer beat.Stop()
@@ -289,7 +359,7 @@ func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV je
 			// concerned, and the server finds out the slow way -- when
 			// AckWait expires. That wait is the lesson.
 			if kill.fires(meta.NumDelivered == 1) {
-				clock.killed(seq, time.Now())
+				clock.killed(seq, state.Worker, time.Now())
 				mu.Lock()
 				state.Status, state.Holding = "killed", seq
 				mu.Unlock()
@@ -301,10 +371,19 @@ func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV je
 			// The measurement 04.7.5 exists for. A redelivery is the
 			// server admitting it waited AckWait out; the worker that
 			// gets it never saw the silence, so the clock supplies it.
+			//
+			// It is also what the Redelivery tab draws, so the record
+			// is opened here and closed after the fold has answered:
+			// what the wait bought is not known until then.
+			var back *PoolRedelivery
 			if meta.NumDelivered > 1 {
-				if waited, ok := clock.since(seq, time.Now()); ok {
+				if waited, killedBy, ok := clock.since(seq, time.Now()); ok {
 					log.Printf("worker %d: REDELIVERED #%d after %s — delivery %d, AckWait %s",
 						state.Worker, seq, waited.Round(time.Millisecond), meta.NumDelivered, cfg.AckWait)
+					back = &PoolRedelivery{
+						Seq: seq, KilledWorker: killedBy, ToWorker: state.Worker,
+						Delivery: meta.NumDelivered, Waited: waited, AckWait: cfg.AckWait,
+					}
 				} else {
 					log.Printf("worker %d: redelivered #%d — delivery %d", state.Worker, seq, meta.NumDelivered)
 				}
@@ -315,7 +394,8 @@ func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV je
 			mu.Unlock()
 			publishWorker(ctx, workersKV, state, mu)
 
-			switch err := foldIntoPool(ctx, poolKV, msg, meta); {
+			err = foldIntoPool(ctx, poolKV, msg, meta)
+			switch {
 			case errors.Is(err, ErrUndecodable):
 				// BR-OD09. Term, like a late event -- and counted
 				// apart from one, because Dropped on screen means
@@ -345,12 +425,46 @@ func work(ctx context.Context, consumer jetstream.Consumer, poolKV, workersKV je
 				mu.Unlock()
 			}
 
+			// The record is closed here, and only here: until the
+			// fold has answered, what the wait bought is unknown.
+			if back != nil {
+				back.Outcome = "folded"
+				if errors.Is(err, ErrOutOfOrder) {
+					back.Outcome = "dropped"
+				}
+				back.FoldAt = foldPositionOf(ctx, poolKV, msg.Subject())
+				rlog.note(*back)
+			}
+
 			mu.Lock()
 			state.Status, state.Holding = "waiting", 0
 			mu.Unlock()
 			publishWorker(ctx, workersKV, state, mu)
 		}
 	}
+}
+
+// foldPositionOf reads where the pool's projection has reached for one
+// vehicle. It is asked once per run, on the redelivery, and never on the hot
+// path -- the fold itself already reads this entry and must not read it twice.
+//
+// Zero means the question could not be answered. A caller that treats zero as
+// "the fold is at the start" would draw a redelivery that arrived early, which
+// is the opposite of what happened.
+func foldPositionOf(ctx context.Context, kv jetstream.KeyValue, subject string) uint64 {
+	id, err := vehicleIDFrom(subject)
+	if err != nil {
+		return 0
+	}
+	entry, err := kv.Get(ctx, snapshotKey(id))
+	if err != nil {
+		return 0
+	}
+	var current ReadEntry
+	if err := json.Unmarshal(entry.Value(), &current); err != nil {
+		return 0
+	}
+	return current.Fold.LastSeq
 }
 
 // foldIntoPool applies one event to the pool's own projection.

@@ -208,6 +208,27 @@ type poolRunResult struct {
 		Idle    int   `json:"idle"`
 		Acked   []int `json:"acked"`
 	} `json:"share"`
+	// Absent unless the run injected a fault and got the event back. The
+	// Redelivery tab draws this; before 04.9.9 it drew a row recorded in a
+	// file, which could not be wrong and could not be current either.
+	Redelivery *poolRedeliveryResult `json:"redelivery,omitempty"`
+}
+
+// poolRedeliveryResult is the fault the run cost, in the units the screen
+// reads: milliseconds, and the AckWait as the string the flag was given.
+//
+// RanOn is computed here rather than on the screen. It is one subtraction,
+// and one subtraction done in two places is two subtractions that can differ.
+type poolRedeliveryResult struct {
+	Seq          uint64  `json:"seq"`
+	KilledWorker int     `json:"killedWorker"`
+	ToWorker     int     `json:"toWorker"`
+	Delivery     uint64  `json:"delivery"`
+	WaitedMs     float64 `json:"waitedMs"`
+	AckWait      string  `json:"ackWait"`
+	FoldAt       uint64  `json:"foldAt"`
+	RanOn        uint64  `json:"ranOn"`
+	Outcome      string  `json:"outcome"`
 }
 
 func poolRunResultOf(cfg PoolConfig, r PoolResult) poolRunResult {
@@ -228,6 +249,26 @@ func poolRunResultOf(cfg PoolConfig, r PoolResult) poolRunResult {
 	out.Share.Acked = r.Share.Acked
 	if out.Share.Acked == nil {
 		out.Share.Acked = []int{}
+	}
+	if r.Redelivery != nil {
+		d := r.Redelivery
+		// A fold that had NOT passed the event ran on no distance. The
+		// subtraction is unsigned, so guarding it is not tidiness.
+		var ranOn uint64
+		if d.FoldAt > d.Seq {
+			ranOn = d.FoldAt - d.Seq
+		}
+		out.Redelivery = &poolRedeliveryResult{
+			Seq:          d.Seq,
+			KilledWorker: d.KilledWorker,
+			ToWorker:     d.ToWorker,
+			Delivery:     d.Delivery,
+			WaitedMs:     float64(d.Waited) / float64(time.Millisecond),
+			AckWait:      d.AckWait.String(),
+			FoldAt:       d.FoldAt,
+			RanOn:        ranOn,
+			Outcome:      d.Outcome,
+		}
 	}
 	return out
 }

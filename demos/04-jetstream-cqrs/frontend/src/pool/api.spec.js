@@ -212,3 +212,59 @@ describe('stopPool', () => {
     expect(out.kind).toBe('broken')
   })
 })
+
+// 04.9.9. The Redelivery tab used to draw a row from a file. The run reports
+// its own now, and this is where the wire shape becomes the shape the drawing
+// reads: seconds instead of milliseconds, and a word instead of a flag.
+describe('describeRun — the redelivery the run measured', () => {
+  const body = (over = {}) => ({
+    workers: 4, maxPending: 1000, ackWait: '30s', killAt: 94,
+    events: 10_000, acked: 9_999, dropped: 1, elapsedMs: 31_100,
+    share: { workers: 4, busy: 3, idle: 1, acked: [] },
+    ...over,
+  })
+
+  // Absent is an answer. A run with no kill in it did not redeliver anything,
+  // and a zero-filled record would draw a redelivery that never happened.
+  it('reports none when the run had none', () => {
+    expect(describeRun({ status: 200, body: body() }).redelivery).toBe(null)
+  })
+
+  it('turns the wire record into what the drawing reads', () => {
+    const out = describeRun({
+      status: 200,
+      body: body({
+        redelivery: {
+          seq: 490_094, killedWorker: 1, toWorker: 3, delivery: 2,
+          waitedMs: 30_005, ackWait: '30s', foldAt: 499_994, ranOn: 9_900,
+          outcome: 'dropped',
+        },
+      }),
+    })
+
+    expect(out.redelivery).toMatchObject({
+      killSeq: 490_094,
+      killedWorker: 1,
+      toWorker: 3,
+      delivery: 2,
+      waitedSeconds: 30.005,
+      ackWait: '30s',
+      foldAt: 499_994,
+      ranOn: 9_900,
+      recovered: false,
+    })
+  })
+
+  // Two inputs, because "recovered: false" written once is a constant.
+  it('says a redelivery that the fold accepted was recovered', () => {
+    const out = describeRun({
+      status: 200,
+      body: body({
+        redelivery: { seq: 94, killedWorker: 2, toWorker: 1, delivery: 2,
+          waitedMs: 5_001, ackWait: '5s', foldAt: 93, ranOn: 0, outcome: 'folded' },
+      }),
+    })
+    expect(out.redelivery.recovered).toBe(true)
+    expect(out.redelivery.waitedSeconds).toBe(5.001)
+  })
+})

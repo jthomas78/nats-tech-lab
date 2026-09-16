@@ -1,5 +1,9 @@
 <script setup>
-// One recorded redelivery, drawn on a time line.
+// One redelivery, drawn on a time line.
+//
+// 04.9.9 — the run that caused the fault reports it now, so this draws what
+// the reader just produced. It used to draw a row out of view/redelivery.js,
+// which meant it said the same thing after every press.
 //
 // The shape is the mockup's Tab 3 hero (diagrams/worker-pool-ui-mockup.html),
 // with one deliberate change. The mockup starts the line at the FIRST
@@ -21,13 +25,24 @@ const props = defineProps({
 
 const r = computed(() => props.run)
 
+// A live run can end either way. Every recorded run ended in a drop, so the
+// drawing used to say so in plain text; a run the reader made can put the
+// event back before the fold has passed it, and the line must not call that
+// a drop.
+const ended = computed(() => (r.value.recovered ? 'folded, acked' : 'dropped, acked'))
+const verdict = computed(() =>
+  r.value.recovered
+    ? 'so the event is folded and acked. The wait cost time and nothing else.'
+    : 'so the event is dropped and acked. The wait recovered nothing.',
+)
+
 const label = computed(
   () =>
     `A time line of one event. At zero seconds worker ${r.value.killedWorker} goes silent while holding sequence ` +
-    `${r.value.killSeq}, with no ack and no nak. AckWait counts for ${r.value.ackWait} while the other workers ` +
-    `fold ${r.value.ranOn} more events. At ${r.value.waitedSeconds} seconds the server redelivers sequence ` +
+    `${r.value.killSeq}, with no ack and no nak. AckWait counts for ${r.value.ackWait} while the other ` +
+    `workers carry the fold ${r.value.ranOn} sequences ahead. At ${r.value.waitedSeconds} seconds the server redelivers sequence ` +
     `${r.value.killSeq} to worker ${r.value.toWorker} as delivery ${r.value.delivery}. The watermark has already ` +
-    `reached ${r.value.foldAt}, so the event is dropped and acked. The wait recovered nothing.`,
+    `reached ${r.value.foldAt}, ${verdict.value}`,
 )
 </script>
 
@@ -88,7 +103,7 @@ const label = computed(
       y="102"
       class="s"
       text-anchor="middle"
-    >the other workers fold {{ r.ranOn }} more events</text>
+    >the fold moves {{ r.ranOn }} sequences ahead</text>
 
     <!-- The redelivery. -->
     <circle
@@ -134,7 +149,7 @@ const label = computed(
       y="86"
       class="l bad"
       text-anchor="end"
-    >#{{ r.killSeq }} ≤ lastSeq {{ r.foldAt }} · dropped, acked</text>
+    >#{{ r.killSeq }} ≤ lastSeq {{ r.foldAt }} · {{ ended }}</text>
     <text
       x="1040"
       y="102"
@@ -146,8 +161,8 @@ const label = computed(
       x="8"
       y="146"
       class="s"
-    >The drop is not decided at the end of the line. It is decided while AckWait is still counting, by the
-      {{ r.ranOn }} events the other workers fold in the meantime.</text>
+    >The outcome is not decided at the end of the line. It is decided while AckWait is still counting, by the
+      {{ r.ranOn }} sequences the fold travels in the meantime.</text>
     <text
       x="8"
       y="166"

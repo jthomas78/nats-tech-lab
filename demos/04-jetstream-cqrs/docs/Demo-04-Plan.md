@@ -2722,11 +2722,51 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       Redelivery folded 9 999 in 31.1 s / 322 per s with 1 dropped — the
       30 s AckWait is the whole of the run's duration, which is the lesson.
 
-- [ ] **04.9.9 The recorded data is deleted** (D5). `view/drain.js` and the
+- [x] **04.9.9 The recorded data is deleted** (D5). `view/drain.js` and the
       starvation and redelivery constants go, along with their specs. The
       stale `74 109 events` prose goes with them.
 
       Spec: no measured number on lesson 02 comes from a constant.
+
+      Six files deleted: `view/drain.js`, `view/starvation.js`,
+      `view/redelivery.js` and their three specs. `view/recorded.spec.js` is
+      the live guard that replaces them — it walks `src/`, fails if any of the
+      six files comes back, fails if any of the ten deleted names
+      (`DRAIN_RUNS`, `STARVATION_SOURCE`, `redeliveryRows`, …) appears
+      anywhere, and fails on the literal `74 109` / `74 040` / `74 079`.
+      `PoolPanel.vue` lost the whole `redelivery-measured` card.
+
+      One thing the task list did not anticipate: **deleting the recorded
+      redelivery rows would have deleted the timeline drawing with them.**
+      The Redelivery tab would have been left saying "1 dropped" and nothing
+      else. The run now reports its own fault instead. `PoolResult` carries a
+      nullable `Redelivery *PoolRedelivery` — nil and a zero record are
+      different facts, so a run with no kill in it reports nothing rather than
+      an empty record. `redeliveryLog` keeps the FIRST redelivery; `killClock`
+      now remembers WHICH worker was killed; `foldPositionOf` reads the
+      vehicle's own watermark AFTER the fold refused the event. The shim adds
+      `redelivery` to the run body and computes `ranOn` there, so one
+      subtraction cannot be done two ways on the screen.
+
+      The drawing can now end either way. The recorded rows only ever ended in
+      a drop, so the component hard-said "dropped"; it now reads `recovered`
+      and says "folded, acked" when the fold accepted the event.
+
+      Verified live on `lab4-nats`, pressing the button on the screen:
+      worker 2 killed holding #500094, redelivered to worker 1 as delivery 2
+      after 30.008 s of a 30 s AckWait, watermark already at 509994, so
+      dropped and acked — 9 999 folded in 31.1 s with 1 dropped. A second run
+      earlier in the session gave #500093, worker 3 → worker 2, 30.003 s: the
+      numbers move, which is the proof they are not constants.
+
+      Gates: `ginkgo ./...` 243 of 243; `npx vitest run` 431 in 29 files;
+      eslint 0 errors, 3 warnings (the 7-warning baseline in `CLAUDE.md` is
+      now stale — 04.9.10 fixes the number); `npm run build` clean.
+
+      `README.md` keeps its dated measurement tables — they are provenance
+      with the commands that made them — but the three sentences claiming the
+      UI still draws those same runs are corrected to say the tab repeats the
+      run itself.
 
 - [ ] **04.9.10 The documents catch up.** `CLAUDE.md` gains the new routes and
       says lesson 02 is driven from the screen. `BUSINESS_RULES-ODOMETER.md`

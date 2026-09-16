@@ -2,9 +2,9 @@
 //
 // The panels tell a reader to type things. A command with a flag the Go
 // binary does not define fails in front of them with `flag provided but not
-// defined`, and the lesson stops there. Worse, the two recorded measurements
-// (drain.js, redelivery.js) print the commands that produced them — if a flag
-// is ever renamed, those blocks become a claim about a run nobody can repeat.
+// defined`, and the lesson stops there. Every Run button prints its command
+// too (D2), so a renamed flag makes the button a claim about a run nobody can
+// repeat by hand.
 //
 // So this spec reads cqrs/main.go, which is where the one shared FlagSet and
 // the subcommand switch both live, and holds the printed text to it. It is a
@@ -16,9 +16,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { DRAIN_SOURCE } from './drain.js'
 import { BENCH_SIZES, benchCmd, LESSONS, POOL_RM_CMD, POOL_SEED_CMD, poolRunCmd, SEED_CMD, SHOWCASE_COMMANDS, tabsFor } from './lessons.js'
-import { REDELIVERY_SOURCE } from './redelivery.js'
 
 // Walk up to the demo folder rather than hard-coding a depth: vitest's root
 // moves with the directory the runner is started from, and a wrong path here
@@ -69,7 +67,7 @@ const runCmds = [
   poolRunCmd({ workers: 8, maxPending: 1000, ackWait: '30s', killAt: 5000 }),
 ]
 
-const printed = [...DRAIN_SOURCE, ...REDELIVERY_SOURCE, SEED_CMD, POOL_SEED_CMD, POOL_RM_CMD, ...benchCmds, ...tabCmds, ...runCmds]
+const printed = [SEED_CMD, POOL_SEED_CMD, POOL_RM_CMD, ...benchCmds, ...tabCmds, ...runCmds]
 
 // A flag is printed either as `-name value` or as `-name=value`. Go's flag
 // package requires the second form for a false boolean, so the guard has to

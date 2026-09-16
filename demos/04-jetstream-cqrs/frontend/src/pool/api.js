@@ -142,6 +142,32 @@ export function describeRun({ status, body = {} }) {
       idle: Number(share.idle ?? 0),
       acked: Array.isArray(share.acked) ? share.acked.map(Number) : [],
     },
+    redelivery: describeRedelivery(body.redelivery),
+  }
+}
+
+// describeRedelivery turns the run's own fault record into what the drawing
+// reads (04.9.9). It replaces view/redelivery.js, which held two runs measured
+// once and shown after every press.
+//
+// null, not an empty object. A run with no kill in it redelivered nothing, and
+// a zero-filled record would draw a fault that never happened.
+export function describeRedelivery(d) {
+  if (!d) return null
+  return {
+    killSeq: Number(d.seq ?? 0),
+    killedWorker: Number(d.killedWorker ?? 0),
+    toWorker: Number(d.toWorker ?? 0),
+    delivery: Number(d.delivery ?? 0),
+    // Seconds, because that is the unit the reader was quoted the AckWait in.
+    // Rounded to the millisecond the shim measured, and no further: the
+    // finding is that the wait equals AckWait almost exactly, and a wait shown
+    // as "30s" cannot show that.
+    waitedSeconds: Math.round(Number(d.waitedMs ?? 0)) / 1000,
+    ackWait: String(d.ackWait ?? ''),
+    foldAt: Number(d.foldAt ?? 0),
+    ranOn: Number(d.ranOn ?? 0),
+    recovered: d.outcome !== 'dropped',
   }
 }
 

@@ -19,7 +19,7 @@ var _ = Describe("the kill clock", func() {
 	Context("a sequence nobody killed", func() {
 		It("reports no wait, rather than a wait of zero", func() {
 			c := newKillClock()
-			_, ok := c.since(94, time.Now())
+			_, _, ok := c.since(94, time.Now())
 			Expect(ok).To(BeFalse())
 		})
 	})
@@ -28,27 +28,29 @@ var _ = Describe("the kill clock", func() {
 		It("measures from the kill to the redelivery", func() {
 			c := newKillClock()
 			at := time.Now()
-			c.killed(94, at)
+			c.killed(94, 3, at)
 
-			waited, ok := c.since(94, at.Add(31*time.Second))
+			waited, worker, ok := c.since(94, at.Add(31*time.Second))
 			Expect(ok).To(BeTrue())
 			Expect(waited).To(Equal(31 * time.Second))
+			Expect(worker).To(Equal(3))
 		})
 
 		It("keeps the FIRST kill, because a later one is a different silence", func() {
 			c := newKillClock()
 			at := time.Now()
-			c.killed(94, at)
-			c.killed(94, at.Add(10*time.Second))
+			c.killed(94, 3, at)
+			c.killed(94, 1, at.Add(10*time.Second))
 
-			waited, _ := c.since(94, at.Add(30*time.Second))
+			waited, worker, _ := c.since(94, at.Add(30*time.Second))
 			Expect(waited).To(Equal(30 * time.Second))
+			Expect(worker).To(Equal(3))
 		})
 
 		It("answers for that sequence only", func() {
 			c := newKillClock()
-			c.killed(94, time.Now())
-			_, ok := c.since(95, time.Now())
+			c.killed(94, 3, time.Now())
+			_, _, ok := c.since(95, time.Now())
 			Expect(ok).To(BeFalse())
 		})
 	})
@@ -152,6 +154,48 @@ var _ = Describe("the kill switch", func() {
 			Expect(k.fires(false)).To(BeFalse())
 			Expect(k.fires(true)).To(BeFalse())
 			Expect(k.fires(true)).To(BeTrue())
+		})
+	})
+})
+
+// 04.9.9. The Redelivery tab used to draw a redelivery that was recorded in
+// a file. The run can report its own: the clock already measures the wait,
+// and the fold already knows where the watermark had reached. This is what
+// carries it back to the screen.
+var _ = Describe("the redelivery log", func() {
+
+	Context("a run with no kill in it", func() {
+		It("reports nothing, rather than an empty record", func() {
+			l := newRedeliveryLog()
+			Expect(l.get()).To(BeNil())
+		})
+	})
+
+	Context("a run that lost an event", func() {
+		It("reports what the run measured", func() {
+			l := newRedeliveryLog()
+			l.note(PoolRedelivery{Seq: 94, KilledWorker: 1, ToWorker: 3, Delivery: 2,
+				Waited: 30 * time.Second, AckWait: 30 * time.Second, FoldAt: 120, Outcome: "dropped"})
+
+			got := l.get()
+			Expect(got).NotTo(BeNil())
+			Expect(got.Seq).To(Equal(uint64(94)))
+			Expect(got.KilledWorker).To(Equal(1))
+			Expect(got.ToWorker).To(Equal(3))
+			Expect(got.Waited).To(Equal(30 * time.Second))
+			Expect(got.FoldAt).To(Equal(uint64(120)))
+			Expect(got.Outcome).To(Equal("dropped"))
+		})
+
+		// Same reason the clock keeps the first kill: a second redelivery
+		// of the same run is a different silence, and the tab asks about
+		// the one the fault caused.
+		It("keeps the FIRST redelivery", func() {
+			l := newRedeliveryLog()
+			l.note(PoolRedelivery{Seq: 94, Waited: 30 * time.Second})
+			l.note(PoolRedelivery{Seq: 95, Waited: 5 * time.Second})
+
+			Expect(l.get().Seq).To(Equal(uint64(94)))
 		})
 	})
 })

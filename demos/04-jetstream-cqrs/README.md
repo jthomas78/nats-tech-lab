@@ -479,7 +479,9 @@ moved past it — and both redeliveries were dropped on arrival (`BR-OD07`). In
 a pool, a redelivery after `AckWait` is not a recovery. The kilometres are
 still gone.
 
-The same two runs are drawn on the UI's **Redelivery** tab.
+The UI's **Redelivery** tab runs this fault itself and draws the redelivery
+it caused. The two runs above are where the finding came from; the tab is how
+you repeat it.
 
 ### Do the two projections agree — yes, and a rebuild is exact
 
@@ -562,7 +564,8 @@ can accept, not to keep workers busy.
 
 [nats-wp]: https://docs.nats.io/learn/jetstream/worker-pool
 
-The same three runs are drawn on the UI's **Starvation** tab.
+The UI's **Starvation** tab runs these four caps itself. The runs above are
+where the finding came from; the tab is how you repeat it.
 
 ### Does it actually go faster — 1 vs 4
 
@@ -599,7 +602,8 @@ Reproduce it yourself:
 for w in 1 2 4 8; do ./cqrs pool -workers $w -drain; done
 ```
 
-The same four runs are drawn on the UI's **1 vs 4** tab.
+The UI's **1 vs 4** tab runs these four worker counts itself. The runs above
+are where the finding came from; the tab is how you repeat it.
 
 `-drain` is what makes the runs comparable: it rebuilds the pool's projection
 from sequence 1 and stops when the consumer reports nothing left.

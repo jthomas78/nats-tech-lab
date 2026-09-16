@@ -615,3 +615,50 @@ var _ = Describe("stopping the run in flight", func() {
 		Expect(rec.Code).To(Equal(http.StatusMethodNotAllowed))
 	})
 })
+
+// 04.9.9. The Redelivery tab draws what the run measured, so the run body has
+// to carry it. Absent is a real answer: a run with no kill in it did not
+// redeliver anything, and a zero-filled record would draw a redelivery that
+// never happened.
+var _ = Describe("the run body and its redelivery", func() {
+
+	It("leaves the redelivery out when the run had no kill in it", func() {
+		out := poolRunResultOf(PoolConfig{Workers: 4}, PoolResult{Acked: 10})
+		Expect(out.Redelivery).To(BeNil())
+	})
+
+	It("reports what the run measured, in the units the screen reads", func() {
+		res := PoolResult{Acked: 9999, Dropped: 1, Redelivery: &PoolRedelivery{
+			Seq: 94, KilledWorker: 1, ToWorker: 3, Delivery: 2,
+			Waited: 30_005 * time.Millisecond, AckWait: 30 * time.Second,
+			FoldAt: 124, Outcome: "dropped",
+		}}
+		out := poolRunResultOf(PoolConfig{Workers: 4, KillAt: 94}, res)
+
+		Expect(out.Redelivery).NotTo(BeNil())
+		Expect(out.Redelivery.Seq).To(Equal(uint64(94)))
+		Expect(out.Redelivery.KilledWorker).To(Equal(1))
+		Expect(out.Redelivery.ToWorker).To(Equal(3))
+		Expect(out.Redelivery.Delivery).To(Equal(uint64(2)))
+		Expect(out.Redelivery.WaitedMs).To(BeNumerically("~", 30005, 0.5))
+		Expect(out.Redelivery.AckWait).To(Equal("30s"))
+		Expect(out.Redelivery.FoldAt).To(Equal(uint64(124)))
+		Expect(out.Redelivery.Outcome).To(Equal("dropped"))
+	})
+
+	// The distance the fold travelled while the worker was silent. The screen
+	// could subtract it, but then two screens could subtract it differently.
+	It("says how far the fold ran on during the silence", func() {
+		res := PoolResult{Redelivery: &PoolRedelivery{Seq: 94, FoldAt: 124, Outcome: "dropped"}}
+		out := poolRunResultOf(PoolConfig{Workers: 4}, res)
+		Expect(out.Redelivery.RanOn).To(Equal(uint64(30)))
+	})
+
+	// A redelivery that arrived before the fold passed it was RECOVERED, and
+	// a negative distance is not a thing. Zero, not a wrapped-around number.
+	It("reports no distance when the fold had not passed it", func() {
+		res := PoolResult{Redelivery: &PoolRedelivery{Seq: 94, FoldAt: 90, Outcome: "folded"}}
+		out := poolRunResultOf(PoolConfig{Workers: 4}, res)
+		Expect(out.Redelivery.RanOn).To(Equal(uint64(0)))
+	})
+})
