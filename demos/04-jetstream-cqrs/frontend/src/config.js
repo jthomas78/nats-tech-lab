@@ -19,6 +19,28 @@ export const READ_KV = 'odometer-read'
 export const POOL_KV = 'odometer-pool'
 export const POOL_WORKERS_KV = 'odometer-pool-workers'
 
+// Lesson 02's OWN log, and its own correct fold (plan 04.8, D8). Must match
+// names.go.
+//
+// Until 04.8 the pool folded ODOMETER -- the log every other screen here is
+// drawn from. It published nothing there, so it looked harmless, but its
+// consumer starves and redelivers on purpose, and under -kill-at it abandons
+// messages unacked. One press on lesson 02 left that on the demo's own log.
+//
+// `evt.odometer-pool.>` does not overlap `evt.odometer.>` -- the SECOND token
+// differs. A dot instead of the hyphen would put the pool back inside the
+// demo's own filter, which is the whole thing this split exists to avoid.
+//
+// Careful with the stream name: `ODOMETER` is a PREFIX of `ODOMETER_POOL`, so
+// a half-copied name still reads as plausible on screen.
+//
+// POOL_TRUTH_KV is the SAME log folded correctly, one message at a time. It is
+// what the damage is measured against (D3). It is a third bucket rather than a
+// reuse of READ_KV because READ_KV folds a different log, and comparing the
+// pool with it would be comparing two different questions.
+export const POOL_STREAM = 'ODOMETER_POOL'
+export const POOL_TRUTH_KV = 'odometer-pool-truth'
+
 // Must match names.go. The first token is the fixed literal `evt`, never a
 // wildcard — an open first token overlaps $SYS.> and JetStream refuses it.
 export const SUBJECT_PREFIX = 'evt.odometer.vehicle'

@@ -1,4 +1,4 @@
-// The read path. One WebSocket, five subscriptions, no HTTP.
+// The read path. One WebSocket, six subscriptions, no HTTP.
 //
 // Commands do NOT come through here — they go to the Go shim on 20402 over
 // HTTP (plan section 9.2, D3). Keeping the two apart is not tidiness: it is
@@ -17,9 +17,14 @@
 //   KV odometer-pool          the pool's own, deliberately damaged fold.
 //   KV odometer-pool-workers  one key per worker: heartbeat and counters.
 //
-// The two pool buckets may not exist — nobody has to run `cqrs pool` — so
-// their watches are allowed to fail without taking the page down. An absent
-// bucket means the lesson has not been run, not that the screen is broken.
+// Phase 04.8 gave lesson 02 its own LOG, so two more arrived with it:
+//
+//   stream ODOMETER_POOL      lesson 02's log. Nothing else reads it.
+//   KV odometer-pool-truth    that log folded correctly, to compare against.
+//
+// The pool's stream and buckets may not exist — nobody has to run `cqrs pool`
+// — so their reads are allowed to fail without taking the page down. Absent
+// means the lesson has not been run, not that the screen is broken.
 //
 // A single "current state" subscription would hide exactly the thing this
 // screen is for.
@@ -29,8 +34,17 @@ import { Kvm } from '@nats-io/kv'
 import { wsconnect } from '@nats-io/nats-core'
 import { computed, reactive, ref, shallowRef } from 'vue'
 
-import { NATS_WS, POOL_KV, POOL_WORKERS_KV, READ_KV, STREAM, WRITE_KV } from '../config.js'
-import { lag, logEvent, maxSeq, poolWorker, readModel, writeSnapshot } from './model.js'
+import {
+  NATS_WS,
+  POOL_KV,
+  POOL_STREAM,
+  POOL_TRUTH_KV,
+  POOL_WORKERS_KV,
+  READ_KV,
+  STREAM,
+  WRITE_KV,
+} from '../config.js'
+import { lag, logEvent, maxSeq, poolWorker, readModel, streamSize, writeSnapshot } from './model.js'
 
 // How many stream rows the table keeps. The seed command writes 10 000 trips
 // to make the replay worth timing, and a browser that tried to hold all of
@@ -79,6 +93,11 @@ export function useOdometer() {
   const reads = reactive(new Map())
   const pool = reactive(new Map())
   const poolWorkers = reactive(new Map())
+  // Lesson 02's own log and its correct fold. The count and the bytes are
+  // declared together and are never separated -- see streamSize().
+  const poolMessages = ref(0)
+  const poolBytes = ref(0)
+  const poolTruth = reactive(new Map())
   const log = ref([])
 
   const connection = shallowRef(null)
@@ -127,12 +146,14 @@ export function useOdometer() {
       const jsm = await jetstreamManager(nc)
 
       await readStreamInfo(jsm)
+      await readPoolStreamInfo(jsm)
       await Promise.all([
         watchBucket(js, WRITE_KV, writes, writeSnapshot),
         watchBucket(js, READ_KV, reads, readModel),
         // Optional: the pool is a lesson somebody chooses to run.
         watchOptionalBucket(js, POOL_KV, pool, readModel),
         watchOptionalBucket(js, POOL_WORKERS_KV, poolWorkers, poolWorker),
+        watchOptionalBucket(js, POOL_TRUTH_KV, poolTruth, readModel),
       ])
       await tailStream(js)
       trackStatus(nc)
@@ -168,10 +189,24 @@ export function useOdometer() {
   // readStreamInfo gets the head sequence once, up front. Without it the log
   // table would have to replay from 1 to learn where the head is.
   async function readStreamInfo(jsm) {
-    const info = await jsm.streams.info(STREAM)
-    head.value = Number(info.state?.last_seq ?? 0)
-    messages.value = Number(info.state?.messages ?? 0)
-    bytes.value = Number(info.state?.bytes ?? 0)
+    const size = streamSize(await jsm.streams.info(STREAM))
+    head.value = size.head
+    messages.value = size.messages
+    bytes.value = size.bytes
+  }
+
+  // The pool's log is optional, exactly like the pool's buckets: nobody has to
+  // run `cqrs pool -seed`. An absent stream means the lesson has not been
+  // seeded, not that the screen is broken, so it stays at zero and the panel
+  // says so.
+  async function readPoolStreamInfo(jsm) {
+    try {
+      const size = streamSize(await jsm.streams.info(POOL_STREAM))
+      poolMessages.value = size.messages
+      poolBytes.value = size.bytes
+    } catch {
+      // Not seeded yet.
+    }
   }
 
   // watchBucket drains a KV watcher forever. watch() replays every current
@@ -260,6 +295,9 @@ export function useOdometer() {
     reads,
     pool,
     poolWorkers,
+    poolMessages,
+    poolBytes,
+    poolTruth,
     log,
     vehicles,
     lags,

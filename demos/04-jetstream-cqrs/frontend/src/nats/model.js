@@ -123,3 +123,22 @@ export function poolWorker(key, doc) {
     at: doc?.at ?? '',
   }
 }
+
+// streamSize reads a log's size out of one stream info.
+//
+// It exists so that a count can never be picked up on its own. The standing
+// rule, set by the user 2026-09-16: a count is never shown without its bytes.
+// A length is a number nobody can price -- 100 000 000 events sounds
+// reasonable right up to the moment you learn it is 7.6 GB.
+//
+// A stream nobody has seeded answers zero, not undefined. "Not seeded yet" is
+// a correct state of the world, and a screen printing `undefined events` would
+// look broken instead.
+export function streamSize(info) {
+  const state = info?.state ?? {}
+  return {
+    head: Number(state.last_seq ?? 0),
+    messages: Number(state.messages ?? 0),
+    bytes: Number(state.bytes ?? 0),
+  }
+}

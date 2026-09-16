@@ -2136,13 +2136,34 @@ all three gates from `frontend/`.
       setting, or a longer per-event pause, is a question for the screen that
       reports it -- not a reason to change the seed now.
 
-- [ ] **04.8.7 The frontend learns the new names.** `config.js` gains
+- [x] **04.8.7 The frontend learns the new names.** `config.js` gains
       `POOL_STREAM` and `POOL_TRUTH_KV`; `useOdometer.js` reads stream info
       for the pool's log the way it already does for `STREAM`, and watches
       the truth bucket beside the other two.
 
       Spec: the composable reports the pool stream's count and bytes
       together, never one without the other.
+
+      Done. The bytes rule is enforced at ONE place rather than at each
+      screen: `streamSize(info)` in `nats/model.js` returns
+      `{head, messages, bytes}` and is the only way a stream's size is read,
+      so no caller can pick up a count on its own. A stream nobody has seeded
+      answers zero, never `undefined` -- "not seeded yet" is a correct state
+      of the world, and `undefined events` on screen reads as a broken page.
+
+      The pool's log is read through `readPoolStreamInfo`, which tolerates a
+      missing stream exactly as `watchOptionalBucket` already tolerated a
+      missing bucket. Nobody has to run `cqrs pool -seed`.
+
+      `nats/useOdometer.spec.js` (new, 9 specs) also pins the names against
+      each other, because the names are the part that is easy to get wrong:
+      `POOL_STREAM` is not `STREAM`, `POOL_TRUTH_KV` is not `READ_KV`,
+      `WRITE_KV` or `POOL_KV`, and the casing follows the storage rule
+      (streams `SCREAMING_SNAKE`, buckets `lowercase-kebab`). `ODOMETER` is a
+      prefix of `ODOMETER_POOL`, so a half-copied name still looks plausible.
+
+      Gates: 337 vitest specs in 23 files, eslint 0 errors (7 `PoolPanel.vue`
+      warnings are the baseline), `npm run build` clean.
 
 - [ ] **04.8.8 The damage is measured against the right fold.**
       `foldDamage()` subtracts `odometer-pool-truth`, not `odometer-read`
