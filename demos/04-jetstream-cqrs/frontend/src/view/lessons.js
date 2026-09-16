@@ -68,6 +68,19 @@ export function lessonFor(view) {
 // that says so has to be able to print the way out of it.
 export const SEED_CMD = 'cqrs seed -vehicle truck-7 -n 2000'
 
+// The same thing for lesson 02, and it is a DIFFERENT command because it is a
+// different log (04.8.9).
+//
+// `cqrs seed` appends to ODOMETER. Offering it to a caught-up pool would have
+// done the reader two disservices at once: the pool would still have had
+// nothing to fold, and lesson 01's log would have grown by 2 000 events the
+// reader never asked for.
+//
+// The size matches DefaultPoolSize in cqrs/pool_seed.go. A re-seed replaces
+// what is there rather than adding to it, so pressing this twice does not
+// slowly turn a 10 000-event demo into a 40 000-event one.
+export const POOL_SEED_CMD = 'cqrs pool -seed 10000'
+
 // The command that builds the rehydrate fixture, for one size.
 //
 // It lives here for the same reason SEED_CMD does: this file owns "which

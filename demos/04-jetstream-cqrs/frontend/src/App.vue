@@ -24,7 +24,7 @@ import {
 import { useOdometer } from './nats/useOdometer.js'
 import { crumbFor, railSections } from './view/lessons.js'
 
-const { status, error, head, messages, bytes, writes, reads, pool, poolWorkers, poolTruth, log, vehicles, lags, connect, disconnect } =
+const { status, error, head, messages, bytes, writes, reads, pool, poolWorkers, poolHead, poolMessages, poolBytes, poolTruth, log, vehicles, lags, connect, disconnect } =
   useOdometer()
 
 onMounted(connect)
@@ -130,9 +130,14 @@ const watching = computed(() => {
       </StreamCqrsPanel>
     </template>
 
+    <!-- Lesson 02 is drawn from ODOMETER_POOL, so it is handed that log's
+         head and size — never ODOMETER's. Passing lesson 01's head here made
+         a caught-up pool look 84 000 events behind (04.8.9). -->
     <PoolPanel
       v-if="isLesson02"
-      :head="head"
+      :head="poolHead"
+      :messages="poolMessages"
+      :bytes="poolBytes"
       :workers="poolWorkers"
       :pool="pool"
       :truth="poolTruth"

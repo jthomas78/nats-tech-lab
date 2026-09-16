@@ -17,6 +17,7 @@ import {
   STARVATION_SOURCE,
   starvationRows,
 } from '../view/starvation.js'
+import { formatCount } from '../view/format.js'
 import PoolPanel from './PoolPanel.vue'
 
 const mountPanel = (props = {}) =>
@@ -356,7 +357,7 @@ describe('PoolPanel — caught up', () => {
     const w = mountPanel({ head: 94, workers: workers(), pool: caught(), truth: truth() })
     const hint = w.find('[data-testid="pool-caught-up"]')
     expect(hint.exists()).toBe(true)
-    expect(hint.text()).toContain('cqrs seed -vehicle truck-7 -n 2000')
+    expect(hint.text()).toContain('cqrs pool -seed')
   })
 
   it('says the same thing where the bars are, because zero bars read as broken too', () => {
@@ -372,5 +373,79 @@ describe('PoolPanel — caught up', () => {
 
   it('stays quiet when no pool is running at all', () => {
     expect(mountPanel().find('[data-testid="pool-caught-up"]').exists()).toBe(false)
+  })
+})
+
+// 04.8.9 — lesson 02 says which log it is reading.
+//
+// The screen used to name ODOMETER in its prose and print lesson 01's seed
+// command as the way out of a caught-up pool. Neither was true after 04.8.6.
+// The failure mode is quiet: every word still reads as plausible, and the
+// reader is simply told the wrong thing about the thing in front of them.
+//
+// ODOMETER is a PREFIX of ODOMETER_POOL, so the check has to be a boundary
+// match. A plain `not.toContain('ODOMETER')` would fail on the correct name.
+const BARE_ODOMETER = /ODOMETER(?!_POOL)/
+
+describe('lesson 02 names its own log and nothing else', () => {
+  const everyTab = async (props) => {
+    const w = mountPanel(props)
+    const seen = []
+    for (const key of ['live', 'starvation', 'redelivery', 'scaling', 'pool']) {
+      w.vm.tab = key
+      await w.vm.$nextTick()
+      seen.push([key, w.text()])
+    }
+    return seen
+  }
+
+  it('never names the demo own log, on any tab', async () => {
+    const props = { head: 94, messages: 10_000, bytes: 810_000, workers: workers(), pool: pool(), truth: truth() }
+    for (const [key, text] of await everyTab(props)) {
+      expect(text, `tab ${key} still names ODOMETER`).not.toMatch(BARE_ODOMETER)
+    }
+  })
+
+  it('names the pool log where it names a log at all', async () => {
+    const props = { head: 94, messages: 10_000, bytes: 810_000, workers: workers(), pool: pool(), truth: truth() }
+    const [[, live]] = await everyTab(props)
+    expect(live).toContain('ODOMETER_POOL')
+  })
+
+  // The standing rule, set by the user 2026-09-16. This screen reports its
+  // log's length, so it reports the bytes as well.
+  it('prices its log — a count never appears alone', () => {
+    const w = mountPanel({ head: 94, messages: 10_000, bytes: 810_000, workers: workers(), pool: pool() })
+    const size = w.get('[data-testid="pool-log-size"]').text()
+    expect(size).toContain(formatCount(10_000))
+    expect(size).toMatch(/KiB|MiB|bytes/)
+  })
+
+  // The count is LIVE. The panel used to print "74 109 events" as prose in its
+  // own header, which contradicted view/drain.js's recorded 10 029 on the next
+  // tab over. It now follows the wire.
+  //
+  // The recorded-run footnotes elsewhere on this screen still name 74 109, and
+  // they must: those are the provenance of numbers that were actually measured
+  // on a log of that size. A live count and a recorded one are different
+  // claims, so only the live one is checked here.
+  it('reads the count off the wire, not out of the prose', async () => {
+    const w = mountPanel({ head: 94, messages: 10_000, bytes: 810_000, workers: workers(), pool: pool() })
+    const size = () => w.get('[data-testid="pool-log-size"]').text()
+    expect(size()).toContain(formatCount(10_000))
+    await w.setProps({ messages: 25_000, bytes: 2_000_000 })
+    expect(size()).toContain(formatCount(25_000))
+    expect(size()).not.toContain(formatCount(10_000))
+  })
+
+  // A pool with nothing to fold is told how to get events into ITS log.
+  // `cqrs seed` fills ODOMETER, which would have left the pool just as idle
+  // and buried lesson 01's log at the same time.
+  it('offers the pool own seed when the pool has caught up', async () => {
+    const caught = new Map([['pool-01', { id: 'pool-01', totalKm: 1478, lastSeq: 94 }]])
+    const w = mountPanel({ head: 94, messages: 94, bytes: 8000, workers: workers(), pool: caught, truth: truth() })
+    const hint = w.get('[data-testid="pool-caught-up"]').text()
+    expect(hint).toContain('cqrs pool -seed')
+    expect(hint).not.toContain('cqrs seed ')
   })
 })

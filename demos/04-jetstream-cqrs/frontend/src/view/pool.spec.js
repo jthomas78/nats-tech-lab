@@ -9,6 +9,7 @@ import {
   redelivery,
   workerRows,
 } from './pool.js'
+import { POOL_STREAM, STREAM } from '../config.js'
 
 // Lesson 02's arithmetic, kept out of the Vue file so it can be specced
 // without a browser — the same split lane.js already uses.
@@ -209,5 +210,18 @@ describe('poolCaughtUp', () => {
 
   it('is false when there is no head to compare against', () => {
     expect(poolCaughtUp(0, 0, running)).toBe(false)
+  })
+})
+
+// 04.8.9 — lesson 02 says which log it is reading.
+//
+// The lane is the one place on the panel that names a stream in prose, and it
+// named ODOMETER. Lesson 02 has not folded ODOMETER since 04.8.6, so that line
+// was telling the reader the wrong thing about the thing in front of them.
+describe('the lane names the log lesson 02 actually folds', () => {
+  it('names the pool log, never the demo own log', () => {
+    const log = poolLaneRows(120, [], 118).find((r) => r.kind === 'log')
+    expect(log.text).toContain(POOL_STREAM)
+    expect(log.text).not.toMatch(new RegExp(`${STREAM}(?!_)`))
   })
 })

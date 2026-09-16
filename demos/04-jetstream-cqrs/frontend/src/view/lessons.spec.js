@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
-import { BENCH_SIZES, LESSONS, benchVehicle, crumbFor, lessonFor, railSections, tabsFor } from './lessons.js'
+import { BENCH_SIZES, LESSONS, POOL_SEED_CMD, SEED_CMD, benchVehicle, crumbFor, lessonFor, railSections, tabsFor } from './lessons.js'
 
 describe('the rail is a lesson index', () => {
   it('holds two rows and nothing else', () => {
@@ -122,5 +122,21 @@ describe('the fixture vehicle names match the Go that writes them', () => {
     expect(go).toContain('func benchVehicle(')
     expect(go).toContain('bench-%dm')
     expect(go).toContain('bench-%dk')
+  })
+})
+
+// 04.8.9 — the two lessons have two different seeds, because they have two
+// different logs. `cqrs seed` writes to ODOMETER. A caught-up POOL needs
+// events in ODOMETER_POOL, and pressing lesson 01's seed would have given it
+// none while filling the log lesson 01 is drawn from.
+describe('each lesson seeds its own log', () => {
+  it('gives lesson 02 a seed command of its own', () => {
+    expect(POOL_SEED_CMD).toMatch(/^cqrs pool -seed \d+$/)
+    expect(POOL_SEED_CMD).not.toBe(SEED_CMD)
+  })
+
+  it('keeps lesson 01 seeding lesson 01', () => {
+    expect(SEED_CMD.startsWith('cqrs seed ')).toBe(true)
+    expect(POOL_SEED_CMD.startsWith('cqrs pool ')).toBe(true)
   })
 })

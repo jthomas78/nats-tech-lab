@@ -14,7 +14,7 @@
 // from view/redelivery.js, which holds two runs that were actually timed by
 // the pool process — read off its log, never derived here.
 
-import { STREAM } from '../config.js'
+import { POOL_STREAM } from '../config.js'
 
 // A worker that has never acked anything is idle. It is the whole of the
 // starvation lesson: MaxAckPending belongs to the CONSUMER, so a cap of three
@@ -128,7 +128,10 @@ export function foldDamage(poolRows = [], truthRows = []) {
 export function poolLaneRows(head = 0, rows = [], foldSeq = 0) {
   const h = Number(head) || 0
   const out = [
-    { id: 'log', kind: 'log', tone: 'log', text: `${STREAM} · ${h} events, the only source of truth` },
+    // POOL_STREAM, not STREAM. Lesson 02 has folded its own log since
+    // 04.8.6, and a lane that named ODOMETER told the reader the wrong thing
+    // about the thing in front of them.
+    { id: 'log', kind: 'log', tone: 'log', text: `${POOL_STREAM} · ${h} events, the only source of truth` },
   ]
   if (Number(foldSeq) > 0) {
     out.push({

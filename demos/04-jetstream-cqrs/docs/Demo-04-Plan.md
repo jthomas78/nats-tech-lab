@@ -2188,7 +2188,7 @@ all three gates from `frontend/`.
 
       Gates: 338 vitest specs, eslint 0 errors, build clean.
 
-- [ ] **04.8.9 Lesson 02 says which log it is reading.** Every `ODOMETER` on
+- [x] **04.8.9 Lesson 02 says which log it is reading.** Every `ODOMETER` on
       the lesson becomes `ODOMETER_POOL`. The `74 109 events` prose in
       `PoolPanel.vue` becomes a live count with its bytes (D6) — it
       contradicts `view/drain.js`'s recorded 10 029 today, and a fixed seed
@@ -2197,6 +2197,36 @@ all three gates from `frontend/`.
       Spec: no label, command or panel on lesson 02 names `ODOMETER`, and no
       count on it appears without bytes. `commands.spec.js` stays green
       untouched — it is the guard, not a cost of this change.
+
+      Done 2026-09-16. Red first: 8 failures, then green. Three things the
+      task list did not name and the specs found:
+
+      - `PoolStrip.vue` printed `ODOMETER · evt.odometer.vehicle.>` in its
+        own markup, nowhere near `view/pool.js`. The spec walks all five tabs
+        against `/ODOMETER(?!_POOL)/` — a plain substring test would have
+        passed on `ODOMETER_POOL` and missed this. `config.js` gained
+        `POOL_SUBJECT_PREFIX = 'evt.odometer-pool.vehicle'` to go with it.
+      - `App.vue` was still handing `PoolPanel` **`ODOMETER`'s** head. With
+        the pool on its own log that made a caught-up pool look tens of
+        thousands of events behind. `useOdometer` now keeps `poolHead`
+        beside `poolMessages`/`poolBytes` and `App.vue` passes all three.
+      - The recorded-run footnotes still say `74 109 events`, and they must:
+        that is the provenance of numbers actually measured on a log of that
+        size. Only the LIVE count was de-hardcoded. The spec was narrowed to
+        the live one rather than banning the string, which would have forced
+        a true measurement off the page.
+
+      `POOL_SEED_CMD = 'cqrs pool -seed 10000'` replaces lesson 01's
+      `cqrs seed` on this screen — pressing lesson 01's command on a
+      caught-up pool left the pool idle AND buried lesson 01's log.
+      `commands.spec.js` was not weakened: `POOL_SEED_CMD` was ADDED to its
+      printed list, so it now parses one more command against `main.go`.
+
+      Verified against the running `lab4-nats`: `ODOMETER_POOL` reports
+      10 000 messages / 810 120 bytes, which is the `10 000 events ·
+      791.1 KiB` the header draws. Gates green from `frontend/`:
+      347 specs / 23 files, eslint 0 errors (7 baseline `PoolPanel.vue`
+      warnings), `npm run build` clean.
 
 - [ ] **04.8.10 The documents catch up.** `CLAUDE.md`'s storage table gains
       `ODOMETER_POOL` and `odometer-pool-truth` and says lesson 02 owns them;

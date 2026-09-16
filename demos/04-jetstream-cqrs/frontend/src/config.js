@@ -40,6 +40,9 @@ export const POOL_WORKERS_KV = 'odometer-pool-workers'
 // pool with it would be comparing two different questions.
 export const POOL_STREAM = 'ODOMETER_POOL'
 export const POOL_TRUTH_KV = 'odometer-pool-truth'
+// The pool's own subject prefix, to go with its own stream. Hyphen in the
+// second token, for the same reason the stream is separate at all.
+export const POOL_SUBJECT_PREFIX = 'evt.odometer-pool.vehicle'
 
 // Must match names.go. The first token is the fixed literal `evt`, never a
 // wildcard — an open first token overlaps $SYS.> and JetStream refuses it.

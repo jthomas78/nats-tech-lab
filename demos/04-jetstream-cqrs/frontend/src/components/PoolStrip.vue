@@ -18,7 +18,7 @@
 // heartbeat put it there.
 import { computed } from 'vue'
 
-import { POOL_KV, SUBJECT_PREFIX } from '../config.js'
+import { POOL_KV, POOL_STREAM, POOL_SUBJECT_PREFIX } from '../config.js'
 import { dropNote, headGap, stripChips } from '../view/strip.js'
 
 const props = defineProps({
@@ -74,7 +74,7 @@ const description = computed(() => {
     :aria-label="description"
   >
     <p class="eyebrow">
-      ODOMETER · {{ SUBJECT_PREFIX }}.&gt;
+      {{ POOL_STREAM }} · {{ POOL_SUBJECT_PREFIX }}.&gt;
     </p>
 
     <div

@@ -31,7 +31,7 @@ import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 
-import { POOL_KV, POOL_TRUTH_KV } from '../config.js'
+import { POOL_KV, POOL_STREAM, POOL_TRUTH_KV } from '../config.js'
 import { DRAIN_SOURCE, MEASURED_AT, drainRows } from '../view/drain.js'
 import RedeliveryTimeline from './RedeliveryTimeline.vue'
 import {
@@ -54,13 +54,19 @@ import {
   redelivery,
   workerRows,
 } from '../view/pool.js'
-import { SEED_CMD, tabsFor } from '../view/lessons.js'
+import { POOL_SEED_CMD, tabsFor } from '../view/lessons.js'
+import { formatBytes, formatCount } from '../view/format.js'
 import BucketKeys from './BucketKeys.vue'
 import LagLane from './LagLane.vue'
 import PoolStrip from './PoolStrip.vue'
 
 const props = defineProps({
+  // The head of ODOMETER_POOL — lesson 02's own log, not ODOMETER's.
   head: { type: Number, default: 0 },
+  // How long that log is, and what it costs. The two travel together: a count
+  // is never shown without its bytes (user, 2026-09-16).
+  messages: { type: Number, default: 0 },
+  bytes: { type: Number, default: 0 },
   // KV odometer-pool-workers, one entry per worker.
   workers: { type: Object, default: () => new Map() },
   // KV odometer-pool — the pool's own, deliberately damaged fold.
@@ -111,6 +117,14 @@ const starvation = starvationRows()
 
 const STATUS_TONE = { working: 'on', waiting: 'off', killed: 'lost' }
 
+// The log this lesson folds, named once, with its length and its price. It is
+// read off the wire every time. The panel used to carry "74 109 events" as
+// prose, which disagreed with view/drain.js's recorded 10 029 on the tab next
+// door -- and a reader who noticed had no way to tell which was true.
+const logSize = computed(
+  () => `${POOL_STREAM} · ${formatCount(props.messages)} events · ${formatBytes(props.bytes)}`,
+)
+
 function km(n) {
   return `${Math.round(Number(n) || 0).toLocaleString('en-GB')} km`
 }
@@ -138,6 +152,10 @@ function km(n) {
         severity="danger"
         :value="`${health.killed} silent`"
       />
+      <code
+        class="log-size"
+        data-testid="pool-log-size"
+      >{{ logSize }}</code>
       <code class="cmd">{{ current.cmd }}</code>
     </header>
 
@@ -285,7 +303,7 @@ function km(n) {
                 because the pool has folded the whole log, not because the page
                 is broken. Give it new events and the cards start moving:
               </p>
-              <code class="run">{{ SEED_CMD }}</code>
+              <code class="run">{{ POOL_SEED_CMD }}</code>
             </div>
           </template>
         </TabPanel>
@@ -343,7 +361,7 @@ function km(n) {
                 is no work to share out. Seed it first,
                 then read the bars:
               </p>
-              <code class="run">{{ SEED_CMD }}</code>
+              <code class="run">{{ POOL_SEED_CMD }}</code>
             </div>
           </div>
 
@@ -436,8 +454,8 @@ function km(n) {
             <span v-for="line in STARVATION_SOURCE" :key="line"><span class="pr">$</span> {{ line }}</span>
             <span class="foot">
               <code>-drain</code> rebuilds the pool's fold from sequence 1 and
-              stops at zero pending, so every run reads the same 74 109 events
-              and the times can be compared.
+              stops at zero pending, so every run reads the same log from the
+              start and the times can be compared.
             </span>
           </div>
         </TabPanel>
@@ -730,6 +748,15 @@ header {
   flex-wrap: wrap;
 }
 
+
+/* The log's name, length and price, at the top of the lesson. It sits BEFORE
+   .cmd, which takes the remaining space with margin-left:auto, so this one
+   needs no margin of its own. */
+.log-size {
+  color: var(--p-text-muted-color);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+}
 
 .cmd {
   margin-left: auto;

@@ -95,6 +95,7 @@ export function useOdometer() {
   const poolWorkers = reactive(new Map())
   // Lesson 02's own log and its correct fold. The count and the bytes are
   // declared together and are never separated -- see streamSize().
+  const poolHead = ref(0)
   const poolMessages = ref(0)
   const poolBytes = ref(0)
   const poolTruth = reactive(new Map())
@@ -202,6 +203,7 @@ export function useOdometer() {
   async function readPoolStreamInfo(jsm) {
     try {
       const size = streamSize(await jsm.streams.info(POOL_STREAM))
+      poolHead.value = size.head
       poolMessages.value = size.messages
       poolBytes.value = size.bytes
     } catch {
@@ -295,6 +297,7 @@ export function useOdometer() {
     reads,
     pool,
     poolWorkers,
+    poolHead,
     poolMessages,
     poolBytes,
     poolTruth,
