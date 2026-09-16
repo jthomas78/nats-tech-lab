@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -104,6 +105,17 @@ func loadSnapshot(ctx context.Context, kv jetstream.KeyValue, id string) (Snapsh
 	return snap, nil
 }
 
+// replayInactiveThreshold is how long the server keeps this demo's replay
+// consumer after it stops hearing from us.
+//
+// It is a backstop, not the cleanup. The happy path deletes the consumer
+// itself, below. This only catches the process that is killed mid-replay --
+// and it must be set, because the client's own default is 5 MINUTES. A demo
+// that rehydrates in a loop would leave a drift of dead consumers on the
+// stream for five minutes each, and `nats consumer ls` is one of the things
+// a reader of this demo is meant to look at.
+const replayInactiveThreshold = 30 * time.Second
+
 // replay reads every stream message matching filter, from fromSeq onward,
 // in order, and hands each to fn.
 //
@@ -112,11 +124,28 @@ func loadSnapshot(ctx context.Context, kv jetstream.KeyValue, id string) (Snapsh
 // offset between commands, and rehydration must never depend on what a
 // previous command happened to read.
 //
+// Messages(), NOT Next(). This is the single most expensive mistake available
+// in this file, and the demo made it until 04.7.12.
+//
+// On an ordered consumer, Next() calls Fetch(1), and Fetch() calls reset() --
+// which DELETES the server-side consumer and creates a new one, every call.
+// So a Next()-per-event replay creates one consumer per event. On a 10k log
+// that is 10k consumer creations and 10k deletions, and the measured
+// "rehydration time" this demo exists to report was mostly that, not reading.
+// It was visible on the server: the consumer name carries a serial, and it
+// read `..._32469` while delivering stream sequence 32478.
+//
+// Messages() creates ONE consumer and pulls batches over it. The client says
+// as much in its own doc comment on Next(). Believe it.
+//
 // Stopping is decided by the server, not by a timeout: every JetStream
 // message reports how many are still pending, and pending==0 is the end of
 // the history as it stood when the replay began.
 func replay(ctx context.Context, js jetstream.JetStream, filter string, fromSeq uint64, fn func(seq uint64, subject string, data []byte) error) error {
-	cfg := jetstream.OrderedConsumerConfig{FilterSubjects: []string{filter}}
+	cfg := jetstream.OrderedConsumerConfig{
+		FilterSubjects:    []string{filter},
+		InactiveThreshold: replayInactiveThreshold,
+	}
 	if fromSeq <= 1 {
 		cfg.DeliverPolicy = jetstream.DeliverAllPolicy
 	} else {
@@ -128,12 +157,26 @@ func replay(ctx context.Context, js jetstream.JetStream, filter string, fromSeq 
 	if err != nil {
 		return fmt.Errorf("replay consumer: %w", err)
 	}
+	// Registered first so it runs LAST: stop the iterator, then delete.
+	defer deleteReplayConsumer(js, consumer)
+
 	if consumer.CachedInfo().NumPending == 0 {
 		return nil
 	}
 
+	msgs, err := consumer.Messages()
+	if err != nil {
+		return fmt.Errorf("replay messages: %w", err)
+	}
+	defer msgs.Stop()
+
+	// Messages().Next() has no timeout of its own, so the caller's context is
+	// what ends a replay against a server that has gone quiet. Without this a
+	// cancelled command would block here for ever.
+	defer context.AfterFunc(ctx, msgs.Stop)()
+
 	for {
-		msg, err := consumer.Next(jetstream.FetchMaxWait(5 * time.Second))
+		msg, err := msgs.Next()
 		if err != nil {
 			return fmt.Errorf("replay %s: %w", filter, err)
 		}
@@ -147,6 +190,28 @@ func replay(ctx context.Context, js jetstream.JetStream, filter string, fromSeq 
 		if meta.NumPending == 0 {
 			return nil
 		}
+	}
+}
+
+// deleteReplayConsumer removes the ephemeral consumer this replay created.
+//
+// It uses its own context on purpose. The caller's context is usually already
+// cancelled by the time this runs -- that is what ended the replay -- and a
+// cleanup that skips itself whenever it is needed most is not a cleanup.
+//
+// A failure here is logged and not returned. The rehydration succeeded; the
+// InactiveThreshold above collects the consumer either way, and failing a
+// command over tidying would be the wrong trade.
+func deleteReplayConsumer(js jetstream.JetStream, consumer jetstream.Consumer) {
+	name := consumer.CachedInfo().Name
+	if name == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := js.DeleteConsumer(ctx, StreamName, name); err != nil &&
+		!errors.Is(err, jetstream.ErrConsumerNotFound) {
+		log.Printf("replay: could not delete consumer %s: %v", name, err)
 	}
 }
 

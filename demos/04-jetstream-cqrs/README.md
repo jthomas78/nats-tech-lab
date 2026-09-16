@@ -269,25 +269,49 @@ screen. The UI is a second door, not a second truth.
 
 ## The finding
 
-Measured 2026-09-14, on one NATS 2.14.3 server in Docker on a laptop, with
-10001 events on one vehicle.
+Measured 2026-09-16, on one NATS 2.14.3 server in Docker on a laptop, with
+10001 events on one vehicle. Best of three runs each way.
 
 | Rehydration | Events read | Time |
 |---|---|---|
-| From sequence 1, no snapshot | 10001 | **8.2 s** |
-| From the snapshot, then the tail | 0 | **0.6 ms** |
+| From sequence 1, no snapshot | 10001 | **25 ms** |
+| From the snapshot, then the tail | 0 | **1.1 ms** |
 
-**About 600x, and it grows with the log.** The replay is linear: every command
-on the write side would pay that 8 seconds again, and pay more tomorrow. The
-snapshot read is one KV get and does not care how long the log is.
+**About 23x, and it grows with the log.** The replay is linear: every command
+on the write side reads all 10001 events again, and reads more tomorrow. The
+snapshot read is one KV get and does not care how long the log is. Extend the
+log to 100k events and the left-hand number goes up tenfold while the
+right-hand one does not move.
 
-Two things that number does not say:
+### The number used to be wrong, and the reason is worth more than the number
+
+This table read **8.2 s** and **about 600x** until 2026-09-16. Two things were
+wrong with it, and the smaller one was the arithmetic.
+
+The replay read the log with `Consumer.Next()`. On an **ordered** consumer that
+call resets the consumer every time — the client deletes the server-side
+consumer and creates a new one per message. The demo was making **one consumer
+per event**. It was visible on the server, because an ordered consumer's name
+carries a serial number:
+
+```
+5yL5cUQZHSfSpLY8WvMDXR_32469   delivering stream sequence 32478
+```
+
+So the 8.2 seconds was about 99% consumer bookkeeping and about 1% reading a
+log. `Messages()` creates one consumer and pulls batches over it, which is what
+the client's own documentation on `Next()` tells you to do.
+
+The lesson survives the correction, and it is the same lesson: replay is linear
+in the length of the log and a snapshot is constant. What changed is that the
+number now measures that, and not a mistake in the demo.
+
+Two things the number still does not say:
 
 - **The snapshot is always behind.** The write consumer is asynchronous, so it
   trails the log. Rehydration reads the snapshot and then replays from
-  `lastSeq + 1`. With the snapshotter stopped and 4 new trips appended, the
-  same command read exactly those 4 events in 4.7 ms. Code that trusts the
-  snapshot and stops there is a bug.
+  `lastSeq + 1`. Measured mid-catch-up, the same command read 2900 events of
+  tail in 12 ms. Code that trusts the snapshot and stops there is a bug.
 - **The log is still the only source of truth.** Delete both KV buckets and
   everything comes back. Delete the stream and nothing does.
 

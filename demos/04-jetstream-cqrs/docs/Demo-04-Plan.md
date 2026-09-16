@@ -1038,6 +1038,30 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       Status line claimed all phases were done.
 
 - [x] 04.7.11 BR-OD09 — a poison event must not stop a fold, 2026-09-16.
+- [x] 04.7.12 replay reads with `Messages()`, not `Next()` — and the headline
+      number is remeasured, 2026-09-16.
+
+      `Consumer.Next()` on an ORDERED consumer resets the consumer on every
+      call: the client deletes the server-side consumer and creates a new one
+      per message. `replay()` called it once per event, so rehydrating a
+      10001-event vehicle created 10001 consumers. Proven live — an ordered
+      consumer's name carries a serial, and the server showed
+      `5yL5cUQZHSfSpLY8WvMDXR_32469` delivering stream sequence 32478.
+
+      The measured cost of a full replay fell from **8.2 s to 25 ms** for the
+      same 10001 events, so the demo's headline finding was about 99% consumer
+      bookkeeping. The README table, the "about 600x" claim (which was also
+      wrong arithmetic — 8.2 s over 0.6 ms is 13667, not 600) and
+      `diagrams/cqrs-blocks.html` were all rewritten to the remeasured
+      **about 23x**.
+
+      The consumer is now deleted explicitly when the replay ends, and
+      `InactiveThreshold` is set to 30 s as a backstop for a process killed
+      mid-replay. The client's own default is 5 minutes, which is why stale
+      replay consumers were visible in `nats consumer ls`.
+
+      No business rule changed. This is an I/O defect in `write.go`, and the
+      rules in `domain.go` never saw the difference.
 
       Found by a design review of the demo, not by a failing run. Both
       long-lived consumers nak'd every error from `project` /

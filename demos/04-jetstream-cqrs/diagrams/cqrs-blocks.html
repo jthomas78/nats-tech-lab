@@ -131,7 +131,7 @@
 <rect x="1422" y="1930" width="46" height="46" rx="11" fill="#27C07F"/>
 <text class="h"  x="1650" y="1958">Reader</text>
 <text class="sg" x="1650" y="1986">cqrs query -vehicle V1</text>
-<text class="n"  x="1650" y="2012">prints one vehicle — 0.6 ms</text>
+<text class="n"  x="1650" y="2012">prints one vehicle — 1.1 ms</text>
 
 <!-- arrows, diagram 1 -->
 <path class="eb" d="M350 500 L350 540"/>
@@ -246,21 +246,21 @@
 <!-- right: the measurement -->
 <rect x="1390" y="2790" width="520" height="220" rx="16" fill="#131416" stroke="#4A515B" stroke-width="3"/>
 <text class="sg"  x="1650" y="2840">WITHOUT THE SNAPSHOT</text>
-<text class="big" x="1650" y="2900">8.2 s</text>
+<text class="big" x="1650" y="2900">25 ms</text>
 <text class="n"   x="1650" y="2934">10001 events read, every single command</text>
 <text class="n"   x="1650" y="2958">grows for as long as the log grows</text>
 <text class="n"   x="1650" y="2982">always right, and always getting slower</text>
 
 <rect x="1390" y="3080" width="520" height="220" rx="16" fill="#131416" stroke="#9A7B1E" stroke-width="3"/>
 <text class="sw"  x="1650" y="3130">WITH THE SNAPSHOT</text>
-<text class="big" x="1650" y="3190">0.6 ms</text>
+<text class="big" x="1650" y="3190">1.1 ms</text>
 <text class="n"   x="1650" y="3224">0 events read when the snapshot is current</text>
-<text class="n"   x="1650" y="3248">4 events read when it trails by 4</text>
+<text class="n"   x="1650" y="3248">12 ms when it trails by 2900</text>
 <text class="n"   x="1650" y="3272">cost follows the tail, not the history</text>
 
 <rect x="1390" y="3370" width="520" height="290" rx="16" fill="#131416" stroke="#4A515B" stroke-width="3"/>
-<text class="h"   x="1650" y="3422">About 600 x</text>
-<text class="n"   x="1650" y="3456">Measured on one NATS 2.14.3 server,</text>
+<text class="h"   x="1650" y="3422">About 23 x</text>
+<text class="n"   x="1650" y="3456">Measured 2026-09-16, NATS 2.14.3,</text>
 <text class="n"   x="1650" y="3478">10001 events on one vehicle.</text>
 <text class="n"   x="1650" y="3512">The trap: the snapshot is ALWAYS stale.</text>
 <text class="n"   x="1650" y="3534">The write consumer is asynchronous,</text>
