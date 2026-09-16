@@ -2205,9 +2205,37 @@ killed a 90-second measurement because someone switched tabs would be worse
 than one that did not.
 
 **D12 — both full lists stay, and the progress bar is the condition.**
-Starvation runs 3 / 8 / 64 / 1000. Performance runs 1 / 2 / 4 / 8. Neither is
+Starvation runs **1 / 3 / 8 / 64**. Performance runs 1 / 2 / 4 / 8. Neither is
 shortened: the tab exists to show the shape of a curve, and two points are not
 a curve.
+
+The starvation list was changed from 3 / 8 / 64 / 1000 on 2026-09-16. Two
+reasons. A cap of **1** is the clearest possible starvation — eight workers
+and only one message in flight, so seven are idle by construction and the
+lesson's claim is visible in one row. And with eight workers a cap of **64** is
+already past the point where the cap binds, so it is the honest control row;
+**1000** was a second uncapped run saying the same thing more slowly.
+
+**The cost of a cap of 1, estimated from the recorded runs.** A cap of 1 with
+eight workers is one message in flight, so it behaves like one worker —
+`view/drain.js` records 426 events/s there, 23.5s for 10 029 events. Allow
+30s for the extra fetch churn across eight idle workers. The whole set is
+then roughly:
+
+| cap | events in flight | estimated |
+|---|---|---|
+| 1 | 1 | ~30s |
+| 3 | 3 | ~12s |
+| 8 | 8 | ~6s |
+| 64 | uncapped in practice | ~5s |
+| four re-seeds (D7) | | ~8s |
+| **set total** | | **~60s** |
+
+That is inside the 90 seconds the approval already priced, so the seed stays
+at 10 000 and D9/D11 of phase 04.8 are unchanged. If the measured set turns
+out materially slower than this, the fix is the seed size, not the cap list —
+and it is a change to 04.8's fixed size list, so it goes back through the
+gate rather than being tuned in place. Task 04.9.6 reports the real number.
 
 The user approved the wait on one condition — **there must be a progress bar
 showing activity throughout**. That is not a nicety here, it is what makes the
@@ -2267,7 +2295,7 @@ Specs first, red before green. **None of these start until 04.8 is green.**
       Spec: the stated cost matches the number of runs the press will make;
       every command printed is one `commands.spec.js` accepts.
 
-- [ ] **04.9.6 Starvation runs four caps** (D7, D12). Re-seeds between runs.
+- [ ] **04.9.6 Starvation runs four caps — 1 / 3 / 8 / 64** (D7, D12). Re-seeds between runs.
       Rows fill in as each run ends; a row not yet run is greyed, never
       filled (D5). The bar stays up for the whole set.
 
