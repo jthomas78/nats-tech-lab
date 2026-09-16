@@ -21,7 +21,7 @@ import (
 // stubRehydrate records the mode it was asked for and answers with a fixed
 // result. `asked` is the point of several specs below.
 func stubRehydrate(out Rehydrated, err error, asked ...*[]bool) rehydrateRunner {
-	return func(_ context.Context, _ string, withSnapshot bool) (Rehydrated, error) {
+	return func(_ context.Context, _ Source, _ string, withSnapshot bool) (Rehydrated, error) {
 		for _, a := range asked {
 			*a = append(*a, withSnapshot)
 		}
@@ -40,7 +40,9 @@ func get(h http.Handler, path string) *httptest.ResponseRecorder {
 // rehydrateAPI builds the handler with a stubbed command runner, mirroring
 // what api() does for the command specs.
 func rehydrateAPI(r rehydrateRunner) http.Handler {
-	return newCommandAPI(fakeRunner(registered(), 1), r, []string{testOrigin})
+	return newCommandAPI(fakeRunner(registered(), 1), r,
+		stubBench(BenchState{}, nil, nil), readOnly(BenchState{}),
+		[]string{testOrigin})
 }
 
 var _ = Describe("the rehydrate endpoint", func() {

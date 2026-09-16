@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +36,15 @@ type commandRunner func(ctx context.Context, id string, decide func(Vehicle) (Ev
 //
 // It takes withSnapshot because that flag is the whole lesson. The screen
 // calls this twice with the two values and puts the answers side by side.
-type rehydrateRunner func(ctx context.Context, id string, withSnapshot bool) (Rehydrated, error)
+type rehydrateRunner func(ctx context.Context, src Source, id string, withSnapshot bool) (Rehydrated, error)
+
+// benchRunner builds the rehydrate fixture at one size. It is the WRITE half
+// of the benchmark and the only thing on the Rehydrate tab that writes
+// anything -- to ODOMETER_BENCH, never to ODOMETER (plan 04.7.16).
+type benchRunner func(ctx context.Context, size int) (BenchState, error)
+
+// benchReader reports what the fixture holds without changing it.
+type benchReader func(ctx context.Context) (BenchState, error)
 
 // rehydrateResult is one half of the comparison, as JSON.
 //
@@ -121,9 +130,11 @@ var errorNames = map[error]string{
 // the page is served from another port, so every real request is
 // cross-origin, but a wildcard would let any page on the machine drive the
 // demo.
-func newCommandAPI(run commandRunner, rehydrateOne rehydrateRunner, allowedOrigins []string) http.Handler {
+func newCommandAPI(run commandRunner, rehydrateOne rehydrateRunner, seedBenchFixture benchRunner, readBench benchReader, allowedOrigins []string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rehydrate", rehydrateHandler(rehydrateOne, allowedOrigins))
+	mux.HandleFunc("/bench", benchStateHandler(readBench, allowedOrigins))
+	mux.HandleFunc("/bench/seed", benchSeedHandler(seedBenchFixture, allowedOrigins))
 	mux.HandleFunc("/commands/", func(w http.ResponseWriter, r *http.Request) {
 		setCORS(w, r, allowedOrigins)
 
@@ -208,7 +219,17 @@ func rehydrateHandler(rehydrateOne rehydrateRunner, allowedOrigins []string) htt
 			return
 		}
 
-		out, err := rehydrateOne(r.Context(), id, r.URL.Query().Get("snapshot") != "false")
+		// Which log. The demo's own is the default: a missing parameter
+		// must never silently point the headline measurement at a fixture.
+		src, ok := sourceNamed(r.URL.Query().Get("source"))
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, refusal{
+				Error: "BadRequest", Message: "source must be live or bench",
+			})
+			return
+		}
+
+		out, err := rehydrateOne(r.Context(), src, id, r.URL.Query().Get("snapshot") != "false")
 		if err != nil {
 			// No rule code. Rehydrating refuses no command, so there is no
 			// business rule here to name -- see describe().
@@ -289,13 +310,42 @@ func runServe(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue
 	// The read-only half. This is the demo's headline question wired to the
 	// same function the CLI calls, so the tab and `cqrs rehydrate` cannot
 	// drift apart.
-	rehydrateOne := func(ctx context.Context, id string, withSnapshot bool) (Rehydrated, error) {
-		return rehydrate(ctx, js, kv, Live, id, withSnapshot)
+	rehydrateOne := func(ctx context.Context, src Source, id string, withSnapshot bool) (Rehydrated, error) {
+		snapKV := kv
+		if src.Stream == Bench.Stream {
+			// Opened per call, not at startup. The fixture may not exist
+			// yet -- nobody has to seed -- and a shim that refused to
+			// start without one would be broken by an empty server.
+			opened, err := ensureBench(ctx, js)
+			if err != nil {
+				return Rehydrated{}, err
+			}
+			snapKV = opened
+		}
+		return rehydrate(ctx, js, snapKV, src, id, withSnapshot)
+	}
+
+	// The benchmark's two halves, wired to the same functions `cqrs bench`
+	// calls. The button on the panel and the command printed under it do
+	// the same thing, because they ARE the same thing.
+	seedFixture := func(ctx context.Context, size int) (BenchState, error) {
+		benchKV, err := ensureBench(ctx, js)
+		if err != nil {
+			return BenchState{}, err
+		}
+		return seedBench(ctx, js, benchKV, size)
+	}
+	readFixture := func(ctx context.Context) (BenchState, error) {
+		benchKV, err := ensureBench(ctx, js)
+		if err != nil {
+			return BenchState{}, err
+		}
+		return benchState(ctx, js, benchKV)
 	}
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           newCommandAPI(run, rehydrateOne, origins),
+		Handler:           newCommandAPI(run, rehydrateOne, seedFixture, readFixture, origins),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -310,4 +360,91 @@ func runServe(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue
 		return err
 	}
 	return nil
+}
+
+// sourceNamed turns the query parameter into a Source. An empty value is the
+// demo's own log, which is what every tab but Rehydrate means.
+func sourceNamed(name string) (Source, bool) {
+	switch name {
+	case "", "live":
+		return Live, true
+	case "bench":
+		return Bench, true
+	default:
+		return Source{}, false
+	}
+}
+
+// benchStateHandler reports what the fixture holds. A GET, because it reads.
+//
+// An absent fixture is a state, not a failure: nobody has to seed, and the
+// panel offers the button on the strength of exists=false.
+func benchStateHandler(read benchReader, allowedOrigins []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setCORS(w, r, allowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, refusal{
+				Error: "MethodNotAllowed", Message: "the fixture is read with GET",
+			})
+			return
+		}
+		state, err := read(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, refusal{
+				Error: "Unavailable", Message: err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+	}
+}
+
+// benchSeedHandler builds one fixture.
+//
+// POST, never GET. This writes up to a million events, and a GET that did
+// that would be fired by a link preview, a browser prefetch or a reload.
+//
+// The size is checked against BenchSizes HERE, before the seeder is called.
+// The fixed list is the cap, so a typo costs nothing instead of a gigabyte.
+func benchSeedHandler(seedFixture benchRunner, allowedOrigins []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setCORS(w, r, allowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, refusal{
+				Error: "MethodNotAllowed", Message: "seeding writes; use POST",
+			})
+			return
+		}
+
+		size, err := strconv.Atoi(r.URL.Query().Get("size"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, refusal{
+				Error: "BadRequest", Message: "size is required",
+			})
+			return
+		}
+		if _, err := benchPlanFor(size); err != nil {
+			writeJSON(w, http.StatusBadRequest, refusal{
+				Error: "BadRequest", Message: err.Error(),
+			})
+			return
+		}
+
+		state, err := seedFixture(r.Context(), size)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, refusal{
+				Error: "Unavailable", Message: err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+	}
 }
