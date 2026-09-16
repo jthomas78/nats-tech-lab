@@ -2077,7 +2077,7 @@ all three gates from `frontend/`.
       still holds `ODOMETER`, `ODOMETER_BENCH`, `odometer-write`,
       `odometer-read` and `odometer-bench-write`. A second drop is a no-op.
 
-- [ ] **04.8.5 The bare command reports.** No flag prints what
+- [x] **04.8.5 The bare command reports.** No flag prints what
       `ODOMETER_POOL` holds, in events **and bytes** — the standing rule from
       2026-09-16 (D6). Any of `-workers`, `-max-pending`, `-ack-wait`,
       `-kill-at` or `-drain` runs the pool instead, with today's defaults for
@@ -2086,6 +2086,24 @@ all three gates from `frontend/`.
 
       Spec: the bare command starts no consumer and writes no KV; each run
       flag alone starts the pool; a count is never printed without its bytes.
+
+      The dispatch reads WHICH FLAGS WERE TYPED (`flag.FlagSet.Visit`), not
+      their values. `-workers 4` is the default and still means "run",
+      because a reader who typed it asked for a run, and comparing against
+      defaults cannot tell that from never mentioning it. `poolActionFor` is
+      a pure function so the whole decision has specs.
+
+      **Verified 2026-09-16** against `lab4-nats`:
+
+      ```
+      cqrs pool                  -> ODOMETER_POOL not seeded / build it: cqrs pool -seed 10000
+      cqrs pool -seed 10000      -> 10000 events · 791.1 KiB, seeded in 5293 ms
+      cqrs pool                  -> the same report, no consumer created
+      cqrs pool -seed 50000      -> error: not a pool size: 50000
+      cqrs pool -seed 1 -rm      -> error: these pool flags cannot be used together
+      cqrs pool -seed 1 -workers 4 -> error: these pool flags cannot be used together
+      cqrs pool -rm              -> dropped, and again -> dropped (idempotent)
+      ```
 
 - [ ] **04.8.6 The pool binds to its own log.** `runPool` takes the `Pool`
       source instead of spelling `StreamName` and `StreamSubject` into

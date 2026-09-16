@@ -27,6 +27,7 @@ import (
 //	cqrs bench      -size 1000000
 //	cqrs serve      -addr :20402
 //	cqrs pool       -workers 4 -max-pending 1000 -ack-wait 30s
+//	cqrs pool       -seed 10000
 
 const usage = `cqrs — demo 04, JetStream as an event source
 
@@ -42,7 +43,10 @@ const usage = `cqrs — demo 04, JetStream as an event source
   bench       [-size N]                 seed the rehydrate fixture on ODOMETER_BENCH (no size = report)
               [-rm]                     delete the fixture stream and its bucket
   serve       [-addr A] [-origin O]    the command API the browser UI posts to (blocks)
-  pool        -workers N                N workers on ONE durable consumer (blocks)
+  pool        [no flags]                report what ODOMETER_POOL holds, in events and bytes
+              [-seed N]                 build lesson 02's own log and fold it correctly
+              [-rm]                     delete the log, both consumers and all three buckets
+              -workers N                N workers on ONE durable consumer (blocks)
               [-max-pending N]          MaxAckPending, SHARED by every worker
               [-ack-wait D]             how long the server waits for an ack
               [-kill-at SEQ]            the worker holding SEQ goes silent — a real kill
@@ -80,10 +84,18 @@ func run(cmd string, args []string) error {
 	ackWait := fs.Duration("ack-wait", 30*time.Second, "AckWait on the pool consumer")
 	killAt := fs.Uint64("kill-at", 0, "the worker that fetches this sequence stops fetching and never acks")
 	drain := fs.Bool("drain", false, "rebuild the pool projection from seq 1, stop when drained, print the elapsed time")
+	poolSize := fs.Int("seed", 0, "build lesson 02's own log, ODOMETER_POOL, with N events (pool)")
 	origin := fs.String("origin", defaultOrigin, "comma-separated list of browser origins allowed to send commands")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+
+	// WHICH flags were typed, not what they hold. `-workers 4` is the
+	// default and still means "run the pool", because a reader who typed it
+	// asked for a run. Comparing against defaults cannot tell the two
+	// apart, and the whole `pool` dispatch turns on that difference.
+	typed := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { typed[f.Name] = true })
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -117,7 +129,46 @@ func run(cmd string, args []string) error {
 		fmt.Printf("projector running — folding %s into KV %s. ctrl-c to stop.\n", StreamName, ReadKV)
 		return runProjector(ctx, js, readKV)
 
+	// Four jobs behind one word. poolActionFor decides which, and it is a
+	// pure function with its own specs -- see pool_cmd.go.
 	case "pool":
+		action, err := poolActionFor(typed)
+		if err != nil {
+			return err
+		}
+		switch action {
+		case poolRemove:
+			return dropPool(ctx, js)
+
+		case poolSeed:
+			// Refuse the size BEFORE announcing the work. A bad
+			// size that printed "seeding" first would say it had
+			// started something it never started.
+			if _, err := poolPlanFor(*poolSize); err != nil {
+				return err
+			}
+			// The fold runs inside the seed and is most of the
+			// wait, so say what is happening before it starts.
+			fmt.Printf("seeding     %s with %d events, then folding it correctly into %s\n",
+				Pool.Stream, *poolSize, PoolTruthKV)
+			state, err := seedPool(ctx, js, *poolSize)
+			if err != nil {
+				return err
+			}
+			printPoolState(state)
+			return nil
+
+		case poolReport:
+			// A question, not an instruction. It creates no
+			// consumer and writes no key.
+			state, err := poolState(ctx, js)
+			if err != nil {
+				return err
+			}
+			printPoolState(state)
+			return nil
+		}
+
 		if *workers < 1 {
 			return fmt.Errorf("-workers must be at least 1")
 		}
