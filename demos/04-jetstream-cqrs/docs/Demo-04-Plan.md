@@ -1396,9 +1396,20 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       demo and must survive. The two folds keep their positions, so nothing
       re-reads and nothing re-projects — the keys are simply gone.
 
-- [ ] 04.7.17 Lesson 01 is three tabs, not five. APPROVED by the user
-      2026-09-16, not yet built. Asked for by the user the same day as a
-      layout review.
+- [x] 04.7.17 Lesson 01 is three tabs, not five. APPROVED and built
+      2026-09-16. Overview reuses AboutPanel with a summary and the two
+      agreed references; Showcase stacks the write door, lag, both KV stores
+      (document above full list), and ODOMETER with count and bytes.
+      Performance keeps Rehydrate and the bench fixture, with its own picker
+      and no sub-strip. Pickers are local; the rail and crumb name lessons.
+      Measurements survive tab changes, and late responses after a target
+      change are discarded. No Go or business-rule changes.
+      Verified red-first, then 312 frontend specs in 22 files; ESLint has
+      zero errors and the seven existing PoolPanel warnings; production
+      build passes. Go build, vet and all 122 Ginkgo specs pass. Live checks
+      at 1920x1080 covered all three tabs, both documents and key lists,
+      independent pickers and rehydration. The mockup source was reviewed;
+      browser policy blocked opening its local file URL.
 
       The strip has five tabs and they are not five of the same thing. Two of
       them are the argument (Overview, Rehydrate) and three of them are one
@@ -1542,8 +1553,8 @@ No new host port. The pool is a CLI process, like `snapshotter` and
 - A button in the browser that starts, stops or configures a worker (D6).
 - A tab that shows a number without the command that produced it.
 - `partition()` or a `nats.conf` subject mapping appearing anywhere (D7).
-- A rail row that is not a lesson or the guide (D9).
-- Lesson 01's Overview tab showing one bucket instead of two (D10).
+- A rail row that is not a lesson (D9; guide removed in 04.7.17).
+- Lesson 01's Showcase KV Stores group showing one bucket instead of two (D10).
 - A consumer that nak's a failure no retry can fix (BR-OD09), or a
   `MaxDeliver` cap that drops a message without saying so.
 

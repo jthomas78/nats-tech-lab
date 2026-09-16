@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { GUIDE, LESSONS, crumbFor, lessonFor, railSections, tabsFor } from './lessons.js'
+import { LESSONS, crumbFor, lessonFor, railSections, tabsFor } from './lessons.js'
 
 describe('the rail is a lesson index', () => {
-  it('holds three rows and nothing else', () => {
+  it('holds two rows and nothing else', () => {
     const items = railSections().flatMap((s) => s.items)
-    expect(items).toHaveLength(3)
+    expect(items).toHaveLength(2)
     expect(items.map((i) => i.label)).toEqual([
-      'How it works',
       '01 · Stream + CQRS',
       '02 · Scaling a consumer',
     ])
@@ -21,8 +20,8 @@ describe('the rail is a lesson index', () => {
     expect(JSON.stringify(railSections())).toBe(before)
   })
 
-  it('bands the rows under exactly two eyebrows', () => {
-    expect(railSections().map((s) => s.eyebrow)).toEqual(['Guide', 'Lessons'])
+  it('bands the rows under the Lessons eyebrow', () => {
+    expect(railSections().map((s) => s.eyebrow)).toEqual(['Lessons'])
   })
 
   it('carries no badge, because a lesson has no count', () => {
@@ -32,13 +31,11 @@ describe('the rail is a lesson index', () => {
 })
 
 describe('the tabs each lesson carries', () => {
-  it('gives lesson 01 the overview, one tab per storage object, and rehydrate', () => {
+  it('gives lesson 01 Overview, Showcase and Performance', () => {
     expect(tabsFor('lesson-01').map((t) => t.label)).toEqual([
       'Overview',
-      'ODOMETER',
-      'odometer-write',
-      'odometer-read',
-      'Rehydrate',
+      'Showcase',
+      'Performance',
     ])
   })
 
@@ -52,51 +49,34 @@ describe('the tabs each lesson carries', () => {
     ])
   })
 
-  // Every bucket this demo folds into can be browsed, the same way `nats kv ls`
-  // browses it. A fold with no read-only view is a number you have to trust.
-  it('gives every fold bucket a tab of its own', () => {
-    const every = LESSONS.flatMap((l) => l.tabs.map((t) => t.label))
-    for (const bucket of ['odometer-write', 'odometer-read', 'odometer-pool']) {
-      expect(every).toContain(bucket)
-    }
-  })
-
   it('gives odometer-pool-workers no tab of its own — D10a', () => {
     const every = LESSONS.flatMap((l) => l.tabs.map((t) => t.label))
     expect(every).not.toContain('odometer-pool-workers')
   })
 
-  it('prints a command for every tab, so nothing on screen is unreproducible', () => {
-    const every = LESSONS.flatMap((l) => l.tabs)
+  it('keeps commands on each single-purpose lesson 02 tab', () => {
+    const every = tabsFor('lesson-02')
     expect(every.every((t) => typeof t.cmd === 'string' && t.cmd.length > 0)).toBe(true)
   })
 
   it('has no tabs for the guide', () => {
-    expect(tabsFor(GUIDE.key)).toEqual([])
+    expect(tabsFor('about')).toEqual([])
   })
 })
 
 describe('the breadcrumb carries the lesson — D11', () => {
   it('names the lesson between the demo and the page', () => {
-    expect(crumbFor('lesson-02', null)).toEqual({
+    expect(crumbFor('lesson-02')).toEqual({
       lesson: '02 · Scaling a consumer',
       title: 'Worker pool',
     })
   })
 
-  it('puts the chosen vehicle at the end of lesson 01', () => {
-    expect(crumbFor('lesson-01', 'truck-7')).toEqual({
+  it('names lesson 01 without a vehicle', () => {
+    expect(crumbFor('lesson-01')).toEqual({
       lesson: '01 · Stream + CQRS',
-      title: 'truck-7',
+      title: 'Odometer',
     })
-  })
-
-  it('says all vehicles when no vehicle is chosen', () => {
-    expect(crumbFor('lesson-01', null).title).toBe('All vehicles')
-  })
-
-  it('bands the guide under Guide, not under a lesson', () => {
-    expect(crumbFor('about', null)).toEqual({ lesson: 'Guide', title: 'How it works' })
   })
 
   it('falls back to lesson 01 for a view it does not know', () => {

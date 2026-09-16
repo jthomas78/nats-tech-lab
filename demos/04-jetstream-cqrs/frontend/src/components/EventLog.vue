@@ -36,7 +36,7 @@ const marked = computed(() =>
       <p class="eyebrow">
         The log, newest first — {{ scope }}
       </p>
-      <span class="tag">{{ rows.length }} of {{ head }} events</span>
+      <span class="tag">{{ rows.length }} shown · head seq {{ head }}</span>
     </header>
 
     <table v-if="marked.length">
@@ -97,7 +97,7 @@ const marked = computed(() =>
       v-else
       class="empty"
     >
-      Nothing on the stream for {{ scope }} yet.
+      No events for {{ scope }} in the current tail window.
     </p>
   </section>
 </template>

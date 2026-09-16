@@ -144,7 +144,7 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 318 specs, 21 files
+npx vitest run                      # 312 specs, 22 files
 npx eslint src --ext .js,.vue       # 0 errors; 7 PoolPanel.vue warnings are the baseline
 npm run build
 ```
@@ -161,7 +161,7 @@ approves it. No tasks, no tests, no code before that. An entry marked PROPOSED
 is a request for a decision, not a backlog item to pick up.
 
 Nothing is PROPOSED right now. 04.7.17 (the lesson 01 three-tab layout) was
-approved 2026-09-16 and is waiting to be built.
+approved and completed 2026-09-16.
 
 ## Two mechanics that are easy to get wrong
 

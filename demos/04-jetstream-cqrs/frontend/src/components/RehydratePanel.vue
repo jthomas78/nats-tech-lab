@@ -25,13 +25,16 @@ import { computed, ref, watch } from 'vue'
 
 import Button from 'primevue/button'
 
+import VehiclePicker from './VehiclePicker.vue'
 import BenchFixture from './BenchFixture.vue'
 import { fetchBoth, fetchRehydration } from '../rehydrate/api.js'
 import { formatCount } from '../view/format.js'
 import { formatMs, formatSpeedup, trailsBy, verdict } from '../view/rehydrate.js'
 
 const props = defineProps({
-  vehicle: { type: String, default: null },
+  vehicles: { type: Array, default: () => [] },
+  writes: { type: Object, default: () => new Map() },
+  reads: { type: Object, default: () => new Map() },
 })
 
 // WHICH log is being rebuilt, and whose history it is.
@@ -40,25 +43,23 @@ const props = defineProps({
 // fixture sets it to the bench stream instead — those vehicles live in a
 // different bucket, so they never appear in the picker and could not be
 // reached any other way.
+const vehicle = ref(null)
 const target = ref(null)
-const active = computed(() => target.value ?? { source: 'live', vehicle: props.vehicle })
+const active = computed(() => target.value ?? { source: 'live', vehicle: vehicle.value })
 
 const cold = ref(null)
 const warm = ref(null)
 const busy = ref('')
 const ranAt = ref(null)
+let targetVersion = 0
 
 // A result only ever describes the vehicle it was measured on. Switching the
 // picker clears both halves rather than leaving V1's numbers under V2's name.
-watch(
-  () => props.vehicle,
-  () => {
-    cold.value = null
-    warm.value = null
-    ranAt.value = null
-    target.value = null
-  },
-)
+watch(vehicle, () => measure(null))
+
+watch(() => props.vehicles, (next) => {
+  if (vehicle.value && !next.includes(vehicle.value)) vehicle.value = null
+})
 
 const okCold = computed(() => (cold.value?.kind === 'ok' ? cold.value : null))
 const okWarm = computed(() => (warm.value?.kind === 'ok' ? warm.value : null))
@@ -70,6 +71,7 @@ const ratio = computed(() =>
 // A new target is a new subject. The old numbers are cleared rather than left
 // under the new name — the same reason switching the picker clears them.
 function measure(next) {
+  targetVersion += 1
   target.value = next
   cold.value = null
   warm.value = null
@@ -82,24 +84,28 @@ function backToLive() {
 
 async function runBoth() {
   if (!active.value.vehicle || busy.value) return
+  const version = targetVersion
   busy.value = 'both'
   const both = await fetchBoth(active.value.vehicle, { source: active.value.source })
+  busy.value = ''
+  if (version !== targetVersion) return
   cold.value = both.cold
   warm.value = both.warm
   ranAt.value = new Date()
-  busy.value = ''
 }
 
 async function runOne(snapshot) {
   if (!active.value.vehicle || busy.value) return
+  const version = targetVersion
   busy.value = snapshot ? 'warm' : 'cold'
   const out = await fetchRehydration(active.value.vehicle, snapshot, {
     source: active.value.source,
   })
+  busy.value = ''
+  if (version !== targetVersion) return
   if (snapshot) warm.value = out
   else cold.value = out
   ranAt.value = new Date()
-  busy.value = ''
 }
 
 // One description per side, so the template holds no branching about which
@@ -146,6 +152,17 @@ function rows(out) {
     </header>
 
     <BenchFixture @measure="measure" />
+
+    <div class="controls">
+      <span>Live vehicle · ODOMETER</span>
+      <VehiclePicker
+        v-model="vehicle"
+        :vehicles="vehicles"
+        :writes="writes"
+        :reads="reads"
+        aria-label="Choose a live vehicle to rehydrate"
+      />
+    </div>
 
     <p
       v-if="!active.vehicle"

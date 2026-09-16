@@ -240,21 +240,25 @@ outright rather than half working.
 
 ### What is on the screen
 
-The rail is a lesson index, not a list of data. Three rows, and it never
-grows: a guide, and one row per lesson.
+The rail is a lesson index, not a list of data. Two rows, one per lesson; it never grows with the data.
 
 | Rail row | What it shows |
 |---|---|
-| **How it works** | this README, and the diagrams |
-| **01 · Stream + CQRS** | five tabs — Overview, the log, each bucket, and Rehydrate |
-| **02 · Scaling a consumer** | four tabs — Live, Starvation, Redelivery, 1 vs 4 |
+| **01 · Stream + CQRS** | three tabs — Overview, Showcase, Performance |
+| **02 · Scaling a consumer** | five tabs — Live, Starvation, Redelivery, 1 vs 4, odometer-pool |
 
-Lesson 01's Overview tab is the argument: the lag lane, and both buckets side
-by side. Which vehicle you are looking at is a picker at the top of the page,
-not a rail row, so ten vehicles do not make ten rail rows.
+Lesson 01 opens on **Overview**: a short summary, links to JetStream and CQRS
+references, then this README and the existing diagrams.
 
-Every tab prints the command that produced it. A number on a screen you cannot
-reproduce in a terminal is a claim, not a demonstration.
+**Showcase** watches `ODOMETER`: the write-side commands, the lag lane, both
+KV stores side by side, then the newest events. Its vehicle picker narrows the
+commands, lag and log; each bucket keeps its full key list below the selected
+vehicle's document. The stream count travels with its bytes, and each storage
+group prints the `nats` commands that reproduce it.
+
+**Performance** holds Rehydrate, with its own live-vehicle picker and the
+separate `ODOMETER_BENCH` fixture. The page heading and breadcrumb name the
+lesson; vehicle selection belongs to the tab.
 
 No button is ever greyed out by a rule. A trip of 0 km is sent, refused by
 `domain.go`, and the refusal names the rule it broke. A rule the browser
@@ -267,7 +271,7 @@ path. That split is the demo.
 A command typed in the terminal lands in the same stream and shows up on the
 screen. The UI is a second door, not a second truth.
 
-Lesson 01's **Rehydrate** tab is the demo's headline question, measured while
+Rehydrate on lesson 01's **Performance** tab is the demo's headline question, measured while
 you watch. Pick a vehicle, press **Run both**, and the write side rebuilds that
 aggregate twice — once from sequence 1, once from the snapshot plus the tail —
 and reports what each one cost. The three buttons are the whole control: **Run
@@ -279,8 +283,8 @@ Five things about that tab are deliberate.
   vehicle ever had. That must not happen because somebody clicked a tab.
 - **The measurement reads and never writes.** It is a `GET`, it appends nothing,
   and you can press it as often as you like. The write-side command row is not
-  on this tab — it is on the four tabs that show what the log already holds,
-  where pressing a button and watching the tables move is the point. Above a
+  on this tab — it is on Showcase, where pressing a button and watching the
+  tables move is the point. Above a
   measurement it would only invite you to change the thing being measured.
 - **The one thing that does write builds a different log.** The seed control at
   the top of the tab fills `ODOMETER_BENCH`, a throwaway stream, with 10 000,

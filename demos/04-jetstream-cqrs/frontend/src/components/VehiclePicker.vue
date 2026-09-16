@@ -3,8 +3,8 @@
 //
 // The rail is a lesson index now and never grows, so the vehicle list had to
 // become a control inside the panel. A picker is the honest shape for it: the
-// list is data, it changes while you watch, and it is a SCOPE — every panel on
-// the lesson narrows to one key or widens to the whole bucket.
+// list is data and changes while you watch. Each tab owns its selection:
+// Showcase scopes the live views; Performance selects one aggregate to rebuild.
 //
 // "All vehicles" is a real option, not an empty state. Widening back to the
 // whole bucket is half of what this control is for, and a clear button hides
@@ -59,7 +59,7 @@ const options = computed(() => [
     option-label="label"
     option-value="id"
     data-testid="vehicle-picker"
-    aria-label="Narrow every panel to one vehicle"
+    aria-label="Choose a vehicle for Showcase"
     class="picker"
     @update:model-value="pick"
   >

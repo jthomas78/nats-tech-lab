@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { DRAIN_SOURCE } from './drain.js'
-import { BENCH_SIZES, benchCmd, LESSONS, SEED_CMD, tabsFor } from './lessons.js'
+import { BENCH_SIZES, benchCmd, LESSONS, SEED_CMD, SHOWCASE_COMMANDS, tabsFor } from './lessons.js'
 import { REDELIVERY_SOURCE } from './redelivery.js'
 
 // Walk up to the demo folder rather than hard-coding a depth: vitest's root
@@ -104,5 +104,17 @@ describe('the commands this UI prints', () => {
     for (const line of printed) {
       expect(line).not.toMatch(/-[a-z-]+ (true|false)\b/)
     }
+  })
+})
+
+// These are NATS CLI commands, independent of the Go binary's FlagSet.
+describe('Showcase names the terminal views for both stores and the live log', () => {
+  it('prints both KV commands and stream view/info without the fixture', () => {
+    expect(SHOWCASE_COMMANDS).toEqual({
+      write: 'nats kv ls odometer-write',
+      read: 'nats kv ls odometer-read',
+      stream: 'nats stream view ODOMETER',
+      info: 'nats stream info ODOMETER',
+    })
   })
 })

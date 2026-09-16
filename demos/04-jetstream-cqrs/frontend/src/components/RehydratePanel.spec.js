@@ -2,6 +2,7 @@ import PrimeVue from 'primevue/config'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import VehiclePicker from './VehiclePicker.vue'
 import RehydratePanel from './RehydratePanel.vue'
 import * as api from '../rehydrate/api.js'
 
@@ -17,8 +18,12 @@ import * as api from '../rehydrate/api.js'
 //   3. A disagreement is never shown as a speed-up. If the two sides rebuilt
 //      different states there is no number, only the reason.
 
-const mountPanel = (props = { vehicle: 'V1' }) =>
-  mount(RehydratePanel, { props, global: { plugins: [PrimeVue] } })
+const mountPanel = async (selected = 'V1') => {
+  const w = mount(RehydratePanel, { props: { vehicles: ['V1', 'V2'] }, global: { plugins: [PrimeVue] } })
+  w.findComponent(VehiclePicker).vm.$emit('update:modelValue', selected)
+  await w.vm.$nextTick()
+  return w
+}
 
 const cold = {
   kind: 'ok',
@@ -32,19 +37,22 @@ const cold = {
 }
 const warm = { ...cold, usedSnapshot: true, fromSeq: 10002, eventsRead: 2, elapsedMs: 1.1 }
 
-beforeEach(() => vi.restoreAllMocks())
+beforeEach(() => {
+  vi.restoreAllMocks()
+  vi.spyOn(api, 'fetchBench').mockResolvedValue({ kind: 'ok', exists: false, fixtures: [] })
+})
 
 describe('it never measures on its own', () => {
   it('asks the write side for nothing until the button is pressed', async () => {
     const both = vi.spyOn(api, 'fetchBoth')
-    mountPanel()
+    await mountPanel()
     await flushPromises()
     expect(both).not.toHaveBeenCalled()
   })
 
   it('runs both sides when the button is pressed', async () => {
     const both = vi.spyOn(api, 'fetchBoth').mockResolvedValue({ cold, warm })
-    const w = mountPanel()
+    const w = await mountPanel()
     await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
     await flushPromises()
     // The source is spelled out on every call. A default that silently
@@ -55,20 +63,21 @@ describe('it never measures on its own', () => {
 })
 
 describe('it needs one vehicle', () => {
-  it('refuses to offer a rebuild of all vehicles', () => {
-    const w = mountPanel({ vehicle: null })
+  it('refuses to offer a rebuild of all vehicles', async () => {
+    const w = await mountPanel(null)
     expect(w.find('[data-testid="rehydrate-needs-vehicle"]').exists()).toBe(true)
     expect(w.find('[data-testid="rehydrate-run-both"]').exists()).toBe(false)
   })
 
   it('clears the numbers when the vehicle changes', async () => {
     vi.spyOn(api, 'fetchBoth').mockResolvedValue({ cold, warm })
-    const w = mountPanel()
+    const w = await mountPanel()
     await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
     await flushPromises()
     expect(w.find('[data-testid="rehydrate-cold"]').text()).toContain('25')
 
-    await w.setProps({ vehicle: 'V2' })
+    w.findComponent(VehiclePicker).vm.$emit('update:modelValue', 'V2')
+    await w.vm.$nextTick()
     expect(w.find('[data-testid="rehydrate-cold"]').text()).toContain('Not run yet')
   })
 })
@@ -79,7 +88,7 @@ describe('it never flatters the comparison', () => {
       cold,
       warm: { ...warm, status: 'retired' },
     })
-    const w = mountPanel()
+    const w = await mountPanel()
     await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
     await flushPromises()
 
@@ -93,7 +102,7 @@ describe('it never flatters the comparison', () => {
       cold: { kind: 'broken', error: 'Unavailable', message: 'nats down' },
       warm,
     })
-    const w = mountPanel()
+    const w = await mountPanel()
     await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
     await flushPromises()
 
@@ -105,7 +114,7 @@ describe('it never flatters the comparison', () => {
   // run's own number, not as a slogan.
   it('says how far the snapshot trailed on this run', async () => {
     vi.spyOn(api, 'fetchBoth').mockResolvedValue({ cold, warm })
-    const w = mountPanel()
+    const w = await mountPanel()
     await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
     await flushPromises()
     expect(w.find('[data-testid="rehydrate-stale"]').text()).toContain('trailed by 2')
@@ -127,7 +136,7 @@ describe('it can measure a seeded fixture', () => {
       elapsedMs: 2195,
     })
     const both = vi.spyOn(api, 'fetchBoth').mockResolvedValue({ cold, warm })
-    const w = mountPanel({ vehicle: null })
+    const w = await mountPanel(null)
     await flushPromises()
 
     // With no vehicle picked there is nothing to rebuild -- until a fixture
@@ -142,5 +151,29 @@ describe('it can measure a seeded fixture', () => {
     await w.find('[data-testid="rehydrate-run-both"]').trigger('click')
     await flushPromises()
     expect(both).toHaveBeenCalledWith('bench-1m', { source: 'bench' })
+  })
+})
+
+
+describe('the local picker keeps results attached to their target', () => {
+  it.each([true, false])('ignores a late response after changing vehicle (both=%s)', async (both) => {
+    let finish
+    const pending = new Promise(resolve => { finish = resolve })
+    vi.spyOn(api, both ? 'fetchBoth' : 'fetchRehydration').mockReturnValue(pending)
+    const w = await mountPanel()
+    if (both) await w.get('[data-testid="rehydrate-run-both"]').trigger('click')
+    else await w.findAll('button').find(b => b.text() === 'Run snapshot only').trigger('click')
+    w.findComponent(VehiclePicker).vm.$emit('update:modelValue', 'V2')
+    await w.vm.$nextTick()
+    finish(both ? { cold, warm } : warm)
+    await flushPromises()
+    expect(w.get('[data-testid="rehydrate-target"]').text()).toContain('V2')
+    expect(w.get('[data-testid="rehydrate-warm"]').text()).toContain('Not run yet')
+  })
+
+  it('clears a vehicle removed from the live inventory', async () => {
+    const w = await mountPanel()
+    await w.setProps({ vehicles: ['V2'] })
+    expect(w.find('[data-testid="rehydrate-needs-vehicle"]').exists()).toBe(true)
   })
 })

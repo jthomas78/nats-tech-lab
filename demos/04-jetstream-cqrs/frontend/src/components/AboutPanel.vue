@@ -1,5 +1,5 @@
 <script setup>
-// The first rail entry: what this demo is, and the drawings of it.
+// Lesson 01 Overview: what this demo is, and the drawings of it.
 //
 // Both halves are files that already exist in the repo, shown as they are:
 //
