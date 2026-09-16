@@ -20,7 +20,7 @@ vi.mock('./nats/useOdometer.js', () => ({
 describe('the shell leaves vehicle selection to the lesson', () => {
   it('has no pagehead picker or Guide row and passes stream size to the lesson', async () => {
     const w = mount(App, { global: { plugins: [PrimeVue] } })
-    expect(w.get('.pagehead').text()).toBe('Odometer')
+    expect(w.get('.pagehead').text()).toBe('Lesson 01 - One event source + CQRS')
     expect(w.get('.pagehead').findComponent(VehiclePicker).exists()).toBe(false)
     expect(w.findComponent(NavList).text()).not.toContain('How it works')
     const panel = w.findComponent(StreamCqrsPanel)
@@ -30,6 +30,6 @@ describe('the shell leaves vehicle selection to the lesson', () => {
     panel.findComponent(VehiclePicker).vm.$emit('update:modelValue', 'V1')
     await w.vm.$nextTick()
     expect(w.findComponent(CommandBar).props('vehicle')).toBe('V1')
-    expect(w.get('.pagehead').text()).toBe('Odometer')
+    expect(w.get('.pagehead').text()).toBe('Lesson 01 - One event source + CQRS')
   })
 })

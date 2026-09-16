@@ -50,6 +50,15 @@ describe('PoolPanel — the tab strip', () => {
     const w = mountPanel()
     expect(w.find('.cmd').text()).toContain('cqrs pool -workers 4')
   })
+
+  // The page heading now says which lesson this is. An eyebrow line above the
+  // tabs repeating it was the same words twice, one above the other. The tags
+  // beside it were live state, not a label, so they stay.
+  it('carries no eyebrow line above the tabs', () => {
+    const w = mountPanel()
+    expect(w.get('[data-testid="pool-panel"] > header').find('.eyebrow').exists()).toBe(false)
+    expect(w.text()).not.toContain('one consumer, many workers')
+  })
 })
 
 describe('PoolPanel — nothing running', () => {

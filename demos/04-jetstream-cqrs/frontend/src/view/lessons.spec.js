@@ -68,10 +68,15 @@ describe('the tabs each lesson carries', () => {
 })
 
 describe('the breadcrumb carries the lesson — D11', () => {
+  // The heading is the page's own name and says which lesson it is, because
+  // the eyebrow line that used to say so is gone. The breadcrumb keeps the
+  // short title: the trail already names the lesson one step to its left, and
+  // saying it twice in one line tells the reader nothing new.
   it('names the lesson between the demo and the page', () => {
     expect(crumbFor('lesson-02')).toEqual({
       lesson: '02 · Scaling a consumer',
       title: 'Worker pool',
+      heading: 'Lesson 02 - One consumer, many workers',
     })
   })
 
@@ -79,6 +84,7 @@ describe('the breadcrumb carries the lesson — D11', () => {
     expect(crumbFor('lesson-01')).toEqual({
       lesson: '01 · Stream + CQRS',
       title: 'Odometer',
+      heading: 'Lesson 01 - One event source + CQRS',
     })
   })
 

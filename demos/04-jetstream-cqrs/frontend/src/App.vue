@@ -95,7 +95,7 @@ const watching = computed(() => {
     </template>
 
     <header class="pagehead">
-      <h1>{{ crumb.title }}</h1>
+      <h1>{{ crumb.heading }}</h1>
     </header>
 
     <template v-if="isLesson01">

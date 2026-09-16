@@ -12,7 +12,13 @@ export const LESSONS = Object.freeze([
   Object.freeze({
     key: 'lesson-01',
     label: '01 · Stream + CQRS',
+    // title is the breadcrumb's last step; heading is the <h1>. They differ on
+    // purpose: the trail already names the lesson one step to the left, so a
+    // breadcrumb ending "Lesson 01 - ..." would say it twice in one line. The
+    // heading has no such neighbour — it carries the lesson number itself,
+    // because the eyebrow line that used to do that is gone.
     title: 'Odometer',
+    heading: 'Lesson 01 - One event source + CQRS',
     tabs: Object.freeze([
       { key: 'overview', label: 'Overview' },
       { key: 'showcase', label: 'Showcase' },
@@ -23,6 +29,7 @@ export const LESSONS = Object.freeze([
     key: 'lesson-02',
     label: '02 · Scaling a consumer',
     title: 'Worker pool',
+    heading: 'Lesson 02 - One consumer, many workers',
     // Tabs, not rail rows: the pool is ONE subject under four conditions, not
     // four subjects. D10a — odometer-pool-workers gets no tab, because the
     // Live tab already draws its contents as worker cards.
@@ -105,5 +112,5 @@ export function tabsFor(view) {
 // knows which half of the demo they are in.
 export function crumbFor(view) {
   const lesson = lessonFor(view)
-  return { lesson: lesson.label, title: lesson.title }
+  return { lesson: lesson.label, title: lesson.title, heading: lesson.heading }
 }

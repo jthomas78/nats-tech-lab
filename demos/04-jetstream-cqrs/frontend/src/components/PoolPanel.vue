@@ -119,9 +119,6 @@ function km(n) {
     data-testid="pool-panel"
   >
     <header>
-      <p class="eyebrow">
-        Lesson 02 · one consumer, many workers
-      </p>
       <Tag
         v-if="health.running"
         severity="info"
@@ -714,8 +711,11 @@ function km(n) {
 </template>
 
 <style scoped>
+/* The shell already puts 18px between the page heading and this panel. A
+   second 20px on top of that read as a gap the heading had been left
+   behind in. */
 .lesson {
-  margin-top: 20px;
+  margin-top: 0;
 }
 
 header {
@@ -725,9 +725,6 @@ header {
   flex-wrap: wrap;
 }
 
-.eyebrow {
-  margin: 0;
-}
 
 .cmd {
   margin-left: auto;

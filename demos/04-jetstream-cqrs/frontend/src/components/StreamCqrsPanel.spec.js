@@ -46,6 +46,16 @@ describe('lesson 01 has three rooms', () => {
     expect(w.findAll('[data-testid^="lesson-01-tab-"]').map(t => t.text())).toEqual(['Overview', 'Showcase', 'Performance'])
   })
 
+  // The page heading now says which lesson this is. An eyebrow line above the
+  // tabs repeating it was the same words twice, one above the other.
+  it('carries no eyebrow line above the tabs', () => {
+    const w = mountPanel()
+    // Scoped to the panel's own header: the child panels have eyebrows of
+    // their own, and those are not what this removed.
+    expect(w.get('[data-testid="stream-cqrs-panel"] > header').find('.eyebrow').exists()).toBe(false)
+    expect(w.text()).not.toContain('one log, two sides')
+  })
+
   it('puts the picker and four causal groups inside Showcase', async () => {
     const w = mountPanel()
     await open(w, 'showcase')

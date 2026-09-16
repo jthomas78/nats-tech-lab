@@ -103,9 +103,6 @@ const logLabel = computed(() => vehicle.value ? `${STREAM} · the events for ${v
     data-testid="stream-cqrs-panel"
   >
     <header>
-      <p class="eyebrow">
-        Lesson 01 · one log, two sides
-      </p>
       <code
         v-if="current.cmd"
         class="cmd"
@@ -266,12 +263,15 @@ const logLabel = computed(() => vehicle.value ? `${STREAM} · the events for ${v
 </template>
 
 <style scoped>
-.lesson { margin-top: 20px; }
+/* The shell already puts 18px between the page heading and this panel, and
+   the panel's own header is now just a right-aligned command. A second
+   20px on top of that read as a gap the heading had been left behind in. */
+.lesson { margin-top: 0; }
 header, .selection, nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.eyebrow, h3 { margin: 0; }
+h3 { margin: 0; }
 h3 { font-size: 13px; }
 .cmd { margin-left: auto; color: var(--p-text-disabled-color); font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-.panel-tabs { margin-top: 14px; }
+.panel-tabs { margin-top: 6px; }
 .group { margin-top: 20px; padding: 14px 16px; border: 1px solid var(--lab-panel-border); border-radius: 6px; background: var(--lab-panel-bg); }
 .summary p { max-width: 90ch; color: var(--p-text-muted-color); }
 a { color: var(--p-primary-color); }
