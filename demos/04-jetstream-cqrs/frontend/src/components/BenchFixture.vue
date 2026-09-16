@@ -216,16 +216,20 @@ const pct = computed(() =>
         rehydration.
       </p>
 
-      <p
+      <div
         class="cmd"
         data-testid="bench-cmd"
       >
-        Or run them in a terminal — same code, same fixtures:
-        <code
-          v-for="c in cmds"
-          :key="c"
-        >{{ c }}</code>
-      </p>
+        <p>Or run them in a terminal — same code, same fixtures:</p>
+        <ul>
+          <li
+            v-for="c in cmds"
+            :key="c"
+          >
+            <code>{{ c }}</code>
+          </li>
+        </ul>
+      </div>
     </template>
   </section>
 </template>
@@ -265,6 +269,23 @@ h4 {
   margin-top: 10px;
 }
 
+.cmd p {
+  margin: 0;
+}
+
+/* One command per line. Three set as one run of mono text read as one long
+   command, and a reader who copies the middle of it pastes something the
+   binary rejects. */
+.cmd ul {
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cmd li {
+  margin-top: 2px;
+}
+
 .broken {
   margin-top: 8px;
   color: var(--d4-lost);
@@ -284,7 +305,6 @@ code {
 }
 
 .cmd code {
-  margin-right: 10px;
   color: var(--p-text-color);
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { agree, formatMs, formatSpeedup, speedup, trailsBy, verdict } from './rehydrate.js'
+import { formatCount } from './format.js'
 
 const cold = { elapsedMs: 25, eventsRead: 10001, status: 'registered', plate: 'ABC-123' }
 const warm = { elapsedMs: 1.1, eventsRead: 2, status: 'registered', plate: 'ABC-123' }
@@ -88,7 +89,11 @@ describe('verdict', () => {
     const v = verdict(cold, warm)
     expect(v.kind).toBe('measured')
     expect(v.ratio).toBeCloseTo(22.7, 1)
-    expect(v.text).toContain('9999 fewer events')
+    // Grouped, like every other count this demo prints. formatCount groups
+    // with a non-breaking thin space, so spelling it by hand here would pass
+    // for the wrong reason.
+    expect(v.text).toContain(`${formatCount(9999)} fewer events`)
+    expect(v.text).not.toContain('9999 ')
   })
 })
 

@@ -1564,8 +1564,17 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       progress is the cheapest honest answer as written: three sequential
       `seedFixture` calls, the client counting `n of 3` and each size's share
       of the total. No Go change; `commands.spec.js` untouched and green.
-      Gates: 325 specs / 22 files, 0 eslint errors (7 `PoolPanel.vue`
+      Gates: 326 specs / 22 files, 0 eslint errors (7 `PoolPanel.vue`
       warnings are the baseline), build clean.
+
+      **Two nits, found by looking at the running screen afterwards.** The
+      three `cqrs bench -size N` commands were set as one run of mono text
+      and read as one long command — a reader who copied the middle of it
+      would paste something the binary rejects, and `commands.spec.js` cannot
+      see a layout mistake. They are now a list, one command per line.
+      `verdict()` printed the events saved ungrouped (`9950`) on a screen
+      where every other count is grouped (`10 000`), so `view/rehydrate.js`
+      now runs it through `formatCount()`. One spec each, both red first.
 
       **The fault, found by the user while testing.** The Performance tab
       offers two ways to aim the same measurement and never says they are

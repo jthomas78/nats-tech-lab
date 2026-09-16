@@ -180,6 +180,21 @@ describe('it writes only when told to', () => {
     }
   })
 
+  // Three commands set as one run of mono text read as one long command. A
+  // reader who copies the middle of that line pastes something the binary
+  // rejects, and the guard in commands.spec.js cannot see a layout mistake.
+  it('gives each command a line of its own', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(empty)
+    const w = mountBench()
+    await flushPromises()
+    const lines = w.findAll('[data-testid="bench-cmd"] li')
+    expect(lines.map((l) => l.text())).toEqual([
+      'cqrs bench -size 10000',
+      'cqrs bench -size 100000',
+      'cqrs bench -size 1000000',
+    ])
+  })
+
   it('says so when the write side cannot be reached', async () => {
     vi.spyOn(api, 'fetchBench').mockResolvedValue({
       kind: 'broken',

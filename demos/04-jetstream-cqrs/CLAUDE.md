@@ -144,7 +144,7 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 325 specs, 22 files
+npx vitest run                      # 326 specs, 22 files
 npx eslint src --ext .js,.vue       # 0 errors; 7 PoolPanel.vue warnings are the baseline
 npm run build
 ```

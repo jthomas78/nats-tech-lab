@@ -14,6 +14,13 @@
 //   2. The two halves must be shown to AGREE. If they rebuilt different
 //      states, the comparison is void and the screen says so instead of
 //      printing a flattering multiple.
+//
+// It imports formatCount for one reason: a count this module prints must be
+// grouped the same way a count the components print is. An ungrouped 9950 in
+// the middle of a screen full of grouped numbers reads as a different kind of
+// number.
+
+import { formatCount } from './format.js'
 
 // formatMs prints a duration the way the demo argues with it.
 //
@@ -83,7 +90,7 @@ export function verdict(cold, warm) {
   return {
     kind: 'measured',
     ratio,
-    text: `Both sides rebuilt the same state. The snapshot side read ${saved} fewer events. The gap grows with the log: the cold side gets slower every time you record a trip, and the snapshot side does not.`,
+    text: `Both sides rebuilt the same state. The snapshot side read ${formatCount(saved)} fewer events. The gap grows with the log: the cold side gets slower every time you record a trip, and the snapshot side does not.`,
   }
 }
 
