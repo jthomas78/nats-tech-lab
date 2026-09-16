@@ -6,82 +6,157 @@ import BenchFixture from './BenchFixture.vue'
 import * as api from '../rehydrate/api.js'
 import { formatCount } from '../view/format.js'
 
-// The acceptance test for the seed control in task 04.7.16.
+// The acceptance test for Stream information, task 04.7.18 (D17, D18).
 //
-// Four things must hold:
+// The group has one job: say what is in ODOMETER_BENCH, and put it there.
+// Five things must hold:
 //
-//   1. A length is never shown on its own. The standing rule set by the user
-//      2026-09-16 — every message count is shown with the bytes it consumes.
-//      A spec that only checked the count would let the bytes quietly vanish.
-//   2. The sizes come from the server, not from this file. The screen must
-//      never offer a size the write side would refuse.
-//   3. Nothing is seeded until a human presses Seed. Reading is a GET and may
-//      run on mount; writing a million events may not.
-//   4. An empty fixture says so plainly, and still prints its bytes.
+//   1. The stream is named ONCE, with its count and its bytes (D15, and the
+//      standing rule from 2026-09-16 — a length never travels alone).
+//   2. There is ONE seed button, not three. Three buttons made the reader
+//      choose before they had any reason to (D18).
+//   3. The table always shows all three sizes. A size nobody has seeded is a
+//      row that says so, not a row that is missing.
+//   4. A seed in flight reports how far it has got and locks the button. One
+//      press writes 1 110 000 events; a screen that went quiet for that long
+//      would look broken.
+//   5. The price is on screen BEFORE the press, in events and in bytes.
+//
+// And one thing must be gone: this group no longer hands a target to the
+// measurement (D16). The picker does that now.
 
 const mountBench = () => mount(BenchFixture, { global: { plugins: [PrimeVue] } })
 
-const seeded = {
+// 110 000 events is 10k + 100k seeded, 1m not. 9 122 611 bytes is 8.7 MiB.
+const partial = {
   kind: 'ok',
   stream: 'ODOMETER_BENCH',
   subject: 'evt.odometer-bench.>',
   writeKv: 'odometer-bench-write',
   exists: true,
-  events: 1_000_000,
-  bytes: 83_000_000,
+  events: 110_000,
+  bytes: 9_122_611,
   sizes: [10000, 100000, 1000000],
   fixtures: [
-    { size: 1000000, vehicle: 'bench-1m', events: 1000000, snapSeq: 999950, tailLeft: 50 },
+    { size: 10000, vehicle: 'bench-10k', events: 10000, snapSeq: 9950, tailLeft: 50 },
+    { size: 100000, vehicle: 'bench-100k', events: 100000, snapSeq: 109950, tailLeft: 50 },
   ],
-  elapsedMs: 2195,
+  elapsedMs: 240,
 }
 
-const empty = { ...seeded, exists: false, events: 0, bytes: 0, fixtures: [] }
+const empty = { ...partial, exists: false, events: 0, bytes: 0, fixtures: [], elapsedMs: 0 }
+
+// How many times a string appears in the whole rendered panel.
+const times = (w, needle) => w.text().split(needle).length - 1
 
 beforeEach(() => vi.restoreAllMocks())
 
-describe('a length never travels alone', () => {
-  it('shows the bytes beside the event count', async () => {
-    vi.spyOn(api, 'fetchBench').mockResolvedValue(seeded)
+describe('the header is the whole report', () => {
+  it('names the stream, its count and its bytes exactly once', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(partial)
     const w = mountBench()
     await flushPromises()
-    const said = w.find('[data-testid="bench-holds"]').text()
+
+    const head = w.get('[data-testid="bench-holds"]').text()
+    expect(head).toContain('Stream information')
+    expect(head).toContain('ODOMETER_BENCH')
     // formatCount groups with a non-breaking thin space, not a plain one.
     // Spelling it by hand here would pass for the wrong reason.
-    expect(said).toContain(formatCount(1_000_000))
-    expect(said).toContain('79.2 MiB')
+    expect(head).toContain(formatCount(110_000))
+    expect(head).toContain('8.7 MiB')
+
+    expect(times(w, 'ODOMETER_BENCH')).toBe(1)
+    expect(times(w, '8.7 MiB')).toBe(1)
   })
 
-  it('shows the bytes even when nothing is seeded', async () => {
+  it('reports an empty fixture in the same place, bytes and all', async () => {
     vi.spyOn(api, 'fetchBench').mockResolvedValue(empty)
     const w = mountBench()
     await flushPromises()
-    const said = w.find('[data-testid="bench-empty"]').text()
-    expect(said).toContain('0 events')
-    expect(said).toContain('0 B')
-    expect(w.find('[data-testid="bench-fixtures"]').exists()).toBe(false)
+    const head = w.get('[data-testid="bench-holds"]').text()
+    expect(head).toContain('0 events')
+    expect(head).toContain('0 B')
+  })
+
+  // D13. The Performance tab measures ODOMETER_BENCH and nothing else, and a
+  // reader who sees ODOMETER on it has been told the wrong log is at risk.
+  it('never names the demo own log', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(partial)
+    const w = mountBench()
+    await flushPromises()
+    expect(w.text().split('ODOMETER_BENCH').join('')).not.toContain('ODOMETER')
   })
 })
 
-describe('the server owns the sizes', () => {
-  it('offers exactly what the write side reports', async () => {
-    vi.spyOn(api, 'fetchBench').mockResolvedValue({ ...empty, sizes: [500, 5000] })
+describe('one button seeds all three sizes', () => {
+  it('offers one seed button, not one per size', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(empty)
     const w = mountBench()
     await flushPromises()
-    expect(w.find('[data-testid="bench-size-500"]').exists()).toBe(true)
-    expect(w.find('[data-testid="bench-size-5000"]').exists()).toBe(true)
-    expect(w.find('[data-testid="bench-size-1000000"]').exists()).toBe(false)
+    expect(w.find('[data-testid="bench-seed"]').exists()).toBe(true)
+    expect(w.findAll('[data-testid^="bench-size-"]')).toHaveLength(0)
   })
 
-  it('seeds the size that was picked', async () => {
+  it('states the price in events and bytes before the press', async () => {
     vi.spyOn(api, 'fetchBench').mockResolvedValue(empty)
-    const seed = vi.spyOn(api, 'seedFixture').mockResolvedValue(seeded)
     const w = mountBench()
     await flushPromises()
-    await w.find('[data-testid="bench-size-100000"]').trigger('click')
-    await w.find('[data-testid="bench-seed"]').trigger('click')
+    const cost = w.get('[data-testid="bench-cost"]').text()
+    expect(cost).toContain(formatCount(1_110_000))
+    expect(cost).toMatch(/MiB|GiB/)
+    expect(cost).toContain('replaces')
+  })
+
+  it('seeds every size, in order, on one press', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(empty)
+    const seed = vi.spyOn(api, 'seedFixture').mockResolvedValue(partial)
+    const w = mountBench()
     await flushPromises()
-    expect(seed).toHaveBeenCalledWith(100000)
+    await w.get('[data-testid="bench-seed"]').trigger('click')
+    await flushPromises()
+    expect(seed.mock.calls).toEqual([[10000], [100000], [1000000]])
+  })
+
+  it('says how far it has got, and locks the button while it runs', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(empty)
+    let finish
+    vi.spyOn(api, 'seedFixture').mockReturnValue(new Promise((r) => { finish = r }))
+    const w = mountBench()
+    await flushPromises()
+    await w.get('[data-testid="bench-seed"]').trigger('click')
+    await flushPromises()
+
+    const said = w.get('[data-testid="bench-progress"]').text()
+    expect(said).toContain('bench-10k')
+    expect(said).toContain('1 of 3')
+    expect(said).toContain(formatCount(1_110_000))
+    expect(w.get('[data-testid="bench-seed"]').attributes('disabled')).toBeDefined()
+
+    finish(partial)
+    await flushPromises()
+  })
+})
+
+describe('the table always shows all three sizes', () => {
+  it('draws a row per size, seeded or not', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(partial)
+    const w = mountBench()
+    await flushPromises()
+    const rows = w.findAll('[data-testid^="bench-row-"]')
+    expect(rows.map((r) => r.attributes('data-testid'))).toEqual([
+      'bench-row-bench-10k',
+      'bench-row-bench-100k',
+      'bench-row-bench-1m',
+    ])
+    expect(w.get('[data-testid="bench-row-bench-10k"]').text()).toContain(`seq ${formatCount(9950)}`)
+    expect(w.get('[data-testid="bench-row-bench-1m"]').text()).toContain('not seeded')
+  })
+
+  it('draws three empty rows before anything is seeded', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(empty)
+    const w = mountBench()
+    await flushPromises()
+    expect(w.findAll('[data-testid^="bench-row-"]')).toHaveLength(3)
   })
 })
 
@@ -95,22 +170,14 @@ describe('it writes only when told to', () => {
     expect(seed).not.toHaveBeenCalled()
   })
 
-  it('prints the terminal command for the picked size', async () => {
+  it('prints a terminal command for every size it seeds', async () => {
     vi.spyOn(api, 'fetchBench').mockResolvedValue(empty)
     const w = mountBench()
     await flushPromises()
-    await w.find('[data-testid="bench-size-1000000"]').trigger('click')
-    expect(w.find('[data-testid="bench-cmd"]').text()).toBe('cqrs bench -size 1000000')
-  })
-})
-
-describe('it hands a fixture to the measurement', () => {
-  it('names the bench source, not just the vehicle', async () => {
-    vi.spyOn(api, 'fetchBench').mockResolvedValue(seeded)
-    const w = mountBench()
-    await flushPromises()
-    await w.find('[data-testid="bench-measure-bench-1m"]').trigger('click')
-    expect(w.emitted('measure')[0]).toEqual([{ source: 'bench', vehicle: 'bench-1m' }])
+    const said = w.get('[data-testid="bench-cmd"]').text()
+    for (const size of [10000, 100000, 1000000]) {
+      expect(said).toContain(`cqrs bench -size ${size}`)
+    }
   })
 
   it('says so when the write side cannot be reached', async () => {
@@ -121,7 +188,26 @@ describe('it hands a fixture to the measurement', () => {
     })
     const w = mountBench()
     await flushPromises()
-    expect(w.find('[data-testid="bench-broken"]').text()).toContain('Unreachable')
+    expect(w.get('[data-testid="bench-broken"]').text()).toContain('Unreachable')
     expect(w.find('[data-testid="bench-holds"]').exists()).toBe(false)
+  })
+})
+
+describe('it reports, it does not aim', () => {
+  // D16. Aiming the measurement is the picker's job now, and two controls
+  // aiming one measurement is the defect 04.7.18 exists to remove.
+  it('offers no measure button and emits no target', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(partial)
+    const w = mountBench()
+    await flushPromises()
+    expect(w.findAll('[data-testid^="bench-measure-"]')).toHaveLength(0)
+    expect(w.emitted('measure')).toBeUndefined()
+  })
+
+  it('hands its state up so the picker can list the fixtures', async () => {
+    vi.spyOn(api, 'fetchBench').mockResolvedValue(partial)
+    const w = mountBench()
+    await flushPromises()
+    expect(w.emitted('state').at(-1)).toEqual([partial])
   })
 })

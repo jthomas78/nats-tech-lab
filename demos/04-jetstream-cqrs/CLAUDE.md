@@ -144,7 +144,7 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 312 specs, 22 files
+npx vitest run                      # 325 specs, 22 files
 npx eslint src --ext .js,.vue       # 0 errors; 7 PoolPanel.vue warnings are the baseline
 npm run build
 ```
@@ -160,8 +160,8 @@ A phase entry in `docs/Demo-04-Plan.md` stays **PROPOSED** until the user
 approves it. No tasks, no tests, no code before that. An entry marked PROPOSED
 is a request for a decision, not a backlog item to pick up.
 
-Nothing is PROPOSED right now. 04.7.17 (the lesson 01 three-tab layout) was
-approved and completed 2026-09-16.
+Nothing is PROPOSED right now. 04.7.18 (Performance gets one target picker and
+one seed button) was approved and completed 2026-09-16.
 
 ## Two mechanics that are easy to get wrong
 

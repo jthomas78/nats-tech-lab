@@ -1545,6 +1545,189 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       its crumb specs lose the vehicle. `App.spec.js` loses the pagehead
       picker.
 
+- [x] 04.7.18 Performance has ONE target picker and ONE seed button.
+      **APPROVED 2026-09-16. Done 2026-09-16.** Mockup:
+      `diagrams/lesson-01-performance-picker.html` (+ `.png`).
+
+      **What was built.** `BenchFixture.vue` is now the Stream information
+      group: one header carrying the stream, its count and its bytes; one
+      `Seed all three` button priced before the press; a progress line and
+      bar while it runs; a table that always draws all three sizes, with an
+      unseeded one saying so. `RehydratePanel.vue` lost the live vehicle
+      picker, the `Measure this` buttons and the back-to-live link, and gained
+      one PrimeVue `Select` in the same row as `Run both` /
+      `No-snapshot only` / `Snapshot only`, disabled until a fixture is
+      picked. `StreamCqrsPanel.vue` no longer passes `vehicles`/`writes`/
+      `reads` into it. `benchVehicle()` and `BENCH_BYTES_PER_EVENT` moved into
+      `view/lessons.js`, with `lessons.spec.js` holding the JavaScript
+      spelling of `benchVehicle` to the Go one in `cqrs/bench.go`. D18's
+      progress is the cheapest honest answer as written: three sequential
+      `seedFixture` calls, the client counting `n of 3` and each size's share
+      of the total. No Go change; `commands.spec.js` untouched and green.
+      Gates: 325 specs / 22 files, 0 eslint errors (7 `PoolPanel.vue`
+      warnings are the baseline), build clean.
+
+      **The fault, found by the user while testing.** The Performance tab
+      offers two ways to aim the same measurement and never says they are
+      the same switch:
+
+        the `Measure this` buttons in the fixture table  → ODOMETER_BENCH
+        the `Live vehicle · ODOMETER` dropdown           → ODOMETER
+
+      Three things make this unreadable, and all three were hit in order:
+
+        1. The dropdown sits BELOW the box that overrides it. A reader who
+           picks a fixture and then looks down sees a control that appears
+           to contradict the choice they just made.
+        2. It is labelled with a different stream name than the panel above
+           it. `ODOMETER` and `ODOMETER_BENCH` differ by one token, and the
+           tab gives no reason why a performance number would come from the
+           demo's own log at all.
+        3. It opens on `All vehicles`, which is a value it will not accept.
+           `rehydrate-needs-vehicle` then explains that an aggregate is one
+           vehicle — an error message where a default should be.
+
+      The user's own expectation, stated plainly: "I'd expect the drop down
+      to have values bench-10k, bench-100k, bench-1m." That is the right
+      instinct and this entry gives it to them. Reviewing the mockup, the
+      user went further: the live path goes entirely (D13), the two boxes
+      merge into one seed group and one measure group (D17), and the three
+      seed buttons become one with a progress bar (D18).
+
+      **Design decisions.**
+
+      **D12 — one picker, and it sits with the Run buttons.** The two
+      controls collapse into a single select:
+
+        Benchmark fixtures · ODOMETER_BENCH
+          bench-10k     10 000 events
+          bench-100k    100 000 events
+          bench-1m      1 000 000 events
+
+      It is drawn on the same row as `Run both`, `No-snapshot only` and
+      `Snapshot only`, because picking a target and running it are one act,
+      and the fault this entry fixes was a control drawn away from the thing
+      it steers. Run is disabled until a fixture is picked. The group header
+      carries the stream name, so no label outside the control names one.
+
+      **D13 — the live half goes.** Decided by the user 2026-09-16, on the
+      mockup. Performance measures `ODOMETER_BENCH` and nothing else. No
+      part of the tab reads `ODOMETER`, names it, or offers a vehicle from
+      it. Considered and rejected: keep a live group so a reader can measure
+      `truck-7` after driving it on Showcase. That link is real but it is
+      not worth a second stream on a tab whose whole job is one number, and
+      the demo's own log is too short to time honestly. Showcase owns
+      `ODOMETER`; Performance owns the fixture.
+
+      **D14 — the picker lists only what is seeded.** `benchState` already
+      returns one entry per size that actually has events, and the screen
+      already honours that. The select does the same: a size nobody seeded
+      is not an option. An option that 400s is worse than a missing one —
+      the same rule the seed control already follows (the sizes come from
+      the server, not from the client).
+
+      **D15 — the count is in the option; the bytes are in the header.**
+      Each option carries its event count, so the reader picks a size rather
+      than a name. The standing rule is unchanged and is met once, in the
+      `Stream information` header:
+
+        Stream information    ODOMETER_BENCH · 110 000 events · 8.7 MiB
+
+      An option label is one aggregate's length, not a stream's, so it
+      carries no bytes and the rule does not reach it. The stream name, its
+      count and its bytes are printed once on the tab, not four times.
+
+      **D16 — the `Measure this` buttons go.** With the fixtures in the
+      picker they are a second door to one room, which is the fault this
+      entry is fixing. The fixture table keeps its job: it says what is
+      seeded, where each snapshot stops, and how long the tail is. Losing
+      the button loses nothing a reader can no longer do.
+
+      The `Measure the demo's own log instead` link goes too, for the same
+      reason — it was a way back from a mode the picker no longer creates.
+
+      **D17 — the tab is two groups, and each one has a job.** Decided by
+      the user 2026-09-16, on the mockup. `BenchFixture.vue`'s box and
+      `RehydratePanel.vue`'s box overlapped: both printed the fixture sizes,
+      and neither said which of them the reader was supposed to act on. They
+      become:
+
+        Stream information                 what is in ODOMETER_BENCH, and how to put it there
+        How much does a snapshot buy you?  pick a fixture, run, read two numbers
+
+      `Stream information` is a header line, not a question — the box
+      reports, it does not ask. The measure box keeps the tab's headline
+      question, because that question is what the tab is for.
+
+      **D18 — one Seed button, and it shows progress.** Decided by the user
+      2026-09-16, on the mockup. The three per-size buttons become a single
+      `Seed all three`, and the table below always shows three rows —
+      `bench-10k`, `bench-100k`, `bench-1m` — whether they are seeded or
+      not. An unseeded row says so instead of vanishing, which is what makes
+      the D14 greying readable.
+
+      Seeding all three writes 1 110 000 events, about 88 MiB, and
+      `bench-1m` alone runs for a noticeable time. A button that looks dead
+      for a minute is a bug report, so the control reports:
+
+        Seeding bench-1m — 3 of 3     612 400 / 1 110 000 · 55%
+        [=========================------------------]
+
+      Seed is disabled while it runs, and each row fills in as its size
+      lands. The cost line beside the button (`1 110 000 events · ~88 MiB ·
+      replaces what is there`) is stated before the press, not after — the
+      seed replaces whatever is there, and that is not recoverable.
+
+      Considered and rejected: keep the per-size buttons so a reader can
+      seed 10 000 only. It is cheaper, but it is three controls doing one
+      job, which is the fault this whole entry exists to remove. The
+      terminal keeps the fine-grained path, and the tab still prints it:
+      `cqrs bench -size N`.
+
+      **What does not change.** `RehydratePanel.vue` keeps its two-sided
+      result, its verdict and its `void` case. `BenchFixture.vue` keeps a
+      seed control and the printed `cqrs bench -size N`. No business rule
+      moves, is added or is softened. The tab is still read-only for the log
+      it measures (04.7.15), and Seed is still the one control here that
+      writes.
+
+      No Go change is needed for D12-D17: `-source live|bench` is unchanged
+      and the server already answers both. D18 is the one that may reach the
+      shim — seeding three sizes under one press, and reporting how far it
+      has got, is a question for the task breakdown when this is approved.
+      The cheapest honest answer is three sequential calls with the client
+      counting them (3 of 3, and each size's share of the total); a streamed
+      per-event count is a bigger change than this entry buys. Whatever is
+      chosen, `domain.go` is not touched and `bench.go` keeps seeding one
+      size per call.
+
+      **D19 — the picker opens on nothing.** Settled by the user
+      2026-09-16, choosing A over "land on the largest seeded fixture". The
+      tab opens with no fixture picked, Run disabled, and both result halves
+      empty. 04.7.14 already settled that this panel does not run on its
+      own; a pre-filled picker invites the reader to press Run without
+      reading what it is aimed at. A reader aims before they fire.
+
+      **Tests, when approved.** Specs first, red before green.
+      `RehydratePanel.spec.js`: the picker holds the fixtures and nothing
+      else; a seeded size appears and an unseeded one is present but not
+      selectable; the picker renders on the same row as the Run buttons and
+      Run is disabled until a fixture is picked; picking a fixture measures
+      on `ODOMETER_BENCH`; no option, label or command on the tab names
+      `ODOMETER`; switching fixture clears both result halves the way
+      switching vehicles already did; no `Measure this` button and no
+      back-to-live link remain.
+
+      `BenchFixture.spec.js`: the group header reads `Stream information`
+      and carries the stream name, its count and its bytes exactly once;
+      there is one seed button, not three; the table always renders three
+      rows and an unseeded row says so; a seed in flight renders the
+      progress line and disables the button; the cost line states the event
+      count and the bytes before the press. Its measure-emit specs go.
+
+      `commands.spec.js` is untouched and must stay green — it is the guard,
+      not a cost of this change.
+
 
 ### 10.9 What would make this phase a failure
 
@@ -1555,6 +1738,10 @@ No new host port. The pool is a CLI process, like `snapshotter` and
 - `partition()` or a `nats.conf` subject mapping appearing anywhere (D7).
 - A rail row that is not a lesson (D9; guide removed in 04.7.17).
 - Lesson 01's Showcase KV Stores group showing one bucket instead of two (D10).
+- Performance offering two ways to aim one measurement, or naming `ODOMETER`
+  anywhere on the tab (D12, D13).
+- Performance opening with a fixture already picked, or Run enabled before one
+  is (D19).
 - A consumer that nak's a failure no retry can fix (BR-OD09), or a
   `MaxDeliver` cap that drops a message without saying so.
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { LESSONS, crumbFor, lessonFor, railSections, tabsFor } from './lessons.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+
+import { BENCH_SIZES, LESSONS, benchVehicle, crumbFor, lessonFor, railSections, tabsFor } from './lessons.js'
 
 describe('the rail is a lesson index', () => {
   it('holds two rows and nothing else', () => {
@@ -81,5 +84,37 @@ describe('the breadcrumb carries the lesson — D11', () => {
 
   it('falls back to lesson 01 for a view it does not know', () => {
     expect(lessonFor('nonsense').key).toBe('lesson-01')
+  })
+})
+
+// benchVehicle() is a COPY of the Go function of the same name. The panel draws
+// a row for a size nobody has seeded yet, and an unseeded size has no server
+// answer to read a name out of — so the name has to be spelled here too.
+//
+// A copy that drifts is worse than no copy: the picker would offer a vehicle
+// the write side has never heard of, and the measurement would come back
+// empty with no error. This reads the Go file and holds the two together.
+describe('the fixture vehicle names match the Go that writes them', () => {
+  function findBenchGo(from = process.cwd()) {
+    let dir = from
+    for (let i = 0; i < 8; i += 1) {
+      const hit = resolve(dir, 'cqrs/bench.go')
+      if (existsSync(hit)) return hit
+      const up = dirname(dir)
+      if (up === dir) break
+      dir = up
+    }
+    throw new Error('cqrs/bench.go not found above ' + from)
+  }
+
+  it('names the three sizes the way bench.go does', () => {
+    expect(BENCH_SIZES.map(benchVehicle)).toEqual(['bench-10k', 'bench-100k', 'bench-1m'])
+  })
+
+  it('found the Go source, so a silent pass is not possible', () => {
+    const go = readFileSync(findBenchGo(), 'utf8')
+    expect(go).toContain('func benchVehicle(')
+    expect(go).toContain('bench-%dm')
+    expect(go).toContain('bench-%dk')
   })
 })

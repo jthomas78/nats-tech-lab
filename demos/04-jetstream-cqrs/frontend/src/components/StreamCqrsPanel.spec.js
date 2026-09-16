@@ -1,5 +1,6 @@
 import PrimeVue from 'primevue/config'
-import { mount } from '@vue/test-utils'
+import Select from 'primevue/select'
+import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 
 import AboutPanel from './AboutPanel.vue'
@@ -11,7 +12,11 @@ import EventLog from './EventLog.vue'
 
 vi.mock('../rehydrate/api.js', async (importOriginal) => ({
   ...await importOriginal(),
-  fetchBench: vi.fn().mockResolvedValue({ kind: 'ok', exists: false, fixtures: [] }),
+  fetchBench: vi.fn().mockResolvedValue({
+    kind: 'ok', stream: 'ODOMETER_BENCH', exists: true, events: 10_000, bytes: 840_000,
+    sizes: [10000, 100000, 1000000],
+    fixtures: [{ size: 10000, vehicle: 'bench-10k', events: 10000, snapSeq: 9950, tailLeft: 50 }],
+  }),
 }))
 
 const writes = new Map([['truck-7', { vehicle: 'truck-7', plate: 'ABC', lastSeq: 8 }]])
@@ -74,19 +79,35 @@ describe('lesson 01 has three rooms', () => {
     expect(w.find('[data-testid="bucket-keys-write"]').exists()).toBe(true)
   })
 
+  // 04.7.18 (D13): Performance measures ODOMETER_BENCH. The live vehicle
+  // picker belongs to Showcase, and the two selections never meet.
   it('puts Rehydrate alone under Performance, without a write door or sub-strip', async () => {
     const w = mountPanel()
     await open(w, 'performance')
+    await flushPromises()
     expect(w.findComponent(RehydratePanel).exists()).toBe(true)
     expect(w.find('[data-testid="fake-door"]').exists()).toBe(false)
     expect(w.findAll('[role="tablist"]')).toHaveLength(1)
-    expect(w.findComponent(RehydratePanel).findComponent(VehiclePicker).exists()).toBe(true)
-    w.findComponent(RehydratePanel).findComponent(VehiclePicker).vm.$emit('update:modelValue', 'truck-7')
+    expect(w.findComponent(RehydratePanel).findComponent(VehiclePicker).exists()).toBe(false)
+    expect(w.findComponent(RehydratePanel).text()).not.toContain('truck-7')
+  })
+
+  // KeepAlive is the point: a reader who checks Showcase mid-experiment comes
+  // back to the fixture they picked, not to an empty panel.
+  it('keeps the fixture picked on Performance while you visit Showcase', async () => {
+    const w = mountPanel()
+    await open(w, 'performance')
+    await flushPromises()
+    const picker = w.findComponent(RehydratePanel).findComponent(Select)
+    picker.vm.$emit('update:modelValue', 'bench-10k')
     await w.vm.$nextTick()
+    expect(w.get('[data-testid="rehydrate-target"]').text()).toContain('bench-10k')
+
     await open(w, 'showcase')
     expect(w.find('[data-testid="fake-door"]').exists()).toBe(true)
     expect(w.findComponent(VehiclePicker).props('modelValue')).toBe(null)
+
     await open(w, 'performance')
-    expect(w.findComponent(RehydratePanel).findComponent(VehiclePicker).props('modelValue')).toBe('truck-7')
+    expect(w.get('[data-testid="rehydrate-target"]').text()).toContain('bench-10k')
   })
 })

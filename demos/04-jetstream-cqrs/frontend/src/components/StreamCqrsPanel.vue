@@ -257,12 +257,7 @@ const logLabel = computed(() => vehicle.value ? `${STREAM} · the events for ${v
         </TabPanel>
         <TabPanel value="performance">
           <KeepAlive>
-            <RehydratePanel
-              v-if="tab === 'performance'"
-              :vehicles="vehicles"
-              :writes="writes"
-              :reads="reads"
-            />
+            <RehydratePanel v-if="tab === 'performance'" />
           </KeepAlive>
         </TabPanel>
       </TabPanels>

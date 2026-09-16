@@ -77,6 +77,26 @@ export function benchCmd(size) {
 // This is what it draws before the first answer arrives.
 export const BENCH_SIZES = Object.freeze([10000, 100000, 1000000])
 
+// The vehicle one fixture size lives on.
+//
+// This MIRRORS benchVehicle() in cqrs/bench.go, and it has to. The panel now
+// draws a row per size whether or not that size is seeded, and an unseeded
+// size has no server answer to read the name out of. lessons.spec.js holds
+// the two spellings together.
+export function benchVehicle(size) {
+  const n = Number(size)
+  if (!Number.isFinite(n)) return 'bench-0'
+  if (n % 1_000_000 === 0) return `bench-${n / 1_000_000}m`
+  if (n % 1_000 === 0) return `bench-${n / 1_000}k`
+  return `bench-${n}`
+}
+
+// Roughly what one fixture event costs on disk, used ONLY to price a seed
+// before it happens. Measured: 1 000 000 events came to 83 MB. Once the
+// stream exists the panel divides its real bytes by its real count instead,
+// because a measured number always beats a remembered one.
+export const BENCH_BYTES_PER_EVENT = 83
+
 export function tabsFor(view) {
   return LESSONS.find((l) => l.key === view)?.tabs ?? []
 }

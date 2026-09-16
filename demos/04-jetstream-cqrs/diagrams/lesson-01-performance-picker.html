@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Performance — one target picker (04.7.18 proposal)</title>
+<style>
+  :root {
+    --bg: #131416;
+    --panel: #1A1E23;
+    --line: #4A515B;
+    --text: #DEE0E3;
+    --muted: #B7BCC2;
+    --accent: #006FFF;
+    --green: #27C07F;
+    --warn: #9A7B1E;
+    --red: #E05A5A;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 24px 60px;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/20px Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 6px; max-width: 80ch; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
+  }
+  .screen { margin-top: 34px; }
+  .screen > h2 {
+    font-size: 13px; margin: 0 0 10px; font-weight: 600;
+    padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .screen > h2 span { color: var(--muted); font-weight: 400; }
+
+  .tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .tabs div { padding: 7px 2px 9px; color: var(--muted); font-size: 12.5px; }
+  .tabs div.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 500; }
+
+  .group {
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+    padding: 12px 14px; margin-bottom: 12px;
+  }
+  .group.dim { background: transparent; }
+  .group.bad { border-color: rgba(224,90,90,.55); }
+  .group.good { border-color: rgba(39,192,127,.55); }
+  .ghead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .ghead b { font-size: 12px; font-weight: 600; }
+  .ghead .n { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  code {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    border: 1px solid rgba(0,111,255,.35); border-radius: 4px; padding: 1px 6px;
+    background: rgba(0,111,255,.08);
+  }
+  .note { color: var(--muted); font-size: 11.5px; margin: 6px 0 0; }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    border: 1px solid var(--line); border-radius: 4px; padding: 4px 12px;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .btn.p { border-color: var(--accent); background: rgba(0,111,255,.15); color: var(--text); }
+  .btn.gone { border-color: rgba(224,90,90,.5); color: var(--red); text-decoration: line-through; }
+
+  /* the select control */
+  .select {
+    display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid var(--line); border-radius: 5px; padding: 7px 11px;
+    font-family: var(--mono); font-size: 12px; min-width: 330px; background: #101215;
+  }
+  .select.focus { border-color: var(--accent); }
+  .select .caret { color: var(--muted); }
+  .select .ph { color: var(--muted); }
+  .menu {
+    border: 1px solid var(--accent); border-top: 0; border-radius: 0 0 5px 5px;
+    min-width: 330px; background: #101215; overflow: hidden;
+  }
+  .menu .hdr {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--muted); padding: 7px 11px 4px; border-top: 1px solid var(--line);
+  }
+  .menu .hdr:first-child { border-top: 0; }
+  .menu .opt {
+    display: flex; justify-content: space-between; gap: 16px;
+    padding: 5px 11px 5px 20px; font-family: var(--mono); font-size: 11.5px;
+  }
+  .menu .opt .c { color: var(--muted); }
+  .menu .opt.sel { background: rgba(0,111,255,.16); }
+  .menu .opt.off { opacity: .38; }
+
+  table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 11px; }
+  th { text-align: left; font-weight: 400; color: var(--muted); padding: 3px 12px 6px 0; font-size: 10.5px; }
+  td { padding: 4px 12px 4px 0; border-top: 1px solid rgba(74,81,91,.45); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .side { border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; }
+  .side.cold { border-top: 2px solid var(--red); }
+  .side.warm { border-top: 2px solid var(--green); }
+  .side h4 { margin: 0 0 6px; font-size: 11.5px; font-weight: 600; }
+  .big { font-family: var(--mono); font-size: 26px; line-height: 1.1; }
+  .big.cold { color: var(--red); }
+  .big.warm { color: var(--green); }
+  .fill {
+    border: 1px dashed var(--line); border-radius: 4px; color: var(--muted);
+    font-family: var(--mono); font-size: 11px; padding: 12px; text-align: center;
+  }
+  table.pick tr.sel td { background: rgba(0,111,255,.14); }
+  table.pick tr.off td { opacity: .38; }
+  table.pick td.r, table.pick th:first-child { width: 22px; padding-right: 8px; }
+  table.pick tr.sel td.r { color: var(--accent); }
+  table.pick td { padding-top: 6px; padding-bottom: 6px; }
+  .prog { border: 1px solid var(--line); border-radius: 5px; padding: 9px 11px; background: #101215; }
+  .prog-head { display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; }
+  .prog-head .mono { font-family: var(--mono); color: var(--muted); }
+  .bar { margin-top: 7px; height: 6px; border-radius: 3px; background: rgba(74,81,91,.45); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+  table tr.off td { opacity: .45; }
+  .calls { margin: 10px 0 0; padding-left: 15px; }
+  .calls li { font-size: 11.5px; color: var(--warn); margin-bottom: 3px; }
+  .calls li.ok { color: var(--green); }
+  .calls s { color: var(--muted); }
+  .flag { color: var(--warn); font-size: 11.5px; margin: 6px 0 0; }
+  .flag b { color: var(--warn); }
+  .legend { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .legend ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+  .legend li { margin-bottom: 5px; }
+  .legend b { color: var(--text); }
+  .arrow { color: var(--muted); font-family: var(--mono); }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Demo 04 · plan 04.7.18 · proposal</p>
+  <h1>Performance — one target picker, not two</h1>
+  <p class="sub">
+    Today the tab offers two ways to aim one measurement and never says they are
+    the same switch. Proposed: a Stream information group that seeds and reports
+    the fixture, and one picker that sits with the Run buttons it feeds.
+  </p>
+
+  <!-- ============ TODAY ============ -->
+  <section class="screen">
+    <h2>1 · Today <span>— two controls, one job</span></h2>
+    <div class="tabs"><div>Overview</div><div>Showcase</div><div class="on">Performance</div></div>
+
+    <div class="group bad">
+      <div class="ghead"><b>A log long enough to measure</b><span class="n">BenchFixture.vue</span></div>
+      <div class="btnrow">
+        <span class="btn">10 000</span><span class="btn p">100 000</span><span class="btn">1 000 000</span>
+        <span class="btn p">Seed</span>
+      </div>
+      <p class="note"><code>ODOMETER_BENCH</code> holds <b>1 110 000</b> events, <b>88.1 MiB</b> on disk.</p>
+      <table>
+        <thead><tr><th>vehicle</th><th>events</th><th>snapshot at</th><th>tail left</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>bench-10k</td><td>10 000</td><td>seq 1 389 950</td><td>50</td><td><span class="btn">Measure this</span></td></tr>
+          <tr><td>bench-100k</td><td>100 000</td><td>seq 1 589 950</td><td>50</td><td><span class="btn">Measure this</span></td></tr>
+          <tr><td>bench-1m</td><td>1 000 000</td><td>seq 1 109 950</td><td>50</td><td><span class="btn">Measure this</span></td></tr>
+        </tbody>
+      </table>
+      <p class="flag"><b>Control 1.</b> Three buttons that aim at <code>ODOMETER_BENCH</code>.</p>
+    </div>
+
+    <div class="group bad">
+      <div class="btnrow">
+        <span style="font-size:12.5px">Live vehicle · ODOMETER</span>
+        <span class="select"><span class="ph">All vehicles</span><span class="caret">⌄</span></span>
+      </div>
+      <p class="flag"><b>Control 2.</b> Aims at <code>ODOMETER</code> — a different stream, named nowhere above.
+      It sits <b>below</b> the box that overrides it, and it opens on
+      <b>All vehicles</b>, a value it will not accept.</p>
+    </div>
+
+    <p class="note">
+      Measuring <code>bench-10k</code> on <code>ODOMETER_BENCH</code>.
+      <span style="color:var(--green);text-decoration:underline">Measure the demo's own log instead</span>
+      — a way back from a mode the reader did not know they entered.
+    </p>
+  </section>
+
+  <!-- ============ PROPOSED ============ -->
+  <section class="screen">
+    <h2>2 · Proposed <span>— one seed group, one measure group (D12)</span></h2>
+    <div class="tabs"><div>Overview</div><div>Showcase</div><div class="on">Performance</div></div>
+
+    <div class="group good">
+      <div class="ghead">
+        <b>Stream information</b>
+        <span class="n">ODOMETER_BENCH · 110 000 events · 8.7 MiB</span>
+      </div>
+
+      <div class="btnrow" style="margin-bottom:11px">
+        <span class="btn p">Seed all three</span>
+        <span class="note" style="margin:0">1 110 000 events · ~88 MiB · replaces what is there</span>
+        <code style="margin-left:auto">cqrs bench -size 10000</code>
+      </div>
+
+      <div class="prog" style="margin-bottom:12px">
+        <div class="prog-head">
+          <span>Seeding <b>bench-1m</b> — 3 of 3</span>
+          <span class="mono">612 400 / 1 110 000 · 55%</span>
+        </div>
+        <div class="bar"><span style="width:55%"></span></div>
+      </div>
+
+      <table>
+        <thead><tr><th>fixture</th><th>events</th><th>snapshot at</th><th>tail left</th></tr></thead>
+        <tbody>
+          <tr><td>bench-10k</td><td>10 000</td><td>seq 389 950</td><td>50</td></tr>
+          <tr><td>bench-100k</td><td>100 000</td><td>seq 589 950</td><td>50</td></tr>
+          <tr class="off"><td>bench-1m</td><td colspan="3">seeding…</td></tr>
+        </tbody>
+      </table>
+
+      <ul class="calls">
+        <li class="ok">One Seed, one progress bar. Seed is disabled while it runs; rows fill in as each size lands.</li>
+        <li class="ok">The stream is named once, with its count and its bytes, in the header.</li>
+        <li>Gone: three per-size seed buttons, three <s>Measure this</s> buttons.</li>
+      </ul>
+    </div>
+
+    <div class="group good">
+      <div class="ghead"><b>How much does a snapshot buy you?</b><span class="n">read only</span></div>
+      <p class="note" style="margin:0 0 10px">
+        Rebuilds one fixture twice — once from sequence 1, once from the snapshot plus the tail.
+      </p>
+      <div class="btnrow">
+        <span class="select focus"><span class="ph">Pick what to measure</span><span class="caret">⌃</span></span>
+        <span class="btn p">▷ Run both</span>
+        <span class="btn">No-snapshot only</span>
+        <span class="btn">Snapshot only</span>
+      </div>
+      <div class="menu" style="margin-top:-1px">
+        <div class="hdr">Benchmark fixtures · ODOMETER_BENCH</div>
+        <div class="opt"><span>bench-10k</span><span class="c">10 000 events</span></div>
+        <div class="opt sel"><span>bench-100k</span><span class="c">100 000 events</span></div>
+        <div class="opt off"><span>bench-1m</span><span class="c">not seeded</span></div>
+      </div>
+      <ul class="calls">
+        <li class="ok">Pick and Run share one row, because they are one act. Run is off until a fixture is picked.</li>
+        <li>Fixtures only (D13). Unseeded sizes are not options (D14). Each option carries its count (D15).</li>
+        <li>Gone: the <s>Live vehicle · ODOMETER</s> dropdown and the <s>Measure the demo's own log instead</s> link.</li>
+      </ul>
+    </div>
+
+    <div class="cols">
+      <div class="side cold">
+        <h4>From sequence 1 <code>-snapshot=false</code></h4>
+        <div class="big cold">42<span style="font-size:12px"> ms</span></div>
+        <div class="fill" style="margin-top:8px">replayed from · events read · last seq · state</div>
+      </div>
+      <div class="side warm">
+        <h4>From the snapshot, then the tail <code>-snapshot=true</code></h4>
+        <div class="big warm">2.5<span style="font-size:12px"> ms</span></div>
+        <div class="fill" style="margin-top:8px">replayed from · events read · last seq · state</div>
+      </div>
+    </div>
+    <p class="note">Ran at 15:01:45. Verdict, the <code>void</code> case and the stale-snapshot note are all unchanged.</p>
+  </section>
+
+  <!-- ============ EMPTY STATE ============ -->
+  <section class="screen">
+    <h2>3 · First open <span>— settled 2026-09-16: A (D19)</span></h2>
+    <div class="cols">
+      <div class="side">
+        <h4 style="color:var(--green)">A · nothing picked — chosen</h4>
+        <span class="select"><span class="ph">Pick what to measure</span><span class="caret">⌄</span></span>
+        <p class="note">Run is disabled and the result panes are empty. 04.7.14
+        already settled that this panel never runs on its own. A reader must aim
+        before they fire.</p>
+      </div>
+      <div class="side">
+        <h4 style="color:var(--muted)">B · largest seeded fixture — rejected</h4>
+        <span class="select"><span>bench-100k</span><span class="caret">⌄</span></span>
+        <p class="note">Useful in one click. But it invites Run before the reader
+        has read what it is aimed at.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="legend">
+    <p class="eyebrow">What this does not change</p>
+    <ul>
+      <li><b>No Go change.</b> The server already answers both sources; <code>-source live|bench</code> is unchanged.</li>
+      <li><b>No business rule</b> moves, is added or is softened. Rules stay in <code>domain.go</code>.</li>
+      <li><b>Nothing here reads <code>ODOMETER</code> (D13).</b> Performance measures the
+        fixture and only the fixture. The demo's own log is Showcase's job.</li>
+      <li><b>The bytes rule is untouched.</b> <code>ODOMETER_BENCH</code> keeps its bytes
+        beside its count. A row's number is one aggregate's length, not a stream's, so it carries none.</li>
+      <li><b>The tab is still read-only</b> for the log it measures (04.7.15). Seed is
+        still the one control here that writes.</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>

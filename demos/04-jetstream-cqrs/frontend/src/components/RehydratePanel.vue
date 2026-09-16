@@ -1,5 +1,5 @@
 <script setup>
-// Lesson 01 · Rehydrate — the demo's headline question, on screen.
+// Lesson 01 · Performance — the demo's headline question, on screen.
 //
 //   "Rehydrating an aggregate — how much does a snapshot buy you?"
 //
@@ -8,44 +8,42 @@
 // two costs side by side. It is the only read on this screen that goes over
 // HTTP, and rehydrate/api.js explains why.
 //
-// Three deliberate choices:
+// Four deliberate choices:
 //
 //   It does not run on its own. Rebuilding from sequence 1 reads the whole
 //   log for that vehicle, and that must never happen because somebody
 //   clicked a tab. You press the button.
 //
-//   It needs a vehicle. "All vehicles" is not a thing you can rehydrate —
-//   an aggregate is one vehicle, and a rule is checked against one.
+//   ONE control aims it, and that control sits in the same row as the
+//   buttons it aims (D12). The tab used to have two — a live-vehicle picker
+//   and a Measure button per fixture — and the one drawn above silently
+//   overrode the one drawn below.
+//
+//   It measures ODOMETER_BENCH and nothing else (D13). The demo's own log is
+//   a few dozen events long; a speed-up measured over it is noise, and a tab
+//   that offered it would be offering a number worth nothing. No option,
+//   label or command on this tab names ODOMETER.
 //
 //   It never hides a disagreement. If the two sides rebuild different
 //   states, verdict() returns `void` and the ratio is not shown at all.
 //   A flattering multiple over two different vehicles is worse than no
 //   number, and 04.7.12 is why that sentence is in this file.
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
 import Button from 'primevue/button'
+import Select from 'primevue/select'
 
-import VehiclePicker from './VehiclePicker.vue'
 import BenchFixture from './BenchFixture.vue'
 import { fetchBoth, fetchRehydration } from '../rehydrate/api.js'
+import { BENCH_SIZES, benchVehicle } from '../view/lessons.js'
 import { formatCount } from '../view/format.js'
 import { formatMs, formatSpeedup, trailsBy, verdict } from '../view/rehydrate.js'
 
-const props = defineProps({
-  vehicles: { type: Array, default: () => [] },
-  writes: { type: Object, default: () => new Map() },
-  reads: { type: Object, default: () => new Map() },
-})
-
-// WHICH log is being rebuilt, and whose history it is.
-//
-// null means the demo's own log and the vehicle the picker is on. A seeded
-// fixture sets it to the bench stream instead — those vehicles live in a
-// different bucket, so they never appear in the picker and could not be
-// reached any other way.
-const vehicle = ref(null)
+// WHAT is being rebuilt. A fixture vehicle, or null. BenchFixture owns the
+// read and hands its answer up, so there is one fetch on the tab and one
+// list both halves agree on.
+const bench = ref(null)
 const target = ref(null)
-const active = computed(() => target.value ?? { source: 'live', vehicle: vehicle.value })
 
 const cold = ref(null)
 const warm = ref(null)
@@ -53,13 +51,25 @@ const busy = ref('')
 const ranAt = ref(null)
 let targetVersion = 0
 
-// A result only ever describes the vehicle it was measured on. Switching the
-// picker clears both halves rather than leaving V1's numbers under V2's name.
-watch(vehicle, () => measure(null))
+const ok = computed(() => (bench.value?.kind === 'ok' ? bench.value : null))
+const sizes = computed(() => (ok.value?.sizes?.length ? ok.value.sizes : [...BENCH_SIZES]))
 
-watch(() => props.vehicles, (next) => {
-  if (vehicle.value && !next.includes(vehicle.value)) vehicle.value = null
-})
+// D14 and D15. Every size is an option so a reader can see what is missing;
+// only a seeded one can be chosen, because an unseeded one has nothing to
+// rebuild. Each option carries its own count — that is the number that
+// decides which fixture is worth measuring.
+const options = computed(() =>
+  sizes.value.map((size) => {
+    const f = ok.value?.fixtures?.find((x) => x.size === size)
+    const vehicle = f?.vehicle ?? benchVehicle(size)
+    return {
+      value: vehicle,
+      label: vehicle,
+      count: f ? `${formatCount(f.events)} events` : 'not seeded',
+      disabled: !f,
+    }
+  }),
+)
 
 const okCold = computed(() => (cold.value?.kind === 'ok' ? cold.value : null))
 const okWarm = computed(() => (warm.value?.kind === 'ok' ? warm.value : null))
@@ -69,7 +79,8 @@ const ratio = computed(() =>
 )
 
 // A new target is a new subject. The old numbers are cleared rather than left
-// under the new name — the same reason switching the picker clears them.
+// under the new name — one fixture's measurement under another's label is a
+// lie the screen would tell silently.
 function measure(next) {
   targetVersion += 1
   target.value = next
@@ -78,15 +89,19 @@ function measure(next) {
   ranAt.value = null
 }
 
-function backToLive() {
-  measure(null)
+// BenchFixture read the stream, or just seeded it. A fixture that has been
+// purged away is no longer something to aim at, so the panel lets go of it.
+function onState(next) {
+  bench.value = next
+  const still = next?.fixtures?.some((f) => f.vehicle === target.value)
+  if (target.value && !still) measure(null)
 }
 
 async function runBoth() {
-  if (!active.value.vehicle || busy.value) return
+  if (!target.value || busy.value) return
   const version = targetVersion
   busy.value = 'both'
-  const both = await fetchBoth(active.value.vehicle, { source: active.value.source })
+  const both = await fetchBoth(target.value, { source: 'bench' })
   busy.value = ''
   if (version !== targetVersion) return
   cold.value = both.cold
@@ -95,12 +110,10 @@ async function runBoth() {
 }
 
 async function runOne(snapshot) {
-  if (!active.value.vehicle || busy.value) return
+  if (!target.value || busy.value) return
   const version = targetVersion
   busy.value = snapshot ? 'warm' : 'cold'
-  const out = await fetchRehydration(active.value.vehicle, snapshot, {
-    source: active.value.source,
-  })
+  const out = await fetchRehydration(target.value, snapshot, { source: 'bench' })
   busy.value = ''
   if (version !== targetVersion) return
   if (snapshot) warm.value = out
@@ -142,160 +155,159 @@ function rows(out) {
     class="rehydrate"
     data-testid="rehydrate-panel"
   >
+    <BenchFixture @state="onState" />
+
     <header>
       <h3>How much does a snapshot buy you?</h3>
       <p class="hint">
-        Rebuilds the same aggregate twice — once from sequence 1, once from the
-        snapshot plus the tail. It reads only: nothing is appended to the log,
-        so you can press it as often as you like.
+        Rebuilds one fixture twice — once from sequence 1, once from the
+        snapshot plus the tail. It reads only: nothing is appended, so you can
+        press it as often as you like.
       </p>
     </header>
 
-    <BenchFixture @measure="measure" />
-
-    <div class="controls">
-      <span>Live vehicle · ODOMETER</span>
-      <VehiclePicker
-        v-model="vehicle"
-        :vehicles="vehicles"
-        :writes="writes"
-        :reads="reads"
-        aria-label="Choose a live vehicle to rehydrate"
+    <div
+      class="controls"
+      data-testid="rehydrate-controls"
+    >
+      <Select
+        :model-value="target"
+        :options="options"
+        option-label="label"
+        option-value="value"
+        option-disabled="disabled"
+        placeholder="Pick what to measure"
+        size="small"
+        class="picker"
+        aria-label="Pick a fixture to measure"
+        @update:model-value="measure"
+      >
+        <template #option="{ option }">
+          <span class="opt">
+            <span>{{ option.label }}</span>
+            <span class="c">{{ option.count }}</span>
+          </span>
+        </template>
+      </Select>
+      <Button
+        label="Run both"
+        icon="pi pi-play"
+        size="small"
+        :loading="busy === 'both'"
+        :disabled="!target || Boolean(busy)"
+        data-testid="rehydrate-run-both"
+        @click="runBoth"
       />
+      <Button
+        label="No-snapshot only"
+        severity="secondary"
+        outlined
+        size="small"
+        :loading="busy === 'cold'"
+        :disabled="!target || Boolean(busy)"
+        @click="runOne(false)"
+      />
+      <Button
+        label="Snapshot only"
+        severity="secondary"
+        outlined
+        size="small"
+        :loading="busy === 'warm'"
+        :disabled="!target || Boolean(busy)"
+        @click="runOne(true)"
+      />
+      <span
+        v-if="ranAt"
+        class="ran"
+      >ran at {{ ranAt.toTimeString().slice(0, 8) }}</span>
     </div>
 
     <p
-      v-if="!active.vehicle"
+      v-if="!target"
       class="empty"
-      data-testid="rehydrate-needs-vehicle"
+      data-testid="rehydrate-needs-fixture"
     >
-      Pick a vehicle above, or seed a fixture and measure that. An aggregate is
-      one vehicle, so there is no such thing as rehydrating all of them.
+      Pick a fixture to measure. An aggregate is one vehicle, so there is no
+      such thing as rebuilding all of them at once.
+    </p>
+    <p
+      v-else
+      class="target"
+      data-testid="rehydrate-target"
+    >
+      Measuring <code>{{ target }}</code> on <code>ODOMETER_BENCH</code>.
     </p>
 
-    <template v-else>
-      <p
-        class="target"
-        data-testid="rehydrate-target"
+    <div class="cols">
+      <article
+        v-for="s in sides"
+        :key="s.key"
+        class="side"
+        :class="s.tone"
+        :data-testid="`rehydrate-${s.key}`"
       >
-        Measuring <code>{{ active.vehicle }}</code> on
-        <code>{{ active.source === 'bench' ? 'ODOMETER_BENCH' : 'ODOMETER' }}</code>.
-        <button
-          v-if="active.source === 'bench'"
-          type="button"
-          class="back"
-          data-testid="rehydrate-back-to-live"
-          @click="backToLive"
-        >
-          Measure the demo's own log instead
-        </button>
-      </p>
+        <header>
+          <h4>{{ s.title }}</h4>
+          <code>{{ s.flag }}</code>
+        </header>
 
-      <div class="controls">
-        <Button
-          label="Run both"
-          icon="pi pi-play"
-          size="small"
-          :loading="busy === 'both'"
-          :disabled="Boolean(busy)"
-          data-testid="rehydrate-run-both"
-          @click="runBoth"
-        />
-        <Button
-          label="Run no-snapshot only"
-          severity="secondary"
-          outlined
-          size="small"
-          :loading="busy === 'cold'"
-          :disabled="Boolean(busy)"
-          @click="runOne(false)"
-        />
-        <Button
-          label="Run snapshot only"
-          severity="secondary"
-          outlined
-          size="small"
-          :loading="busy === 'warm'"
-          :disabled="Boolean(busy)"
-          @click="runOne(true)"
-        />
-        <span
-          v-if="ranAt"
-          class="ran"
-        >ran at {{ ranAt.toTimeString().slice(0, 8) }}</span>
-      </div>
-
-      <div class="cols">
-        <article
-          v-for="s in sides"
-          :key="s.key"
-          class="side"
-          :class="s.tone"
-          :data-testid="`rehydrate-${s.key}`"
-        >
-          <header>
-            <h4>{{ s.title }}</h4>
-            <code>{{ s.flag }}</code>
-          </header>
-
-          <template v-if="s.out?.kind === 'ok'">
-            <p class="big">
-              {{ formatMs(s.out.elapsedMs) }}<small>ms</small>
-            </p>
-            <dl>
-              <template
-                v-for="r in rows(s.out)"
-                :key="r.term"
-              >
-                <dt>{{ r.term }}</dt>
-                <dd>{{ r.value }}</dd>
-              </template>
-            </dl>
-          </template>
-
-          <p
-            v-else-if="s.out?.kind === 'broken'"
-            class="broken"
-          >
-            {{ s.out.error }} — {{ s.out.message }}
+        <template v-if="s.out?.kind === 'ok'">
+          <p class="big">
+            {{ formatMs(s.out.elapsedMs) }}<small>ms</small>
           </p>
-          <p
-            v-else
-            class="empty"
-          >
-            Not run yet.
-          </p>
-        </article>
-      </div>
+          <dl>
+            <template
+              v-for="r in rows(s.out)"
+              :key="r.term"
+            >
+              <dt>{{ r.term }}</dt>
+              <dd>{{ r.value }}</dd>
+            </template>
+          </dl>
+        </template>
 
-      <div
-        class="verdict"
-        :class="result.kind"
-        data-testid="rehydrate-verdict"
-      >
         <p
-          v-if="ratio"
-          class="n"
+          v-else-if="s.out?.kind === 'broken'"
+          class="broken"
         >
-          About {{ ratio }} faster
+          {{ s.out.error }} — {{ s.out.message }}
         </p>
-        <p class="say">
-          {{ result.text }}
+        <p
+          v-else
+          class="empty"
+        >
+          Not run yet.
         </p>
-      </div>
+      </article>
+    </div>
 
+    <div
+      class="verdict"
+      :class="result.kind"
+      data-testid="rehydrate-verdict"
+    >
       <p
-        v-if="okWarm"
-        class="stale"
-        data-testid="rehydrate-stale"
+        v-if="ratio"
+        class="n"
       >
-        <b>The snapshot is always stale, and that is not a bug.</b>
-        The write consumer is asynchronous, so the snapshot trails the log — it
-        trailed by {{ formatCount(trailsBy(okWarm)) }} event(s) on this run.
-        Rehydration reads the snapshot and then replays that tail. Code that
-        stops at the snapshot is wrong, not fast.
+        About {{ ratio }} faster
       </p>
-    </template>
+      <p class="say">
+        {{ result.text }}
+      </p>
+    </div>
+
+    <p
+      v-if="okWarm"
+      class="stale"
+      data-testid="rehydrate-stale"
+    >
+      <b>The snapshot is always stale, and that is not a bug.</b>
+      The write consumer is asynchronous, so the snapshot trails the log — it
+      trailed by {{ formatCount(trailsBy(okWarm)) }} event(s) on this run.
+      Rehydration reads the snapshot and then replays that tail. Code that
+      stops at the snapshot is wrong, not fast.
+    </p>
   </section>
 </template>
 
@@ -305,6 +317,10 @@ function rows(out) {
   border: 1px solid var(--lab-panel-border);
   border-radius: 6px;
   background: var(--lab-panel-bg);
+}
+
+.rehydrate > header {
+  margin-top: 20px;
 }
 
 h3 {
@@ -452,6 +468,23 @@ dd {
   font-size: 12px;
 }
 
+.picker {
+  min-width: 190px;
+}
+
+.opt {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.opt .c {
+  color: var(--p-text-muted-color);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}
+
 .target {
   margin: 12px 0 0;
   color: var(--p-text-muted-color);
@@ -461,17 +494,6 @@ dd {
 .target code {
   color: var(--p-text-color);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-}
-
-.back {
-  margin-left: 8px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--d4-read);
-  font: inherit;
-  cursor: pointer;
-  text-decoration: underline;
 }
 
 .empty,
