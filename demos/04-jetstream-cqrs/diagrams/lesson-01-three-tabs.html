@@ -110,7 +110,7 @@
     <div class="group">
       <div class="ghead"><b>Stream + CQRS — the short version</b></div>
       <div class="fill">lesson summary · 3–4 short paragraphs · NEW</div>
-      <p class="note">Reference links: BUSINESS_RULES-ODOMETER.md · CLAUDE.md · JetStream docs</p>
+      <p class="note">Reference links — exactly two, both outside links (settled by the user 2026-09-16):<br><code>https://docs.nats.io/learn/jetstream/</code><br><code>https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs</code><br>BUSINESS_RULES-ODOMETER.md is <b>not</b> rendered in the app.</p>
     </div>
 
     <div class="group">
@@ -127,12 +127,27 @@
     <p class="note gone">
       The rail's “Guide · How it works” row is deleted. This tab is the only door to it now.
     </p>
+    <p class="note"><b>Overview is still the tab that opens first</b> — unchanged from today.</p>
   </section>
 
   <!-- ============ SHOWCASE ============ -->
   <section class="screen">
     <h2>2 · Showcase <span>— watch it work, always on ODOMETER</span></h2>
     <div class="tabs"><div>Overview</div><div class="on">Showcase</div><div>Performance</div></div>
+
+    <div class="group">
+      <div class="ghead">
+        <b>Vehicle</b>
+        <span class="n">MOVED — out of the pagehead, into this tab</span>
+      </div>
+      <div class="btnrow">
+        <span class="btn p">truck-7</span><span class="btn">V1</span><span class="btn">V2</span><span class="btn">all vehicles</span>
+      </div>
+      <p class="note">
+        It narrows nothing on Overview, so it no longer sits above the tab strip.
+        <code>App.vue</code> stops owning the selection; <code>StreamCqrsPanel.vue</code> owns it.
+      </p>
+    </div>
 
     <div class="group">
       <div class="ghead">
@@ -209,6 +224,10 @@
       </p>
       <div class="group">
         <div class="ghead"><b>Rehydrate — how much does a snapshot buy you?</b><span class="n">unchanged</span></div>
+        <div class="btnrow" style="margin-bottom:10px">
+          <span class="btn p">truck-7</span><span class="btn">V1</span>
+          <span class="n">NEW — its own live-vehicle picker</span>
+        </div>
         <div class="fill">seed control · ODOMETER_BENCH · 10 000 / 100 000 / 1 000 000</div>
         <div class="cols" style="margin-top:10px">
           <div class="side"><h4>From sequence 1</h4><div class="doc" style="color:#E06C6C">2071 ms · 1 000 000 events</div></div>
@@ -229,7 +248,8 @@
       <li><b>Deleted:</b> the rail row “Guide · How it works”, and the tabs <b>odometer-write</b> and <b>odometer-read</b>.</li>
       <li><b>Kept, moved:</b> every panel on screen today. The per-vehicle document survives inside KV Stores.</li>
       <li><b>New:</b> the lesson summary block, the <code>nats</code> lines on KV Stores and Stream, and the stream's size in bytes.</li>
-      <li><b>Code:</b> <code>cmd</code> moves off the tab and onto the group, because Showcase stacks four groups. <code>readOnly</code> is deleted — the write door is simply part of Showcase.</li>
+      <li><b>Moved:</b> the vehicle picker leaves the pagehead and lives inside Showcase. Performance gains its own. Two pickers is the chosen answer, not an oversight — one global control was dead on two tabs in three.</li>
+      <li><b>Code:</b> <code>cmd</code> moves off the tab and onto the group, because Showcase stacks four groups. <code>readOnly</code> is deleted — the write door is simply part of Showcase. <code>crumbFor()</code> loses its vehicle argument.</li>
     </ul>
   </div>
 

@@ -1396,8 +1396,9 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       demo and must survive. The two folds keep their positions, so nothing
       re-reads and nothing re-projects — the keys are simply gone.
 
-- [ ] 04.7.17 Lesson 01 is three tabs, not five. PROPOSED — the design gate
-      applies. Asked for by the user 2026-09-16 as a layout review.
+- [ ] 04.7.17 Lesson 01 is three tabs, not five. APPROVED by the user
+      2026-09-16, not yet built. Asked for by the user the same day as a
+      layout review.
 
       The strip has five tabs and they are not five of the same thing. Two of
       them are the argument (Overview, Rehydrate) and three of them are one
@@ -1414,7 +1415,8 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       **Overview.** The user's own note settles what goes in it: it is
       "closer to what's in How it works". So it IS that page, not a second
       one — `AboutPanel.vue` is reused as the tab's body, with a short
-      lesson summary and reference links above it. A retyped explanation
+      lesson summary and two outside reference links above it (the exact
+      links are settled below). A retyped explanation
       here would be a second thing to keep true, which is the sentence
       already at the top of `AboutPanel.vue`.
 
@@ -1485,13 +1487,52 @@ No new host port. The pool is a CLI process, like `snapshotter` and
       already has a tab with that key, and two different Live tabs in one
       app is a trap for whoever reads the specs.
 
+      **The three open questions, answered by the user 2026-09-16.**
+
+      *Reference links.* Exactly two, and they are outside links. Nothing is
+      rendered in-app:
+
+        https://docs.nats.io/learn/jetstream/
+        https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs
+
+      The first is the mechanism this demo runs on, the second is the
+      pattern it argues about. `BUSINESS_RULES-ODOMETER.md` is NOT rendered
+      in the Overview tab — it stays a file in the repo.
+
+      *Which tab opens first.* `Overview`, the same as today. A first-time
+      reader lands on the explanation, and the tab key `overview` is kept so
+      no default changes.
+
+      *The vehicle picker.* It MOVES OUT of the pagehead and INTO the
+      Showcase tab. It narrows nothing on Overview, so a control sitting
+      above the strip on every tab was claiming a reach it does not have.
+
+      Two consequences, and both are work:
+
+        - `App.vue` loses the picker and stops owning the vehicle. The
+          selection belongs to `StreamCqrsPanel.vue`, above the four groups.
+        - Performance needs a vehicle too. `RehydratePanel.vue` already
+          picks its own target for the bench fixture (04.7.16, the
+          `rehydrate-target` line), so it gains a live-vehicle picker of its
+          own rather than reading one from a parent. Two pickers is the
+          accepted cost; the user chose this over a global control that is
+          dead on one tab in three.
+
+      `crumbFor()` currently takes a vehicle and prints it for lesson 01.
+      With the picker inside a tab, the breadcrumb no longer knows it — the
+      crumb becomes the lesson and its title only, and `lessons.spec.js`'s
+      crumb specs change with it.
+
       **Tests.** `StreamCqrsPanel.spec.js` is rewritten around three tabs:
       the door is on Showcase and nowhere else; Showcase draws the four
       groups in that order; both buckets are present (D10); a picked vehicle
       shows document-then-list on each side; Performance holds the rehydrate
-      panel and no sub-strip. `commands.spec.js` still holds every printed
+      panel and no sub-strip. The picker is asserted to be INSIDE Showcase
+      and absent from Overview. `commands.spec.js` still holds every printed
       command to the flags `main.go` defines, and it gains the two `nats`
-      lines. `lessons.spec.js` loses the guide row from `railSections()`.
+      lines. `lessons.spec.js` loses the guide row from `railSections()` and
+      its crumb specs lose the vehicle. `App.spec.js` loses the pagehead
+      picker.
 
 
 ### 10.9 What would make this phase a failure

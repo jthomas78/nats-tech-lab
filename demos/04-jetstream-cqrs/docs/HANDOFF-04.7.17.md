@@ -29,6 +29,21 @@ shows it.
 - The rail row `Guide · How it works` is deleted. The Overview tab reuses
   `AboutPanel.vue` whole, with a new lesson summary and reference links above
   it. Do not write a second copy of that explanation.
+- **The reference links are exactly these two, and they are outside links:**
+  `https://docs.nats.io/learn/jetstream/` and
+  `https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs`.
+  Do not render `BUSINESS_RULES-ODOMETER.md` in the app. Do not add a third
+  link.
+- **Overview is still the tab that opens first.** Keep the tab key `overview`
+  and the current default. Do not make Showcase the landing tab.
+- **The vehicle picker moves out of the pagehead and into the Showcase tab.**
+  `App.vue` loses it and stops owning the selected vehicle;
+  `StreamCqrsPanel.vue` owns it, above the four groups. Performance needs a
+  vehicle too, so `RehydratePanel.vue` gains its own live-vehicle picker next
+  to the bench target it already has. Two pickers is the accepted answer, not
+  an oversight — the user chose it over one global control that is dead on
+  two tabs in three. `crumbFor()` then no longer takes a vehicle: the crumb
+  becomes the lesson and its title only.
 - In the KV Stores group, a picked vehicle shows THAT VEHICLE'S DOCUMENT on
   top and the full key list under it, on both sides.
 - The tab is named `Showcase`. Not `Demo`, not `Live` — lesson 02 already has
@@ -58,7 +73,8 @@ shows it.
 **Specs come before the implementation.** Rewrite
 `frontend/src/components/StreamCqrsPanel.spec.js` around three tabs first,
 watch it go red, then build. The plan entry lists what those specs must
-assert.
+assert. `App.spec.js` and `lessons.spec.js` change too: the pagehead picker
+and the crumb's vehicle both go.
 
 **Done means all of this, from `frontend/`:**
 

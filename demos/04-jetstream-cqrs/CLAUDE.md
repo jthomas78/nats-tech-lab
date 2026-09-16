@@ -160,7 +160,8 @@ A phase entry in `docs/Demo-04-Plan.md` stays **PROPOSED** until the user
 approves it. No tasks, no tests, no code before that. An entry marked PROPOSED
 is a request for a decision, not a backlog item to pick up.
 
-Currently PROPOSED: **04.7.17**, the lesson 01 three-tab layout.
+Nothing is PROPOSED right now. 04.7.17 (the lesson 01 three-tab layout) was
+approved 2026-09-16 and is waiting to be built.
 
 ## Two mechanics that are easy to get wrong
 
