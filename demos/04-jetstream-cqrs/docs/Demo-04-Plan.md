@@ -3106,7 +3106,7 @@ to be untouched.
    if lesson 02's headings reappear in the lab shell's intro, and fails if the
    lesson 02 file is empty of them — the same shape as `recorded.spec.js`,
    because a split that silently reverts is a split nobody notices.
-- [ ] **04.12.2 `AboutPanel.vue` takes props.** Its files become inputs. Lesson 01's
+- [x] **04.12.2 `AboutPanel.vue` takes props.** Its files become inputs. Lesson 01's
    instance is handed `README.md` + the class diagram page; the component
    stops naming either.
 - [ ] **04.12.3 Lesson 02 gets its Overview tab**, first in the strip, holding its own
@@ -3130,6 +3130,28 @@ Gates: `ginkgo ./...` 256 green; `npx vitest run` 451 specs in 30 files (was
 `npm run build` clean. Live on `lab4-nats`: lesson 01's Overview no longer
 contains `Lesson 02 — scaling a consumer`, still contains the finding, and now
 shows the pointer.
+
+**04.12.2 verified 2026-09-17.** `AboutPanel.vue` takes eleven props and
+imports no lesson file. The naming moved to `frontend/src/about/sources.js`
+(`LESSON_01_ABOUT`), spread onto the panel by `StreamCqrsPanel.vue` with
+`v-bind`. Two new spec files, both confirmed RED first:
+`components/AboutPanel.spec.js` (7 specs — mounts the panel twice with two
+made-up lessons, because a parameterised component is only proved
+parameterised by two different inputs, plus a live guard reading the .vue
+file and failing if either filename comes back) and `about/sources.spec.js`
+(4 specs — lesson 01's entry is the README, holds the finding, does NOT hold
+lesson 02, and carries the drawings).
+
+Gates: `npx vitest run` 462 specs in 32 files; eslint 0 errors / 3 warnings;
+`npm run build` clean; `ginkgo ./...` untouched at 256. Live: lesson 01's
+Overview shows both sub-tabs, the filename line switches from `README.md` to
+`diagrams/demo04-jetstream-cqrs.html`, and the frame measured itself at
+4528 px.
+
+Not anticipated: the second sub-tab is OMITTED when a lesson has no page,
+rather than rendered empty as task 3 assumed. A tab that opens on nothing is
+a promise the screen does not keep, so lesson 02's `How this works` tab
+APPEARS when 04.11 supplies the file. The spec says so both ways round.
 
 Not anticipated by the task list: the moved block's first sentence reads "The
 rest of this demo folds one event at a time" — written when it sat inside the

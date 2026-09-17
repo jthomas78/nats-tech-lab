@@ -1,20 +1,24 @@
 <script setup>
-// Lesson 01 Overview: what this demo is, and the drawings of it.
+// A lesson's Overview: what the lesson is, in words, and the drawings of it.
 //
-// Both halves are files that already exist in the repo, shown as they are:
+// Both halves are files that already exist in the repo, shown as they are, and
+// the component is handed them (04.12.2, D21). It used to import lesson 01's
+// two filenames itself, which made it lesson 01's panel and nothing else. Two
+// lessons need the same panel, and a copy would be a second copy of the 250
+// lines of CSS below.
 //
-//   Notes     ../../../README.md                      — the lab shell's intro
-//   Diagrams  ../../../diagrams/demo04-jetstream-cqrs.html — the solution page
+// Nothing is retyped and nothing is redrawn. If a rule changes, the source
+// file changes, and this screen changes with it. A second copy of the
+// explanation here would be a second thing to keep true.
 //
-// Nothing is retyped and nothing is redrawn. If a rule changes, the README and
-// the diagram page change, and this screen changes with them. A second copy of
-// the explanation here would be a second thing to keep true.
-//
-// The diagram page is a whole HTML document, so it goes in a frame rather than
+// The `page` half is a whole HTML document, so it goes in a frame rather than
 // being pasted into this one — its own <style> block would otherwise leak into
 // the app. `srcdoc` means the file is compiled in, not fetched. The frame is
 // given no scripts; it is only allowed to be same-origin so this component can
 // read its height and grow to fit, which avoids a scrollbar inside a scrollbar.
+//
+// `page` is optional. A lesson with no drawings yet shows one tab, not two: a
+// tab that opens on nothing is a promise the screen does not keep.
 //
 // The two views are a real PrimeVue `Tabs` carrying `class="panel-tabs"`, which
 // is the repo's one style for a top tab strip (shared/unifi-theme/LAYOUT.md,
@@ -23,7 +27,7 @@
 // page and the card treatment lives on each tab's content, not around the
 // tabs: wrapping the strip in a card puts the tablist on a background it does
 // not expect and costs a pile of compensating overrides.
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import Tab from 'primevue/tab'
 import TabList from 'primevue/tablist'
@@ -31,20 +35,43 @@ import TabPanel from 'primevue/tabpanel'
 import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
 
-import readme from '../../../README.md?raw'
-import diagramPage from '../../../diagrams/demo04-jetstream-cqrs.html?raw'
-import blocksPng from '../../../diagrams/cqrs-blocks.png'
 import { renderNotes } from '../about/notes.js'
 
-const TABS = [
-  { key: 'notes', label: 'What it does', file: 'README.md' },
-  { key: 'diagrams', label: 'Classes and sequences', file: 'diagrams/demo04-jetstream-cqrs.html' },
-]
+const props = defineProps({
+  // The line above the title, naming the demo and the lesson.
+  eyebrow: { type: String, required: true },
+  // One paragraph saying what the reader is about to read.
+  lead: { type: String, required: true },
+  // The markdown itself, compiled in by the caller with `?raw`.
+  notes: { type: String, required: true },
+  // The path of that file, printed so the reader can go and read it.
+  notesFile: { type: String, required: true },
+  notesLabel: { type: String, default: 'What it does' },
+  // Images the markdown refers to, keyed by the path it writes.
+  images: { type: Object, default: () => ({}) },
+  // The drawings page, a whole HTML document. Optional — see above.
+  page: { type: String, default: '' },
+  pageFile: { type: String, default: '' },
+  pageLabel: { type: String, default: 'Classes and sequences' },
+  frameTitle: { type: String, default: 'Diagrams' },
+})
+
+const TABS = computed(() => {
+  const tabs = [{ key: 'notes', label: props.notesLabel, file: props.notesFile }]
+  if (props.page) tabs.push({ key: 'diagrams', label: props.pageLabel, file: props.pageFile })
+  return tabs
+})
 
 const tab = ref('notes')
-const current = computed(() => TABS.find((t) => t.key === tab.value))
+const current = computed(() => TABS.value.find((t) => t.key === tab.value) ?? TABS.value[0])
 
-const notes = computed(() => renderNotes(readme, { 'diagrams/cqrs-blocks.png': blocksPng }))
+// A lesson that loses its drawings would otherwise leave the strip on a tab
+// that no longer exists, and the header would print an empty filename.
+watch(TABS, (tabs) => {
+  if (!tabs.some((t) => t.key === tab.value)) tab.value = 'notes'
+})
+
+const notes = computed(() => renderNotes(props.notes, props.images))
 
 const frame = ref(null)
 const frameHeight = ref(800)
@@ -74,15 +101,13 @@ onBeforeUnmount(() => window.removeEventListener('resize', measure))
   >
     <header>
       <p class="eyebrow">
-        Demo 04 · JetStream as an event source, with CQRS
+        {{ props.eyebrow }}
       </p>
       <code class="src">{{ current.file }}</code>
     </header>
 
     <p class="lead">
-      One log is the only source of truth. The write side reads it to check a
-      rule. The read side folds it into an answer. Both are below — first in
-      words, then drawn.
+      {{ props.lead }}
     </p>
 
     <Tabs
@@ -101,7 +126,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', measure))
       </TabList>
       <TabPanels>
         <TabPanel value="notes">
-          <!-- eslint-disable vue/no-v-html -- our own README, compiled in at build -->
+          <!-- eslint-disable vue/no-v-html -- our own markdown, compiled in at build -->
           <article
             class="card notes"
             data-testid="about-notes"
@@ -109,7 +134,10 @@ onBeforeUnmount(() => window.removeEventListener('resize', measure))
           />
           <!-- eslint-enable vue/no-v-html -->
         </TabPanel>
-        <TabPanel value="diagrams">
+        <TabPanel
+          v-if="props.page"
+          value="diagrams"
+        >
           <!-- v-if, not a hidden panel. PrimeVue renders every TabPanel, and a
                hidden iframe has no layout to measure — the frame would size
                itself to nothing and the drawings would be cropped. Mounting it
@@ -122,9 +150,9 @@ onBeforeUnmount(() => window.removeEventListener('resize', measure))
           >
             <iframe
               ref="frame"
-              title="Class and sequence diagrams for demo 04"
+              :title="props.frameTitle"
               sandbox="allow-same-origin"
-              :srcdoc="diagramPage"
+              :srcdoc="props.page"
               :style="{ height: `${frameHeight}px` }"
               @load="measure"
             />

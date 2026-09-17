@@ -11,6 +11,7 @@ import Tag from 'primevue/tag'
 import { READ_KV, STREAM, SUBJECT_PREFIX, WRITE_KV } from '../config.js'
 import { tabsFor, SHOWCASE_COMMANDS } from '../view/lessons.js'
 import { formatBytes, formatCount } from '../view/format.js'
+import { LESSON_01_ABOUT } from '../about/sources.js'
 import AboutPanel from './AboutPanel.vue'
 import BucketKeys from './BucketKeys.vue'
 import BucketPanel from './BucketPanel.vue'
@@ -146,7 +147,7 @@ const logLabel = computed(() => vehicle.value ? `${STREAM} · the events for ${v
                 >CQRS pattern</a>
               </nav>
             </section>
-            <AboutPanel />
+            <AboutPanel v-bind="LESSON_01_ABOUT" />
           </template>
         </TabPanel>
         <TabPanel value="showcase">
