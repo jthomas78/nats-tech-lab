@@ -512,3 +512,39 @@ describe('PoolPanel Overview', () => {
     expect(mountPanel().findComponent(AboutPanel).text()).toContain('docs/LESSON-02.md')
   })
 })
+
+// 04.11 task 6 — the drawings are reachable, and every tab that runs
+// something says where they are.
+//
+// The pointer is one line of text, not a second copy of the explanation. A
+// tab that re-explains the mechanism above its own Run button is a tab the
+// reader has to read twice.
+describe('PoolPanel — the pointer to the drawings', () => {
+  const RUN_TABS = ['live', 'starvation', 'redelivery', 'scaling']
+
+  it('puts one pointer on every tab that runs something', () => {
+    const w = mountPanel()
+    for (const key of RUN_TABS) {
+      const el = w.find(`[data-testid="how-pointer-${key}"]`)
+      expect(el.exists()).toBe(true)
+      expect(el.text()).toContain('How this works')
+    }
+  })
+
+  it('leaves the Overview and the bucket listing alone', () => {
+    const w = mountPanel()
+    for (const key of ['overview', 'pool']) {
+      expect(w.find(`[data-testid="how-pointer-${key}"]`).exists()).toBe(false)
+    }
+  })
+
+  it('points at the sub-tab by name, so the reader can find it', () => {
+    const text = mountPanel().get('[data-testid="how-pointer-live"]').text()
+    expect(text).toContain('Overview')
+    expect(text).toContain('How this works')
+  })
+
+  it('offers the drawings as the second Overview sub-tab', () => {
+    expect(mountPanel().findComponent(AboutPanel).text()).toContain('How this works')
+  })
+})

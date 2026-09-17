@@ -203,6 +203,14 @@ function km(n) {
         </TabPanel>
         <!-- LIVE — the pool as it is running right now. -->
         <TabPanel value="live">
+          <!-- One line, not a second explanation (04.11 task 6). -->
+          <p
+            class="note pointer"
+            data-testid="how-pointer-live"
+          >
+            The mechanism behind this run is drawn in
+            <b>Overview → How this works</b>.
+          </p>
           <!-- D6 — the ONLY Stop button in the demo. Live runs open-ended:
                it folds until somebody stops it, which is what the tab is for
                and what makes it the one run that can hang about. -->
@@ -343,6 +351,14 @@ function km(n) {
 
         <!-- STARVATION — MaxAckPending belongs to the consumer, not a worker. -->
         <TabPanel value="starvation">
+          <!-- One line, not a second explanation (04.11 task 6). -->
+          <p
+            class="note pointer"
+            data-testid="how-pointer-starvation"
+          >
+            The mechanism behind this run is drawn in
+            <b>Overview → How this works</b>.
+          </p>
           <div
             v-if="!health.running"
             class="card idle-card"
@@ -414,6 +430,14 @@ function km(n) {
 
         <!-- REDELIVERY — a watermark makes this safe, and slow. -->
         <TabPanel value="redelivery">
+          <!-- One line, not a second explanation (04.11 task 6). -->
+          <p
+            class="note pointer"
+            data-testid="how-pointer-redelivery"
+          >
+            The mechanism behind this run is drawn in
+            <b>Overview → How this works</b>.
+          </p>
           <!-- No Stop (D6). This run ends by itself: the drain finishes once
                the abandoned message has been redelivered and acked. -->
           <SingleRun
@@ -487,6 +511,14 @@ function km(n) {
              name. D9 — this tab varies the WORKERS and holds the cap; the
              Starvation tab does the opposite. -->
         <TabPanel value="scaling">
+          <!-- One line, not a second explanation (04.11 task 6). -->
+          <p
+            class="note pointer"
+            data-testid="how-pointer-scaling"
+          >
+            The mechanism behind this run is drawn in
+            <b>Overview → How this works</b>.
+          </p>
           <PerformanceRuns
             :events="props.messages || POOL_SEED_EVENTS"
             :locked="shimRunning"
@@ -622,6 +654,13 @@ header {
 
 /* "This is idle, not broken." It reads as an aside rather than a warning:
    nothing has gone wrong, there is simply nothing to fold. */
+/* The pointer to Overview - How this works (04.11). Quiet on purpose: it is
+   a signpost above the controls, not a heading competing with them. */
+.pointer {
+  margin: 0 0 12px;
+  color: var(--p-text-muted-color);
+}
+
 .hint {
   margin-top: 16px;
   max-width: 84ch;

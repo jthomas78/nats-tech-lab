@@ -10,6 +10,7 @@
 import readme from '../../../README.md?raw'
 import lesson02 from '../../../docs/LESSON-02.md?raw'
 import lesson01Page from '../../../diagrams/demo04-jetstream-cqrs.html?raw'
+import lesson02Page from '../../../diagrams/lesson-02-how-it-works.html?raw'
 import blocksPng from '../../../diagrams/cqrs-blocks.png'
 
 export const LESSON_01_ABOUT = {
@@ -27,9 +28,9 @@ export const LESSON_01_ABOUT = {
   frameTitle: 'Class and sequence diagrams for demo 04',
 }
 
-// Lesson 02. `page` is left empty on purpose: 04.11 draws "How this works",
-// and until that file exists the panel shows one sub-tab rather than a second
-// one that opens on nothing.
+// Lesson 02. 04.11 drew the page, so the second sub-tab exists now. It is
+// four figures and no measurements: the mechanism belongs here, and every
+// number belongs to the run the reader just made (D18, D19).
 export const LESSON_02_ABOUT = {
   eyebrow: 'Demo 04 · what a worker pool costs',
   lead:
@@ -39,8 +40,8 @@ export const LESSON_02_ABOUT = {
   notes: lesson02,
   notesFile: 'docs/LESSON-02.md',
   images: {},
-  page: '',
-  pageFile: '',
+  page: lesson02Page,
+  pageFile: 'diagrams/lesson-02-how-it-works.html',
   pageLabel: 'How this works',
   frameTitle: 'How one consumer with many workers behaves',
 }

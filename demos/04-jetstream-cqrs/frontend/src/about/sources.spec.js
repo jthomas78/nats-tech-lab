@@ -38,10 +38,22 @@ describe('LESSON_02_ABOUT', () => {
     expect(LESSON_02_ABOUT.notes).not.toContain('## How to run it')
   })
 
-  // 04.11 draws them. Until then there is one sub-tab, because a tab that
-  // opens on nothing is a promise the screen does not keep.
-  it('has no drawings yet', () => {
-    expect(LESSON_02_ABOUT.page).toBe('')
+  // 04.11 drew them. The second sub-tab appears because there is now a page
+  // behind it — a tab that opens on nothing is a promise the screen does not
+  // keep, which is why it was absent until this point.
+  it('carries the four drawings', () => {
+    expect(LESSON_02_ABOUT.pageFile).toBe('diagrams/lesson-02-how-it-works.html')
+    expect(LESSON_02_ABOUT.page).toContain('<svg')
+    expect(LESSON_02_ABOUT.page.match(/<figure/g)).toHaveLength(4)
+  })
+
+  it('labels the drawings tab for what it explains, not for a file type', () => {
+    expect(LESSON_02_ABOUT.pageLabel).toBe('How this works')
+  })
+
+  it('draws lesson 02 and not lesson 01', () => {
+    expect(LESSON_02_ABOUT.page).not.toBe(LESSON_01_ABOUT.page)
+    expect(LESSON_02_ABOUT.page).toContain('Where the order is lost')
   })
 
   // PoolPanel.spec.js forbids the lesson's <h1> wording appearing twice on the

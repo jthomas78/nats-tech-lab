@@ -193,12 +193,12 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 472 specs, 32 files
+npx vitest run                      # 491 specs, 33 files
 npx eslint src --ext .js,.vue       # 0 errors; 3 warnings are the baseline
 npm run build
 ```
 
-Five live guards, not unit tests. Do not weaken one to make a screen pass —
+Six live guards, not unit tests. Do not weaken one to make a screen pass —
 adding to the list a guard checks is the right move.
 
 - `frontend/src/view/commands.spec.js` parses `cqrs/main.go` for the
@@ -214,6 +214,10 @@ adding to the list a guard checks is the right move.
   holding one.
 - `frontend/src/components/AboutPanel.spec.js` reads `AboutPanel.vue` and
   fails if it names a lesson file again.
+- `frontend/src/about/how-it-works.spec.js` reads
+  `diagrams/lesson-02-how-it-works.html` and fails if a drawing loses its
+  `aria-label`, if a figure goes missing, or if a measured number or a worker
+  count is written onto the page (D18, D19).
 
 ## One lesson, one file
 
@@ -224,7 +228,7 @@ handed the pool lesson as well, measurements and all.
 | Lesson | Source | Rendered as |
 |---|---|---|
 | 01 | `README.md` + `diagrams/demo04-jetstream-cqrs.html` | Overview → `What it does` / `Classes and sequences` |
-| 02 | `docs/LESSON-02.md` (drawings land in 04.11) | Overview → `What it does` |
+| 02 | `docs/LESSON-02.md` + `diagrams/lesson-02-how-it-works.html` | Overview → `What it does` / `How this works` |
 
 `frontend/src/components/AboutPanel.vue` is ONE component used twice. It takes
 its files as props and names neither (D21). The naming lives in
@@ -232,8 +236,17 @@ its files as props and names neither (D21). The naming lives in
 entry there, not a copy of the panel.
 
 A lesson with no drawings shows ONE sub-tab. A tab that opens on nothing is a
-promise the screen does not keep, so lesson 02's `How this works` tab appears
-when 04.11 supplies the page.
+promise the screen does not keep. 04.11 supplied lesson 02's page, so both
+lessons show two sub-tabs today; a lesson added tomorrow with no drawings
+still shows one.
+
+**The drawings hold no numbers** (04.11, D18 and D19). Lesson 02's page draws
+the mechanism — the key gap, the in-flight window, the redelivery wait — and
+names no worker count, no vehicle count, no cap value and no measurement. Every
+number on the screen comes from the run the reader just made, and a constant
+printed beside a live result is a constant that will disagree with it. Each
+running tab carries a one-line pointer to the page instead of a second copy of
+the explanation.
 
 ## The design gate
 
@@ -246,9 +259,11 @@ Nothing is PROPOSED right now.
 **04.12 is COMPLETE** (2026-09-17) — one Overview per lesson, one source file
 per lesson. See `docs/Demo-04-Plan.md` section 15, decisions D20 to D23.
 
-**04.11 is APPROVED and NOT started** — lesson 02 explains itself with four
-drawings, which land in the Overview sub-tab 04.12 made room for. D16 (a
-sixth top-level tab) is superseded by D20. See section 14.
+**04.11 is COMPLETE** (2026-09-17) — lesson 02 explains itself with four
+drawings in `diagrams/lesson-02-how-it-works.html`, rendered as the Overview
+sub-tab 04.12 made room for. D16 (a sixth top-level tab) is superseded by
+D20; the page is both the mockup and the shipped page, which keeps D17's
+point (SVG, not PNG). See section 14.
 
 **04.10 is COMPLETE** (2026-09-17) — lesson 02's log is seeded over THREE
 vehicles, not ten. Round robin puts two events of one vehicle

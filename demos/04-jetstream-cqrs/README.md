@@ -360,6 +360,13 @@ the fold loses, and what it costs. It lives in
 [`docs/LESSON-02.md`](docs/LESSON-02.md), and the UI renders that file as the
 Overview of the `02 · Scaling a consumer` screen.
 
+Its mechanism is drawn, not just described: four figures in
+[`diagrams/lesson-02-how-it-works.html`](diagrams/lesson-02-how-it-works.html)
+— one stream with many workers, where the order is lost, redelivery, and what
+`MaxAckPending` caps. They are the second Overview sub-tab, `How this works`
+(04.11). They carry no measurements on purpose: the numbers belong to the run
+you press, on the tabs beside them.
+
 One lesson, one file (04.12). This intro is lesson 01 and the parts both
 lessons share — ports, how to run it, the command list.
 

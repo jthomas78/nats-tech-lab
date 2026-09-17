@@ -2911,7 +2911,7 @@ expected to be untouched, and `domain.go` is not opened.
 - The `odometer-pool` tab reduced to a single row.
 - A sleep or a jitter added to `work()` to force the damage.
 
-## 14. Phase 04.11 — lesson 02 explains itself (APPROVED)
+## 14. Phase 04.11 — lesson 02 explains itself (APPROVED, complete)
 
 **Status:** APPROVED 2026-09-17. Raised by the user immediately after 04.10.1
 landed, and approved the same day with D19 answered: **name nothing**.
@@ -2999,21 +2999,73 @@ untouched and `domain.go` is not opened.
 
 ### 14.5 Tasks
 
-1. The mockup — `diagrams/lesson-02-how-it-works.html`, dark UniFi palette.
-2. **One stream, many workers.** One log, one consumer, N workers pulling.
-   Where the speed comes from, and that the log itself is never copied.
-3. **Where the order is lost.** Two events of one vehicle in flight together;
-   the late one arrives behind the watermark; the fold refuses it (BR-OD08).
-   Names the two dials — key gap and in-flight window — and which way each
-   moves the risk.
-4. **Redelivery.** `AckWait` runs out, the server hands the event to another
-   worker, and the fold has moved on. Why the wait is a cost with no upside
-   here (BR-OD07). The live drawing on the Redelivery tab stays; this one is
-   the mechanism behind it.
-5. **What `MaxAckPending` caps.** The window, not the workers. Shows the cap
-   of 1 case: perfect order, every worker still fed, throughput on the floor.
-6. The tab itself, plus the one-line pointer on each of the other four.
-7. The documents catch up — `CLAUDE.md`, `README.md`.
+Tasks 1 to 5 are one file and landed together: the page is four figures, and
+a figure written without the page around it cannot be judged. One spec file,
+`frontend/src/about/how-it-works.spec.js`, guards all five (13 specs, RED
+before the page existed).
+
+- [x] 1. The mockup — `diagrams/lesson-02-how-it-works.html`, dark UniFi
+  palette. **04.12 superseded D16**, so the page is not a mockup for a sixth
+  top-level tab: `AboutPanel` already renders a whole HTML document in a
+  sandboxed `srcdoc` iframe, which is how lesson 01's `Classes and sequences`
+  works. So this file is the mockup AND the shipped page, with inline SVG in
+  it. D17's substance — SVG, not PNG; themeable, readable at any width,
+  `aria-label`led, assertable — is kept. Palette and the
+  `figure` / `.fig-body` / `figcaption` idiom are copied from
+  `diagrams/demo04-jetstream-cqrs.html`.
+- [x] 2. **One stream, many workers.** One log, one consumer, N workers
+  pulling. The worker boxes are unlabelled and the last is `… as many as you
+  ask for` — a count on the drawing would be a number the controls above it
+  could contradict (D19). Says the log is never copied.
+- [x] 3. **Where the order is lost.** Both dials named on the drawing and
+  again in the caption, with the direction of each: fewer vehicles → shorter
+  key gap → more risk; `MaxAckPending` caps the in-flight window. Ends on
+  `ErrOutOfOrder`, Term, counted as dropped (BR-OD08). The caption says the
+  gap that matters is measured in **time**, not in messages — which is the
+  honest reason no probability is printed (14.6).
+- [x] 4. **Redelivery.** The clock starts at the silence, `AckWait` is drawn
+  as a span with no number on it, the same event is handed to a second worker,
+  and the fold has long passed it — a no-op (BR-OD07). The caption names the
+  cost as the wait itself and sends the reader to the Redelivery tab for the
+  measurement.
+- [x] 5. **What `MaxAckPending` caps.** Two panels side by side: a wide
+  window, and a window of one. The narrow panel says in the drawing that
+  **every worker still gets fed — they take turns, and none of them is shut
+  out**, and the caption says the throughput starves, not the workers. Written
+  as "a window of one", in words: `cap of 1` would be a printed constant and
+  the spec forbids it.
+- [x] 6. The tab itself, plus the one-line pointer on each of the other tabs.
+  `LESSON_02_ABOUT.page` now holds the `?raw` import, so the second sub-tab
+  `How this works` appears — the slot 04.12 deliberately left empty. The
+  pointer is one line, `data-testid="how-pointer-<tab>"`, on the four tabs
+  that RUN something. **The task list said four "other" tabs and there are
+  five**: the fifth is `odometer-pool`, a bucket listing with no Run button
+  and no mechanism behind it, so it gets no pointer. Verified live: four
+  pointers in the DOM, none on Overview or `odometer-pool`.
+- [x] 7. The documents catch up — `CLAUDE.md`, `README.md`. `CLAUDE.md` gains
+  the sixth live guard, the new spec count, the drawings in the
+  one-lesson-one-file table, a **The drawings hold no numbers** rule, and
+  04.11 marked complete. `README.md` names the page and says why it carries
+  no measurements.
+
+**Verified live** (2026-09-17, dev server 20401, shim 20402 answering 200,
+viewport 1920x1080, reset to `desktop` after): lesson 02 Overview shows two
+sub-tabs, `What it does` and `How this works`. The second sets `.src` to
+`diagrams/lesson-02-how-it-works.html`, the iframe measures **3 090 px** at
+**1 634 px** wide with no horizontal overflow, and holds **four** `<svg>`
+drawings under the four headings. All four pointers read *"The mechanism
+behind this run is drawn in Overview → How this works."*
+
+**Gates:** `ginkgo ./...` 256 — untouched, this phase adds no Go. From
+`frontend/`: vitest **491 specs, 33 files**; eslint 0 errors, 3 warnings (the
+baseline); `npm run build` clean.
+
+**What the task list did not anticipate:** the page had to be written with no
+digits in it at all, apart from `BR-OD07` and `BR-OD08`. D18 and D19 are
+written as regular expressions over the stripped prose, and any incidental
+figure — "4 workers", "30s" — trips them. That forced every quantity into
+words ("a window of one", "as many as you ask for"), which reads better than
+the numbered version would have.
 
 ### 14.6 What would make this phase a failure
 

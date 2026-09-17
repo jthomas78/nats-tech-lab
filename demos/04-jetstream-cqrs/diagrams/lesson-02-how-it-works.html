@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How this works — one consumer, many workers</title>
+  <style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head-txt { display: flex; flex-direction: column; gap: 4px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+.model {
+  margin: 0; padding: 13px 15px; background: var(--nested);
+  border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: 4px;
+  font-size: 14px; line-height: 21px; max-width: 74ch;
+}
+.model b { font-weight: 600; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code, .model code {
+  font-family: var(--mono); font-size: 11px;
+  background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px;
+}
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+.rule { border: 0; border-top: 1px solid var(--border); margin: 4px 0 0; }
+
+.n  { fill: var(--nested); stroke: var(--border); stroke-width: 1; }
+.nb { fill: none; stroke: var(--border); stroke-width: 1; stroke-dasharray: 4 3; }
+.ok { fill: color-mix(in srgb, var(--store) 16%, var(--nested)); stroke: var(--store); stroke-width: 1; }
+.hot { fill: color-mix(in srgb, var(--evtl) 16%, var(--nested)); stroke: var(--evtl); stroke-width: 1; }
+.no { fill: color-mix(in srgb, var(--bad) 14%, var(--nested)); stroke: var(--bad); stroke-width: 1; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.edge, .lbl2 { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.late { fill: none; stroke: var(--evtl); stroke-width: 1.4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.errtxt { fill: var(--bad); }
+.oktxt { fill: var(--store); }
+.hottxt { fill: var(--evtl); }
+.ll { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+.brk { fill: none; stroke: var(--dim); stroke-width: 1; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="head-txt">
+      <span class="eyebrow">Demo 04 · lesson 02 · Overview → How this works</span>
+      <h1>One consumer, many workers</h1>
+      <p class="sub">The other tabs each answer one question with one number. This page is the mechanism behind all four: where the speed comes from, what it costs, and which dial moves the cost. Nothing here is measured — press <b>Run</b> on any tab for numbers, and they will be your own.</p>
+    </header>
+
+    <p class="model">The fold loses an event when <b>two events of the SAME vehicle are in flight at the same time</b>, and <b>the later one finishes first</b>. Everything below is an illustration of that one sentence.</p>
+
+    <section class="sec">
+      <h2>One stream, many workers</h2>
+      <p class="sub">Workers do not each get a copy of the log. They share one durable consumer, and the server hands each waiting worker the next event. That is the whole of the speed-up: folding happens on several workers at once instead of one after another.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 1000 330" role="img" aria-label="One log feeds one durable consumer, and the consumer hands events to several workers that fold at the same time. The log itself is never copied.">
+            <text class="lbl2" x="30" y="104">ODOMETER_POOL — the log</text>
+            <rect class="n" x="30" y="116" width="34" height="30" rx="3"/>
+            <rect class="n" x="70" y="116" width="34" height="30" rx="3"/>
+            <rect class="n" x="110" y="116" width="34" height="30" rx="3"/>
+            <rect class="n" x="150" y="116" width="34" height="30" rx="3"/>
+            <rect class="n" x="190" y="116" width="34" height="30" rx="3"/>
+            <rect class="n" x="230" y="116" width="34" height="30" rx="3"/>
+            <rect class="n" x="270" y="116" width="34" height="30" rx="3"/>
+            <text class="lbl2" x="314" y="136">…</text>
+            <text class="lbl2" x="30" y="166">written once, read many times, never copied</text>
+
+            <path class="flow" d="M336 131 H392" marker-end="url(#a1)"/>
+            <rect class="n" x="396" y="106" width="176" height="50" rx="4"/>
+            <text class="lbl" x="412" y="129">one durable</text>
+            <text class="lbl" x="412" y="145">consumer</text>
+            <text class="lbl2" x="396" y="176">it decides who gets what, and</text>
+            <text class="lbl2" x="396" y="190">remembers what was acked</text>
+
+            <path class="flow" d="M572 131 C 630 131, 630 46, 692 46" marker-end="url(#a1)"/>
+            <path class="flow" d="M572 131 C 630 131, 630 110, 692 110" marker-end="url(#a1)"/>
+            <path class="flow" d="M572 131 C 630 131, 630 174, 692 174" marker-end="url(#a1)"/>
+            <path class="nb" d="M572 131 C 630 131, 630 238, 692 238"/>
+
+            <rect class="ok" x="696" y="26" width="220" height="40" rx="4"/>
+            <text class="lbl" x="712" y="51">worker · folding</text>
+            <rect class="ok" x="696" y="90" width="220" height="40" rx="4"/>
+            <text class="lbl" x="712" y="115">worker · folding</text>
+            <rect class="ok" x="696" y="154" width="220" height="40" rx="4"/>
+            <text class="lbl" x="712" y="179">worker · folding</text>
+            <rect class="nb" x="696" y="218" width="220" height="40" rx="4"/>
+            <text class="lbl2" x="712" y="243">… as many as you ask for</text>
+
+            <text class="edge" x="696" y="288">all folding at the same moment — this is the speed</text>
+            <text class="edge" x="696" y="306">and the reason the order stops being a queue</text>
+            <defs>
+              <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--sync)"/>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+        <figcaption>One log, one consumer, many workers. <b>The log is never copied</b> and the consumer is never duplicated — adding a worker adds a hand reaching into the same queue. More hands empty it faster. Nothing about more hands keeps them in step.</figcaption>
+      </figure>
+    </section>
+
+    <hr class="rule">
+
+    <section class="sec">
+      <h2>Where the order is lost</h2>
+      <p class="sub">A fold per vehicle only accepts an event that is ahead of what it has already folded. Two events of one vehicle in flight together is the whole risk — if the later one lands first, the earlier one arrives behind the watermark and is refused.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 1000 420" role="img" aria-label="Two events of the same vehicle sit a few places apart in the log. Both are in flight at once, the later one finishes first, the fold advances, and the earlier one is then refused as out of order and counted as dropped.">
+            <text class="lbl2" x="30" y="30">the log, seeded round robin over the vehicles</text>
+            <rect class="hot" x="30" y="42" width="34" height="30" rx="3"/>
+            <text class="lbl2" x="40" y="62">A</text>
+            <rect class="n" x="70" y="42" width="34" height="30" rx="3"/>
+            <rect class="n" x="110" y="42" width="34" height="30" rx="3"/>
+            <rect class="hot" x="150" y="42" width="34" height="30" rx="3"/>
+            <text class="lbl2" x="160" y="62">A</text>
+            <rect class="n" x="190" y="42" width="34" height="30" rx="3"/>
+            <rect class="n" x="230" y="42" width="34" height="30" rx="3"/>
+            <text class="lbl2" x="274" y="62">…</text>
+            <path class="brk" d="M47 84 V96 H167 V84"/>
+            <text class="edge" x="60" y="112">the key gap — how far apart two events of ONE vehicle sit</text>
+            <text class="lbl2" x="60" y="128">fewer vehicles, shorter gap, more risk</text>
+
+            <line class="ll" x1="30" y1="150" x2="970" y2="150"/>
+            <text class="lbl2" x="880" y="144">time →</text>
+
+            <text class="lbl" x="30" y="196">worker</text>
+            <line class="ll" x1="120" y1="188" x2="970" y2="188"/>
+            <rect class="hot" x="180" y="174" width="330" height="28" rx="3"/>
+            <text class="edge" x="196" y="193">folding the EARLIER event of vehicle A — slow</text>
+
+            <text class="lbl" x="30" y="254">worker</text>
+            <line class="ll" x1="120" y1="246" x2="970" y2="246"/>
+            <rect class="hot" x="230" y="232" width="150" height="28" rx="3"/>
+            <text class="edge" x="244" y="251">the LATER event — quick</text>
+            <path class="proj" d="M380 246 V300" marker-end="url(#a2)"/>
+
+            <path class="brk" d="M180 212 V222 H380 V212"/>
+            <text class="edge" x="196" y="222">both in flight at once — the in-flight window</text>
+
+            <text class="lbl" x="30" y="316">the fold</text>
+            <line class="ll" x1="120" y1="308" x2="970" y2="308"/>
+            <rect class="ok" x="384" y="294" width="196" height="28" rx="3"/>
+            <text class="edge oktxt" x="398" y="313">accepted — watermark moves ON</text>
+
+            <path class="err" d="M510 188 C 560 188, 600 260, 600 296" marker-end="url(#a3)"/>
+            <rect class="no" x="604" y="294" width="300" height="28" rx="3"/>
+            <text class="edge errtxt" x="618" y="313">behind the watermark — refused, Term</text>
+            <text class="edge errtxt" x="604" y="344">ErrOutOfOrder, counted as dropped (BR-OD08)</text>
+            <text class="lbl2" x="604" y="362">the kilometres on that event are gone for good</text>
+
+            <text class="edge" x="30" y="398">close the window and nothing can race; widen the gap and the earlier one is finished long before the later one starts</text>
+            <defs>
+              <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--store)"/>
+              </marker>
+              <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+        <figcaption>Two dials, and they multiply. <b>The key gap</b> is how far apart two events of one vehicle sit — set by how many vehicles the log is seeded over, so fewer vehicles means a shorter gap and more risk. <b>The in-flight window</b> is how many events may be unacked at once, which <code>MaxAckPending</code> caps. Neither alone is enough: a wide gap gives the earlier fold time to finish, and a window of one lets nothing race at all. The gap that matters is measured in <b>time</b>, not in messages, which is why this is a race and not a formula.</figcaption>
+      </figure>
+    </section>
+
+    <hr class="rule">
+
+    <section class="sec">
+      <h2>Redelivery</h2>
+      <p class="sub">A worker that takes an event and then goes quiet has not lost it. The server waits out <code>AckWait</code> and hands the same event to another worker. On this lesson that rescue almost always arrives too late to be worth anything.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 1000 360" role="img" aria-label="A worker takes an event and goes silent. After AckWait runs out the server hands the same event to another worker, but the fold has moved far ahead by then, so the redelivered event changes nothing and is counted as dropped.">
+            <line class="ll" x1="30" y1="34" x2="970" y2="34"/>
+            <text class="lbl2" x="880" y="28">time →</text>
+
+            <text class="lbl" x="30" y="86">worker</text>
+            <line class="ll" x1="120" y1="78" x2="970" y2="78"/>
+            <rect class="hot" x="170" y="64" width="120" height="28" rx="3"/>
+            <text class="edge" x="182" y="83">holding it</text>
+            <path class="nb" d="M292 78 H660"/>
+            <text class="edge hottxt" x="300" y="70">silent — no ack, no nak</text>
+
+            <path class="brk" d="M292 104 V116 H660 V104"/>
+            <text class="edge" x="360" y="134">AckWait — the server waits this out before it gives up</text>
+            <text class="lbl2" x="360" y="150">no retry is faster than this, and nothing is folded in the meantime</text>
+
+            <text class="lbl" x="30" y="206">worker</text>
+            <line class="ll" x1="120" y1="198" x2="970" y2="198"/>
+            <path class="late" d="M660 116 V184" marker-end="url(#a4)"/>
+            <rect class="hot" x="664" y="184" width="230" height="28" rx="3"/>
+            <text class="edge" x="678" y="203">the SAME event, handed over again</text>
+
+            <text class="lbl" x="30" y="268">the fold</text>
+            <line class="ll" x1="120" y1="260" x2="970" y2="260"/>
+            <rect class="ok" x="170" y="246" width="470" height="28" rx="3"/>
+            <text class="edge oktxt" x="184" y="265">carried on the whole time — the watermark ran far ahead</text>
+            <path class="err" d="M894 198 C 930 198, 930 240, 900 256" marker-end="url(#a5)"/>
+            <rect class="no" x="644" y="292" width="326" height="28" rx="3"/>
+            <text class="edge errtxt" x="658" y="311">behind the watermark — a no-op (BR-OD07)</text>
+
+            <text class="edge" x="30" y="344">the wait is the cost; the rescue is real, but it arrives after the fold has already passed the event by</text>
+            <defs>
+              <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--evtl)"/>
+              </marker>
+              <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+        <figcaption>Redelivery is what keeps a queue safe when a worker dies, and here it buys nothing. <b>Applying the same event twice is a no-op</b> (BR-OD07), so the redelivery cannot corrupt anything — but by the time it lands the fold is far past it, so it cannot help either. What you pay is the wait: the run cannot end until the abandoned event comes back. The <b>Redelivery</b> tab injects exactly this fault and reports what your own run measured.</figcaption>
+      </figure>
+    </section>
+
+    <hr class="rule">
+
+    <section class="sec">
+      <h2>What <code>MaxAckPending</code> caps</h2>
+      <p class="sub">It caps the number of events allowed to be unacked at once, for the whole consumer. It does not hand work out per worker, and it does not leave a worker idle for ever. Narrow it and the order gets safer while the throughput falls.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 1000 380" role="img" aria-label="Side by side: a wide in-flight window lets several events be unacked at once, which is fast but allows two events of one vehicle to race. A window of one lets nothing race, so the fold is perfect, every worker still gets its turn, and the throughput falls to that of a single worker.">
+            <rect class="nb" x="20" y="20" width="460" height="300" rx="4"/>
+            <text class="lbl" x="38" y="48">a wide window</text>
+            <text class="lbl2" x="38" y="66">several events unacked at once</text>
+            <rect class="ok" x="38" y="86" width="190" height="30" rx="3"/>
+            <text class="edge" x="50" y="106">worker · folding</text>
+            <rect class="ok" x="38" y="126" width="190" height="30" rx="3"/>
+            <text class="edge" x="50" y="146">worker · folding</text>
+            <rect class="ok" x="38" y="166" width="190" height="30" rx="3"/>
+            <text class="edge" x="50" y="186">worker · folding</text>
+            <rect class="ok" x="38" y="206" width="190" height="30" rx="3"/>
+            <text class="edge" x="50" y="226">worker · folding</text>
+            <path class="brk" d="M240 92 H252 V230 H240"/>
+            <text class="edge" x="262" y="120">all in flight together</text>
+            <text class="edge hottxt" x="262" y="146">so two events of one</text>
+            <text class="edge hottxt" x="262" y="162">vehicle CAN overlap</text>
+            <text class="edge oktxt" x="262" y="196">throughput: high</text>
+            <text class="edge errtxt" x="262" y="218">order: at risk</text>
+            <text class="edge" x="38" y="270">the log empties fast, and the fold refuses whatever</text>
+            <text class="edge" x="38" y="288">arrives behind it</text>
+
+            <rect class="nb" x="520" y="20" width="460" height="300" rx="4"/>
+            <text class="lbl" x="538" y="48">a window of one</text>
+            <text class="lbl2" x="538" y="66">one event unacked at a time</text>
+            <rect class="ok" x="538" y="86" width="190" height="30" rx="3"/>
+            <text class="edge" x="550" y="106">worker · folding</text>
+            <rect class="n" x="538" y="126" width="190" height="30" rx="3"/>
+            <text class="edge" x="550" y="146">worker · waiting its turn</text>
+            <rect class="n" x="538" y="166" width="190" height="30" rx="3"/>
+            <text class="edge" x="550" y="186">worker · waiting its turn</text>
+            <rect class="n" x="538" y="206" width="190" height="30" rx="3"/>
+            <text class="edge" x="550" y="226">worker · waiting its turn</text>
+            <path class="brk" d="M740 92 H752 V110 H740"/>
+            <text class="edge" x="762" y="106">one in flight</text>
+            <text class="edge oktxt" x="762" y="146">order: perfect</text>
+            <text class="edge errtxt" x="762" y="168">throughput: on the floor</text>
+            <text class="edge oktxt" x="538" y="270">every worker still gets fed — they take turns,</text>
+            <text class="edge oktxt" x="538" y="288">and none of them is shut out</text>
+
+            <text class="edge" x="20" y="350">starvation here means the THROUGHPUT starves, not the workers. Narrowing the window is how you trade the speed back for the order.</text>
+          </svg>
+        </div>
+        <figcaption><b>The cap is on the window, not on the workers.</b> This is the misreading worth killing: "starvation" sounds like some workers never receive an event, and the <b>Starvation</b> tab measures the opposite — narrow the window right down and every worker still acks. What collapses is the rate, because a pool that may only have one event outstanding is a pool doing one thing at a time, however many hands are waiting.</figcaption>
+      </figure>
+    </section>
+
+    <hr class="rule">
+
+    <section class="sec">
+      <h2>So what do you do with it</h2>
+      <ul>
+        <li><b>If the order matters, do not race it.</b> One worker per key, or one worker, or a design where two events of one key cannot be in flight together. The pool here is wrong on purpose so the cost is visible.</li>
+        <li><b>If the throughput matters and the order does not</b> — independent events, no per-key fold — the pool is exactly right, and the tabs measure how much it buys.</li>
+        <li><b>Do not read a probability off this page.</b> It is a race between two folds, and the winner depends on timing this demo cannot promise. The dials tell you which way the risk moves. The <b>Run</b> buttons tell you what happened on your machine.</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>
