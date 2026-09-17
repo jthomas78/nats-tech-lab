@@ -8,6 +8,7 @@
 // cannot show an older copy than the repo holds.
 
 import readme from '../../../README.md?raw'
+import lesson02 from '../../../docs/LESSON-02.md?raw'
 import lesson01Page from '../../../diagrams/demo04-jetstream-cqrs.html?raw'
 import blocksPng from '../../../diagrams/cqrs-blocks.png'
 
@@ -24,4 +25,22 @@ export const LESSON_01_ABOUT = {
   pageFile: 'diagrams/demo04-jetstream-cqrs.html',
   pageLabel: 'Classes and sequences',
   frameTitle: 'Class and sequence diagrams for demo 04',
+}
+
+// Lesson 02. `page` is left empty on purpose: 04.11 draws "How this works",
+// and until that file exists the panel shows one sub-tab rather than a second
+// one that opens on nothing.
+export const LESSON_02_ABOUT = {
+  eyebrow: 'Demo 04 · what a worker pool costs',
+  lead:
+    'One durable consumer, several workers racing on it. Throughput goes up. ' +
+    'Order goes away, and the fold loses events. Everything below is measured ' +
+    'by a run you can make yourself on the other tabs.',
+  notes: lesson02,
+  notesFile: 'docs/LESSON-02.md',
+  images: {},
+  page: '',
+  pageFile: '',
+  pageLabel: 'How this works',
+  frameTitle: 'How one consumer with many workers behaves',
 }

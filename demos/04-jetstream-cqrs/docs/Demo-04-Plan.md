@@ -3109,7 +3109,7 @@ to be untouched.
 - [x] **04.12.2 `AboutPanel.vue` takes props.** Its files become inputs. Lesson 01's
    instance is handed `README.md` + the class diagram page; the component
    stops naming either.
-- [ ] **04.12.3 Lesson 02 gets its Overview tab**, first in the strip, holding its own
+- [x] **04.12.3 Lesson 02 gets its Overview tab**, first in the strip, holding its own
    "What it does". The second sub-tab is left empty for 04.11.
 - [ ] **04.12.4 The documents catch up** — `CLAUDE.md`'s file table gains the
    new doc.
@@ -3147,6 +3147,29 @@ Gates: `npx vitest run` 462 specs in 32 files; eslint 0 errors / 3 warnings;
 Overview shows both sub-tabs, the filename line switches from `README.md` to
 `diagrams/demo04-jetstream-cqrs.html`, and the frame measured itself at
 4528 px.
+
+**04.12.3 verified 2026-09-17.** `lesson-02` gained `{ key: 'overview',
+label: 'Overview' }` as its FIRST tab, and `PoolPanel.vue` opens on it instead
+of Live. The tab renders `<AboutPanel v-bind="LESSON_02_ABOUT" />` — the same
+component lesson 01 uses, handed `docs/LESSON-02.md`. Specs confirmed RED
+first: 2 in `view/lessons.spec.js` (the strip, and neither Overview carrying a
+command), 5 in `about/sources.spec.js`, 3 in `components/PoolPanel.spec.js`.
+
+Two existing specs changed, both because the screen changed and neither by
+being weakened. `opens on the Live tab` became `opens on the Overview tab`.
+`prints the command that produced the open tab` now asserts the header prints
+NOTHING on Overview and the right command once Live is chosen — Overview runs
+nothing, so `<code class="cmd">` is behind a `v-if` rather than drawn empty.
+
+The `carries no eyebrow line above the tabs` guard caught a real duplicate: my
+first eyebrow read "one consumer, many workers", the same words as the page's
+own `<h1>`. The eyebrow changed to "what a worker pool costs" and
+`sources.spec.js` now holds it away from the heading.
+
+Gates: `npx vitest run` 471 specs in 32 files; eslint 0 errors / 3 warnings;
+`npm run build` clean. Live at 1920x1080: six tabs, Overview selected on
+arrival, one sub-tab `What it does`, filename line `docs/LESSON-02.md`,
+10 876 characters of lesson 02 rendered, and no command in the header.
 
 Not anticipated: the second sub-tab is OMITTED when a lesson has no page,
 rather than rendered empty as task 3 assumed. A tab that opens on nothing is

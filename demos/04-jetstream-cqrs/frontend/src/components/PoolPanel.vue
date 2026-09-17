@@ -50,6 +50,8 @@ import {
   REDELIVERY_SECONDS,
   tabsFor,
 } from '../view/lessons.js'
+import { LESSON_02_ABOUT } from '../about/sources.js'
+import AboutPanel from './AboutPanel.vue'
 import PoolFixture from './PoolFixture.vue'
 import PerformanceRuns from './PerformanceRuns.vue'
 import SingleRun from './SingleRun.vue'
@@ -78,7 +80,7 @@ const props = defineProps({
 })
 
 const TABS = tabsFor('lesson-02')
-const tab = ref('live')
+const tab = ref('overview')
 const current = computed(() => TABS.find((t) => t.key === tab.value) ?? TABS[0])
 
 const rows = computed(() => workerRows(props.workers))
@@ -152,7 +154,12 @@ function km(n) {
         severity="danger"
         :value="`${health.killed} silent`"
       />
-      <code class="cmd">{{ current.cmd }}</code>
+      <!-- Overview runs nothing (04.12.3), so it prints nothing. An empty
+           <code> would draw a command box with no command in it. -->
+      <code
+        v-if="current.cmd"
+        class="cmd"
+      >{{ current.cmd }}</code>
     </header>
 
     <p class="lead">
@@ -186,6 +193,14 @@ function km(n) {
         </Tab>
       </TabList>
       <TabPanels>
+        <!-- OVERVIEW — lesson 02 in words, from docs/LESSON-02.md (04.12.3).
+             The same panel lesson 01 uses, handed lesson 02's file. -->
+        <TabPanel value="overview">
+          <AboutPanel
+            v-if="tab === 'overview'"
+            v-bind="LESSON_02_ABOUT"
+          />
+        </TabPanel>
         <!-- LIVE — the pool as it is running right now. -->
         <TabPanel value="live">
           <!-- D6 — the ONLY Stop button in the demo. Live runs open-ended:

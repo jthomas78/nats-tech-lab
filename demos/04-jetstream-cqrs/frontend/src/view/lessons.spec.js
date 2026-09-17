@@ -42,8 +42,11 @@ describe('the tabs each lesson carries', () => {
     ])
   })
 
-  it('gives lesson 02 the four pool conditions, then the bucket it folds into', () => {
+  // 04.12.3 — Overview goes FIRST, the same slot it has on lesson 01, so the
+  // reader meets the explanation before the buttons.
+  it('gives lesson 02 an Overview, the four pool conditions, then the bucket it folds into', () => {
     expect(tabsFor('lesson-02').map((t) => t.label)).toEqual([
+      'Overview',
       'Live',
       'Starvation',
       'Redelivery',
@@ -57,9 +60,16 @@ describe('the tabs each lesson carries', () => {
     expect(every).not.toContain('odometer-pool-workers')
   })
 
+  // Overview is the exception, on both lessons: it runs nothing, so a command
+  // printed under it would be a command for some other tab.
   it('keeps commands on each single-purpose lesson 02 tab', () => {
-    const every = tabsFor('lesson-02')
+    const every = tabsFor('lesson-02').filter((t) => t.key !== 'overview')
     expect(every.every((t) => typeof t.cmd === 'string' && t.cmd.length > 0)).toBe(true)
+  })
+
+  it('gives neither lesson a command on its Overview', () => {
+    const overviews = LESSONS.map((l) => l.tabs.find((t) => t.key === 'overview'))
+    expect(overviews.every((t) => t && t.cmd === undefined)).toBe(true)
   })
 
   it('has no tabs for the guide', () => {

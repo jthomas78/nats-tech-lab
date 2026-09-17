@@ -13,6 +13,7 @@ import {
   STARVATION_CAPS,
 } from '../view/lessons.js'
 import { formatCount } from '../view/format.js'
+import AboutPanel from './AboutPanel.vue'
 import PoolPanel from './PoolPanel.vue'
 
 // PoolFixture reads /pool on mount (04.9.3), so mounting the panel now
@@ -52,13 +53,21 @@ describe('PoolPanel — the tab strip', () => {
     }
   })
 
-  it('opens on the Live tab', () => {
-    expect(mountPanel().vm.tab).toBe('live')
+  // 04.12.3 — it opens on Overview now. The Live tab used to be first because
+  // it was the only thing to land on; the lesson explains itself before it
+  // asks the reader to press anything.
+  it('opens on the Overview tab', () => {
+    expect(mountPanel().vm.tab).toBe('overview')
   })
 
-  it('prints the command that produced the open tab', () => {
+  it('prints the command that produced the open tab', async () => {
     const w = mountPanel()
-    expect(w.find('.cmd').text()).toContain('cqrs pool -workers 4')
+    // Overview is open first and runs nothing, so there is no command to print
+    // until a tab that runs something is chosen.
+    const head = () => w.get('[data-testid="pool-panel"] > header')
+    expect(head().find('.cmd').exists()).toBe(false)
+    await w.get('[data-testid="lesson-02-tab-live"]').trigger('click')
+    expect(head().get('.cmd').text()).toContain('cqrs pool -workers 4')
   })
 
   // The page heading now says which lesson this is. An eyebrow line above the
@@ -478,5 +487,28 @@ describe('PoolPanel — what greys a Run button', () => {
   // The stale rows are still there. They must not lock anything.
   it('frees them again when the shim is idle, worker rows and all', async () => {
     expect(lockedFlags(await withShim(false))).not.toContain(true)
+  })
+})
+
+// 04.12.3 — lesson 02 has an Overview of its own.
+//
+// Before this, lesson 01's Overview explained both lessons and lesson 02 had
+// none. The panel is the same AboutPanel lesson 01 uses (04.12.2), handed
+// lesson 02's file.
+describe('PoolPanel Overview', () => {
+  it('opens on Overview, so the reader reads before pressing', () => {
+    const w = mountPanel()
+    expect(w.get('[data-testid="lesson-02-tab-overview"]').exists()).toBe(true)
+    expect(w.findComponent(AboutPanel).exists()).toBe(true)
+  })
+
+  it('shows lesson 02, not lesson 01', () => {
+    const text = mountPanel().findComponent(AboutPanel).text()
+    expect(text).toContain('scaling a consumer')
+    expect(text).not.toContain('How to run it')
+  })
+
+  it('names the file it renders', () => {
+    expect(mountPanel().findComponent(AboutPanel).text()).toContain('docs/LESSON-02.md')
   })
 })

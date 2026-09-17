@@ -58,6 +58,11 @@ export const LESSONS = Object.freeze([
     // four subjects. D10a — odometer-pool-workers gets no tab, because the
     // Live tab already draws its contents as worker cards.
     tabs: Object.freeze([
+      // Overview first, the same slot it holds on lesson 01 (04.12.3). The
+      // reader meets the explanation before the Run buttons. It carries no
+      // `cmd`: it runs nothing, and a command printed under it would be a
+      // command for some other tab.
+      { key: 'overview', label: 'Overview' },
       { key: 'live', label: 'Live', cmd: poolRunCmd(LIVE_PLAN) },
       { key: 'starvation', label: 'Starvation', cmd: 'cqrs pool -workers 8 -max-pending 3' },
       { key: 'redelivery', label: 'Redelivery', cmd: poolRunCmd(REDELIVERY_PLAN) },
