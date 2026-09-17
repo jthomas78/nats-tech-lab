@@ -3256,3 +3256,127 @@ because an added H1 would have printed the same words twice on the tab.
 - Two components rendering markdown two ways.
 - A sentence that exists in both files and can drift.
 - The lab shell's intro left saying nothing about what the demo found.
+
+## 16. The pattern cards — the demo's closing deliverable (APPROVED, complete)
+
+Not a numbered phase. The user set a repo-wide rule 2026-09-17: **when a demo
+completes, it gets a pattern cards PDF**, extracting the lessons learnt, the
+recommendations, and the pros and cons, in the form the other decks in this
+repo already use. The rule lives in the root `CLAUDE.md` under
+**"The life of a demo"**; this section records demo 04's own deck.
+
+### 16.1 The four steps a demo runs
+
+Supplied by the user, verbatim in intent:
+
+1. Review the NATS feature, normally from the NATS source docs.
+2. Implement a demo that shows the feature, ideally over a simplified logistics
+   example, with optional performance outcomes.
+3. Derive the proof, and note the gotchas and issues.
+4. Create the conclusion / pattern card file that architects and developers can
+   use as a quick reference guide.
+
+Step 4 is what closes a demo. Demo 04 had run steps 1 to 3 across phases 04.1
+to 04.12 and had no step 4.
+
+### 16.2 Where it lives
+
+`demos/04-jetstream-cqrs/docs/demo-04-pattern-cards.html`, exported beside it
+as `.pdf`. Settled by the user: **each demo localises its own docs.** Demo 02
+put its deck under `diagrams/`; demo 04 puts its under `docs/`, because that
+is where this demo's written material already sits.
+
+The exporter, `demos/01-dictionary/diagrams/export-html-pdf.mjs`, is outside
+this folder. That is the one agreed crack in the seal — demo 02 exports the
+same way — and it is a tool, not a demo 04 file.
+
+### 16.3 The deck
+
+Eleven A4 pages: a cover, eight cards, a selection guide, and a provenance
+page. The house idiom is lifted from
+`demos/02-multi-region/diagrams/multi-region-pattern-cards.html` — same
+`<style>` block, same dark UniFi palette, same `@page`/A4 print setup — so the
+two decks read as one family.
+
+| # | Card | Family |
+|---|---|---|
+| 01 | The log is the only source of truth | Sourcing |
+| 02 | Two projections, one log | CQRS |
+| 03 | What a snapshot buys | Performance |
+| 04 | The ordered consumer that ate the measurement | Gotcha · method |
+| 05 | A fold is defined by order | Correctness |
+| 06 | A worker pool buys throughput with correctness | Scaling |
+| 07 | `MaxAckPending` is the loss dial | Tuning |
+| 08 | Redelivery after `AckWait` is not recovery | Gotcha · delivery |
+
+Every card carries a `.decision` line, a mechanism panel, a `panel pro`, a
+`panel con` and a one-line verdict. Two of the eight are gotchas, and card 04
+is a **retraction** — the 8.2 s replay figure that was ~99% consumer
+bookkeeping. It is kept in the deck on purpose: a lab whose numbers only ever
+improve is not measuring.
+
+### 16.4 Numbers are allowed here, and only with provenance
+
+This is the one place in the demo where a constant may live. Every screen in
+`frontend/` reports a run the reader just made (04.9), and the drawings hold
+no numbers at all (04.11, D18/D19). A printed constant beside a live result is
+a constant that will one day disagree with it.
+
+The deck resolves that with page 11, **"Where every number came from"**: the
+machine (NATS 2.14.3, one server in Docker on a laptop, `LimitsPolicy`,
+file storage), then a row per figure giving the card, the value, the day it
+was taken and what it ran on. It also says how to read them — the shape
+transfers, the value does not.
+
+### 16.5 The guard
+
+`cqrs/cards_test.go` — the seventh live guard, written before the deck and
+confirmed RED (`256 Passed | 17 Failed`). It reads
+`docs/demo-04-pattern-cards.html`, strips the `<style>` block and the tags,
+and asserts:
+
+- the file is a `<!doctype html>` A4 print document with an `@page` rule;
+- `docs/demo-04-pattern-cards.pdf` exists on disk;
+- each of the eight card titles appears in the prose, one spec per title;
+- there are at least eight `panel pro` and eight `panel con` blocks;
+- the prose names BR-OD06, BR-OD07, BR-OD08 and BR-OD09;
+- the provenance page exists — `"Where every number came from"`,
+  `"NATS 2.14.3"`, and a `2026-09-1[456]` date;
+- there is a `pill` and a `Verdict`;
+- `"25 ms"` is present and the retracted `600x` multiple is not;
+- `ODOMETER_POOL` is named.
+
+**It checks shape, never truth.** No spec can tell whether 25 ms is still what
+the machine does. Only a re-run can.
+
+### 16.6 Tasks
+
+- [x] 1 — Write `cqrs/cards_test.go` and confirm RED. `256 Passed | 17 Failed`.
+- [x] 2 — Lift the `<style>` block from demo 02's deck, unchanged.
+- [x] 3 — Write the cover and cards 01 to 08 from the measured findings in
+  `README.md`, `docs/LESSON-02.md` and `BUSINESS_RULES-ODOMETER.md`. No figure
+  invented; every one traced back to a recorded run.
+- [x] 4 — Write the selection guide and the provenance page.
+- [x] 5 — Assemble, export to PDF, and check every page fits.
+- [x] 6 — Write the repo-wide rule in the root `CLAUDE.md`
+  ("The life of a demo"), and point at it from this folder's `CLAUDE.md`.
+- [x] 7 — Register the seventh guard and the deck in this folder's `CLAUDE.md`.
+
+### 16.7 What the task list did not anticipate
+
+**The last two pages overflowed, and the cause was a missing grid cell.**
+`.titleblock` is `grid-template-columns: 56px 1fr` with `.num` spanning three
+rows. The selection guide and the provenance page had no card number, so every
+child fell into the 56px column and the lede wrapped to 378px tall. The fix is
+a `.num` cell on those pages too — `?` and `§`. Trimming prose first was
+treating the symptom.
+
+Page fit is checked by measuring, not by looking: `scrollHeight - clientHeight`
+per `.page` must be 0 for all eleven. It is.
+
+### 16.8 What would make this deliverable a failure
+
+- A number in the deck with no date and no machine beside it.
+- The retraction quietly dropped, leaving only the flattering figures.
+- The deck in a shared folder instead of this demo's own `docs/`.
+- A guard weakened to let a missing card through.

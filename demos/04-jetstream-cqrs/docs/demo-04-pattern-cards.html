@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>NATS JetStream + CQRS — Pattern Cards</title>
+<style>
+  :root{
+    --bg:#0d0f11; --bg2:#131416; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px; font-feature-settings:"cv05","ss01";
+  }
+  .page{
+    width:210mm; height:297mm; overflow:hidden; padding:15mm 13mm 11mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);
+  }
+  .page:last-child{page-break-after:auto}
+
+  /* ---------- cover ---------- */
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:47px;line-height:54px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:78%;margin-top:16px}
+  .cover-q{
+    margin-top:26px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:16px 20px;max-width:92%;
+  }
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:14px;line-height:23px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 30px;margin-top:10px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:16px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  /* ---------- card chrome ---------- */
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{
+    margin-top:16px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:16px 20px 18px;
+    display:grid;grid-template-columns:56px 1fr;gap:4px 14px;
+  }
+  .num{font-size:30px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:34px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:25px;line-height:31px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+  .decision{
+    margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    padding:14px 18px;display:grid;grid-template-columns:78px 1fr;gap:14px;align-items:start;
+  }
+  .decision .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fam);padding-top:3px}
+  .decision p{font-size:14px;line-height:22px}
+  .decision b{color:var(--tx)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:13px 16px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:10px}
+  .panel.pro{border-left:2px solid var(--green)}
+  .panel.con{border-left:2px solid var(--red)}
+  .panel.pro > .lbl{color:var(--green)}
+  .panel.con > .lbl{color:var(--red)}
+  .panel.note{border-left:2px solid var(--amber)}
+  .panel.note > .lbl{color:var(--amber)}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"›";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  .flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:2px}
+  .step{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:6px 10px;
+    font-size:11px;color:var(--tx);line-height:15px}
+  .step.hi{border-color:var(--fam);color:var(--fam)}
+  .arw{color:var(--stroke);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 8px 0;font-weight:500}
+  td{padding:5px 8px 5px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .verdict{
+    margin-top:auto;padding-top:14px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;
+  }
+  .pill{border:1px solid var(--fam);color:var(--fam);border-radius:5px;padding:6px 11px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .verdict p{font-size:12.5px;line-height:19px}
+  .verdict .side{font-size:10.5px;color:var(--tx3);letter-spacing:.06em;white-space:nowrap}
+  .spacer{flex:1}
+  /* Two cards carry more material than the others; step their body type down a
+     notch rather than cutting content, so every card still fits exactly one page. */
+  .page.tight li{font-size:11.1px;line-height:16px;margin-bottom:5px}
+  .page.tight .lede{font-size:12px;line-height:18px}
+  .page.tight .panel{padding:11px 15px}
+  .page.tight td{font-size:11px}
+  .src{font-size:10px;line-height:15px;color:var(--tx3);padding:11px 13px;break-inside:avoid}
+  .src li{font-size:10px;line-height:15px;margin-bottom:5px}
+  .src .lbl{margin-bottom:7px}
+  .srcwrap{column-count:2;column-gap:12px}
+  .srcwrap .panel{margin:0 0 12px!important}
+  .src a{color:var(--tx3);text-decoration:none}
+
+  /* ---------- inline SVG figures ----------
+     Same primitives as diagrams/gateway-vs-wan-cut.html, re-pointed at the
+     card palette so a figure on a card and the same figure on the web page
+     read as one drawing. Every figure sets its own viewBox and scales to the
+     panel width, so a card never has to reserve a fixed height. */
+  .fig{display:block;width:100%;height:auto;margin:2px 0 0}
+  .fig .clu{fill:var(--bg2);stroke:var(--line2);stroke-width:1}
+  .fig .srv{fill:var(--panel2);stroke:var(--stroke);stroke-width:1}
+  .fig .srv.hi{stroke:var(--fam);fill:color-mix(in srgb,var(--fam) 10%,var(--panel2))}
+  .fig .srv.off{stroke:var(--red);fill:color-mix(in srgb,var(--red) 10%,var(--panel2))}
+  .fig .lbl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:var(--tx)}
+  .fig .grp{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx3);letter-spacing:.07em}
+  .fig .edge{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx2)}
+  .fig .gwline{fill:none;stroke:var(--blue);stroke-width:1.6}
+  .fig .cut{fill:none;stroke:var(--red);stroke-width:1.6}
+  .fig .none{fill:none;stroke:var(--stroke);stroke-width:1.4;stroke-dasharray:3 4;stroke-opacity:.6}
+  .fig .leaf{fill:none;stroke:var(--fam);stroke-width:1.4;stroke-dasharray:5 3}
+  .fig .chipOK{fill:color-mix(in srgb,var(--green) 14%,var(--panel2));stroke:var(--green);stroke-width:1;stroke-opacity:.7}
+  .fig .chipNO{fill:color-mix(in srgb,var(--red) 12%,var(--panel2));stroke:var(--red);stroke-width:1;stroke-opacity:.7}
+  .fig .chipF {fill:color-mix(in srgb,var(--fam) 12%,var(--panel2));stroke:var(--fam);stroke-width:1;stroke-opacity:.7}
+  .fig .chipT{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;fill:var(--tx)}
+  .fig .chipT.ok{fill:var(--green)} .fig .chipT.no{fill:var(--red)} .fig .chipT.fam{fill:var(--fam)}
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Event sourcing reference · demos/04-jetstream-cqrs</span></div>
+  <h1 class="cover">One Log,<br>Two Projections,<br>One <span class="hl">Snapshot</span></h1>
+  <p class="cover-sub">Eight patterns measured on one NATS server and one small Go binary. Each card states
+    the mechanism, what it buys, what it costs, and the number the lab actually printed. Two of the cards
+    exist because the lab got it wrong first.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The question every card serves</div>
+    <p>A truck's odometer lives only in a log. Rehydrating it to check one command —
+      <b>how much does a snapshot buy you</b>, and what happens to the answer when you
+      scale the consumer that folds the log?</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:14px">
+    <div class="lbl" style="color:var(--amber)">The rule that orders the deck</div>
+    <p>A projection is <b>disposable</b> and the log is not. Everything a projection does — caching,
+      denormalising, snapshotting, folding on many workers — is a trade you make against the log,
+      and <b>every one of those trades is paid for in order</b>.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The eight patterns</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>01 · The log is the only source of truth</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>05 · A fold is defined by order</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>02 · Two projections, one log</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>06 · A worker pool buys throughput with correctness</div>
+      <div class="fam"><span class="sw" style="background:var(--teal)"></span>03 · What a snapshot buys</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>07 · MaxAckPending is the loss dial</div>
+      <div class="fam"><span class="sw" style="background:var(--red)"></span>04 · The ordered consumer that ate the measurement</div>
+      <div class="fam"><span class="sw" style="background:var(--red)"></span>08 · Redelivery after AckWait is not recovery</div>
+    </div>
+    <div class="cover-meta"><span>Measured on NATS 2.14.3 · one server · September 2026</span><span>8 patterns · 1 selection guide</span></div>
+  </div>
+</section>
+
+<!-- ============ 01 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Sourcing · Card 01 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">01</div><div class="fam-lbl">Sourcing</div>
+    <h2>The log is the only source of truth</h2>
+    <p class="lede">The stream holds the facts. Every KV bucket in this demo is a <b>fold of that stream</b>
+      and holds nothing the stream does not. The test is brutal and cheap: delete every bucket and
+      every consumer, restart, and see what comes back.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Is a KV bucket ever allowed to be the truth? <b>No.</b> It is a cache of a fold. If losing it
+      loses data, the design is wrong, not the bucket.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <svg class="fig" viewBox="0 0 900 132" role="img" aria-label="One stream feeds two independent folds into two KV buckets. Deleting the buckets loses nothing because they rebuild from sequence one. Deleting the stream loses everything.">
+      <rect class="clu" x="20" y="16" width="360" height="98" rx="4"/>
+      <text class="grp" x="32" y="34">STREAM ODOMETER &middot; LIMITSPOLICY &middot; THE ONLY TRUTH</text>
+      <rect class="srv hi" x="34"  y="46" width="42" height="26" rx="3"/>
+      <rect class="srv hi" x="82"  y="46" width="42" height="26" rx="3"/>
+      <rect class="srv hi" x="130" y="46" width="42" height="26" rx="3"/>
+      <rect class="srv hi" x="178" y="46" width="42" height="26" rx="3"/>
+      <rect class="srv hi" x="226" y="46" width="42" height="26" rx="3"/>
+      <text class="edge" x="280" y="64">seq 1 &rarr; n</text>
+      <text class="edge" x="34" y="94">replayable from sequence 1, for ever</text>
+      <path class="gwline" d="M382 52 H452"/><text class="edge" x="392" y="44">snapshotter</text>
+      <path class="gwline" d="M382 84 H452"/><text class="edge" x="392" y="104">projector</text>
+      <rect class="clu" x="456" y="26" width="200" height="38" rx="3"/>
+      <text class="lbl" x="468" y="50">KV odometer-write</text>
+      <rect class="clu" x="456" y="70" width="200" height="38" rx="3"/>
+      <text class="lbl" x="468" y="94">KV odometer-read</text>
+      <rect class="chipOK" x="672" y="26" width="206" height="38" rx="3"/>
+      <text class="chipT ok" x="775" y="50" text-anchor="middle">delete both: all of it returns</text>
+      <rect class="chipNO" x="672" y="70" width="206" height="38" rx="3"/>
+      <text class="chipT no" x="775" y="94" text-anchor="middle">delete the stream: nothing does</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li><b>LimitsPolicy, never InterestPolicy.</b> InterestPolicy deletes a message once every consumer
+        has acked it, and the replay then returns nothing — <b>with no error</b>. A stream you cannot
+        replay is not an event source.</li>
+      <li>Measured 2026-09-16: both buckets and both durables deleted, both consumers refolded all
+        <b>74 135</b> events from sequence 1. <b>Every KV document came back byte-identical</b>,
+        <code>lastTripAt</code> included, to the nanosecond.</li>
+      <li>That only holds because <code>project()</code> uses the <b>event's own stream timestamp</b> and
+        never the wall clock. A projection that reads the clock cannot be rebuilt — it can only be
+        re-approximated.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>A projection becomes disposable.</b> Change its shape, delete it, refold. No migration.</li>
+      <li><b>Audit for free.</b> The sequence of transitions is the data, not a side table.</li>
+      <li><b>Time travel.</b> Fold to sequence N and you have the state as of N.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>The log only grows.</b> Retention is a product decision you now have to make.</li>
+      <li><b>A rebuild is an outage for that read model</b> unless you fold into a second bucket and swap.</li>
+      <li><b>Determinism is a constraint on your code for ever</b> — no clocks, no randomness, no lookups
+        against data that also moves.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Event-source where history is itself a domain concern. Use plain CRUD where only the current value
+      matters — the deciding question is <b>"does anything need to replay this"</b>, not "does it change".</p>
+    <span class="side">Card 01 · Sourcing</span></div>
+</section>
+
+<!-- ============ 02 ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">CQRS · Card 02 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">02</div><div class="fam-lbl">CQRS</div>
+    <h2>Two projections, one log</h2>
+    <p class="lede">The write side and the read side fold the same stream into different shapes, in
+      different processes, on different durables. They are not two copies of one thing. They disagree
+      on purpose, and the disagreement is the whole of CQRS.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Should the write-side snapshot just reuse the read model? <b>No.</b> The aggregate must carry
+      only what a <b>command</b> is judged against. Everything else belongs to the reader.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <ul>
+      <li><code>odometer-write</code> holds <code>{state, lastSeq}</code> for the <b>aggregate</b>. It answers
+        one question: may this command be appended?</li>
+      <li><code>odometer-read</code> holds the <b>denormalised</b> view a screen wants — total kilometres,
+        last trip, plate, status.</li>
+      <li>Measured 2026-09-16: after a full rebuild both sides landed on the same <code>lastSeq</code>
+        for every vehicle, and the same <code>status</code> and <code>plate</code>.</li>
+      <li><b>They do not agree on <code>totalKm</code>, and must not.</b> The write-side aggregate has no
+        such field: <code>Travelled</code> leaves it unchanged, because no command is ever judged against
+        a distance.</li>
+    </ul>
+    <div class="flow" style="margin-top:11px">
+      <span class="step">command</span><span class="arw">&rarr;</span>
+      <span class="step hi">rehydrate aggregate</span><span class="arw">&rarr;</span>
+      <span class="step">check rules</span><span class="arw">&rarr;</span>
+      <span class="step">append to log</span><span class="arw">&rarr;</span>
+      <span class="step">projector folds</span><span class="arw">&rarr;</span>
+      <span class="step">read model</span>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>The write-side snapshot stays tiny for ever.</b> Ten thousand trips move the read model and
+        leave the aggregate byte-for-byte identical. That is why Card 03's number does not decay.</li>
+      <li><b>Read shapes are free to change.</b> A new screen is a new fold, not a schema change.</li>
+      <li>Write and read scale apart, and fail apart.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Two folds to keep correct</b>, and two durables to operate.</li>
+      <li><b>The read model is eventually consistent.</b> A command that succeeds is not yet visible on the
+        screen that triggered it.</li>
+      <li>"Which bucket is right?" becomes a question people ask. The answer is neither — Card 01.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Put a field on the aggregate only when a <b>rule</b> reads it. If the field exists to be displayed,
+      it belongs to the read model, and keeping it out is what keeps rehydration cheap.</p>
+    <span class="side">Card 02 · CQRS</span></div>
+</section>
+
+<!-- ============ 03 ============ -->
+<section class="page" style="--fam:var(--teal)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Performance · Card 03 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">03</div><div class="fam-lbl">Performance</div>
+    <h2>What a snapshot buys</h2>
+    <p class="lede">Rehydrating from sequence 1 is <b>linear in the length of the log</b>. Rehydrating from
+      a snapshot is <b>one KV get plus the tail</b>, and does not care how long the log is. That is the
+      whole finding, and the shape matters more than the multiple.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Is a snapshot worth the second moving part? <b>Yes, past a few thousand events</b> — and the reason
+      is the slope, not today's ratio.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-09-16 · NATS 2.14.3 in Docker on a laptop · 10 001 events on one vehicle · best of three</div>
+    <table>
+      <thead><tr><th>Rehydration</th><th>Events read</th><th>Time</th><th>Grows with the log?</th></tr></thead>
+      <tbody>
+        <tr><td>From sequence 1, no snapshot</td><td>10 001</td><td class="bad"><b>25 ms</b></td><td class="bad">Yes, linearly</td></tr>
+        <tr><td>From the snapshot, then the tail</td><td>0</td><td class="good"><b>1.1 ms</b></td><td class="good">No</td></tr>
+      </tbody>
+    </table>
+    <svg class="fig" viewBox="0 0 900 96" role="img" aria-label="A full replay grows with the log while a snapshot read stays flat, so the gap widens as the log gets longer.">
+      <text class="grp" x="20" y="18">COST OF ONE REHYDRATION AS THE LOG GROWS</text>
+      <path class="none" d="M70 78 H860"/>
+      <path class="gwline" d="M70 74 L860 26" stroke="var(--red)"/>
+      <text class="edge" x="700" y="22" fill="var(--red)">full replay &mdash; linear</text>
+      <path class="gwline" d="M70 74 H860" stroke="var(--green)"/>
+      <text class="edge" x="700" y="68" fill="var(--green)">snapshot + tail &mdash; flat</text>
+      <text class="grp" x="20" y="92">LOG LENGTH &rarr;</text>
+    </svg>
+    <ul style="margin-top:9px">
+      <li><b>About 23x here, and it grows.</b> Take the log to 100 000 events and the left figure goes up
+        tenfold while the right one does not move.</li>
+      <li><b>The snapshot is always stale.</b> The write consumer is asynchronous, so it trails the log.
+        Rehydration reads the snapshot and then replays from <code>lastSeq + 1</code>. Measured
+        mid-catch-up, the same command read <b>2 900 events of tail in 12 ms</b>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>A constant-time write path</b> on a log that is not constant.</li>
+      <li>It is cheap to add later — the snapshot is derived, so there is nothing to migrate.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Code that stops at the snapshot is a bug, not a shortcut.</b> You must always replay the tail.</li>
+      <li>A second consumer to run and watch.</li>
+      <li>Below a few thousand events it buys a millisecond and costs you a component.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Snapshot the write side, never trust it alone, and measure the <b>slope</b> rather than quoting a
+      multiple — the multiple is a property of the day you measured it.</p>
+    <span class="side">Card 03 · Performance</span></div>
+</section>
+
+<!-- ============ 04 ============ -->
+<section class="page" style="--fam:var(--red)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Gotcha · Card 04 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">04</div><div class="fam-lbl">Gotcha · method</div>
+    <h2>The ordered consumer that ate the measurement</h2>
+    <p class="lede">This demo's headline number was wrong for two days, and it was wrong in the direction
+      that flatters the demo. The replay was not slow because replays are slow. It was slow because the
+      client was creating <b>one consumer per event</b>.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Which call reads a stream in bulk? <b><code>Messages()</code>, not <code>Next()</code></b>.
+      On an ordered consumer, <code>Next()</code> resets the consumer on every call.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <ul>
+      <li>An <b>ordered</b> consumer is ephemeral and self-healing: the client deletes the server-side
+        consumer and creates a new one whenever it re-positions. <code>Next()</code> re-positions every
+        time it is called.</li>
+      <li>It is visible on the server, because an ordered consumer's name carries a serial number that
+        climbs once per message:</li>
+    </ul>
+    <div class="panel" style="margin-top:9px;background:var(--bg2)">
+      <code style="font-size:11px">5yL5cUQZHSfSpLY8WvMDXR_32469&nbsp;&nbsp; delivering stream sequence 32478</code>
+    </div>
+    <ul style="margin-top:9px">
+      <li>Before the fix the replay of 10 001 events took <b>8.2 s</b>. After it, <b>25 ms</b>. About
+        <b>99% of the original figure was consumer bookkeeping</b> and about 1% was reading a log.</li>
+      <li><code>Messages()</code> creates <b>one</b> consumer and pulls batches over it — which is what the
+        client's own documentation on <code>Next()</code> tells you to do.</li>
+      <li><b>The lesson survived the correction.</b> Replay is linear, a snapshot is constant. What changed
+        is that the number now measures that, and not a mistake in the demo.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">How to catch it yourself</div><ul>
+      <li><b>Watch the server while you measure.</b> <code>nats consumer ls</code> during a replay — a name
+        that changes per message is this bug.</li>
+      <li><b>Distrust a flattering number.</b> A result that makes your design look good is the one to
+        re-derive first.</li>
+      <li>Sanity-check the rate: 10 000 small events in 8 s is ~1 200/s, which is far below what one NATS
+        server does. The arithmetic was the tell.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Why it is easy to miss</div><ul>
+      <li><b>No error, no warning.</b> The code is correct, just used against the wrong consumer kind.</li>
+      <li>It gets <b>worse with more data</b>, so it reads exactly like the linear cost you expected to find.</li>
+      <li>A unit test cannot see it. Only the server, or the clock, can.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Publish the correction next to the number. A lab whose numbers can only go up is not measuring —
+      the retraction is the part that makes the rest of the deck worth reading.</p>
+    <span class="side">Card 04 · Gotcha</span></div>
+</section>
+
+<!-- ============ 05 ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Correctness · Card 05 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">05</div><div class="fam-lbl">Correctness</div>
+    <h2>A fold is defined by order</h2>
+    <p class="lede">A projection is a fold over a sequence. Once you allow a second reader, events can
+      arrive out of sequence, and the fold has to say what it does about that. There are exactly three
+      answers, and the demo makes each one a written rule.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>How does an event compare with the state already folded? <b>Ahead, equal, or behind</b> — and each
+      one has a different, permanent answer.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">The comparison, and the three answers · <code>cqrs/domain.go</code></div>
+    <table>
+      <thead><tr><th>The event is…</th><th>Rule</th><th>What the fold does</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Ahead of the folded state</td><td><b>BR-OD06</b></td><td class="good">Apply it</td><td>This is the normal case.</td></tr>
+        <tr><td>Equal — seen before</td><td><b>BR-OD07</b></td><td class="mid">Ignore it, ack it</td><td>A redelivery is a duplicate, not new work.</td></tr>
+        <tr><td>Behind the folded state</td><td><b>BR-OD08</b></td><td class="bad">Refuse it — <code>ErrOutOfOrder</code></td><td>Applying it would move the odometer backwards.</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>BR-OD09 — an undecodable event is permanent.</b> <code>ErrUndecodable</code> is not retried.
+        Redelivering a message the code cannot parse only produces the same failure at ack-wait intervals
+        forever.</li>
+      <li>The rules live in <code>domain.go</code> and nowhere else. No rule enforcement sits in the CLI,
+        the write side, the read side or the HTTP shim — so there is exactly one place to read them and
+        exactly one place to test them.</li>
+      <li><b>Idempotence is not enough on its own.</b> BR-OD07 makes a repeat harmless. BR-OD08 is the one
+        that stops a late event from corrupting a monotonic value.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What this gives you</div><ul>
+      <li>Out-of-order delivery becomes a <b>named, tested condition</b>, not a mystery.</li>
+      <li>A refusal is <b>visible</b>: it is counted, so a wrong fold shows up as a number.</li>
+      <li>Redelivery costs nothing when the fold is already past the event.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it does not give you</div><ul>
+      <li><b>A refused event is lost work</b>, not repaired work. The fold is correct, but incomplete.</li>
+      <li>It only helps a value where order <i>means</i> something. A counter you can add to does not need it.</li>
+      <li>You must carry the compared value (here, the last sequence) in the projection itself.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Write the three answers down before you add the second worker. A fold that has not decided what
+      "behind" means has decided it silently.</p>
+    <span class="side">Card 05 · Correctness</span></div>
+</section>
+
+<!-- ============ 06 ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Scaling · Card 06 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">06</div><div class="fam-lbl">Scaling</div>
+    <h2>A worker pool buys throughput with correctness</h2>
+    <p class="lede">Adding workers to one durable consumer makes the fold faster. It also makes it wrong.
+      Both halves are measured on the same run, on the same log, and neither is a surprise once you see
+      where the order is lost.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Can you scale a projection by adding workers? <b>Only if the fold is order-free.</b> An odometer is
+      not, so the speed is paid for in dropped events.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-09-15 · NATS 2.14.3 · <code>ODOMETER_POOL</code>, 10 029 events, three vehicles, <code>-drain</code></div>
+    <table>
+      <thead><tr><th>Workers</th><th>Time</th><th>Rate</th><th>Folded</th><th>Dropped (out of order)</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>23.5 s</td><td>426/s</td><td>10 029</td><td class="good">0</td></tr>
+        <tr><td>2</td><td>12.2 s</td><td>824/s</td><td>10 025</td><td class="mid">4</td></tr>
+        <tr><td>4</td><td>6.3 s</td><td>1 600/s</td><td>6 947</td><td class="bad">3 082 &nbsp;(31%)</td></tr>
+        <tr><td>8</td><td>4.8 s</td><td>2 100/s</td><td>4 338</td><td class="bad">5 691 &nbsp;(57%)</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>3.7x faster at four workers, and a third of the log refused.</b> Those are the same run.</li>
+      <li><b>One worker drops nothing.</b> One worker cannot race itself, so it is the control row and it
+        proves the fold itself is correct.</li>
+      <li><b>Where the order is lost:</b> two events for the SAME vehicle land on two workers, and the
+        later one finishes first. The fold then sees an event behind its state and refuses it (BR-OD08).</li>
+      <li><b>Two dials control how often that happens.</b> The <b>key gap</b> — how far apart two events of
+        one vehicle sit in the log — and the <b>in-flight window</b>, <code>MaxAckPending</code>. The demo
+        seeds three vehicles round-robin, so the gap is small on purpose; at ten vehicles the gap was wide
+        enough that nothing ever raced and the lesson taught nothing.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">When a pool is right</div><ul>
+      <li>The fold is <b>commutative</b> — a sum, a set, a last-write-wins cache.</li>
+      <li>Work is <b>partitioned by key</b>, one consumer per key range, so no two workers share a key.</li>
+      <li>You care about drain time more than about per-key ordering.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">When it is wrong</div><ul>
+      <li><b>Any monotonic value</b> — an odometer, a balance, a version.</li>
+      <li>Any state machine with transitions that must not be re-ordered.</li>
+      <li><b>The loss is silent unless you count it.</b> Nothing errors; the numbers are simply smaller.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Partition before you parallelise. If you cannot partition by key, one worker with a correct fold
+      beats eight workers with a fast wrong one.</p>
+    <span class="side">Card 06 · Scaling</span></div>
+</section>
+
+<!-- ============ 07 ============ -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Tuning · Card 07 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">07</div><div class="fam-lbl">Tuning</div>
+    <h2><code>MaxAckPending</code> is the loss dial</h2>
+    <p class="lede">The cap on messages in flight for one consumer is usually described as a back-pressure
+      knob. On an order-sensitive fold it is something more direct: it sets how many events can race, and
+      therefore how many get refused.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>What does a low cap do to a large worker pool? <b>It slows the run and protects the fold.</b> It does
+      not idle the workers.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-09-16 · NATS 2.14.3 · eight workers, 74 109 events, <code>-drain</code></div>
+    <table>
+      <thead><tr><th><code>MaxAckPending</code></th><th>Time</th><th>Rate</th><th>Workers that acked</th><th>Folded</th><th>Dropped</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>1 m 34.1 s</td><td>788/s</td><td class="good">8 of 8</td><td>74 109</td><td class="good">0</td></tr>
+        <tr><td>3</td><td>50.0 s</td><td>1 481/s</td><td class="good">8 of 8</td><td>57 529</td><td class="bad">16 580 &nbsp;(22.4%)</td></tr>
+        <tr><td>1000</td><td>33.2 s</td><td>2 229/s</td><td class="good">8 of 8</td><td>31 912</td><td class="bad">42 197 &nbsp;(56.9%)</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>Every worker acked at every cap</b>, including a cap of one with eight workers. No worker was
+        starved of work over the run.</li>
+      <li><b>A single run is not a constant.</b> The cap-3 row re-run gave 54.6 s and 16 722 dropped. The
+        shape holds; the exact figure is a race.</li>
+      <li><b>A correction to the common wording.</b> The nats.io worker-pool page says a low cap "starves a
+        large set of workers". At an instant that is visible — <code>num_ack_pending 3</code> with
+        <code>num_waiting 4-5</code> means four or five workers are holding a pull request and waiting.
+        Over a whole run it is false: the waiting rotates, and all eight do work.</li>
+      <li><b>Read it as a dial, not a switch.</b> Cap one is serial and correct. A high cap is fast and
+        loses more than half the log.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">How to set it</div><ul>
+      <li><b>Order-free fold:</b> set it high. The cap is then only back pressure.</li>
+      <li><b>Order-sensitive fold:</b> a cap of one is the only safe value — and it makes the pool pointless,
+        which is the honest signal to partition instead.</li>
+      <li>It is a <b>per-consumer</b> cap, not per worker. Eight workers share one budget.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it cannot do</div><ul>
+      <li><b>It cannot make a pool ordered.</b> It only narrows the window in which racing happens.</li>
+      <li>Low caps cost real time: 1 m 34 s against 33 s here, about <b>2.8x slower</b>.</li>
+      <li>An instantaneous <code>nats consumer info</code> reading will mislead you. Measure over a run.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Treat <code>MaxAckPending</code> as the amount of disorder you are buying. Choose it from the fold,
+      not from the throughput target.</p>
+    <span class="side">Card 07 · Tuning</span></div>
+</section>
+
+<!-- ============ 08 ============ -->
+<section class="page" style="--fam:var(--red)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Gotcha · Card 08 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">08</div><div class="fam-lbl">Gotcha · delivery</div>
+    <h2>Redelivery after <code>AckWait</code> is not recovery</h2>
+    <p class="lede">A worker takes a message and dies without acking. JetStream does the right thing: after
+      <code>AckWait</code> it hands the message to another worker. That is a correct, useful mechanism —
+      and on an order-sensitive fold it arrives too late to be worth anything.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Does redelivery repair a fold? <b>No.</b> It costs you the whole <code>AckWait</code> and then the
+      fold refuses the event anyway.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-09-16 · NATS 2.14.3 · four workers, one message abandoned with <code>-kill-at</code></div>
+    <table>
+      <thead><tr><th><code>AckWait</code></th><th>Actual wait</th><th>Handed from → to</th><th>Fold moved on by</th><th>Redelivered event</th></tr></thead>
+      <tbody>
+        <tr><td>30 s</td><td>30.02 s</td><td>worker 3 → 4</td><td>+29 events</td><td class="bad">Dropped</td></tr>
+        <tr><td>5 s</td><td>5.001 s</td><td>worker 4 → 1</td><td>+30 events</td><td class="bad">Dropped</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>The wait IS <code>AckWait</code>, to within 20 ms.</b> There is no extra delay and no early
+        detection. The server cannot know the worker is gone; it can only know the clock ran out.</li>
+      <li><b>It bought nothing.</b> While the timer ran, the other workers folded about thirty more events
+        past the abandoned one. The redelivery then arrived behind the state and was refused by BR-OD07 /
+        BR-OD08 — exactly as the rules say it must be.</li>
+      <li><b>A shorter <code>AckWait</code> does not fix this</b>, it only shortens the gap. The redelivered
+        event is still behind by whatever the pool folded in the meantime.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What redelivery IS for</div><ul>
+      <li><b>An order-free fold</b>, where a late apply is still a correct apply.</li>
+      <li><b>At-least-once work</b> — sending a message, writing a row keyed by event id.</li>
+      <li>Surviving a worker restart when nothing else is consuming the same key.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it is not for</div><ul>
+      <li><b>Repairing a projection</b> that has already moved past the event.</li>
+      <li><b>Fast failure detection.</b> Its resolution is <code>AckWait</code> and nothing better.</li>
+      <li>Hiding a partitioning problem. The redelivery is a symptom, not a cure.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>If a lost event must be folded, replay the log from its sequence. Redelivery is a delivery
+      guarantee, and a delivery guarantee is not an ordering guarantee.</p>
+    <span class="side">Card 08 · Gotcha</span></div>
+</section>
+
+<!-- ============ SELECTION GUIDE ============ -->
+<section class="page tight" style="--fam:var(--accent)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Selection guide</span></div>
+  <div class="titleblock">
+    <div class="num">?</div><div class="fam-lbl">Quick reference</div>
+    <h2>Which card answers your question</h2>
+    <p class="lede">Start from the thing you are trying to decide, not from the feature you were reading
+      about.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <table>
+      <thead><tr><th>You are asking…</th><th>Card</th><th>Short answer</th></tr></thead>
+      <tbody>
+        <tr><td>Where does current state live?</td><td><b>01</b> The log is the only source of truth</td><td>In the log. Everything else is derived and can be rebuilt.</td></tr>
+        <tr><td>Can two read models disagree?</td><td><b>02</b> Two projections, one log</td><td>Yes, and they should. They fold the same log for different questions.</td></tr>
+        <tr><td>Is a snapshot worth it?</td><td><b>03</b> What a snapshot buys</td><td>Yes past a few thousand events. Replay is linear; a snapshot is flat.</td></tr>
+        <tr><td>Why is my replay so slow?</td><td><b>04</b> The ordered consumer that ate the measurement</td><td>Check you used <code>Messages()</code>, not <code>Next()</code>.</td></tr>
+        <tr><td>What happens to a late event?</td><td><b>05</b> A fold is defined by order</td><td>Apply, ignore or refuse. Decide all three in writing.</td></tr>
+        <tr><td>Can I add workers to go faster?</td><td><b>06</b> A worker pool buys throughput with correctness</td><td>Only if the fold is order-free, or you partition by key.</td></tr>
+        <tr><td>What should <code>MaxAckPending</code> be?</td><td><b>07</b> <code>MaxAckPending</code> is the loss dial</td><td>Choose it from the fold. It sets how much disorder you accept.</td></tr>
+        <tr><td>Will redelivery save me?</td><td><b>08</b> Redelivery after <code>AckWait</code> is not recovery</td><td>No. It costs the full wait, then the fold refuses the event.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grid2" style="margin-top:12px">
+    <div class="panel pro"><div class="lbl">Defaults worth copying</div><ul>
+      <li><b><code>LimitsPolicy</code>, never <code>InterestPolicy</code></b> on a stream you intend to
+        replay. Interest discards a message once every consumer acks it, and the replay then returns
+        nothing, with no error.</li>
+      <li><b>Streams <code>SCREAMING_SNAKE</code>, KV buckets <code>lowercase-kebab</code>.</b> A KV bucket
+        name IS a stream name — renaming one orphans the data.</li>
+      <li><b>Never show a count without its bytes.</b> 100 000 000 events sounds fine until you learn it is
+        7.6 GB.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Traps this demo walked into</div><ul>
+      <li><b>An ordered consumer read one message at a time</b> and made the headline number wrong by two
+        orders of magnitude. Card 04.</li>
+      <li><b>Ten vehicles hid the race.</b> Round robin over ten keys put two events of one vehicle so far
+        apart that nothing ever collided. Three keys made the lesson visible.</li>
+      <li><b>A subject that overlapped.</b> <code>evt.odometer.pool</code> would sit inside
+        <code>evt.odometer.&gt;</code>. A hyphen keeps <code>ODOMETER_POOL</code> out of the demo's own
+        filter.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>One log, many folds, and one decision per fold about what "out of order" means. Everything else in
+      this deck follows from those two sentences.</p>
+    <span class="side">Selection guide</span></div>
+</section>
+
+<!-- ============ PROVENANCE ============ -->
+<section class="page tight srcwrap" style="--fam:var(--dim)">
+  <div class="chead"><span>JetStream + CQRS · nats-tech-lab</span><span class="r">Provenance</span></div>
+  <div class="titleblock">
+    <div class="num">&sect;</div><div class="fam-lbl">Method</div>
+    <h2>Where every number came from</h2>
+    <p class="lede">A figure with no date and no machine becomes a constant, and a constant goes stale
+      quietly. Each number in this deck is listed with the day it was taken and the thing it ran on.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">The machine</div>
+    <ul>
+      <li><b>NATS 2.14.3</b>, a single server in Docker on a laptop. No cluster, no gateway, no JetStream
+        domain, no operator mode. File storage, <code>LimitsPolicy</code> on every stream.</li>
+      <li>Go client, one process, workers as goroutines over <b>one</b> durable consumer.</li>
+      <li>Streams: <code>ODOMETER</code> (lesson 01), <code>ODOMETER_POOL</code> (lesson 02, its own log so
+        the misbehaving consumer never touches the main stream), <code>ODOMETER_BENCH</code> (the fixture).</li>
+    </ul>
+  </div>
+
+  <div class="panel flat" style="margin-top:10px">
+    <div class="lbl">The numbers</div>
+    <table>
+      <thead><tr><th>Card</th><th>Figure</th><th>Taken</th><th>On what</th></tr></thead>
+      <tbody>
+        <tr><td>01</td><td>74 135 events refolded, ten KV documents byte-identical</td><td style="white-space:nowrap">2026-09-16</td><td><code>ODOMETER</code>, full rebuild of both projections</td></tr>
+        <tr><td>03</td><td>Replay 10 001 events = <b>25 ms</b>; snapshot + tail = <b>1.1 ms</b></td><td style="white-space:nowrap">2026-09-16</td><td><code>ODOMETER_BENCH</code>, one vehicle, best of three</td></tr>
+        <tr><td>03</td><td>2 900 events of tail in 12 ms</td><td style="white-space:nowrap">2026-09-16</td><td>the same command, run mid-catch-up</td></tr>
+        <tr><td>04</td><td>8.2 s before the fix, 25 ms after</td><td style="white-space:nowrap">2026-09-16</td><td>the same replay, <code>Next()</code> then <code>Messages()</code></td></tr>
+        <tr><td>06</td><td>1 / 2 / 4 / 8 workers: 23.5 / 12.2 / 6.3 / 4.8 s</td><td style="white-space:nowrap">2026-09-15</td><td><code>ODOMETER_POOL</code>, 10 029 events, <code>-drain</code></td></tr>
+        <tr><td>07</td><td>caps 1 / 3 / 1000: 1 m 34.1 s / 50.0 s / 33.2 s</td><td style="white-space:nowrap">2026-09-16</td><td><code>ODOMETER_POOL</code>, eight workers, 74 109 events</td></tr>
+        <tr><td>07</td><td>cap 3 re-run: 54.6 s, 16 722 dropped</td><td style="white-space:nowrap">2026-09-16</td><td>the same run repeated, to show it is a race</td></tr>
+        <tr><td>08</td><td>waits of 30.02 s and 5.001 s</td><td style="white-space:nowrap">2026-09-16</td><td>four workers, one message abandoned by <code>-kill-at</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel note" style="margin-top:10px">
+    <div class="lbl">How to read them</div>
+    <ul>
+      <li><b>Read the shape, not the value.</b> A laptop is not your production cluster. "Replay is linear,
+        a snapshot is flat" transfers; "25 ms" does not.</li>
+      <li><b>A single run is a sample.</b> Where a figure is a race, the deck shows a second run.</li>
+      <li><b>One number here has already been retracted.</b> Card 04 is that retraction, kept on purpose.</li>
+      <li><b>The screens do not print these.</b> Every number in the demo's UI comes from a run the reader
+        just made. This page is the only place a constant is allowed to live.</li>
+    </ul>
+  </div>
+
+  <div class="src">
+    <b>Sources in the repo:</b> <code>demos/04-jetstream-cqrs/README.md</code> ·
+    <code>docs/LESSON-02.md</code> · <code>BUSINESS_RULES-ODOMETER.md</code> ·
+    <code>docs/Demo-04-Plan.md</code> · <code>cqrs/domain.go</code>
+  </div>
+</section>
+
+</body>
+</html>

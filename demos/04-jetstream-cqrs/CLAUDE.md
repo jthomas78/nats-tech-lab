@@ -7,9 +7,12 @@ The root file describes demo 01 — a Postgres-backed, multi-service, multi-
 frontend POC. Demo 04 is one NATS server and one small Go binary. Most of the
 root file does not apply here.
 
-Two things still apply, repo-wide: the session memory rules, and the general
+Three things still apply, repo-wide: the session memory rules, the general
 preferences (stop if asked to do too much; don't read large docs whole;
-delegate wide exploration).
+delegate wide exploration), and **the life of a demo** — the four steps every
+demo runs, ending in a pattern cards PDF. Read that section in the root file
+before closing a phase; demo 04's deck is `docs/demo-04-pattern-cards.html`
+and `docs/demo-04-pattern-cards.pdf`.
 
 ## Everything for this demo lives in this folder
 
@@ -25,6 +28,7 @@ in a shared `diagrams/` directory.
 | Lab shell intro text, and lesson 01 | `README.md` |
 | Lesson 02 | `docs/LESSON-02.md` |
 | UI layout mockups | `diagrams/*.html` (dark UniFi palette) |
+| Pattern cards (HTML + exported PDF) | `docs/demo-04-pattern-cards.*` |
 | Go module | `cqrs/` |
 | Compose | `deploy/compose.yaml` |
 
@@ -198,7 +202,7 @@ npx eslint src --ext .js,.vue       # 0 errors; 3 warnings are the baseline
 npm run build
 ```
 
-Six live guards, not unit tests. Do not weaken one to make a screen pass —
+Seven live guards, not unit tests. Do not weaken one to make a screen pass —
 adding to the list a guard checks is the right move.
 
 - `frontend/src/view/commands.spec.js` parses `cqrs/main.go` for the
@@ -218,6 +222,11 @@ adding to the list a guard checks is the right move.
   `diagrams/lesson-02-how-it-works.html` and fails if a drawing loses its
   `aria-label`, if a figure goes missing, or if a measured number or a worker
   count is written onto the page (D18, D19).
+- `cqrs/cards_test.go` reads `docs/demo-04-pattern-cards.html` and fails if a
+  card title goes missing, if a card loses its pro or con panel, if the
+  exported PDF is absent, or if the "Where every number came from" page stops
+  naming the NATS version and the date. It checks the deck's SHAPE. It cannot
+  check whether a number is still true — only a re-run can do that.
 
 ## One lesson, one file
 

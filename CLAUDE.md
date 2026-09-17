@@ -34,6 +34,47 @@ Core question: **the correct responsibility split between JetStream (event
 backbone), NATS KV (fast lookup/watch/cache), Postgres (transactional source of
 truth), and CQRS projections.**
 
+## The life of a demo
+
+Set by the user 2026-09-17. Every demo in this lab runs the same four steps, in
+this order. A demo is not finished until step 4 exists.
+
+1. **Review the NATS feature**, normally from the NATS source docs.
+2. **Implement a demo that shows the feature**, ideally over a simplified
+   logistics example, with optional performance outcomes.
+3. **Derive the proof, and write down the gotchas.** A gotcha you walked into
+   yourself is worth more than one you read about.
+4. **Create the pattern cards** — a conclusion file architects and developers can
+   use as a quick reference.
+
+### The pattern cards are the closing deliverable
+
+**When a demo completes, it gets a pattern cards PDF.** It summarises the lessons
+learnt, the recommendations, and the pros and cons — in the same house form as
+the other pattern card decks in this repo (`demos/02-multi-region/diagrams/`,
+`demos/04-jetstream-cqrs/docs/`).
+
+- **Each demo localises its own docs.** The deck lives at
+  `demos/<demo>/docs/<demo>-pattern-cards.html`, exported beside it as `.pdf`.
+  Nothing goes in a shared folder.
+- **Both editions ship.** The HTML is the editable source; the PDF is what gets
+  handed to somebody. Export with
+  `node demos/01-dictionary/diagrams/export-html-pdf.mjs <in.html> <out.pdf>`.
+  That script is the one agreed exception to a demo's folder seal.
+- **One card, one pattern.** Each card states the decision it answers, the
+  mechanism, a `pro` panel, a `con` panel, and a one-line verdict.
+- **A card may carry numbers, but every number names its date and machine.** The
+  deck ends with a "Where every number came from" page listing each figure, the
+  day it was measured and what it ran on. A figure with no provenance becomes a
+  stale constant.
+- **Keep a retraction in the deck.** If a measurement was wrong and was
+  corrected, the correction is a card. A lab whose numbers only ever improve is
+  not measuring.
+- **Guard the deck's shape with a spec** in the demo's own test suite — that the
+  file and its PDF exist, that every card title is present, that each card has a
+  pro and a con. A guard checks shape; it can never check truth.
+- Dark UniFi palette, A4 via `@page`, same as the existing decks.
+
 ## Repository Layout
 
 Read the tree with `ls` — it changes faster than this file. Not visible from the
