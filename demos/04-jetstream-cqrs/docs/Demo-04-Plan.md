@@ -3022,10 +3022,10 @@ untouched and `domain.go` is not opened.
 - A drawing that says "starvation" without saying every worker still acked.
 - A drawing whose numbers disagree with the controls above it.
 
-## 15. Phase 04.12 — one Overview per lesson (PROPOSED)
+## 15. Phase 04.12 — one Overview per lesson (APPROVED)
 
-**Status:** PROPOSED 2026-09-17. Raised by the user. Nothing starts until it
-is approved. **04.11 waits on this** — see 15.4.
+**Status:** APPROVED 2026-09-17, with D22 answered: **A**. **04.11 waits on
+this** — see 15.4, and D16 is superseded.
 
 ### 15.1 Why
 
@@ -3062,15 +3062,15 @@ deciding what the lab shell is left holding.
   filenames welded in. One component, two instances, each handed its lesson's
   files. A second copy of 250 lines of CSS to render the same markdown is the
   thing to avoid here.
-- **D22 — where the split line falls. TO SETTLE.** Two shapes:
-  - **A (recommended).** `README.md` keeps everything that is not lesson 02;
+- **D22 — the split line: A.** Settled by the user on approval.
+  - **A — CHOSEN.** `README.md` keeps everything that is not lesson 02;
     lesson 02's sections move to `docs/LESSON-02.md`. The lab shell intro
     keeps the demo's headline question and its finding, and gains one line
     pointing at the lesson 02 doc. Smallest move. Slightly asymmetric: lesson
     01's Overview renders a file that also carries ports, how-to-run and the
     command list, because those ARE lesson 01 plus the shared operational
     bits.
-  - **B.** Both lessons move out — `docs/LESSON-01.md` and
+  - **B — rejected.** Both lessons move out — `docs/LESSON-01.md` and
     `docs/LESSON-02.md` — and `README.md` becomes a short intro plus how to
     run. Symmetric. But the lab shell then introduces the demo without its
     finding, which is the most interesting thing in it.
@@ -3101,19 +3101,42 @@ to be untouched.
 
 ### 15.6 Tasks
 
-Sketch only, so the size is visible:
-
-1. **The prose is split.** Lesson 02's sections leave `README.md` for their
+- [x] **04.12.1 The prose is split.** Lesson 02's sections leave `README.md` for their
    own file. Both files gain a pointer to the other. A live guard spec fails
    if lesson 02's headings reappear in the lab shell's intro, and fails if the
    lesson 02 file is empty of them — the same shape as `recorded.spec.js`,
    because a split that silently reverts is a split nobody notices.
-2. **`AboutPanel.vue` takes props.** Its files become inputs. Lesson 01's
+- [ ] **04.12.2 `AboutPanel.vue` takes props.** Its files become inputs. Lesson 01's
    instance is handed `README.md` + the class diagram page; the component
    stops naming either.
-3. **Lesson 02 gets its Overview tab**, first in the strip, holding its own
+- [ ] **04.12.3 Lesson 02 gets its Overview tab**, first in the strip, holding its own
    "What it does". The second sub-tab is left empty for 04.11.
-4. **The documents catch up** — `CLAUDE.md`'s file table gains the new doc.
+- [ ] **04.12.4 The documents catch up** — `CLAUDE.md`'s file table gains the
+   new doc.
+
+**04.12.1 verified 2026-09-17.** README.md went 647 → 383 lines; lines 356 to
+621 moved whole into `docs/LESSON-02.md` (D23 — no sentence rewritten, the
+tables and their dates travelled with their sections). The new file opens with
+a blockquote pointing back at `README.md`; `README.md` keeps `## The finding`
+and gains `## Lesson 02 — in its own file` pointing forward.
+`frontend/src/view/lesson-docs.spec.js` is the live guard: 20 specs, confirmed
+RED (19 failed) before the move and green after. It fails both ways round —
+one spec per lesson 02 heading asserting it is ABSENT from the intro, one per
+heading asserting it is PRESENT in the lesson file, plus the measured numbers,
+the two pointers, and the intro keeping its finding.
+
+Gates: `ginkgo ./...` 256 green; `npx vitest run` 451 specs in 30 files (was
+431 in 29 — this spec is the new file); eslint 0 errors / 3 warnings;
+`npm run build` clean. Live on `lab4-nats`: lesson 01's Overview no longer
+contains `Lesson 02 — scaling a consumer`, still contains the finding, and now
+shows the pointer.
+
+Not anticipated by the task list: the moved block's first sentence reads "The
+rest of this demo folds one event at a time" — written when it sat inside the
+README. It still parses in its own file, and D23 says a rewritten sentence is
+a sentence that can disagree with the one it came from, so it stayed. The H1
+was dropped as well: `## Lesson 02 — scaling a consumer` is the file's title,
+because an added H1 would have printed the same words twice on the tab.
 
 ### 15.7 What would make this phase a failure
 
