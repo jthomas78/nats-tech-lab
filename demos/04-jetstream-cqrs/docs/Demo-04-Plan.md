@@ -3292,7 +3292,7 @@ same way — and it is a tool, not a demo 04 file.
 
 ### 16.3 The deck
 
-Eleven A4 pages: a cover, eight cards, a selection guide, and a provenance
+Ten A4 pages: a cover, seven cards, a selection guide, and a provenance
 page. The house idiom is lifted from
 `demos/02-multi-region/diagrams/multi-region-pattern-cards.html` — same
 `<style>` block, same dark UniFi palette, same `@page`/A4 print setup — so the
@@ -3303,17 +3303,30 @@ two decks read as one family.
 | 01 | The log is the only source of truth | Sourcing |
 | 02 | Two projections, one log | CQRS |
 | 03 | What a snapshot buys | Performance |
-| 04 | The ordered consumer that ate the measurement | Gotcha · method |
-| 05 | A fold is defined by order | Correctness |
-| 06 | A worker pool buys throughput with correctness | Scaling |
-| 07 | `MaxAckPending` is the loss dial | Tuning |
-| 08 | Redelivery after `AckWait` is not recovery | Gotcha · delivery |
+| 04 | A fold is defined by order | Correctness |
+| 05 | A worker pool buys throughput with correctness | Scaling |
+| 06 | `MaxAckPending` is the loss dial | Tuning |
+| 07 | Redelivery after `AckWait` is not recovery | Gotcha · delivery |
 
 Every card carries a `.decision` line, a mechanism panel, a `panel pro`, a
-`panel con` and a one-line verdict. Two of the eight are gotchas, and card 04
-is a **retraction** — the 8.2 s replay figure that was ~99% consumer
-bookkeeping. It is kept in the deck on purpose: a lab whose numbers only ever
-improve is not measuring.
+`panel con` and a one-line verdict.
+
+**The retraction is a block on card 03, not a card of its own** (changed
+2026-09-17, on the user's call). It was card 04, *"The ordered consumer that
+ate the measurement"*. The deck went from eight cards to seven and every later
+card renumbered.
+
+The user's question was whether that page earned a page. It did not: the trap
+is about HOW you read a stream, and the only number it damaged is card 03's.
+Read as a card it looked like a finding about design; read as a warning under
+the 25 ms it corrects, it is a caveat on that figure, which is what it is.
+
+The correction is not weakened by the move. It still names `8.2 s`, still names
+`Next()` against `Messages()`, and it now carries a drawing the card had not
+got: one consumer per message in red, one consumer pulling a batch in green.
+The provenance page still lists `8.2 s before the fix, 25 ms after` against
+card 03, and the selection guide still points traps at that block. A lab whose
+numbers only ever improve is not measuring.
 
 ### 16.4 Numbers are allowed here, and only with provenance
 
@@ -3337,13 +3350,19 @@ and asserts:
 
 - the file is a `<!doctype html>` A4 print document with an `@page` rule;
 - `docs/demo-04-pattern-cards.pdf` exists on disk;
-- each of the eight card titles appears in the prose, one spec per title;
-- there are at least eight `panel pro` and eight `panel con` blocks;
+- each of the seven card titles appears in the prose, one spec per title;
+- there are at least seven `panel pro` and seven `panel con` blocks;
 - the prose names BR-OD06, BR-OD07, BR-OD08 and BR-OD09;
 - the provenance page exists — `"Where every number came from"`,
   `"NATS 2.14.3"`, and a `2026-09-1[456]` date;
 - there is a `pill` and a `Verdict`;
 - `"25 ms"` is present and the retracted `600x` multiple is not;
+- the retraction is NOT a card — `"The ordered consumer that ate the
+  measurement"` must not appear as a title;
+- the retraction is still readable — the prose holds `8.2 s`, `Messages()`,
+  `Next()` and `ordered`;
+- the drawing exists and is labelled —
+  `aria-label="One consumer per message…"` on a second `role="img"`;
 - `ODOMETER_POOL` is named.
 
 **It checks shape, never truth.** No spec can tell whether 25 ms is still what
@@ -3361,6 +3380,10 @@ the machine does. Only a re-run can.
 - [x] 6 — Write the repo-wide rule in the root `CLAUDE.md`
   ("The life of a demo"), and point at it from this folder's `CLAUDE.md`.
 - [x] 7 — Register the seventh guard and the deck in this folder's `CLAUDE.md`.
+- [x] 8 — (2026-09-17) Fold card 04 into card 03 as a warning block with a
+  drawing, renumber 05–08 to 04–07, and update the cover, the selection guide
+  and the provenance page. Guard extended first and confirmed RED
+  (`273 Passed | 2 Failed`).
 
 ### 16.7 What the task list did not anticipate
 
@@ -3372,7 +3395,14 @@ a `.num` cell on those pages too — `?` and `§`. Trimming prose first was
 treating the symptom.
 
 Page fit is checked by measuring, not by looking: `scrollHeight - clientHeight`
-per `.page` must be 0 for all eleven. It is.
+per `.page` must be 0 for all ten. It is.
+
+**The warning block did not fit card 03 as first written**, by 175px. The fix
+was three steps, measured after each: `.page.tight` on card 03 (−54px), the
+block's bullets folded into its paragraph and the drawing compressed from a
+132-unit viewBox to 104 (−104px), and one sentence cut from the lede (−17px).
+Trimming the figure was never on the table — it is the reason the block is
+there.
 
 ### 16.8 What would make this deliverable a failure
 

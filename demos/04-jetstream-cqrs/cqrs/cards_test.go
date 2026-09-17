@@ -51,7 +51,6 @@ var cardTitles = []string{
 	"The log is the only source of truth",
 	"Two projections, one log",
 	"What a snapshot buys",
-	"The ordered consumer that ate the measurement",
 	"A fold is defined by order",
 	"A worker pool buys throughput with correctness",
 	"MaxAckPending is the loss dial",
@@ -113,6 +112,33 @@ var _ = Describe("The pattern cards", func() {
 		prose := cardsProse()
 		Expect(prose).To(ContainSubstring("25 ms"))
 		Expect(prose).NotTo(MatchRegexp(`\b600x\b`))
+	})
+
+	// The retraction was a card of its own until 2026-09-17. It is now a
+	// warning block on the snapshot card, because the trap is about HOW you
+	// read a stream, and the only number it damaged is that card's number.
+	It("does not keep the retraction as a card of its own", func() {
+		Expect(cardsProse()).NotTo(ContainSubstring("The ordered consumer that ate the measurement"))
+	})
+
+	// Folded in, not dropped. A deck whose numbers only ever improve is not
+	// measuring, so the correction has to stay readable next to the figure
+	// it corrected.
+	It("keeps the retraction beside the number it corrected", func() {
+		prose := cardsProse()
+		Expect(prose).To(ContainSubstring("8.2 s"))
+		Expect(prose).To(ContainSubstring("Messages()"))
+		Expect(prose).To(ContainSubstring("Next()"))
+		Expect(prose).To(ContainSubstring("ordered"))
+	})
+
+	// The drawing is the point of the block: it shows one consumer per
+	// message beside one consumer for the batch. An SVG with no label is a
+	// picture a screen reader cannot read.
+	It("draws the trap, and labels the drawing", func() {
+		html := cardsHTML()
+		Expect(html).To(ContainSubstring(`aria-label="One consumer per message`))
+		Expect(strings.Count(html, `role="img"`)).To(BeNumerically(">=", 2))
 	})
 
 	// The demo's own trap: ODOMETER is a prefix of ODOMETER_POOL.
