@@ -8,7 +8,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [br_classification_heuristic](br_classification_heuristic.md) — check `commands/*.go` for precedent before asking BR vs input-validation
 - [design_discussion_vs_implementation_signal](design_discussion_vs_implementation_signal.md) — user iterates/reverts ideas before "let's plan" — don't implement early
 - [demo_context_isolation](demo_context_isolation.md) — every demo is an isolated task/AI context; current CQRS diagram discussion belongs to demo 03
-- [demo_playbook_session_2026-09-17](demo_playbook_session_2026-09-17.md) — 2026-09-17: `demo-playbook.html` is the ONE demo lifecycle (stages 01-04, Learn is `04`); demo 03 retro-fit still open; `development-playbook.*` still untracked
+- [demo_playbook_session_2026-09-17](demo_playbook_session_2026-09-17.md) — 2026-09-17: `demo-playbook.html`/`.pdf` is the ONE demo lifecycle (stages 01-04, Learn is `04`, never `08`); root `CLAUDE.md` points at it and keeps no second step list; demo 03 retro-fit done except stage 04
 - [verify_before_resuming_offloaded_work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary
 - [ui_bug_triage_trust_framing](ui_bug_triage_trust_framing.md) — user says "the UI" is broken → check frontend first
 - [admin_ui_design_viewport](admin_ui_design_viewport.md) — UIs target 1920x1080; verify at that width

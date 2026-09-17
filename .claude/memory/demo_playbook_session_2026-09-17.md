@@ -1,6 +1,6 @@
 ---
 name: demo_playbook_session_2026-09-17
-description: 2026-09-17 session — demo-playbook.html is the one demo lifecycle (04 Learn, not 08); demo 03 retro-fit still open; development-playbook.* still untracked
+description: 2026-09-17 — demo-playbook.html/.pdf is the ONE demo lifecycle, four stages 01-04 (04 Learn, not 08); root CLAUDE.md points at it; demo 03 retro-fit finished except stage 04
 metadata:
   type: project
 ---
@@ -31,17 +31,21 @@ Demo 03's goal had to be recovered from a git commit message. Nothing in
 `demos/03-multi-cluster-and-accounts/` stated it. That is the proof that
 declaring the role matters.
 
-## Open — next session starts here
+## The retro-fit is done — only stage 04 is left
 
-1. **Retro-fit demo 03 to the playbook** (approved, not started):
-   - `demos/03-multi-cluster-and-accounts/README.md` — stage 01: the question,
-     the role, requirement IDs `D03-R1`…
-   - that demo's `CLAUDE.md` — stage 02: ports, naming, the `t-` prefix rule
-   - the pattern cards deck — stage 04 (see the `pattern-cards` skill)
-   - Do **not** re-run stage 03.
-2. **Loose end:** `development-playbook.html` and `development-playbook.pdf` are
-   still **untracked**. `CLAUDE.md` links `development-playbook.pdf`, so the link
-   is broken for anyone else cloning the repo. Waiting on the user's word to add
-   them.
+Done later the same day, commits `bf43d17` -> `e96c803`:
 
-Related: [[demo_context_isolation]]
+- `demos/03-multi-cluster-and-accounts/README.md` — stage 01, with requirement
+  IDs `D03-R1`…`D03-R9`, and the role declared: **validation only**.
+- that demo's own `CLAUDE.md` — stage 02, the rig. Says the **topology** is the
+  variable, which is the mirror image of demo 02.
+- `lab/` — stage 03 made re-runnable. Seven scripts, `./run-all.sh`, and both
+  `REPORT.md` and `REPORT.html` generated from `run/results.tsv`. Last run:
+  **73 passed, 0 failed, 19 notes**.
+- `development-playbook.html` and `development-playbook.pdf` are now **tracked**,
+  so `CLAUDE.md`'s link resolves. That loose end is closed.
+
+**Only stage 04 — the pattern cards PDF — remains.** Read
+[[demo03-state-and-handover]] before starting it; it carries the rules that bite.
+
+Related: [[demo_context_isolation]], [[demo03-state-and-handover]]
