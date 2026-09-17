@@ -82,6 +82,10 @@ tree:
   shell or other demos. Demo 01's live under `demos/01-dictionary/deploy/` and are
   split into bands (ADR-055) — see "Running demo 01" below. **There is no flat
   `demos/01-dictionary/docker-compose.yml` any more**; it was retired 2026-09-08.
+- **Every demo folder is a sealed unit and owns its own `CLAUDE.md`.** That file
+  is the demo's rules, and an agent working inside the folder reads it *instead
+  of* this one. A new demo gets one before any other work starts. This file
+  keeps only a pointer per demo, under "Commands" below — never a copy.
 - A demo's top-level `README.md` is the **intro text rendered in the lab shell** —
   edit it with that audience in mind.
 - `lab-shell/` is the demo menu / intro pages; per-demo UIs live under
@@ -263,7 +267,7 @@ silently without their `*_TEST_DATABASE_URL` env var, and `go test` still prints
 **`demos/01-dictionary/` has its own `CLAUDE.md`. Read that, not this file,
 for anything inside that folder.** It's the biggest demo here — a
 Postgres-backed, multi-service, multi-frontend POC — sealed the same way
-demo 02 and demo 04 are. It covers running the stack, what the POC
+demo 02, demo 03 and demo 04 are. It covers running the stack, what the POC
 demonstrates, Stream/KV design, storage and credential naming, entity
 identity, subject families, architectural notes, quality rules, the AI agent
 workflow, and the phased plan's file layout.
@@ -283,6 +287,24 @@ back to demo 01; `odometer/` is that demo's only JetStream + CQRS example; and
 demo 02 uses the **host** `nats`/`nsc` CLIs, not a container (the toolbox was
 removed 2026-09-09 on the user's instruction). Demo 01's own tooling rules are
 unaffected.
+
+### Running demo 03
+
+**`demos/03-multi-cluster-and-accounts/` has its own `CLAUDE.md`. Read that, not
+this file, for anything inside that folder.** It is a sealed unit and the odd
+one out: bare `nats-server` processes started on the **host**, no Docker, no
+`nsc` trust chain, no `nats` contexts, no Go code and no UI. Accounts are plain
+user/password pairs inside six hand-written `.conf` files.
+
+Its role is **validation only**, and the **topology itself is the variable** —
+five shapes (T1–T5) needing 6, 7 or 9 servers depending on the run. That is the
+mirror image of demo 02, which holds one topology still and varies the account
+model.
+
+Three rules worth knowing from outside: every scratch config and `server_name`
+carries a **`t-` prefix**, because an unprefixed `pkill` has already killed the
+live lab twice; a region is cut with `kill -STOP`, never with Docker; and the
+answer is read from `curl "localhost:8231/jsz?meta=1"`, never from the logs.
 
 ### Running demo 04
 
