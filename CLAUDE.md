@@ -23,6 +23,14 @@ the file.
   `BUSINESS_RULES-*.md`, `PERFORMANCE.md`, `.claude/plans/*`, and the
   `ARCHITECTURE*.md` docs (see "Architecture Docs").
 - Any exploration touching more than 3 files → delegate to an Explore subagent.
+- **One command per `Bash` call — don't chain with `&&`.** The permission allowlist
+  matches a rule against the *start* of a command, so a broad rule like
+  `Bash(grep:*)` fires for `grep -n foo bar.md` but never for
+  `echo x && grep -n foo bar.md`. A chain is judged whole, matches nothing, and
+  prompts the user every time; "Always allow" then saves the entire chain verbatim
+  as a one-off rule that never matches again. Issue the commands separately, in
+  parallel tool calls where they're independent. Also don't prefix `cd <repo
+  root> &&` — Bash calls already start there.
 
 ## Purpose
 
@@ -36,22 +44,34 @@ truth), and CQRS projections.**
 
 ## The life of a demo
 
-Set by the user 2026-09-17. Every demo in this lab runs the same four steps, in
-this order. A demo is not finished until step 4 exists.
+**`demo-playbook.html` (and its PDF export `demo-playbook.pdf`) is the one
+lifecycle. Read it before you start, design, measure or close a demo.** Do not
+keep a second step list here — there is only one.
 
-1. **Review the NATS feature**, normally from the NATS source docs.
-2. **Implement a demo that shows the feature**, ideally over a simplified
-   logistics example, with optional performance outcomes.
-3. **Derive the proof, and write down the gotchas.** A gotcha you walked into
-   yourself is worth more than one you read about.
-4. **Create the pattern cards** — a conclusion file architects and developers can
-   use as a quick reference.
+Four stages, `01` to `04`. The shape comes from `development-playbook.pdf`, but a
+demo has no Plan/Enable/Build/Release, so its `04 Learn` is that playbook's
+`08 Learn`, renumbered:
+
+| Stage | Name | Question it answers |
+|---|---|---|
+| `01` | Define the question | What are we asking, and is this a showcase or a validation? |
+| `02` | Design the rig | What is held still, and what is the one variable? |
+| `03` | Validate — build the slice and measure it | What did the machine actually do? |
+| `04` | Learn — the card, and the next question | What choice does this let somebody make? |
+
+Two rules from the playbook that bite outside it:
+
+- **Every demo declares its role** — showcase (a person sees a feature work),
+  validation (a decision gets measured evidence), or both. A demo that never
+  says which job it is doing will do neither well.
+- **Every requirement gets an ID** (`D03-R1`, `D03-R2`, …). Without an ID,
+  stage `04` has nothing to point back at.
 
 ### The pattern cards are the closing deliverable
 
-**When a demo completes, it gets a pattern cards PDF.** Full workflow — deck
-location, export command, card shape, provenance, retraction, guard spec — is
-the `pattern-cards` skill. Read it before closing a phase.
+**When a demo completes, it gets a pattern cards PDF.** That is stage `04`. Full
+workflow — deck location, export command, card shape, provenance, retraction,
+guard spec — is the `pattern-cards` skill. Read it before closing a phase.
 
 ## Repository Layout
 

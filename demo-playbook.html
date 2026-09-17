@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Demo Playbook — From a Question to a Pattern Card</title>
+<style>
+  :root{
+    --bg:#0d0f11; --bg2:#131416; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px; font-feature-settings:"cv05","ss01";
+  }
+  .page{
+    width:210mm; height:297mm; overflow:hidden; padding:15mm 13mm 11mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);
+    position:relative;
+  }
+  .page:last-child{page-break-after:auto}
+
+  /* ---------- cover ---------- */
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:46px;line-height:53px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:84%;margin-top:16px}
+  .cover-q{
+    margin-top:22px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:15px 20px;max-width:94%;
+  }
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:13.5px;line-height:22px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 26px;margin-top:10px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:16px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  /* ---------- page chrome ---------- */
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam,var(--tx3))}
+  .pfoot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--tx3)}
+
+  /* stage rail */
+  .rail{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-top:11px}
+  .rail span{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3);
+    background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:4px 0;text-align:center;line-height:11px}
+  .rail span.on{color:var(--fam);border-color:var(--fam);
+    background:color-mix(in srgb,var(--fam) 12%,var(--panel2));font-weight:600}
+
+  .titleblock{
+    margin-top:13px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:15px 20px 17px;
+    display:grid;grid-template-columns:54px 1fr;gap:3px 14px;
+  }
+  .num{font-size:29px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:33px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:24px;line-height:30px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  h3{font-size:19px;line-height:25px;font-weight:700;margin:0 0 5px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-top:11px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px 16px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:9px}
+  .panel.fam-l{border-left:2px solid var(--fam)}
+  .panel.fam-l > .lbl{color:var(--fam)}
+  .panel.pro{border-left:2px solid var(--green)} .panel.pro > .lbl{color:var(--green)}
+  .panel.con{border-left:2px solid var(--red)}   .panel.con > .lbl{color:var(--red)}
+  .panel.note{border-left:2px solid var(--amber)}.panel.note > .lbl{color:var(--amber)}
+  .panel.ai{border-left:2px solid var(--purple)} .panel.ai > .lbl{color:var(--purple)}
+  .panel p{font-size:12px;line-height:18.5px;color:var(--tx2)}
+  .panel p b, .panel p strong{color:var(--tx);font-weight:600}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"\203A";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 8px 0;font-weight:500}
+  td{padding:6px 8px 6px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16.5px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .trap{margin-top:11px;font-size:11px;line-height:17px;color:var(--tx3)}
+  .trap b{color:var(--red);font-weight:600;letter-spacing:.04em}
+  .spacer{flex:1}
+  a{color:var(--blue);text-decoration:none}
+
+  /* Four pages carry more material than a stage card. Step their body type and
+     padding down a notch rather than cutting content, so each still fits
+     exactly one A4 page. Same device as the pattern-card decks. */
+  .page.dense .titleblock{padding:12px 20px 14px}
+  .page.dense h2{font-size:21px;line-height:27px}
+  .page.dense .lede{font-size:11.8px;line-height:17.5px}
+  .page.dense .panel{padding:9px 14px}
+  .page.dense .grid2,.page.dense .grid3{margin-top:9px}
+  .page.dense .panel > .lbl{margin-bottom:7px}
+  .page.dense .panel p{font-size:11.5px;line-height:17.5px}
+  .page.dense li{font-size:11.3px;line-height:16px;margin-bottom:3.5px}
+  .page.dense th{font-size:8.5px;padding-bottom:6px}
+  .page.dense td{font-size:11px;line-height:15.5px;padding:3.5px 8px 3.5px 0}
+  .page.dense .trap{font-size:10.3px;line-height:15.5px;margin-top:9px}
+
+  /* ---------- lifecycle figure ---------- */
+  .fig{display:block;width:100%;height:auto}
+  .fig .node{fill:var(--panel);stroke:var(--line2);stroke-width:1}
+  .fig .bar{stroke:none}
+  .fig .n-num{font-size:19px;font-weight:800;letter-spacing:-.02em}
+  .fig .n-short{font-size:14px;font-weight:700;fill:var(--tx)}
+  .fig .n-name{font-size:9.5px;fill:var(--tx3);letter-spacing:.05em}
+  .fig .n-out{font-size:9.5px;fill:var(--tx2)}
+  .fig .flow{fill:none;stroke:var(--stroke);stroke-width:1.6}
+  .fig .flow-hi{fill:none;stroke:var(--blue);stroke-width:1.8}
+  .fig .back{fill:none;stroke:var(--amber);stroke-width:1.5;stroke-dasharray:5 4}
+  .fig .back-l{font-size:9.5px;fill:var(--amber);letter-spacing:.06em}
+  .fig .flow-l{font-size:9.5px;fill:var(--tx3);letter-spacing:.08em}
+  .fig .mid{fill:var(--panel2);stroke:var(--line);stroke-width:1}
+  .fig .mid-t{font-size:10px;fill:var(--amber);letter-spacing:.16em;font-weight:600}
+  .fig .mid-b{font-size:10.5px;fill:var(--tx2)}
+  .fig .mid-k{font-size:10.5px;fill:var(--tx);font-weight:600}
+  .legend{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+  .legend .li{border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:10px 12px}
+  .legend .li .k{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;margin-bottom:6px}
+  .legend .li p{font-size:10.5px;line-height:15px;color:var(--tx2)}
+
+  .chain{display:block;width:100%;height:auto}
+  .chain .box{fill:var(--panel);stroke:var(--line2);stroke-width:1}
+  .chain .bt{font-size:10.5px;fill:var(--tx);font-weight:600}
+  .chain .bs{font-size:9px;fill:var(--tx3);letter-spacing:.06em}
+  .chain .ln{fill:none;stroke:var(--cyan);stroke-width:1.5}
+
+  /* ---------- demo playbook: four stages, not eight ---------- */
+  .rail{grid-template-columns:repeat(4,1fr)}
+  .rail span{font-size:9.5px;padding:5px 0}
+  .roles{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+  .role{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px 16px}
+  .role.show{border-left:2px solid var(--cyan)}
+  .role.val{border-left:2px solid var(--amber)}
+  .role .rh{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+  .role .rh .k{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase}
+  .role.show .rh .k{color:var(--cyan)} .role.val .rh .k{color:var(--amber)}
+  .tag{display:inline-block;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
+    border:1px solid var(--line2);border-radius:3px;padding:2px 6px;color:var(--tx3)}
+  .tag.show{color:var(--cyan);border-color:var(--cyan)}
+  .tag.val{color:var(--amber);border-color:var(--amber)}
+  .tag.both{color:var(--tx2)}
+</style>
+</head>
+<body>
+
+<!-- ===================== 01 COVER ===================== -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Demo playbook &middot; nats&#8209;tech&#8209;lab &middot; v1.0</span></div>
+  <h1 class="cover">From a Question<br>to a <span class="hl">Pattern Card</span></h1>
+  <p class="cover-sub">A four&#8209;stage lifecycle for one demo in this lab &mdash;
+    <b>01</b>, <b>02</b>, <b>03</b>, <b>04</b>. It takes its shape from the <i>Development Playbook</i>
+    and keeps only the four stages a demo really has. Every stage names its owner, its inputs, its
+    deliverables, where AI helps, where it must not decide, and an exit test somebody can actually run.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The claim this guide makes</div>
+    <p>A demo does two jobs, and they are not the same job. It <b>showcases a feature</b> so a person can
+      see it work, and it <b>validates a technical slice</b> so a decision can be made on measured
+      evidence. A demo that never says which job it is doing will do neither well.</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:14px">
+    <div class="lbl" style="color:var(--amber)">How to use it</div>
+    <p>This is a <b>working guide, not a gate</b>. Four stages, numbered <b>01</b> to <b>04</b>, and that
+      is the whole list &mdash; a demo is never planned as a release, never operated and never supported,
+      so the development playbook's <b>04&ndash;07</b> have no demo equivalent.
+      Stage&nbsp;04 feeds straight back into stage&nbsp;01 of the next demo.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The four stages</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>01 Define &middot; the question, and who is asking</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>03 Validate &middot; build the slice and measure it</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>02 Design &middot; the smallest rig that can answer it</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>04 Learn &middot; the card, and the next question</div>
+    </div>
+    <div class="cover-meta"><span>9 pages &middot; 4 stage cards &middot; 2 demo roles</span><span>Version 1.0</span></div>
+  </div>
+</section>
+
+<!-- ===================== 02 LIFECYCLE ===================== -->
+<section class="page dense" style="--fam:var(--blue)">
+  <div class="chead"><span>Demo playbook</span><span class="r">The demo lifecycle &middot; 02 / 09</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">The shape of the work</div>
+    <h2>The demo lifecycle</h2>
+    <p class="lede">Four stages, borrowed numbers. The solid line is the order you first walk it. The dashed
+      lines matter more: <b>evidence travelling backwards</b>. A demo drawn as a straight line is a demo that
+      has never been corrected by a measurement.</p>
+  </div>
+
+  <svg class="fig" viewBox="0 0 800 226" role="img" aria-label="Four demo stages. 01 Define, 02 Design, 03 Validate and 04 Learn run left to right. Dashed arrows run backwards: 03 to 02 when a measurement changes the rig, 03 to 01 when a measurement changes the question, and 04 to 01 of the next demo.">
+    <text class="flow-l" x="4" y="12">SET THE FRAME</text>
+    <text class="flow-l" x="470" y="12" text-anchor="start">WHERE THE WORK IS</text>
+    <text class="flow-l" x="796" y="12" text-anchor="end">CLOSES THE DEMO</text>
+
+    <g>
+      <rect class="node" x="4" y="24" width="182" height="96" rx="9"/>
+      <rect class="bar" x="4" y="24" width="182" height="3" rx="1.5" fill="var(--blue)"/>
+      <text class="n-num" x="20" y="54" fill="var(--blue)">01</text>
+      <text class="n-short" x="58" y="53">Define</text>
+      <text class="n-name" x="20" y="72">THE QUESTION</text>
+      <text class="n-out" x="20" y="92">&rarr; one question, its role,</text>
+      <text class="n-out" x="20" y="107">requirement IDs</text>
+    </g>
+    <g>
+      <rect class="node" x="207" y="24" width="182" height="96" rx="9"/>
+      <rect class="bar" x="207" y="24" width="182" height="3" rx="1.5" fill="var(--purple)"/>
+      <text class="n-num" x="223" y="54" fill="var(--purple)">02</text>
+      <text class="n-short" x="261" y="53">Design</text>
+      <text class="n-name" x="223" y="72">THE RIG</text>
+      <text class="n-out" x="223" y="92">&rarr; smallest rig, the domain</text>
+      <text class="n-out" x="223" y="107">slice, proposed ADRs</text>
+    </g>
+    <g>
+      <rect class="node" x="410" y="24" width="182" height="96" rx="9"/>
+      <rect class="bar" x="410" y="24" width="182" height="3" rx="1.5" fill="var(--cyan)"/>
+      <text class="n-num" x="426" y="54" fill="var(--cyan)">03</text>
+      <text class="n-short" x="464" y="53">Validate</text>
+      <text class="n-name" x="426" y="72">BUILD IT &amp; MEASURE IT</text>
+      <text class="n-out" x="426" y="92">&rarr; a running demo, numbers</text>
+      <text class="n-out" x="426" y="107">with a date, the gotchas</text>
+    </g>
+    <g>
+      <rect class="node" x="613" y="24" width="183" height="96" rx="9"/>
+      <rect class="bar" x="613" y="24" width="183" height="3" rx="1.5" fill="var(--green)"/>
+      <text class="n-num" x="629" y="54" fill="var(--green)">04</text>
+      <text class="n-short" x="667" y="53">Learn</text>
+      <text class="n-name" x="629" y="72">THE CARD</text>
+      <text class="n-out" x="629" y="92">&rarr; pattern cards citing</text>
+      <text class="n-out" x="629" y="107">ADRs, the next question</text>
+    </g>
+
+    <path class="flow" d="M186 72 H203"/><path class="flow" d="M197 67 l7 5 -7 5" stroke-linejoin="round"/>
+    <path class="flow" d="M389 72 H406"/><path class="flow" d="M400 67 l7 5 -7 5" stroke-linejoin="round"/>
+    <path class="flow-hi" d="M592 72 H609"/><path class="flow-hi" d="M603 67 l7 5 -7 5" stroke-linejoin="round"/>
+
+    <path class="back" d="M470 120 V146 H298 V124"/>
+    <path class="back" d="M293 130 l5 -7 5 7" stroke-linejoin="round"/>
+    <text class="back-l" x="478" y="143">03 &rarr; 02  a measurement changes the rig</text>
+
+    <path class="back" d="M540 120 V172 H95 V124"/>
+    <path class="back" d="M90 130 l5 -7 5 7" stroke-linejoin="round"/>
+    <text class="back-l" x="548" y="169">03 &rarr; 01  it changes the question</text>
+
+    <path class="back" d="M704 120 V198 H95 V180" stroke="var(--green)"/>
+    <path class="back" d="M90 186 l5 -7 5 7" stroke="var(--green)" stroke-linejoin="round"/>
+    <text class="back-l" x="712" y="195" text-anchor="end" fill="var(--green)">04 &rarr; 01  of the next demo</text>
+
+    <text class="flow-l" x="4" y="221">A QUARTER WITH NO DASHED PATH USED IS A QUARTER WHERE NOTHING WAS MEASURED</text>
+  </svg>
+
+  <div class="legend">
+    <div class="li"><div class="k" style="color:var(--blue)"><span class="sw" style="background:var(--blue)"></span>01 &middot; Define</div>
+      <p>Done once per demo. Redone when a measurement proves the question was the wrong one.</p></div>
+    <div class="li"><div class="k" style="color:var(--purple)"><span class="sw" style="background:var(--purple)"></span>02 &middot; Design</div>
+      <p>The rig and the domain slice. Small enough that stage 03 can start this week.</p></div>
+    <div class="li"><div class="k" style="color:var(--cyan)"><span class="sw" style="background:var(--cyan)"></span>03 &middot; Validate</div>
+      <p><b>Build and measure are one stage.</b> The code exists to produce the number.</p></div>
+    <div class="li"><div class="k" style="color:var(--green)"><span class="sw" style="background:var(--green)"></span>04 &middot; Learn</div>
+      <p>The only stage that produces something an architect reads. The demo is not done without it.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Why a demo has four stages and not eight</div>
+    <p>The <i>Development Playbook</i> has eight. Four of them have no demo equivalent.
+      <b>04 Plan</b> and <b>06 Build</b> size and ship an increment of a product &mdash; a demo's build is
+      subordinate to its measurement, so it lives inside <b>03 Validate</b>. <b>05 Enable</b> and
+      <b>07 Release</b> make something supportable; a demo is torn down. So a demo's <b>04 Learn</b> is
+      the development playbook's <b>08 Learn</b>, renumbered because there is nothing between them.
+      <b>A demo is not a delivery</b> &mdash; four stages says so more plainly than a gap ever did.</p></div>
+
+  <div class="pfoot"><span>The demo lifecycle</span><span>02 / 09</span></div>
+</section>
+
+<!-- ===================== 03 THE TWO ROLES ===================== -->
+<section class="page dense" style="--fam:var(--amber)">
+  <div class="chead"><span>Demo playbook</span><span class="r">The two roles &middot; 03 / 09</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">Declare this at stage 01</div>
+    <h2>A demo does two jobs</h2>
+    <p class="lede">Showcase and validation are <b>different demos</b> with different audiences, different
+      deliverables and different exit tests. A demo may do both, but it must say so, because the choice is
+      what stages 03 and 04 are graded against.</p>
+  </div>
+
+  <div class="roles">
+    <div class="role show">
+      <div class="rh"><span class="tag show">Role A</span><span class="k">Showcase a feature</span></div>
+      <table>
+        <tr><td style="width:34%"><b>Audience</b></td><td>a person, often not you</td></tr>
+        <tr><td><b>Answers</b></td><td>&ldquo;what does this feature do, and what is it for?&rdquo;</td></tr>
+        <tr><td><b>Deliverables</b></td><td><code>README.md</code> as the lab&#8209;shell intro, a runnable
+          script or UI, a teardown</td></tr>
+        <tr><td><b>Exit test</b></td><td><b>somebody else runs it from the README and sees the feature</b>,
+          with no help from the author</td></tr>
+        <tr><td><b>Fails when</b></td><td>it only runs on the author's machine, in the author's shell
+          history</td></tr>
+      </table>
+    </div>
+    <div class="role val">
+      <div class="rh"><span class="tag val">Role B</span><span class="k">Validate a technical slice</span></div>
+      <table>
+        <tr><td style="width:34%"><b>Audience</b></td><td>a decision, and the person who owns it</td></tr>
+        <tr><td><b>Answers</b></td><td>&ldquo;where are the sharp edges, and what will they cost us?&rdquo;</td></tr>
+        <tr><td><b>Deliverables</b></td><td>a reproducible experiment, measured findings, the gotchas,
+          an accepted or revised ADR</td></tr>
+        <tr><td><b>Exit test</b></td><td><b>a number, with the date, the machine and the tool version</b>,
+          and the command that produced it</td></tr>
+        <tr><td><b>Fails when</b></td><td>the finding is a prediction, or the rig is gone and cannot be
+          re&#8209;run</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">How the role changes each stage</div>
+    <table>
+      <thead><tr><th style="width:9%">Stage</th><th style="width:45.5%">If the role is <span class="good">showcase</span></th><th>If the role is <span class="mid">validation</span></th></tr></thead>
+      <tr><td><b>01</b></td><td>Name the feature and the reader. &ldquo;An architect should understand X in ten minutes.&rdquo;</td>
+        <td>Name the assumption that is both <b>uncertain</b> and <b>expensive to change</b>. Ignore the cheap ones.</td></tr>
+      <tr><td><b>02</b></td><td>Design for a stranger: one command up, one command down, sensible defaults.</td>
+        <td>Design for repeatability: the smallest rig that can still produce the number, and a way to break it on purpose.</td></tr>
+      <tr><td><b>03</b></td><td>The proof is <b>a person following the README</b> and seeing it work.</td>
+        <td>The proof is <b>execution output</b>. A prediction is not a result.</td></tr>
+      <tr><td><b>04</b></td><td>Cards describe <b>what the feature is for</b> and when to reach for it.</td>
+        <td>Cards describe <b>the constraint</b>, its cost, and the fallback. They cite the ADR.</td></tr>
+    </table></div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Both is allowed, and common</div>
+      <p>Most demos here are <b>both</b>. Say so, and then meet <b>both</b> exit tests. A demo that claims
+        both and ships only the measurements is a validation demo with an unpaid debt &mdash; record it as
+        such rather than pretending.</p></div>
+    <div class="panel con"><div class="lbl">The failure this rule exists to stop</div>
+      <p>A validation demo with no <code>README.md</code> and no script. The evidence is excellent and
+        nobody but the author can reproduce or re&#8209;run it. Six months later the goal has to be
+        reconstructed from a git commit message.</p></div>
+  </div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Letting the role drift silently. A demo that started as a
+    two&#8209;day validation grows a UI, then a second service, and is now an unowned product nobody
+    validated anything with.</p>
+
+  <div class="pfoot"><span>The two roles</span><span>03 / 09</span></div>
+</section>
+
+<!-- ===================== 04 STAGE 01 ===================== -->
+<section class="page dense" style="--fam:var(--blue)">
+  <div class="chead"><span>Demo playbook</span><span class="r">Stage 01 / 04 &middot; page 04 / 09</span></div>
+  <div class="rail">
+    <span class="on">01 Define</span><span>02 Design</span><span>03 Validate</span><span>04 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">01</div><div class="fam-lbl">Set the frame &middot; once, then on change</div>
+    <h2>Define the question</h2>
+    <p class="lede"><b>What are we trying to find out, and who is asking?</b> The stage where a wish
+      &mdash; &ldquo;let's look at gateways&rdquo; &mdash; becomes one sentence somebody can be wrong about.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>You, as the architect. AI may draft the wording. It does not pick the question, and it does not
+        decide the role.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>A NATS feature reviewed from the <b>source docs</b>, not from memory and not from a blog. Plus
+        whatever the last demo's stage 04 pushed back at you.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li><b>Write one primary question with a pass or fail answer.</b> &ldquo;When a region goes dark, who
+        can still accept a JetStream write?&rdquo; is a question. &ldquo;Explore gateways&rdquo; is not.</li>
+      <li><b>Declare the role</b> &mdash; <span class="tag show">showcase</span>,
+        <span class="tag val">validation</span> or <span class="tag both">both</span>. This is the single
+        most load&#8209;bearing line in the whole document. See page 03.</li>
+      <li><b>Give every requirement an ID.</b> <code>D03-R1</code>, <code>D03-R2</code>. Without an ID,
+        stage 04 has nothing to point back at and the loop is a wish.</li>
+      <li>Name the <b>logistics slice</b> the demo will speak in, so the answer is readable by somebody who
+        knows the business and not NATS.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p><code>demos/&lt;demo&gt;/README.md</code> opening with the primary question, the declared role, and
+        a ranked requirement list with IDs. The README is also the lab&#8209;shell intro, so write it for a
+        stranger.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Reads the NATS source docs and drafts candidate questions and requirement wording.
+        <b>It must not settle the question from its own knowledge.</b> Require a link or a quoted doc
+        section for every claim about how NATS behaves.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>There is something you are genuinely unsure of, or something a colleague genuinely cannot picture.
+        A demo that cannot change a decision or teach a person is a hobby.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>One sentence, on the page, that a measurement could prove wrong. The role is written down. Every
+        requirement has an ID. Somebody other than you can read the README and say what the demo is for.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for this lab</div>
+    <p>Write the question as the thing you would have to tell a stakeholder if the answer came back
+      badly &mdash; a lost write, a WAN bill, a region that cannot take an order. That framing keeps the
+      demo pointed at the platform instead of at the feature.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Starting at stage 03 because the rig is fun to build. The
+    goal then only exists in a commit message, and has to be archaeologically recovered later.</p>
+
+  <div class="pfoot"><span>Stage 01 &middot; Define the question</span><span>04 / 09</span></div>
+</section>
+
+<!-- ===================== 05 STAGE 02 ===================== -->
+<section class="page dense" style="--fam:var(--purple)">
+  <div class="chead"><span>Demo playbook</span><span class="r">Stage 02 / 04 &middot; page 05 / 09</span></div>
+  <div class="rail">
+    <span>01 Define</span><span class="on">02 Design</span><span>03 Validate</span><span>04 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">02</div><div class="fam-lbl">Set the frame &middot; once, then on change</div>
+    <h2>Design the rig</h2>
+    <p class="lede"><b>What is the smallest thing that can still answer the question?</b> Every part you add
+      is a part that can explain a result away.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>You. AI drafts configs, scripts and diagrams; you own the scope and every proposed ADR.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>The primary question, the declared role, the requirement IDs, and the existing demos &mdash; most
+        rigs here are a variation of one already built.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li><b>Hold everything still except the one thing you are varying.</b> A demo that changes the link
+        and the accounts and the subjects at once produces a result you cannot attribute.</li>
+      <li><b>Choose the smallest rig, and write down why it is enough.</b> Six hand&#8209;written config
+        files on the host beat a Compose stack when the question is about quorum.</li>
+      <li><b>Design the break before you design the happy path.</b> How will you cut the WAN, kill the
+        leader, revoke the credential? A validation demo is mostly failure injection.</li>
+      <li><b>Name the collisions.</b> Ports, context names, store directories, stream names and process
+        name patterns must not be able to touch another demo or a live lab.</li>
+      <li><b>Write the proposed ADRs now</b>, stating the options and the pros and cons, with the choice
+        left open. Stage 03 is what closes them.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>The demo's own <code>CLAUDE.md</code> sealing the folder's rules, a port and naming table in the
+        <code>README.md</code>, the rig itself designed but not yet trusted, proposed ADRs under
+        <code>ADR/lab/</code>, and a diagram of the topology.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Excellent at generating config variants, teardown scripts and the topology diagram.
+        <b>It must not choose the scope.</b> Left alone it adds a service, a frontend and a Compose file to
+        a question that needed four processes.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>Stage 01 is on the page. Designing a rig for an unwritten question produces a rig that answers
+        whichever question it turns out to be good at.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>You can say, in one sentence, what result would <b>disprove</b> the design. Nothing in the rig can
+        collide with another demo or with a running lab. The teardown is written before the setup is run.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for this lab</div>
+    <p>Every scratch process, config file, port and <code>nats</code> context gets a
+      <b>demo&#8209;specific prefix</b>, so a cleanup pattern can never match somebody else's live work.
+      This rule exists because an unprefixed <code>pkill</code> has already killed a live lab twice.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Building the rig on the real thing. If the question needs a
+    freeze, a kill or a delete, it needs a throwaway copy &mdash; never the lab somebody is still using.</p>
+
+  <div class="pfoot"><span>Stage 02 &middot; Design the rig</span><span>05 / 09</span></div>
+</section>
+
+<!-- ===================== 06 STAGE 03 ===================== -->
+<section class="page dense" style="--fam:var(--cyan)">
+  <div class="chead"><span>Demo playbook</span><span class="r">Stage 03 / 04 &middot; page 06 / 09</span></div>
+  <div class="rail">
+    <span>01 Define</span><span>02 Design</span><span class="on">03 Validate</span><span>04 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">03</div><div class="fam-lbl">Where the work is &middot; the only stage that produces evidence</div>
+    <h2>Validate &mdash; build the slice and measure it</h2>
+    <p class="lede"><b>Build it, then make it fail on purpose, and write down what came out.</b> Build and
+      measure are one stage here, not two. The code exists to produce the number; it is not the deliverable.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>You, together with whoever owns the decision the experiment is meant to settle.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>The designed rig, the proposed ADRs, and each experiment already written as a
+        <b>question with a pass or fail answer</b> &mdash; written <i>before</i> the rig is run.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:9px"><div class="lbl">Activities</div>
+    <ul>
+      <li><b>Build the rig, and get the happy path working first.</b> You cannot read a failure if you have
+        never seen the success.</li>
+      <li><b>Then break it deliberately.</b> Freeze a region, kill a leader, cut the link, revoke the
+        credential. Record the exact error code and message, not a paraphrase.</li>
+      <li><b>Run each measurement more than once.</b> A result that changes between runs is not a finding
+        &mdash; either explain it or exclude it and say you excluded it.</li>
+      <li><b>Record the date, the machine and the tool versions</b> next to every number. A number without
+        them cannot be trusted a month later.</li>
+      <li><b>Write the gotchas as you walk into them.</b> A trap you hit yourself is worth more than one you
+        read about, and it is the part nobody else can reproduce for you.</li>
+      <li><b>If the role includes showcase, a stranger must be able to run it.</b> Stage 03 is not complete
+        on measurements alone.</li>
+      <li><b>Tear the rig down and prove it.</b> Then decide which code is kept and which is deleted.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>A running demo, findings marked <b>measured</b> or <b>inferred</b> with a date, the error codes,
+        the written gotchas, the accepted or revised ADRs, and a clean teardown.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Builds the rig, the failure&#8209;injection scripts and the counters, and summarises output.
+        <b>Require real execution output for every claim.</b> A prediction is not a result. AI must not
+        mark a row <i>measured</i> that it reasoned its way to, and it must review its own output for
+        meaning, not just for style.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>Each experiment is written as a pass&#8209;or&#8209;fail question, and the teardown exists. An
+        experiment invented while the rig is already running will be graded against whatever it produced.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>Every question from stage 01 has either <b>evidence</b> behind it, or a <b>written limitation with
+        a workable fallback</b>. Unmeasured rows say <i>unmeasured</i>. The rig is down and the live labs are
+        untouched. If the role includes showcase, somebody else ran it.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:9px"><div class="lbl">Make it concrete for this lab</div>
+    <p>Never fake a WAN cut with <code>docker network disconnect</code> &mdash; it also drops the
+      container's published host ports, so you measure your own tooling instead of the cut. Freeze the
+      processes instead. Traps like this one <b>are</b> the deliverable.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Letting the rig quietly become permanent. A throwaway that was
+    never reviewed for error handling, secrets or support is now something you own.</p>
+
+  <div class="pfoot"><span>Stage 03 &middot; Validate &mdash; build the slice and measure it</span><span>06 / 09</span></div>
+</section>
+
+<!-- ===================== 07 STAGE 04 ===================== -->
+<section class="page dense" style="--fam:var(--green)">
+  <div class="chead"><span>Demo playbook</span><span class="r">Stage 04 / 04 &middot; page 07 / 09</span></div>
+  <div class="rail">
+    <span>01 Define</span><span>02 Design</span><span>03 Validate</span><span class="on">04 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">04</div><div class="fam-lbl">Closes the demo &middot; and opens the next one</div>
+    <h2>Learn &mdash; the card, and the next question</h2>
+    <p class="lede"><b>What do we now know, and what does it change?</b> The only stage that produces
+      something an architect reads. <b>A demo is not finished until this exists.</b></p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>You. The conclusion is a judgement about the platform, and a judgement needs a name on it.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>The findings from stage 03, the gotchas, the closed ADRs, and the requirement IDs from stage 01 so
+        each finding can be traced to the thing that asked for it.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li><b>Close every ADR the demo was meant to settle</b> &mdash; the options, the pros and cons, the
+        choice, and the evidence. The ADR holds the reasoning.</li>
+      <li><b>Build the pattern cards deck</b> &mdash; the one artifact an architect or developer reads as a
+        quick reference. Cards <b>cite</b> the ADRs; they do not restate the argument.</li>
+      <li><b>Retract what turned out to be wrong.</b> Mark it retracted in place and say what replaced it.
+        A silently deleted finding is how a wrong idea comes back.</li>
+      <li><b>Write down the next question</b> and hand it to stage 01. If nothing new is worth asking, say
+        that too &mdash; that is also a result.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p><code>demos/&lt;demo&gt;/docs/&lt;demo&gt;-pattern-cards.html</code> and its <code>.pdf</code>,
+        closed ADRs under <code>ADR/lab/</code>, updated session memory, and the next demo's primary
+        question.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Drafts the cards and the ADR prose from the recorded findings. <b>It must not invent a
+        recommendation the evidence does not support</b>, and it must not upgrade an <i>inferred</i> row to
+        <i>measured</i>. Every card traces to a finding or is labelled as judgement.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>The findings are marked measured or inferred, and the rig is down. Cards written from a rig that is
+        still moving will describe a state that no longer exists.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>A reader who was not there can pick an approach, and say <b>why</b> and <b>what it costs</b>, from
+        the deck alone. Every requirement ID from stage 01 is either answered or explicitly carried forward.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">The split of responsibility</div>
+    <p><b>The ADR is the argument</b> &mdash; the options, the trade&#8209;offs, the decision, the evidence,
+      the requirement it answers. <b>The cards are the index</b> &mdash; one minute to read, and a pointer
+      to the ADR when the reader wants the reasoning. One deck per demo. Do not invent a third artifact.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Stopping at stage 03 because the answer is now obvious to you.
+    It is obvious to you because you ran it. To everybody else the demo does not exist.</p>
+
+  <div class="pfoot"><span>Stage 04 &middot; Learn &mdash; the card, and the next question</span><span>07 / 09</span></div>
+</section>
+
+<!-- ===================== 08 THE CLOSING ARTIFACT ===================== -->
+<section class="page dense" style="--fam:var(--green)">
+  <div class="chead"><span>Demo playbook</span><span class="r">The closing artifact &middot; 08 / 09</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">One artifact per demo, and what feeds it</div>
+    <h2>The chain from question to choice</h2>
+    <p class="lede">The deliverable a reader wants is <b>a choice with its pros and cons, traced back to the
+      requirement that asked for it</b>. That is not one document. It is a short chain, and each link has one
+      job.</p>
+  </div>
+
+  <svg class="chain" viewBox="0 0 800 96" role="img" aria-label="A chain of five links. A requirement ID from stage 01 leads to a finding from stage 03, which leads to an ADR holding the options and trade-offs, which is cited by a pattern card, which a reader uses to pick an approach.">
+    <g>
+      <rect class="box" x="2" y="14" width="146" height="52" rx="8"/>
+      <text class="bs" x="16" y="34" fill="var(--blue)">STAGE 01</text>
+      <text class="bt" x="16" y="50">Requirement</text>
+      <text class="bs" x="16" y="61">D03-R1 &middot; ranked, has an ID</text>
+    </g>
+    <g>
+      <rect class="box" x="164" y="14" width="146" height="52" rx="8"/>
+      <text class="bs" x="178" y="34" fill="var(--cyan)">STAGE 03</text>
+      <text class="bt" x="178" y="50">Finding</text>
+      <text class="bs" x="178" y="61">measured &middot; dated &middot; re-runnable</text>
+    </g>
+    <g>
+      <rect class="box" x="326" y="14" width="146" height="52" rx="8"/>
+      <text class="bs" x="340" y="34" fill="var(--green)">STAGE 04</text>
+      <text class="bt" x="340" y="50">ADR</text>
+      <text class="bs" x="340" y="61">options &middot; pros &middot; cons &middot; choice</text>
+    </g>
+    <g>
+      <rect class="box" x="488" y="14" width="146" height="52" rx="8"/>
+      <text class="bs" x="502" y="34" fill="var(--green)">STAGE 04</text>
+      <text class="bt" x="502" y="50">Pattern card</text>
+      <text class="bs" x="502" y="61">one minute &middot; cites the ADR</text>
+    </g>
+    <g>
+      <rect class="box" x="650" y="14" width="148" height="52" rx="8" stroke="var(--blue)"/>
+      <text class="bs" x="664" y="34" fill="var(--blue)">THE READER</text>
+      <text class="bt" x="664" y="50">A choice</text>
+      <text class="bs" x="664" y="61">and why, and what it costs</text>
+    </g>
+    <path class="ln" d="M148 40 H162"/><path class="ln" d="M157 35 l6 5 -6 5" stroke-linejoin="round"/>
+    <path class="ln" d="M310 40 H324"/><path class="ln" d="M319 35 l6 5 -6 5" stroke-linejoin="round"/>
+    <path class="ln" d="M472 40 H486"/><path class="ln" d="M481 35 l6 5 -6 5" stroke-linejoin="round"/>
+    <path class="ln" d="M634 40 H648"/><path class="ln" d="M643 35 l6 5 -6 5" stroke-linejoin="round"/>
+    <text class="bs" x="2" y="88" fill="var(--tx3)">A LINK YOU SKIP IS A CLAIM THE READER HAS TO TAKE ON TRUST</text>
+  </svg>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">The ADR is the argument</div>
+      <p>Lives under <code>obsidian/V3-Platform/Architecture/ADR/lab/</code>. Holds the options that were on
+        the table, the pros and cons of each, the decision, the evidence behind it, and the requirement ID it
+        answers. This is where a <b>trade&#8209;off</b> belongs, because a trade&#8209;off needs room.</p></div>
+    <div class="panel pro"><div class="lbl">The cards are the index</div>
+      <p>Lives at <code>demos/&lt;demo&gt;/docs/&lt;demo&gt;-pattern-cards.html</code> plus the exported
+        <code>.pdf</code>. One deck per demo, read in a minute, with the constraint, its cost, the fallback,
+        and a pointer to the ADR. <b>It cites; it does not restate.</b></p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:9px"><div class="lbl">Why not one single document</div>
+    <p>Because the two have different lifetimes. A <b>finding</b> is true of one version on one date and may
+      later be <b>retracted</b>. A <b>decision</b> outlives the demo that produced it. Fusing them means
+      either the reasoning is too long to be a quick reference, or the quick reference quietly becomes the
+      only record of why. Keep the chain and keep the links short.</p></div>
+
+  <div class="panel fam-l" style="margin-top:9px"><div class="lbl">Export</div>
+    <p>The deck is authored as HTML in the dark house style, then exported beside itself:<br>
+      <code>node demos/01-dictionary/diagrams/export-html-pdf.mjs &lt;in.html&gt; &lt;out.pdf&gt;</code><br>
+      The HTML is the source of truth and the thing git can diff. The PDF is the thing you send. Same for
+      this playbook.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> A deck of confident recommendations with no evidence behind any
+    of them. If a card cannot name its finding or its ADR, it is an opinion wearing a card's clothes &mdash;
+    label it as judgement or cut it.</p>
+
+  <div class="pfoot"><span>The closing artifact</span><span>08 / 09</span></div>
+</section>
+
+<!-- ===================== 09 WORKED EXAMPLE + RIGHT-SIZING ===================== -->
+<section class="page dense" style="--fam:var(--amber)">
+  <div class="chead"><span>Demo playbook</span><span class="r">Using this guide &middot; 09 / 09</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">Worked example &middot; and what to cut</div>
+    <h2>Demo 03, scored against this guide</h2>
+    <p class="lede">The demo that produced this playbook. It is a good demo with a real gap, which makes it
+      the honest example. Scored <b>2026&#8209;09&#8209;17</b>.</p>
+  </div>
+
+  <div class="panel fam-l"><div class="lbl">The score</div>
+    <table>
+      <thead><tr><th style="width:8%">Stage</th><th style="width:13%">State</th><th>What exists, and what is missing</th></tr></thead>
+      <tr><td><b>01</b></td><td><span class="bad">missing</span></td>
+        <td>The question was excellent &mdash; <i>&ldquo;when a region goes dark, who can still accept a
+          JetStream write?&rdquo;</i> &mdash; but it was never written on a page. It had to be recovered from
+          a <b>git commit message</b>. No declared role, no requirement IDs.</td></tr>
+      <tr><td><b>02</b></td><td><span class="mid">partial</span></td>
+        <td>The rig is right: six hand&#8209;written configs, no Docker, one gateway, four accounts. Prefix
+          and port discipline came later, after an unprefixed <code>pkill</code> hit a live lab. No
+          <code>README.md</code>, no <code>CLAUDE.md</code>, no ADRs.</td></tr>
+      <tr><td><b>03</b></td><td><span class="good">strong</span></td>
+        <td>Four topologies measured on the machine, not read from docs. Error codes recorded verbatim.
+          Gotchas written down, including the measurement traps that produced wrong readings. A flaky result
+          was excluded and <b>said to be excluded</b>. This stage is the model.</td></tr>
+      <tr><td><b>04</b></td><td><span class="bad">missing</span></td>
+        <td>No pattern cards deck. Demos 01, 02 and 04 all have one. The findings live in two HTML pages
+          that only somebody who already knows the demo can navigate.</td></tr>
+    </table></div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">What the score tells you</div>
+      <p>Strong evidence, no frame and no conclusion. So <b>the demo's role was never declared</b> &mdash; and
+        because nobody declared it, it quietly became <span class="tag val">validation</span>&#8209;only
+        while everyone assumed it was <span class="tag both">both</span>. That is exactly the failure page 03
+        exists to stop.</p></div>
+    <div class="panel pro"><div class="lbl">The fix, in order</div>
+      <p>Write stage <b>01</b> and <b>02</b> retroactively as the <code>README.md</code> and
+        <code>CLAUDE.md</code> &mdash; short, honest, dated. Then do stage <b>04</b> properly. Do <b>not</b>
+        re&#8209;run stage 03; the evidence is good and re&#8209;measuring it would be theatre.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:9px"><div class="lbl">Right&#8209;sizing &middot; what to cut when the demo is small</div>
+    <ul>
+      <li><b>Never cut stage 01.</b> It is one paragraph and it is the cheapest thing in the book. Every
+        cost in demo 03 traces back to skipping it.</li>
+      <li><b>Never cut stage 04.</b> An unclosed demo is work nobody can use. If the deck would be three
+        cards, write three cards.</li>
+      <li><b>Stage 02 may collapse into a section of the README</b> for a small rig. It does not need its own
+        document; it needs its decisions written down.</li>
+      <li><b>Stage 03 may be one experiment.</b> One measured number beats four predicted ones.</li>
+      <li><b>An ADR is only needed where a real choice was made.</b> A demo that confirmed the obvious
+        produces cards and no ADR, and that is a complete demo.</li>
+    </ul></div>
+
+  <div class="panel ai" style="margin-top:9px"><div class="lbl">Applying this guide to demos already built</div>
+    <p>Demos 01, 02 and 04 are built and carded. <b>Do not retro&#8209;fit them.</b> This is a working guide,
+      not a gate, and back&#8209;filling paperwork for finished work teaches nobody anything. Apply it
+      forward, and retro&#8209;fit only the demo you are closing right now.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Treating the four stages as four documents. They are four
+    questions. A small demo can answer all four inside one <code>README.md</code> and one card deck.</p>
+
+  <div class="pfoot"><span>Using this guide</span><span>09 / 09</span></div>
+</section>
+
+</body>
+</html>
