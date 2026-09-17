@@ -2910,3 +2910,114 @@ expected to be untouched, and `domain.go` is not opened.
 - A run on ONE worker that drops anything.
 - The `odometer-pool` tab reduced to a single row.
 - A sleep or a jitter added to `work()` to force the damage.
+
+## 14. Phase 04.11 — lesson 02 explains itself (PROPOSED)
+
+**Status:** PROPOSED 2026-09-17. Raised by the user immediately after 04.10.1
+landed. Nothing here starts until it is approved.
+
+### 14.1 Why
+
+04.10.1 changed a constant from ten to three and the lesson went from
+`dropped = 0` to `dropped = 1 146`. Nothing on the screen says why. A reader
+who lowers the vehicle count, or raises `MaxAckPending`, or picks eight
+workers instead of one, sees the number move and has no model for it.
+
+The four tabs each show one number well. None of them shows the MECHANISM,
+and the mechanism is the product. Lesson 02 is not "a pool is slow or fast" —
+it is "a pool trades order for throughput, and here is exactly when you pay".
+
+Four things need drawing, and the user named all four:
+
+1. One stream, many workers — where the speed comes from.
+2. Reordering — what it costs, and the conditions that produce it.
+3. Redelivery — when the server hands an event back, and why it is usually
+   too late by then.
+4. Starvation — what `MaxAckPending` actually caps, and the thing it does NOT
+   mean.
+
+Point 4 has a specific misreading to kill. "Starvation" sounds like some
+workers never get an event. The measurement says otherwise: at a cap of 1,
+**8 of 8 workers acked**. The cap starves THROUGHPUT, not workers.
+
+### 14.2 The model the tab has to teach
+
+One sentence, and everything else is an illustration of it:
+
+> **The fold loses an event when two events of the SAME vehicle are in flight
+> at the same time, and the later one finishes first.**
+
+Two independent things put two events of one vehicle in flight together:
+
+- **The key gap.** `poolEvents` writes round robin, so two events of one
+  vehicle sit `len(PoolVehicles)` apart. Fewer vehicles, shorter gap.
+- **The in-flight window.** `MaxAckPending` caps how many events are unacked
+  at once across the whole consumer. A cap of 1 closes the window completely
+  — nothing can race, and the pool folds perfectly.
+
+Neither alone is enough, which is why the demo ran clean for so long: ten
+vehicles and a cap of 1 000 still gave `dropped = 0`, because ten messages of
+gap is more time than a worker needs to finish. The race window is the gap
+measured in TIME, not in messages, and that is the part a table cannot show
+and a drawing can.
+
+**This is honest about being a race, not a formula.** The tab must not print a
+probability it cannot defend. It says which way each dial moves the risk, and
+then hands the reader the Run button to find out.
+
+### 14.3 Design decisions — to settle on approval
+
+- **D16 — a sixth tab, "How this works", not a note on each tab.** The four
+  existing tabs each answer one question with one number. A paragraph of
+  theory on each would bury the number that tab exists for. One tab holds the
+  model; each of the other four gets ONE line linking to it.
+  *Alternative rejected: a note per tab. It would say the same thing four
+  times and still not fit the diagram anywhere.*
+- **D17 — inline SVG Vue components, not exported PNGs.** Precedent is
+  `RedeliveryTimeline.vue`, which already draws an SVG in the app. Inline SVG
+  themes with the palette, reads at any width, carries an `aria-label`, and
+  can be asserted by a spec. A PNG cannot be any of those.
+  `diagrams/lesson-02-how-it-works.html` is still drawn first as the layout
+  mockup, the same way 04.9 used `lesson-02-run-buttons.html`.
+- **D18 — no measured number on this tab.** 04.9.9 deleted every recorded
+  constant from lesson 02 and `recorded.spec.js` guards it. The diagrams show
+  SHAPE only — no counts, no seconds, no drop totals. Where a number would
+  help, the tab shows the reader's OWN last run or shows nothing.
+- **D19 — the diagrams are parameterised by the current settings, or they are
+  not parameterised at all.** A drawing that says "3 vehicles, 8 workers"
+  while the reader has 4 workers selected is worse than a drawing that names
+  neither. Decide one way on approval; D18 leans to naming neither.
+
+### 14.4 Business rules
+
+None expected. This is explanation of rules that already exist — BR-OD07
+(redelivery is a no-op), BR-OD08 (`ErrOutOfOrder`, Term and count as dropped).
+The tab CITES them by number. `BUSINESS_RULES-ODOMETER.md` is expected to be
+untouched and `domain.go` is not opened.
+
+### 14.5 Tasks — none until approved
+
+Sketch only, so the size is visible:
+
+1. The mockup — `diagrams/lesson-02-how-it-works.html`, dark UniFi palette.
+2. **One stream, many workers.** One log, one consumer, N workers pulling.
+   Where the speed comes from, and that the log itself is never copied.
+3. **Where the order is lost.** Two events of one vehicle in flight together;
+   the late one arrives behind the watermark; the fold refuses it (BR-OD08).
+   Names the two dials — key gap and in-flight window — and which way each
+   moves the risk.
+4. **Redelivery.** `AckWait` runs out, the server hands the event to another
+   worker, and the fold has moved on. Why the wait is a cost with no upside
+   here (BR-OD07). The live drawing on the Redelivery tab stays; this one is
+   the mechanism behind it.
+5. **What `MaxAckPending` caps.** The window, not the workers. Shows the cap
+   of 1 case: perfect order, every worker still fed, throughput on the floor.
+6. The tab itself, plus the one-line pointer on each of the other four.
+7. The documents catch up — `CLAUDE.md`, `README.md`.
+
+### 14.6 What would make this phase a failure
+
+- A printed probability the demo cannot defend.
+- A measured constant back on lesson 02.
+- A drawing that says "starvation" without saying every worker still acked.
+- A drawing whose numbers disagree with the controls above it.
