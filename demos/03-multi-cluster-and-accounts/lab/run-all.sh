@@ -7,10 +7,10 @@
 # original measurements in September 2026 were driven by hand through a
 # terminal and never captured. This is that rig, written down.
 #
-#   ./run-all.sh          run all five, then write both reports
+#   ./run-all.sh          run all seven, then write both reports
 #   ./run-all.sh report   re-render both reports from the last run's results
 #
-# Takes about 8 minutes. It starts and stops up to 9 nats-server processes at
+# Takes about 12 minutes. It starts and stops up to 9 nats-server processes at
 # a time, all on 127.0.0.1, all with `t-` prefixed names.
 
 set -euo pipefail
@@ -19,10 +19,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 RUN_DIR="$PWD/run"
 RESULTS="$RUN_DIR/results.tsv"
 
-LABS=(00-islands.sh 01-gateway.sh 02-domain-over-gateway.sh 03-arbiter.sh 04-hub-and-leaf.sh)
+LABS=(00-islands.sh 01-gateway.sh 02-domain-over-gateway.sh 03-arbiter.sh
+      04-hub-and-leaf.sh 05-export-import.sh 06-arbiter3.sh)
 
 # Two editions of one report, from the same numbers. The HTML one adds the
-# five hand-drawn topology figures from figures.html; the Markdown one does
+# seven hand-drawn topology figures from figures.html; the Markdown one does
 # not. Both are generated -- never hand-edit either.
 render() {
   python3 ./render-report.py "$RESULTS" "$RUN_DIR/env.txt" > ../REPORT.md

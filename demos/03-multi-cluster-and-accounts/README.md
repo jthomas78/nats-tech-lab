@@ -68,6 +68,9 @@ The two evidence pages use **different names for the same shapes**. The map:
 | T5 | **D** | hub and leaf |
 | T1, T4 | — | matrix only |
 
+T4 also has a figure **F**, but only in [`REPORT.html`](REPORT.html). It was
+built and measured on 2026-09-17, after both evidence pages were written.
+
 ## Requirements
 
 Ranked by *uncertain and expensive to change*. The cheap ones are not here.
@@ -81,7 +84,7 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
 | **D03-R5** | What does losing a **region**, a **cluster** or a **single instance** do to quorum, and what error code does the client see? | answered |
 | **D03-R6** | **Gateway or leaf node** for two regions — what does each one buy, and what does each one cost? | answered |
 | **D03-R7** | How does data get a **second copy** in the other region, and what does that cost? | partly answered |
-| **D03-R8** | Can two accounts share a subject **on purpose**, via export / import? | **open** |
+| **D03-R8** | Can two accounts share a subject **on purpose**, via export / import? | answered |
 | **D03-R9** | If we add an arbiter site, can real data land on it **by accident**? | answered |
 
 ### Carried forward — not measured
@@ -135,7 +138,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 ./run-all.sh
 ```
 
-That builds all five topologies from nothing, measures them, tears them down,
+That builds all seven topologies from nothing, measures them, tears them down,
 and writes [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) — the
 same findings, but the HTML edition draws each topology. It needs
 `nats-server`, `nats`, `jq`, `curl` and `python3`, and nothing else — no

@@ -18,7 +18,7 @@
 # `stream info` from the far side then SUCCEEDS and hands back a handle to the
 # other region's stream. It looks local. It is not. Two accounts fix it.
 #
-# Requirements exercised: D03-R1, D03-R2, D03-R4, D03-R5.
+# Requirements exercised: D03-R1, D03-R2, D03-R4, D03-R5, D03-R7.
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -127,5 +127,33 @@ sleep 3
 check A13 D03-R5 "after recovery: meta group size" "6" "$(meta_size 8231)"
 check A14 D03-R5 "after recovery: nothing lost, LB_ZA messages" \
       "1" "$(stream_msgs 4231 za ODOMETER)"
+
+# --- A SECOND COPY IN THE OTHER REGION, over a gateway ----------------------
+# 04-hub-and-leaf.sh measures the same question over a LEAF link, where a
+# mirror that forgets `mirror.external.api` sits at zero forever with no error.
+# A gateway has no domains, so there is only one JetStream namespace and there
+# is nothing to point `external.api` at. The plain mirror simply works.
+#
+# That is the honest trade, stated twice in one report: the gateway costs you
+# a shared fate, and it hands you the cross-region copy for free.
+cat > "$RUN_DIR/M_GW.json" <<'JSON'
+{ "name": "M_GW", "num_replicas": 3,
+  "placement": { "cluster": "au" },
+  "mirror": { "name": "ODOMETER" } }
+JSON
+nats_as 4231 za stream add --config "$RUN_DIR/M_GW.json" >/dev/null 2>&1 || true
+sleep 6
+check A15 D03-R7 "a mirror of ZA's ODOMETER, placed in the other region, lands in" \
+      "au" "$(stream_cluster 4231 za M_GW)"
+check A16 D03-R7 "and it copied, with NO external.api -- messages" \
+      "1" "$(stream_msgs 4231 za M_GW)"
+
+# And it keeps up. A new publish into the source reaches the far region.
+nats_as 4231 za pub "$SUBJECT" '{"km":44.0}' >/dev/null 2>&1 || true
+sleep 6
+check A17 D03-R7 "one more publish into the source: mirror messages now" \
+      "2" "$(stream_msgs 4231 za M_GW)"
+note  A17a D03-R7 "so, over a gateway" \
+      "a mirror needs no external.api, because a supercluster has ONE JetStream namespace"
 
 banner "$TOPOLOGY -- done"

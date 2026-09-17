@@ -15,12 +15,12 @@ cd demos/03-multi-cluster-and-accounts/lab
 
 | | |
 |---|---|
-| When | 2026-09-17 18:53 SAST |
+| When | 2026-09-17 20:28 SAST |
 | Server | `nats-server v2.14.6` |
 | Client | `0.4.0` |
 | Machine | Darwin 25.4.0 arm64 |
-| Checks | **52 passed, 0 failed** |
-| Recorded observations | 11 |
+| Checks | **73 passed, 0 failed** |
+| Recorded observations | 19 |
 
 A **check** has an expected answer and passes only on an exact match. A **note** has no expected answer — it records what the machine did so the number is on the record. Notes cannot pass or fail.
 
@@ -29,10 +29,12 @@ A **check** has an expected answer and passes only on an exact match. A **note**
 | Topology | Checks | Passed | Failed | Notes |
 |---|---:|---:|---:|---:|
 | T1 -- no link | 9 | 9 | 0 | 0 |
-| T2 / A -- gateway | 14 | 14 | 0 | 2 |
+| T2 / A -- gateway | 17 | 17 | 0 | 3 |
 | B -- gateway + per-cluster domain | 5 | 5 | 0 | 2 |
 | T3 / C -- gateway + arbiter | 10 | 10 | 0 | 4 |
 | T5 / D -- hub and leaf | 14 | 14 | 0 | 3 |
+| E -- export / import between accounts | 8 | 8 | 0 | 2 |
+| T4 / F -- gateway + 3-node arbiter | 10 | 10 | 0 | 5 |
 
 ## The answers, requirement by requirement
 
@@ -42,7 +44,7 @@ A **check** has an expected answer and passes only on an exact match. A **note**
 
 **This run says:** Three of the five do: **T1** (no link at all), **T3** (gateway plus an arbiter site) and **T5** (hub and leaf). **T2**, the plain gateway, does not -- the six servers are one meta group, so a 3/3 split leaves nobody with a majority and both sides freeze. T3 fixes that with a seventh vote that sits outside both regions. T5 fixes it a different way: each region is its own JetStream system, so there is no shared vote to lose.
 
-*Evidence:* `T1g`, `T1h`, `A11`, `A11a`, `A12`, `C3`, `C3a`, `C4`, `C5`, `C5a`, `C6`, `D10`, `D11`, `D12`, `D13`, `D14`
+*Evidence:* `T1g`, `T1h`, `A11`, `A11a`, `A12`, `C3`, `C3a`, `C4`, `C5`, `C5a`, `C6`, `D10`, `D11`, `D12`, `D13`, `D14`, `F3`, `F4`, `F6`, `F8`, `F9`, `F12`
 
 ### D03-R2
 
@@ -50,7 +52,7 @@ A **check** has an expected answer and passes only on an exact match. A **note**
 
 **This run says:** The **account**. A cluster only decides *where* a stream is placed, and over a gateway a domain changes nothing at all. Two accounts is the only thing in this demo that gave two regions two real, separately-owned streams of the same name over one link.
 
-*Evidence:* `T1d`, `T1e`, `A3`, `A4`, `A5`, `A6`, `A7`, `A8`
+*Evidence:* `T1d`, `T1e`, `A3`, `A4`, `A5`, `A6`, `A7`, `A8`, `E6`, `E7`, `E8`
 
 ### D03-R3
 
@@ -74,7 +76,7 @@ A **check** has an expected answer and passes only on an exact match. A **note**
 
 **This run says:** It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees `10008 JetStream system temporarily unavailable` on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, because a stream's replicas all sit inside one cluster.
 
-*Evidence:* `T1a`, `T1b`, `T1c`, `T1i`, `A1`, `A2`, `A10a`, `A10`, `A13`, `A14`, `C1`, `C2`, `C12`, `D2`
+*Evidence:* `T1a`, `T1b`, `T1c`, `T1i`, `A1`, `A2`, `A10a`, `A10`, `A13`, `A14`, `C1`, `C2`, `C12`, `D2`, `F1`, `F2`, `F5`, `F5a`, `F6a`, `F7a`, `F7`, `F10`, `F11`
 
 ### D03-R6
 
@@ -88,17 +90,17 @@ A **check** has an expected answer and passes only on an exact match. A **note**
 
 **Asks:** How does data get a **second copy** in the other region, and what does that cost?
 
-**This run says:** With a **mirror**, and over a leaf link a mirror needs `mirror.external.api` pointing at the other domain. Leave it out and you get the worst outcome in this whole report: no error, no warning, a stream that reports healthy, and either zero messages or -- if a local stream happens to share the name -- a silent copy of the **wrong** stream. **Partly answered:** still not measured over a gateway, and no lag or bandwidth figure.
+**This run says:** With a **mirror**, and over a leaf link a mirror needs `mirror.external.api` pointing at the other domain. Leave it out and you get the worst outcome in this whole report: no error, no warning, a stream that reports healthy, and either zero messages or -- if a local stream happens to share the name -- a silent copy of the **wrong** stream. Over a **gateway** the same mirror needs no `external.api` at all, because a supercluster is one JetStream namespace -- it simply works, and it keeps up. **Partly answered:** no lag or bandwidth figure in either shape.
 
-*Evidence:* `D7`, `D7a`, `D8`, `D9`, `D9a`
+*Evidence:* `A15`, `A16`, `A17`, `A17a`, `D7`, `D7a`, `D8`, `D9`, `D9a`
 
 ### D03-R8
 
 **Asks:** Can two accounts share a subject **on purpose**, via export / import?
 
-**This run says:** **Still open.** This rig does not test it. It is the one unmeasured claim left in the matrix.
+**This run says:** Yes, and it is the only sharing in this demo that is safe by design. The exporting account opens one hole, in one direction, and the importing account renames what comes through it -- so the copy can never be mistaken for its own data. The hole is a **subject** hole only: the importing account still cannot read, name or delete a stream that belongs to the exporter, and it may use the same stream name for something else. That is the deliberate opposite of T5's silent double capture.
 
-*Evidence:* none — no check in this rig covers it.
+*Evidence:* `E1`, `E2`, `E3`, `E3a`, `E4`, `E5`, `E9`
 
 ### D03-R9
 
@@ -117,6 +119,12 @@ Four things came out of building the scripts that are **not** in the demo's exis
 After the majority of a supercluster was frozen, the monitoring endpoint kept naming a leader for roughly a minute. Read it too early and a dead supercluster looks perfectly healthy. In that window the client does not get a clean refusal either -- it hangs and times out. The clean `10008` only appears once the old leader has aged out. Anyone timing a failover test needs to wait for the leader to actually go, not trust the first reading.
 
 *Evidence:* `A10a`, `A11a`
+
+### A new meta leader is named before it can take a change
+
+The stale-leader trap has a twin, and it points the other way. After an election the monitoring endpoint names the new leader some seconds before that leader will accept a create -- ask immediately and the call is refused, on a supercluster that is in fact healthy. So neither edge of a failover can be trusted from one reading: the old leader lingers after it is gone, and the new one is announced before it is ready. The T4 script does not sleep a magic number for this -- it retries and records how long it waited.
+
+*Evidence:* `F6a`, `F7a`
 
 ### A name-only mirror can silently copy the WRONG stream
 
@@ -140,10 +148,8 @@ Not a NATS fact -- a rig fact, and worth keeping. An early version of this harne
 
 | What | Why it is still open |
 |---|---|
-| `D03-R8` -- export / import between two accounts | No script covers it. |
-| `D03-R7` over a gateway | Mirrors were measured over a leaf link only. |
 | `D03-R4` -- the cost of a cross-region read | Placement is measured. Latency is not. No consumer placement test either. |
-| **T4** -- gateway with a 3-node arbiter cluster | Never built, here or anywhere. The README still marks it `inferred`. |
+| Mirror lag and bandwidth | Both shapes now prove a mirror copies. Neither says how fast, or at what cost on the wire. |
 | The hub as a real store | In T5 the hub only relays. Nothing measured what happens when it holds data of its own. |
 | Leaf reconnect with many regions | Two regions were tested. Nothing tested five. |
 
@@ -176,20 +182,24 @@ Not a NATS fact -- a rig fact, and worth keeping. An early version of this harne
 | ✅ `A7` | LB_AU ODOMETER lands in | D03-R2 | au | **au** |
 | ✅ `A8` | one publish in ZA: messages in LB_ZA / LB_AU | D03-R2 | 1 / 0 | **1 / 0** |
 | ✅ `A9` | KV t7-vehicles created from AU, no placement flag, lands in | D03-R4 | au | **au** |
-| 📋 `A10a` | seconds /jsz still named a meta leader after ZA stopped answering | D03-R5 | — | **22s** |
+| 📋 `A10a` | seconds /jsz still named a meta leader after ZA stopped answering | D03-R5 | — | **6s** |
 | ✅ `A10` | ZA dark: meta leader seen from AU (3 of 6 is below 4) | D03-R5 | NONE | **NONE** |
 | ✅ `A11` | ZA dark: AU tries to create a NEW stream | D03-R1 | fails | **fails** |
 | 📋 `A11a` | how the refusal arrived | D03-R1 | — | **10008** |
 | ✅ `A12` | ZA dark: publish to AU's EXISTING stream, messages now | D03-R1 | 1 | **1** |
 | ✅ `A13` | after recovery: meta group size | D03-R5 | 6 | **6** |
 | ✅ `A14` | after recovery: nothing lost, LB_ZA messages | D03-R5 | 1 | **1** |
+| ✅ `A15` | a mirror of ZA's ODOMETER, placed in the other region, lands in | D03-R7 | au | **au** |
+| ✅ `A16` | and it copied, with NO external.api -- messages | D03-R7 | 1 | **1** |
+| ✅ `A17` | one more publish into the source: mirror messages now | D03-R7 | 2 | **2** |
+| 📋 `A17a` | so, over a gateway | D03-R7 | — | **a mirror needs no external.api, because a supercluster has ONE JetStream namespace** |
 
 ### B -- gateway + per-cluster domain
 
 | | Check | Req | Expected | Measured |
 |---|---|---|---|---|
 | ✅ `B1` | sides that elect a meta leader, with NOTHING stopped (of 2) | D03-R3 | 1 | **1** |
-| 📋 `B1a` | which side won the race this run -- and it is a coin toss | D03-R3 | — | **za won; au is blind** |
+| 📋 `B1a` | which side won the race this run -- and it is a coin toss | D03-R3 | — | **au won; za is blind** |
 | ✅ `B2` | the losing side has a meta leader | D03-R3 | no | **no** |
 | ✅ `B3` | meta group size seen from the live side -- domains did NOT split it | D03-R3 | 6 | **6** |
 | ✅ `B4` | placing a stream on the BLIND cluster, from a live client | D03-R3 | 10005 | **10005** |
@@ -237,6 +247,41 @@ Not a NATS fact -- a rig fact, and worth keeping. An early version of this harne
 | ✅ `D14` | whole hub gone: AU still stores its own publishes | D03-R1 | ok | **ok** |
 | 📋 `D15` | the cost | D03-R6 | — | **nothing replicates by itself -- every cross-region copy is hand-written** |
 
+### E -- export / import between accounts
+
+| | Check | Req | Expected | Measured |
+|---|---|---|---|---|
+| ✅ `E1` | one publish in LB_ZA: the owning account stored it | D03-R8 | 1 | **1** |
+| ✅ `E2` | the importing account LB_AU stored it too, across the gateway | D03-R8 | 1 | **1** |
+| ✅ `E3` | and it arrived PREFIXED -- LB_AU's raw-subject stream | D03-R8 | 0 | **0** |
+| 📋 `E3a` | so the deliberate copy and the accidental one differ | D03-R8 | — | **the importing side renames the subject, so the two sources can never be confused** |
+| ✅ `E4` | LB_AU publishes the same subject: ZA's stream is unchanged | D03-R8 | 1 | **1** |
+| ✅ `E5` | and LB_AU's own raw stream took that one | D03-R8 | 1 | **1** |
+| ✅ `E6` | LB_AU asks for stream info on ZA's ODOMETER | D03-R2 | fails | **fails** |
+| ✅ `E7` | LB_AU creates its OWN stream named ODOMETER -- no 10058 | D03-R2 | ok | **ok** |
+| ✅ `E8` | and they are two real streams, in | D03-R2 | za / au | **za / au** |
+| 📋 `E9` | the verdict | D03-R8 | — | **works, and it is the only sharing in this demo that is explicit, one-way and renamed** |
+
+### T4 / F -- gateway + 3-node arbiter
+
+| | Check | Req | Expected | Measured |
+|---|---|---|---|---|
+| ✅ `F1` | meta group size (majority is 5) | D03-R5 | 9 | **9** |
+| ✅ `F2` | distinct JetStream meta groups across all three sites | D03-R5 | 1 | **1** |
+| ✅ `F3` | AU dark (6 of 9 left): a leader is elected among the survivors | D03-R1 | yes | **yes** |
+| ✅ `F4` | AU dark: ZA creates a NEW 3-replica stream | D03-R1 | ok | **ok** |
+| ✅ `F5` | AU dark AND one arbiter node dark (5 of 9 -- exactly the majority) | D03-R5 | yes | **yes** |
+| 📋 `F5a` | which server held the lead on the last surviving majority | D03-R5 | — | **t-za-2** |
+| ✅ `F6` | 5 of 9: ZA still creates a NEW 3-replica stream | D03-R1 | ok | **ok** |
+| 📋 `F6a` | seconds after the new leader was named before it accepted a change | D03-R5 | — | **0s** |
+| 📋 `F7a` | seconds /jsz still named a meta leader after the majority went | D03-R5 | — | **40s** |
+| ✅ `F7` | 4 of 9 left: meta leader seen from ZA | D03-R5 | NONE | **NONE** |
+| ✅ `F8` | 4 of 9 left: ZA tries to create a NEW stream | D03-R1 | fails | **fails** |
+| ✅ `F9` | 4 of 9 left: publishing into an EXISTING stream still works | D03-R1 | ok | **ok** |
+| ✅ `F10` | after recovery: meta group size | D03-R5 | 9 | **9** |
+| 📋 `F11` | slack after losing one region | D03-R5 | — | **one node -- 6 of 9 against a majority of 5; T3 in the same state has none** |
+| 📋 `F12` | so T4 is no longer inferred | D03-R1 | — | **measured here: it survives a region plus one more node, and no further** |
+
 ## What each script builds
 
 Every script starts its own servers from nothing, measures, and stops them. Nothing is left running. All servers are bare `nats-server` processes on `127.0.0.1` — no Docker, no `nsc`, no `nats` contexts.
@@ -248,5 +293,7 @@ Every script starts its own servers from nothing, measures, and stops them. Noth
 | `02-domain-over-gateway.sh` | B — a domain per cluster over a gateway | 6 |
 | `03-arbiter.sh` | T3 / C — gateway plus a 1-node arbiter | 7 |
 | `04-hub-and-leaf.sh` | T5 / D — a hub with two leaf clusters | 9 |
+| `05-export-import.sh` | E — export / import between two accounts | 6 |
+| `06-arbiter3.sh` | T4 / F — gateway plus a 3-node arbiter | 9 |
 
 Run one on its own the same way: `./01-gateway.sh`.

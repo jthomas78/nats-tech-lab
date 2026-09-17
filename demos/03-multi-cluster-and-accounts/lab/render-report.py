@@ -74,12 +74,20 @@ REQS = {
    "get the worst outcome in this whole report: no error, no warning, a "
    "stream that reports healthy, and either zero messages or -- if a local "
    "stream happens to share the name -- a silent copy of the **wrong** "
-   "stream. **Partly answered:** still not measured over a gateway, and no "
-   "lag or bandwidth figure."),
+   "stream. Over a **gateway** the same mirror needs no `external.api` at "
+   "all, because a supercluster is one JetStream namespace -- it simply "
+   "works, and it keeps up. **Partly answered:** no lag or bandwidth figure "
+   "in either shape."),
  "D03-R8": (
    "Can two accounts share a subject **on purpose**, via export / import?",
-   "**Still open.** This rig does not test it. It is the one unmeasured claim "
-   "left in the matrix."),
+   "Yes, and it is the only sharing in this demo that is safe by design. "
+   "The exporting account opens one hole, in one direction, and the "
+   "importing account renames what comes through it -- so the copy can never "
+   "be mistaken for its own data. The hole is a **subject** hole only: the "
+   "importing account still cannot read, name or delete a stream that "
+   "belongs to the exporter, and it may use the same stream name for "
+   "something else. That is the deliberate opposite of T5's silent double "
+   "capture."),
  "D03-R9": (
    "If we add an arbiter site, can real data land on it **by accident**?",
    "Not by accident -- but it is not fenced off either. Unplaced streams "
@@ -100,6 +108,16 @@ NEW = [
   "only appears once the old leader has aged out. Anyone timing a failover "
   "test needs to wait for the leader to actually go, not trust the first "
   "reading."),
+ ("A new meta leader is named before it can take a change",
+  "F6a, F7a",
+  "The stale-leader trap has a twin, and it points the other way. After an "
+  "election the monitoring endpoint names the new leader some seconds before "
+  "that leader will accept a create -- ask immediately and the call is "
+  "refused, on a supercluster that is in fact healthy. So neither edge of a "
+  "failover can be trusted from one reading: the old leader lingers after it "
+  "is gone, and the new one is announced before it is ready. The T4 script "
+  "does not sleep a magic number for this -- it retries and records how long "
+  "it waited."),
  ("A name-only mirror can silently copy the WRONG stream",
   "D9, D9a",
   "A mirror with no `external.api` does not fail when the name it wants only "
@@ -127,12 +145,11 @@ NEW = [
 ]
 
 OPEN = [
- ("`D03-R8` -- export / import between two accounts", "No script covers it."),
- ("`D03-R7` over a gateway", "Mirrors were measured over a leaf link only."),
  ("`D03-R4` -- the cost of a cross-region read",
   "Placement is measured. Latency is not. No consumer placement test either."),
- ("**T4** -- gateway with a 3-node arbiter cluster",
-  "Never built, here or anywhere. The README still marks it `inferred`."),
+ ("Mirror lag and bandwidth",
+  "Both shapes now prove a mirror copies. Neither says how fast, or at what "
+  "cost on the wire."),
  ("The hub as a real store",
   "In T5 the hub only relays. Nothing measured what happens when it holds "
   "data of its own."),
@@ -158,6 +175,8 @@ FIGKEY = {
     "B -- gateway + per-cluster domain":   "b",
     "T3 / C -- gateway + arbiter":         "c",
     "T5 / D -- hub and leaf":              "d",
+    "E -- export / import between accounts": "e",
+    "T4 / F -- gateway + 3-node arbiter":   "f",
 }
 
 # One prose caption per figure. Claims only, no numbers.
@@ -190,6 +209,19 @@ FIGCAP = {
         "replicates by itself: every cross-region copy is hand-written, and a "
         "mirror written without an external API prefix copies the wrong "
         "stream, or nothing at all, and says so nowhere."),
+ "e":  ("One hole in the account wall, opened on purpose.",
+        "The exporting account offers a subject; the importing account takes "
+        "it and renames it with a prefix of its own choosing. One publish is "
+        "then stored in both accounts, on two different subjects, and it "
+        "crosses the gateway like any other message. The wall still stands "
+        "everywhere else: the importer cannot reach the exporter's streams, "
+        "and may reuse the same stream name for its own."),
+ "f":  ("A gateway plus a three-node arbiter cluster.",
+        "The same idea as the one-node arbiter, with the arbiter site no "
+        "longer a single point of failure. Nine voters instead of seven means "
+        "losing a whole region still leaves a spare node — the slack the "
+        "one-node shape does not have. One node further and it freezes, in "
+        "exactly the way the plain gateway does."),
 }
 
 
@@ -488,7 +520,11 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
                     ("03-arbiter.sh",
                      "T3 / C &mdash; gateway plus a 1-node arbiter", 7),
                     ("04-hub-and-leaf.sh",
-                     "T5 / D &mdash; a hub with two leaf clusters", 9)):
+                     "T5 / D &mdash; a hub with two leaf clusters", 9),
+                    ("05-export-import.sh",
+                     "E &mdash; export / import between two accounts", 6),
+                    ("06-arbiter3.sh",
+                     "T4 / F &mdash; gateway plus a 3-node arbiter", 9)):
         o(f"<tr><td><code>{s}</code></td><td>{t}</td>"
           f"<td class='num'>{n}</td></tr>")
     o("</tbody></table></div>")
@@ -662,6 +698,8 @@ def main():
     o("| `02-domain-over-gateway.sh` | B — a domain per cluster over a gateway | 6 |")
     o("| `03-arbiter.sh` | T3 / C — gateway plus a 1-node arbiter | 7 |")
     o("| `04-hub-and-leaf.sh` | T5 / D — a hub with two leaf clusters | 9 |")
+    o("| `05-export-import.sh` | E — export / import between two accounts | 6 |")
+    o("| `06-arbiter3.sh` | T4 / F — gateway plus a 3-node arbiter | 9 |")
     o("")
     o("Run one on its own the same way: `./01-gateway.sh`.")
 

@@ -45,12 +45,12 @@
 </svg>
 <!--/FIG-->
 <!--FIG a-->
-<svg viewBox="0 0 960 518" role="img" aria-label="T2 / A &mdash; one gateway. Six bare nats-server processes on 127.0.0.1 form clusters za and au joined by a bidirectional gateway inside shared account LB. One six-peer JetStream meta group needs four votes. ODOMETER placed in ZA is refused from AU with error 10058, regional accounts remain separate data walls, and freezing all three ZA processes removes the meta leader and blocks new stream creation while existing AU streams still accept publishes; thaw restores all six peers without loss.">
+<svg viewBox="0 0 960 556" role="img" aria-label="T2 / A &mdash; one gateway. Six bare nats-server processes on 127.0.0.1 form clusters za and au joined by a bidirectional gateway inside shared account LB. One six-peer JetStream meta group needs four votes. ODOMETER placed in ZA is refused from AU with error 10058, regional accounts remain separate data walls, and freezing all three ZA processes removes the meta leader and blocks new stream creation while existing AU streams still accept publishes; thaw restores all six peers without loss. A mirror of ODOMETER placed in cluster au copies it with no external API prefix, because a supercluster is one JetStream namespace.">
   <defs>
     <marker id="fa-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
   </defs>
   <text class="grp g" x="22" y="26">T2 / A &mdash; ONE META GROUP &mdash; 6 PEERS &mdash; MAJORITY 4 &mdash; ONE SHARED JETSTREAM DOMAIN</text>
-  <rect class="nb" x="14" y="34" width="932" height="462" rx="4"/>
+  <rect class="nb" x="14" y="34" width="932" height="500" rx="4"/>
   <rect class="nb acct" x="30" y="52" width="900" height="198" rx="4"/>
   <text class="grp a" x="44" y="72">ACCOUNT LB &mdash; ONE STREAM NAMESPACE</text>
 
@@ -98,6 +98,8 @@
   <text class="ro r" x="30" y="438">A11/A11a  AU cannot create a new stream &mdash; 10008</text>
   <text class="ro g" x="30" y="456">A12  AU CAN still publish to its EXISTING stream</text>
   <text class="ro g" x="30" y="474">A13/A14  after thaw: size back to 6, nothing lost</text>
+  <text class="ro g" x="30" y="492">A15/A16  a mirror placed in au copies ODOMETER with NO external.api</text>
+  <text class="ro g" x="30" y="510">A17  and it keeps up &mdash; one more publish reaches the far region</text>
 </svg>
 <!--/FIG-->
 <!--FIG b-->
@@ -296,5 +298,126 @@
   <text class="ro r" x="30" y="522">D9/D9a  a name-only mirror silently copied the LOCAL stream, not the remote one</text>
   <text class="ro g" x="30" y="542">D10-D14  whole hub killed: both regions keep their leaders, create new R3 streams, and store their own publishes</text>
   <text class="ro r" x="30" y="562">D15  nothing replicates by itself &mdash; every cross-region copy is hand-written</text>
+</svg>
+<!--/FIG-->
+
+<!--FIG e-->
+<svg viewBox="0 0 960 444" role="img" aria-label="E &mdash; export and import between two accounts. Clusters za and au are joined by one gateway. Account LB_ZA exports the subject evt.odo.v1 and account LB_AU imports it with the prefix za, so it arrives as za.evt.odo.v1. One publish in LB_ZA is stored by both accounts on two different subjects, and LB_AU's stream on the raw subject stays empty. The hole is one-way and carries subjects only: LB_AU cannot read stream info on LB_ZA's ODOMETER stream, and may use the same stream name for a stream of its own.">
+  <defs>
+    <marker id="fe-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+    <marker id="fe-im" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+  </defs>
+  <text class="grp g" x="22" y="26">E &mdash; ONE HOLE IN THE ACCOUNT WALL, OPENED ON PURPOSE &mdash; 6 PEERS &mdash; ONE GATEWAY</text>
+  <rect class="nb" x="14" y="34" width="932" height="390" rx="4"/>
+
+  <rect class="nb acct" x="30" y="52" width="400" height="196" rx="4"/>
+  <text class="grp a" x="44" y="72">ACCOUNT LB_ZA &mdash; EXPORTS evt.odo.&gt;</text>
+  <rect class="nb clu" x="44" y="84" width="372" height="104" rx="4"/>
+  <text class="grp" x="58" y="102">CLUSTER za &mdash; REGION za</text>
+  <rect class="n" x="58" y="114" width="104" height="34" rx="3"/>
+  <text class="lbl" x="110" y="131" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="110" y="144" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="172" y="114" width="104" height="34" rx="3"/>
+  <text class="lbl" x="224" y="131" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="224" y="144" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="286" y="114" width="104" height="34" rx="3"/>
+  <text class="lbl" x="338" y="131" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="338" y="144" text-anchor="middle">127.0.0.1:4233</text>
+  <text class="ro" x="44" y="212">ODOMETER &mdash; evt.odo.v1</text>
+  <text class="ro h" x="44" y="232">export stream evt.odo.&gt;</text>
+
+  <rect class="nb acct" x="530" y="52" width="400" height="196" rx="4"/>
+  <text class="grp a" x="544" y="72">ACCOUNT LB_AU &mdash; IMPORTS IT AS za.evt.odo.&gt;</text>
+  <rect class="nb clu" x="544" y="84" width="372" height="104" rx="4"/>
+  <text class="grp" x="558" y="102">CLUSTER au &mdash; REGION au</text>
+  <rect class="n" x="558" y="114" width="104" height="34" rx="3"/>
+  <text class="lbl" x="610" y="131" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="610" y="144" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="672" y="114" width="104" height="34" rx="3"/>
+  <text class="lbl" x="724" y="131" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="724" y="144" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="786" y="114" width="104" height="34" rx="3"/>
+  <text class="lbl" x="838" y="131" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="838" y="144" text-anchor="middle">127.0.0.1:4243</text>
+  <text class="ro g" x="544" y="212">IMPORTED &mdash; za.evt.odo.v1</text>
+  <text class="ro r" x="544" y="232">RAW &mdash; evt.odo.v1 &mdash; stays empty</text>
+
+  <line class="gw" x1="436" y1="131" x2="524" y2="131" marker-start="url(#fe-gw)" marker-end="url(#fe-gw)"/>
+  <text class="edge" x="480" y="125" text-anchor="middle">gateway</text>
+  <line class="mir" x1="436" y1="212" x2="524" y2="212" marker-end="url(#fe-im)"/>
+  <text class="edge" x="480" y="206" text-anchor="middle">import, renamed</text>
+
+  <text class="ro g" x="30" y="280">E1  one publish in ZA: the owning account stored it</text>
+  <text class="ro g" x="30" y="298">E2  the importing account stored it too, across the gateway</text>
+  <text class="ro g" x="30" y="316">E3  and it arrived PREFIXED &mdash; the raw-subject stream stays empty</text>
+  <text class="ro" x="30" y="334">E3a  the importer renames it, so the two sources can never be confused</text>
+  <text class="ro g" x="30" y="352">E4/E5  the hole is ONE-WAY &mdash; AU's publish does not move ZA's stream</text>
+  <text class="ro g" x="30" y="370">E6  LB_AU cannot even read stream info on ZA's ODOMETER</text>
+  <text class="ro g" x="30" y="388">E7/E8  and it may reuse the name ODOMETER for a stream of its own</text>
+  <text class="ro h" x="30" y="406">E9  explicit, one-way, renamed &mdash; the opposite of T5's silent copy</text>
+</svg>
+<!--/FIG-->
+
+<!--FIG f-->
+<svg viewBox="0 0 960 540" role="img" aria-label="T4 / F &mdash; a gateway plus a three-node arbiter cluster. Clusters za and au sit in two regions and a third cluster named arb sits in an independent site, all joined by gateways into one JetStream meta group of nine peers with a majority of five. Freezing a whole region leaves six peers and writes continue. Freezing one arbiter node as well leaves exactly five and writes still continue, which is the slack the one-node arbiter does not have. Freezing one node further leaves four, the meta leader goes, and new streams are refused while publishes into existing streams keep working.">
+  <defs>
+    <marker id="ff-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+  </defs>
+  <text class="grp g" x="22" y="26">T4 / F &mdash; ONE META GROUP &mdash; 9 PEERS &mdash; MAJORITY 5 &mdash; AN ARBITER CLUSTER OF 3</text>
+  <rect class="nb" x="14" y="34" width="932" height="486" rx="4"/>
+
+  <rect class="nb clu" x="30" y="52" width="400" height="104" rx="4"/>
+  <text class="grp" x="44" y="70">CLUSTER za &mdash; REGION za</text>
+  <rect class="n" x="44" y="82" width="104" height="34" rx="3"/>
+  <text class="lbl" x="96" y="99" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="96" y="112" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="158" y="82" width="104" height="34" rx="3"/>
+  <text class="lbl" x="210" y="99" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="210" y="112" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="272" y="82" width="104" height="34" rx="3"/>
+  <text class="lbl" x="324" y="99" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="324" y="112" text-anchor="middle">127.0.0.1:4233</text>
+
+  <rect class="nb clu" x="530" y="52" width="400" height="104" rx="4"/>
+  <text class="grp" x="544" y="70">CLUSTER au &mdash; REGION au</text>
+  <rect class="n" x="544" y="82" width="104" height="34" rx="3"/>
+  <text class="lbl" x="596" y="99" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="596" y="112" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="658" y="82" width="104" height="34" rx="3"/>
+  <text class="lbl" x="710" y="99" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="710" y="112" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="772" y="82" width="104" height="34" rx="3"/>
+  <text class="lbl" x="824" y="99" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="824" y="112" text-anchor="middle">127.0.0.1:4243</text>
+
+  <rect class="nb clu" x="280" y="210" width="400" height="104" rx="4"/>
+  <text class="grp" x="294" y="228">CLUSTER arb &mdash; A THIRD, INDEPENDENT SITE</text>
+  <rect class="n" x="294" y="240" width="104" height="34" rx="3"/>
+  <text class="lbl" x="346" y="257" text-anchor="middle">t-arb-1</text>
+  <text class="lbl2" x="346" y="270" text-anchor="middle">127.0.0.1:4541</text>
+  <rect class="n" x="408" y="240" width="104" height="34" rx="3"/>
+  <text class="lbl" x="460" y="257" text-anchor="middle">t-arb-2</text>
+  <text class="lbl2" x="460" y="270" text-anchor="middle">127.0.0.1:4542</text>
+  <rect class="n" x="522" y="240" width="104" height="34" rx="3"/>
+  <text class="lbl" x="574" y="257" text-anchor="middle">t-arb-3</text>
+  <text class="lbl2" x="574" y="270" text-anchor="middle">127.0.0.1:4543</text>
+
+  <line class="gw" x1="436" y1="99" x2="524" y2="99" marker-start="url(#ff-gw)" marker-end="url(#ff-gw)"/>
+  <text class="edge" x="480" y="93" text-anchor="middle">gateway</text>
+  <path class="gw" d="M230 156 V182 H380 V210" marker-start="url(#ff-gw)" marker-end="url(#ff-gw)"/>
+  <text class="edge" x="224" y="180" text-anchor="end">gateway</text>
+  <path class="gw" d="M730 156 V182 H580 V210" marker-start="url(#ff-gw)" marker-end="url(#ff-gw)"/>
+  <text class="edge" x="736" y="180">gateway</text>
+
+  <text class="ro g" x="30" y="340">F1/F2  one meta group, size 9 &mdash; the majority is 5</text>
+  <text class="ro g" x="30" y="358">F3/F4  AU frozen (6 of 9): a leader is elected and ZA still creates streams</text>
+  <text class="ro g" x="30" y="376">F5/F6  AND one arbiter node frozen (5 of 9, exactly the majority): still works</text>
+  <text class="ro" x="30" y="394">F6a  but the NEW leader refused the change for seconds before accepting it</text>
+  <text class="ro r" x="30" y="412">F7  one node further (4 of 9): the meta leader goes</text>
+  <text class="ro r" x="30" y="430">F7a  and /jsz named a stale leader for a while before that</text>
+  <text class="ro r" x="30" y="448">F8  4 of 9: ZA cannot create a new stream</text>
+  <text class="ro g" x="30" y="466">F9  4 of 9: publishing into an EXISTING stream still works</text>
+  <text class="ro g" x="30" y="484">F10  after thaw: size back to 9</text>
+  <text class="ro h" x="30" y="502">F11  slack after losing one region: ONE node &mdash; T3 in the same state has none</text>
 </svg>
 <!--/FIG-->
