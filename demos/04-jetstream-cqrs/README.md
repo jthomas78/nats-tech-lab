@@ -612,6 +612,13 @@ Your dropped counts will not match these exactly. Which worker gets which
 message is a race, and a race is not repeatable. The shape is: one worker
 drops nothing, and the count climbs hard with the worker count.
 
+They will also be SMALLER than the table, and that is the fixture, not the
+lesson. The runs above folded one vehicle's whole history, so every pair of
+events was a collision waiting to happen. `ODOMETER_POOL` is seeded round
+robin over three vehicles (2026-09-17 — it was ten until then, and ten left a
+gap so wide the pool ran clean and taught nothing). Measured the same day on
+10 000 events: one worker 0 dropped, four workers 13, eight workers 1 146.
+
 ## The commands
 
 | Command | What it does |

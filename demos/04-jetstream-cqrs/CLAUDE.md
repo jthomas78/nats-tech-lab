@@ -216,6 +216,13 @@ is a request for a decision, not a backlog item to pick up.
 
 Nothing is PROPOSED right now.
 
+**04.10 is COMPLETE** (2026-09-17) — lesson 02's log is seeded over THREE
+vehicles, not ten. Round robin puts two events of one vehicle
+`len(PoolVehicles)` apart, and ten was so wide the pool never folded anything
+out of order: every run reported `dropped = 0` and the lesson taught nothing.
+Three is below every worker count the lesson runs but one. One worker still
+drops nothing. See `docs/Demo-04-Plan.md` section 13, decisions D13 to D15.
+
 **04.9 is COMPLETE** (2026-09-17) — lesson 02 runs itself: a Run button on
 every tab, results from a real run instead of recorded constants, and a
 progress bar for the whole of a multi-run set (D12, the condition it was

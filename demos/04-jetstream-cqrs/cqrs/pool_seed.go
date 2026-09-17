@@ -46,18 +46,30 @@ var ErrUnknownPoolSize = errors.New("not a pool size")
 
 // PoolVehicles are the vehicles the log is spread over.
 //
-// Ten, and not one. Two reasons, both about what the lesson can show:
+// Three, and not one, and not ten (04.10.1, D13 and D14).
 //
-//	The odometer-pool tab lists the drift PER VEHICLE, because a single
-//	total tells you kilometres were lost and not where. One vehicle would
-//	make that tab a single row.
+// It was ten until today, on the reasoning that ten vehicles and up to eight
+// workers "collide constantly". They do not, and 04.9's Run buttons are what
+// made that checkable: every Starvation and 1 vs 4 run reported dropped = 0.
+// poolEvents writes round robin, so two events of ONE vehicle sit
+// len(PoolVehicles) apart. A gap of ten is ten messages of slack -- the first
+// is folded and acked long before any worker reaches the second, so the fold
+// never sees them out of order and the lesson runs clean.
 //
-//	The damage IS two workers handling the same vehicle out of order. Ten
-//	vehicles and up to eight workers means they collide constantly. A
-//	vehicle each would let every worker be right.
+// Three is below every worker count the lesson runs but one, so two workers
+// hold the same vehicle at once by construction. It is the ORDERING that
+// creates the damage, not the timing; a sleep inside work() would fake it and
+// would collide with what the Starvation tab is separately measuring.
+//
+// Not one: the odometer-pool tab lists the drift PER VEHICLE, because a
+// single total tells you kilometres were lost and not where. One vehicle
+// would make that tab a single row.
+//
+// One worker still drops nothing, which is the 1 vs 4 tab's whole point: a
+// worker cannot collide with itself, however short the gap is.
 //
 // Zero padded so `nats kv ls` lists them in the order a reader expects.
-var PoolVehicles = poolVehicleList(10)
+var PoolVehicles = poolVehicleList(3)
 
 func poolVehicleList(n int) []string {
 	out := make([]string, n)

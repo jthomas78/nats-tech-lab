@@ -60,23 +60,57 @@ var _ = Describe("lesson 02 seeds a log of its own", func() {
 	Context("the log is spread over several vehicles", func() {
 		// One vehicle would make the odometer-pool tab a single row,
 		// and that tab exists to show WHICH vehicle lost kilometres.
-		// Fewer vehicles than events per worker also keeps two workers
-		// colliding on the same vehicle, which is the damage itself.
-		It("uses ten, named so `nats kv ls` sorts them", func() {
-			Expect(PoolVehicles).To(HaveLen(10))
+		It("uses three, named so `nats kv ls` sorts them", func() {
+			Expect(PoolVehicles).To(HaveLen(3))
 			Expect(PoolVehicles[0]).To(Equal("pool-01"))
-			Expect(PoolVehicles[9]).To(Equal("pool-10"))
+			Expect(PoolVehicles[2]).To(Equal("pool-03"))
 			for _, v := range PoolVehicles {
 				Expect(v).To(HavePrefix("pool-"))
 				Expect(v).To(Equal(strings.ToLower(v)))
 			}
 		})
 
-		It("has more vehicles than the biggest worker count the lesson runs", func() {
-			// Performance runs up to 8 workers. With fewer vehicles
-			// than workers, a worker would have nothing of its own to
-			// be wrong about.
-			Expect(len(PoolVehicles)).To(BeNumerically(">", 8))
+		// 04.10.1 (D14). This spec asserted the OPPOSITE until today --
+		// "more vehicles than the biggest worker count" -- on the
+		// reasoning that a worker needs a vehicle of its own to be
+		// wrong about. That reasoning is backwards. A worker alone on a
+		// vehicle folds it in perfect order. The damage IS two workers
+		// on one vehicle, so the lesson needs fewer vehicles than
+		// workers, not more.
+		It("has fewer vehicles than the biggest worker count the lesson runs", func() {
+			Expect(len(PoolVehicles)).To(BeNumerically("<", 8))
+		})
+
+		// Still a table, not a single row.
+		It("keeps enough vehicles for the drift table to be a table", func() {
+			Expect(len(PoolVehicles)).To(BeNumerically(">", 1))
+		})
+
+		// The gap is the whole mechanism (D13). poolEvents writes round
+		// robin, so two events of one vehicle sit len(PoolVehicles)
+		// apart. A gap wider than the worker count means the first
+		// event is folded and acked before any worker reaches the
+		// second, and the fold never sees them out of order.
+		It("puts two events of one vehicle closer together than the workers can absorb", func() {
+			plan, err := poolPlanFor(DefaultPoolSize)
+			Expect(err).ToNot(HaveOccurred())
+
+			events := poolEvents(plan)
+			first := -1
+			gap := -1
+			for i, e := range events[len(plan.Vehicles):] {
+				if e.Vehicle != plan.Vehicles[0] {
+					continue
+				}
+				if first < 0 {
+					first = i
+					continue
+				}
+				gap = i - first
+				break
+			}
+			Expect(gap).To(Equal(len(plan.Vehicles)))
+			Expect(gap).To(BeNumerically("<", 4))
 		})
 	})
 

@@ -2809,3 +2809,104 @@ Specs first, red before green. **None of these start until 04.8 is green.**
 - `ODOMETER` touched by anything on lesson 02.
 - A printed command the binary would reject, or `commands.spec.js` weakened to
   let one through.
+
+## 13. Phase 04.10 — the pool collides again (APPROVED)
+
+**Status:** APPROVED 2026-09-17. Raised at the end of 04.9, approved the same
+day. One task. No new screen, no new route, no new rule.
+
+### 13.1 Why
+
+Lesson 02 teaches one thing: **two workers folding the same vehicle out of
+order lose kilometres.** Since 04.8 gave the pool its own log, every run on
+the Starvation and the 1 vs 4 tabs reports `dropped = 0`. The lesson runs
+clean. A reader presses the button and learns nothing, because nothing breaks.
+
+It is not the run that is wrong — it is the fixture. `poolEvents` writes the
+log round robin over `PoolVehicles`, so two events of the SAME vehicle sit
+`len(PoolVehicles)` apart. With ten vehicles that gap is ten messages. Any
+worker is finished with an event long before another worker reaches the same
+vehicle's next one, so the fold sees them in order and refuses nothing.
+
+`pool_seed.go` says the opposite in a comment — "ten vehicles and up to eight
+workers means they collide constantly". That was a guess, and a run disproves
+it. 04.9 is what made the guess checkable: before the Run buttons, nobody
+pressed it often enough to notice the zeros.
+
+### 13.2 Design decisions
+
+- **D13 — fewer vehicles than workers, not slower workers.** The gap between
+  two events of one vehicle IS the vehicle count. Shrink it below the worker
+  count and two workers are holding the same vehicle at once by construction.
+  The alternative — sleeps or jitter inside `work()` — would make the damage a
+  property of the timing rather than of the ordering, and the timing is what
+  the Starvation tab is separately trying to measure.
+- **D14 — three, not one.** The `odometer-pool` tab lists drift PER VEHICLE
+  because a single total says kilometres were lost and not where. One vehicle
+  makes that tab a single row. Three keeps the table a table and is still
+  below every worker count the lesson runs but one.
+- **D15 — one worker must still be clean.** The 1 vs 4 tab's whole point is
+  that one worker cannot collide with itself. Three vehicles must not change
+  that, and the live check has to confirm it rather than assume it.
+
+### 13.3 Business rules
+
+None. A fixture's shape is not a domain rule. `BUSINESS_RULES-ODOMETER.md` is
+expected to be untouched, and `domain.go` is not opened.
+
+### 13.4 Tasks
+
+- [x] **04.10.1 The pool collides again** (D13, D14, D15). `PoolVehicles`
+      drops from ten to three. The two specs that assert ten, and the comment
+      that claims ten collide, are corrected — they are the recorded guess
+      this task exists to replace.
+
+      Spec: the fixture has fewer vehicles than the biggest worker count the
+      lesson runs, and the per-vehicle gap in the seeded log is smaller than
+      that worker count.
+
+      Live: a 4-worker run drops more than zero, and a 1-worker run drops
+      exactly zero.
+
+      Four specs, red first (3 failed): three vehicles, FEWER than the biggest
+      worker count, more than one so the drift table stays a table, and the
+      gap one. The gap spec is the one that matters — it reads the seeded
+      history back out of `poolEvents` and measures the distance between two
+      events of the same vehicle. A vehicle count someone lowers again without
+      understanding why would still pass the other three.
+
+      The inverted spec is left in place with its old reasoning quoted in the
+      comment, because "a worker needs a vehicle of its own to be wrong about"
+      is a plausible sentence and someone will write it again.
+
+      Live on `lab4-nats`, 10 000 events re-seeded over three vehicles
+      (810 036 bytes, 5.3 s):
+
+      | Workers | Acked | Dropped | Time |
+      |---|---|---|---|
+      | 1 | 10 000 | **0** | 10.3 s |
+      | 4 | 9 987 | 13 | 4.5 s |
+      | 8 | 8 854 | **1 146** | 3.4 s |
+
+      D15 holds: one worker still drops nothing. The `odometer-pool` tab now
+      shows the damage per vehicle, three rows, read off the screen —
+      pool-01 2 956 km against a truth of 3 333, pool-02 2 941 against 3 332,
+      pool-03 2 956 against 3 332. 1 146 kilometres gone, which is the
+      8-worker run's dropped count.
+
+      What the task did not anticipate: **the README's recorded 1 vs 4 table
+      now overstates the damage**, because those runs folded ONE vehicle's
+      whole history. The numbers are dated provenance and stay; a note under
+      the table says the fixture is three vehicles as of 2026-09-17 and gives
+      the same-day figures, so a reader is not surprised by a smaller count.
+
+      Gates: `ginkgo ./...` 256 of 256; `npx vitest run` 431 in 29 files;
+      eslint 0 errors, 3 warnings; `npm run build` clean. No frontend change
+      was needed — the vehicle list comes from `GET /pool`.
+
+### 13.5 What would make this phase a failure
+
+- A run that drops nothing on 4 or 8 workers.
+- A run on ONE worker that drops anything.
+- The `odometer-pool` tab reduced to a single row.
+- A sleep or a jitter added to `work()` to force the damage.
