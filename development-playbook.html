@@ -1,0 +1,1160 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Development Playbook — From Requirements to a Working Product</title>
+<style>
+  :root{
+    --bg:#0d0f11; --bg2:#131416; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px; font-feature-settings:"cv05","ss01";
+  }
+  .page{
+    width:210mm; height:297mm; overflow:hidden; padding:15mm 13mm 11mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);
+    position:relative;
+  }
+  .page:last-child{page-break-after:auto}
+
+  /* ---------- cover ---------- */
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:46px;line-height:53px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:84%;margin-top:16px}
+  .cover-q{
+    margin-top:22px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:15px 20px;max-width:94%;
+  }
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:13.5px;line-height:22px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 26px;margin-top:10px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:16px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  /* ---------- page chrome ---------- */
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam,var(--tx3))}
+  .pfoot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--tx3)}
+
+  /* stage rail */
+  .rail{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-top:11px}
+  .rail span{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3);
+    background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:4px 0;text-align:center;line-height:11px}
+  .rail span.on{color:var(--fam);border-color:var(--fam);
+    background:color-mix(in srgb,var(--fam) 12%,var(--panel2));font-weight:600}
+
+  .titleblock{
+    margin-top:13px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:15px 20px 17px;
+    display:grid;grid-template-columns:54px 1fr;gap:3px 14px;
+  }
+  .num{font-size:29px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:33px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:24px;line-height:30px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  h3{font-size:19px;line-height:25px;font-weight:700;margin:0 0 5px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-top:11px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px 16px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:9px}
+  .panel.fam-l{border-left:2px solid var(--fam)}
+  .panel.fam-l > .lbl{color:var(--fam)}
+  .panel.pro{border-left:2px solid var(--green)} .panel.pro > .lbl{color:var(--green)}
+  .panel.con{border-left:2px solid var(--red)}   .panel.con > .lbl{color:var(--red)}
+  .panel.note{border-left:2px solid var(--amber)}.panel.note > .lbl{color:var(--amber)}
+  .panel.ai{border-left:2px solid var(--purple)} .panel.ai > .lbl{color:var(--purple)}
+  .panel p{font-size:12px;line-height:18.5px;color:var(--tx2)}
+  .panel p b, .panel p strong{color:var(--tx);font-weight:600}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"\203A";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 8px 0;font-weight:500}
+  td{padding:6px 8px 6px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16.5px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .trap{margin-top:11px;font-size:11px;line-height:17px;color:var(--tx3)}
+  .trap b{color:var(--red);font-weight:600;letter-spacing:.04em}
+  .spacer{flex:1}
+  a{color:var(--blue);text-decoration:none}
+
+  /* Four pages carry more material than a stage card. Step their body type and
+     padding down a notch rather than cutting content, so each still fits
+     exactly one A4 page. Same device as the pattern-card decks. */
+  .page.dense .titleblock{padding:12px 20px 14px}
+  .page.dense h2{font-size:21px;line-height:27px}
+  .page.dense .lede{font-size:11.8px;line-height:17.5px}
+  .page.dense .panel{padding:9px 14px}
+  .page.dense .grid2,.page.dense .grid3{margin-top:9px}
+  .page.dense .panel > .lbl{margin-bottom:7px}
+  .page.dense .panel p{font-size:11.5px;line-height:17.5px}
+  .page.dense li{font-size:11.3px;line-height:16px;margin-bottom:3.5px}
+  .page.dense th{font-size:8.5px;padding-bottom:6px}
+  .page.dense td{font-size:11px;line-height:15.5px;padding:3.5px 8px 3.5px 0}
+  .page.dense .trap{font-size:10.3px;line-height:15.5px;margin-top:9px}
+
+  /* ---------- lifecycle figure ---------- */
+  .fig{display:block;width:100%;height:auto}
+  .fig .node{fill:var(--panel);stroke:var(--line2);stroke-width:1}
+  .fig .bar{stroke:none}
+  .fig .n-num{font-size:19px;font-weight:800;letter-spacing:-.02em}
+  .fig .n-short{font-size:14px;font-weight:700;fill:var(--tx)}
+  .fig .n-name{font-size:9.5px;fill:var(--tx3);letter-spacing:.05em}
+  .fig .n-out{font-size:9.5px;fill:var(--tx2)}
+  .fig .flow{fill:none;stroke:var(--stroke);stroke-width:1.6}
+  .fig .flow-hi{fill:none;stroke:var(--blue);stroke-width:1.8}
+  .fig .back{fill:none;stroke:var(--amber);stroke-width:1.5;stroke-dasharray:5 4}
+  .fig .back-l{font-size:9.5px;fill:var(--amber);letter-spacing:.06em}
+  .fig .flow-l{font-size:9.5px;fill:var(--tx3);letter-spacing:.08em}
+  .fig .mid{fill:var(--panel2);stroke:var(--line);stroke-width:1}
+  .fig .mid-t{font-size:10px;fill:var(--amber);letter-spacing:.16em;font-weight:600}
+  .fig .mid-b{font-size:10.5px;fill:var(--tx2)}
+  .fig .mid-k{font-size:10.5px;fill:var(--tx);font-weight:600}
+  .legend{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+  .legend .li{border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:10px 12px}
+  .legend .li .k{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;margin-bottom:6px}
+  .legend .li p{font-size:10.5px;line-height:15px;color:var(--tx2)}
+
+  .chain{display:block;width:100%;height:auto}
+  .chain .box{fill:var(--panel);stroke:var(--line2);stroke-width:1}
+  .chain .bt{font-size:10.5px;fill:var(--tx);font-weight:600}
+  .chain .bs{font-size:9px;fill:var(--tx3);letter-spacing:.06em}
+  .chain .ln{fill:none;stroke:var(--cyan);stroke-width:1.5}
+</style>
+</head>
+<body>
+
+<!-- ===================== 01 COVER ===================== -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Development playbook &middot; product agnostic &middot; v1.0</span></div>
+  <h1 class="cover">From Requirements<br>to a Working <span class="hl">Product</span></h1>
+  <p class="cover-sub">An eight&#8209;stage delivery lifecycle for a small team building software with AI assistance.
+    Every stage names its owner, its inputs, its deliverables, the point where AI helps, the point where it
+    must not decide, and an exit test somebody can actually run.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The claim this guide makes</div>
+    <p>Speed comes from <b>small verified increments</b>, not from generating more code. AI moves the cost of
+      software from writing to <b>reviewing and proving</b>. A process that does not move review and evidence
+      to the front will get faster at producing work nobody can trust.</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:14px">
+    <div class="lbl" style="color:var(--amber)">How to use it</div>
+    <p>This is a <b>working guide, not a gate</b>. Stages 01&ndash;03 and 05 are set up once and revisited when
+      evidence changes them. Stages 04, 06 and 07 repeat for every increment. Stage 08 never stops.
+      Page&nbsp;11 tells you what to cut when the team is small.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The eight stages</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>01 Define &middot; what outcome, for whom</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>05 Enable &middot; anyone can build and run it</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>02 Design &middot; where each responsibility lives</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>06 Build &middot; one behaviour, end to end</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>03 Validate &middot; what could force a redesign</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>07 Release &middot; can we support it</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>04 Plan &middot; the smallest useful increment</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>08 Learn &middot; is it useful and improving</div>
+    </div>
+    <div class="cover-meta"><span>16 pages &middot; 8 stage cards &middot; 5 working templates</span><span>Version 1.0</span></div>
+  </div>
+</section>
+
+<!-- ===================== 02 LIFECYCLE ===================== -->
+<section class="page dense" style="--fam:var(--blue)">
+  <div class="chead"><span>Development playbook</span><span class="r">The delivery lifecycle &middot; 02 / 16</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">The shape of the work</div>
+    <h2>The delivery lifecycle</h2>
+    <p class="lede">Eight stages on one circuit. The solid line is the order you first walk it.
+      The dashed lines are the ones that matter more: <b>evidence travelling backwards</b>. A lifecycle
+      drawn as a straight line is a lifecycle that has never been corrected by a measurement.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:11px;padding:11px 12px 8px">
+  <svg class="fig" viewBox="0 36 760 500" role="img"
+       aria-label="Eight development stages arranged on a circuit. Define, Design, Validate and Plan run left to right along the top. The flow turns down the right side into Enable, then Build and Release run right to left along the bottom into Learn. Learn returns up the left side to Define. Three dashed return paths carry evidence backwards: Validate to Design, Build to Plan, and Learn to Define.">
+
+    <!-- ===== row 1 ===== -->
+    <!-- 01 Define -->
+    <rect class="node" x="14" y="86" width="150" height="104" rx="8"/>
+    <rect class="bar" x="14" y="86" width="3" height="104" fill="#3b8bff"/>
+    <text class="n-num" x="28" y="116" fill="#3b8bff">01</text>
+    <text class="n-short" x="62" y="116">Define</text>
+    <text class="n-name" x="28" y="136">PRODUCT DEFINITION</text>
+    <text class="n-out" x="28" y="158">&rarr; ranked requirements,</text>
+    <text class="n-out" x="28" y="172">acceptance examples</text>
+
+    <!-- 02 Design -->
+    <rect class="node" x="202" y="86" width="150" height="104" rx="8"/>
+    <rect class="bar" x="202" y="86" width="3" height="104" fill="#3b8bff"/>
+    <text class="n-num" x="216" y="116" fill="#3b8bff">02</text>
+    <text class="n-short" x="250" y="116">Design</text>
+    <text class="n-name" x="216" y="136">ARCHITECTURE &amp; UX</text>
+    <text class="n-out" x="216" y="158">&rarr; baseline, contracts,</text>
+    <text class="n-out" x="216" y="172">decision records</text>
+
+    <!-- 03 Validate -->
+    <rect class="node" x="390" y="86" width="150" height="104" rx="8"/>
+    <rect class="bar" x="390" y="86" width="3" height="104" fill="#3b8bff"/>
+    <text class="n-num" x="404" y="116" fill="#3b8bff">03</text>
+    <text class="n-short" x="438" y="116">Validate</text>
+    <text class="n-name" x="404" y="136">TECHNICAL VALIDATION</text>
+    <text class="n-out" x="404" y="158">&rarr; measured evidence,</text>
+    <text class="n-out" x="404" y="172">accepted decisions</text>
+
+    <!-- 04 Plan -->
+    <rect class="node" x="578" y="86" width="150" height="104" rx="8"/>
+    <rect class="bar" x="578" y="86" width="3" height="104" fill="#a78bfa"/>
+    <text class="n-num" x="592" y="116" fill="#a78bfa">04</text>
+    <text class="n-short" x="626" y="116">Plan</text>
+    <text class="n-name" x="592" y="136">DELIVERY PLANNING</text>
+    <text class="n-out" x="592" y="158">&rarr; vertical slices,</text>
+    <text class="n-out" x="592" y="172">task briefs</text>
+
+    <!-- ===== row 2 ===== -->
+    <!-- 05 Enable -->
+    <rect class="node" x="578" y="382" width="150" height="104" rx="8"/>
+    <rect class="bar" x="578" y="382" width="3" height="104" fill="#2fd4e8"/>
+    <text class="n-num" x="592" y="412" fill="#2fd4e8">05</text>
+    <text class="n-short" x="626" y="412">Enable</text>
+    <text class="n-name" x="592" y="432" style="font-size:8.7px">ENGINEERING FOUNDATION</text>
+    <text class="n-out" x="592" y="454">&rarr; build, test, run,</text>
+    <text class="n-out" x="592" y="468">deploy, roll back</text>
+
+    <!-- 06 Build -->
+    <rect class="node" x="390" y="382" width="150" height="104" rx="8"/>
+    <rect class="bar" x="390" y="382" width="3" height="104" fill="#a78bfa"/>
+    <text class="n-num" x="404" y="412" fill="#a78bfa">06</text>
+    <text class="n-short" x="438" y="412">Build</text>
+    <text class="n-name" x="404" y="432">INCREMENTAL DELIVERY</text>
+    <text class="n-out" x="404" y="454">&rarr; reviewed, tested,</text>
+    <text class="n-out" x="404" y="468">demonstrated change</text>
+
+    <!-- 07 Release -->
+    <rect class="node" x="202" y="382" width="150" height="104" rx="8"/>
+    <rect class="bar" x="202" y="382" width="3" height="104" fill="#a78bfa"/>
+    <text class="n-num" x="216" y="412" fill="#a78bfa">07</text>
+    <text class="n-short" x="250" y="412">Release</text>
+    <text class="n-name" x="216" y="432">RELEASE VALIDATION</text>
+    <text class="n-out" x="216" y="454">&rarr; acceptance evidence,</text>
+    <text class="n-out" x="216" y="468">rehearsed recovery</text>
+
+    <!-- 08 Learn -->
+    <rect class="node" x="14" y="382" width="150" height="104" rx="8"/>
+    <rect class="bar" x="14" y="382" width="3" height="104" fill="#34d399"/>
+    <text class="n-num" x="28" y="412" fill="#34d399">08</text>
+    <text class="n-short" x="62" y="412">Learn</text>
+    <text class="n-name" x="28" y="432">OPERATE &amp; IMPROVE</text>
+    <text class="n-out" x="28" y="454">&rarr; telemetry, incidents,</text>
+    <text class="n-out" x="28" y="468">the next slice</text>
+
+    <!-- ===== forward flow ===== -->
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#4A515B"/>
+      </marker>
+      <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#3b8bff"/>
+      </marker>
+      <marker id="ara" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#f5b13d"/>
+      </marker>
+    </defs>
+
+    <path class="flow" d="M164 138 H194"  marker-end="url(#ar)"/>
+    <path class="flow" d="M352 138 H382"  marker-end="url(#ar)"/>
+    <path class="flow" d="M540 138 H570"  marker-end="url(#ar)"/>
+    <path class="flow" d="M653 190 V374"  marker-end="url(#ar)"/>
+    <path class="flow" d="M570 434 H548"  marker-end="url(#ar)"/>
+    <path class="flow" d="M382 434 H360"  marker-end="url(#ar)"/>
+    <path class="flow" d="M194 434 H172"  marker-end="url(#ar)"/>
+
+    <!-- the big return leg: Learn -> Define -->
+    <path class="flow-hi" d="M89 382 V198" marker-end="url(#arb)"/>
+    <text class="flow-l" x="100" y="334" fill="#3b8bff">THE PRODUCT LOOP &mdash; NEVER CLOSES</text>
+    <text class="flow-l" x="100" y="349">a shipped product decides what is built next</text>
+
+    <!-- ===== return paths (evidence going backwards) ===== -->
+    <path class="back" d="M430 190 C 430 250, 345 250, 345 200" marker-end="url(#ara)"/>
+    <text class="back-l" x="352" y="268">03 &rarr; 02</text>
+
+    <path class="back" d="M490 382 C 490 312, 640 312, 640 198" marker-end="url(#ara)"/>
+    <text class="back-l" x="414" y="376">06 &rarr; 04</text>
+
+    <!-- middle explainer -->
+    <text class="mid-t" x="26" y="232">EVIDENCE TRAVELS BACKWARDS</text>
+    <text class="mid-k" x="26" y="252">03 &rarr; 02</text>
+    <text class="mid-b" x="92" y="252">a measured result changes the design</text>
+    <text class="mid-k" x="26" y="270">06 &rarr; 04</text>
+    <text class="mid-b" x="92" y="270">what building taught you changes the plan</text>
+    <text class="mid-k" x="26" y="288">08 &rarr; 01</text>
+    <text class="mid-b" x="92" y="288">what users do changes the requirements</text>
+    <line x1="26" y1="304" x2="316" y2="304" stroke="#2a3038" stroke-width="1"/>
+
+    <!-- cadence bands -->
+    <text class="flow-l" x="26" y="60">ONCE, THEN ON CHANGE</text>
+    <line x1="176" y1="56" x2="560" y2="56" stroke="#2a3038" stroke-width="1"/>
+    <text class="flow-l" x="572" y="60">EVERY SLICE</text>
+    <text class="flow-l" x="26" y="518">ALWAYS ON</text>
+    <line x1="112" y1="514" x2="380" y2="514" stroke="#2a3038" stroke-width="1"/>
+    <text class="flow-l" x="392" y="518">EVERY SLICE</text>
+    <line x1="470" y1="514" x2="562" y2="514" stroke="#2a3038" stroke-width="1"/>
+    <text class="flow-l" x="574" y="518">ONCE, THEN GROWN</text>
+  </svg>
+  </div>
+
+  <div class="legend">
+    <div class="li"><div class="k" style="color:var(--blue)"><span class="sw" style="background:var(--blue)"></span>Set the frame</div>
+      <p>01&ndash;03. Done once at the start, and again whenever evidence or the market changes an answer.</p></div>
+    <div class="li"><div class="k" style="color:var(--cyan)"><span class="sw" style="background:var(--cyan)"></span>Lay the ground</div>
+      <p>05. Built once, only as far as the first slice needs, then extended slice by slice.</p></div>
+    <div class="li"><div class="k" style="color:var(--purple)"><span class="sw" style="background:var(--purple)"></span>The delivery loop</div>
+      <p>04, 06, 07. Repeats for every increment. If a lap takes more than two weeks, the slice is too big.</p></div>
+    <div class="li"><div class="k" style="color:var(--green)"><span class="sw" style="background:var(--green)"></span>Always on</div>
+      <p>08. Runs from the first deployment to the end of the product's life, and feeds every other stage.</p></div>
+  </div>
+
+  <div class="grid2" style="margin-top:12px">
+    <div class="panel note"><div class="lbl">How to read it</div>
+      <ul>
+        <li>The <b>solid circuit</b> is the order of a first pass. You walk it once to reach a working product.</li>
+        <li>The <b>dashed paths</b> are the corrections. They are normal, not failures. A quarter with no dashed path used is a quarter where nothing was measured.</li>
+        <li>The <b>blue left leg</b> is the only loop that never closes. It runs for the life of the product.</li>
+      </ul></div>
+    <div class="panel ai"><div class="lbl">AI across the circuit</div>
+      <ul>
+        <li>AI assists at every stage. It <b>owns no stage</b>.</li>
+        <li>A named person owns each stage's decision and its evidence.</li>
+        <li>Generated work is a <b>candidate change</b>. It becomes real when a check has been executed and a human has reviewed the result.</li>
+      </ul></div>
+  </div>
+
+  <div class="pfoot"><span>The delivery lifecycle</span><span>02 / 16</span></div>
+</section>
+
+<!-- ===================== 03 STAGE 01 ===================== -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Development playbook</span><span class="r">Stage 01 / 08 &middot; page 03 / 16</span></div>
+  <div class="rail">
+    <span class="on">01 Define</span><span>02 Design</span><span>03 Valid.</span><span>04 Plan</span>
+    <span>05 Enable</span><span>06 Build</span><span>07 Release</span><span>08 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">01</div><div class="fam-lbl">Set the frame &middot; once, then on change</div>
+    <h2>Product definition</h2>
+    <p class="lede"><b>What outcome are we building, and for whom?</b> The stage where a wish becomes a
+      testable statement with an owner's name on it.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>Product owner, with engineering and user input.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>User needs, observed behaviour of any system being replaced, constraints, and the goals the business is paying for.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li>Name the users and write their main journeys end to end &mdash; <b>including the unhappy ones</b>: first use, working through a failure, and the worst thing that can go wrong.</li>
+      <li>Separate four things that are easy to blur: <b>observed behaviour</b>, <b>decided policy</b>, <b>technical recommendation</b>, and <b>unverified assumption</b>. Give every requirement a stable ID and one acceptance example.</li>
+      <li>Choose the smallest first release a real user would actually use. Rank the rest. Defer anything whose value or cost you cannot yet state in a sentence.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>A versioned requirements baseline, ranked scope, acceptance journeys, measurable service targets, and a short list of open decisions &mdash; each with an owner and a date.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Drafts and organises requirements, finds contradictions, proposes missing error cases, traces each requirement back to its evidence. <b>It does not set priority and does not accept a requirement.</b></p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>One named person is accountable for scope, and you can name at least one real user or a proxy who speaks for them.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>Pick any requirement in the first release at random. It has an ID, one acceptance example, and a named owner &mdash; and someone can state, out loud, how it will be shown to work.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for your product</div>
+    <p>Which single journey, if it failed silently, would cost you the most? Write that one first, and make its
+      failure case part of the requirement rather than a later bug report.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Copying every feature of an existing system because it exists.
+    Or promoting an AI suggestion to an approved requirement without recording who decided it.</p>
+
+  <div class="pfoot"><span>Stage 01 &middot; Product definition</span><span>03 / 16</span></div>
+</section>
+
+<!-- ===================== 04 STAGE 02 ===================== -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Development playbook</span><span class="r">Stage 02 / 08 &middot; page 04 / 16</span></div>
+  <div class="rail">
+    <span>01 Define</span><span class="on">02 Design</span><span>03 Valid.</span><span>04 Plan</span>
+    <span>05 Enable</span><span>06 Build</span><span>07 Release</span><span>08 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">02</div><div class="fam-lbl">Set the frame &middot; once, then on change</div>
+    <h2>Architecture and UX</h2>
+    <p class="lede"><b>How will the system work, and where does each responsibility belong?</b> Enough design
+      to make the first slice concrete &mdash; and no more than that.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>Technical lead, with product, UX and operations input.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>The requirements baseline, the patterns you can already reuse, and the open decisions with the highest cost of being wrong.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li>Draw <b>three views, no more, to begin with</b>: a system-context view, a deployable-component view, and one sequence for every journey that crosses a trust boundary. Mark the trust and tenant boundaries on the drawing itself.</li>
+      <li>Assign ownership of every domain and every store: who writes it, who checks permission, and whether its history matters. Write only the API and event contracts the first slice needs.</li>
+      <li>Sketch the key screens against <b>one</b> shared design system. Define the loading, empty, offline, expired-session and failure states before anyone builds the happy path.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>An architecture baseline, key wireframes, first contracts, a data-ownership matrix, and short decision records (ADRs) each marked <b>proposed</b> or <b>accepted</b>.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Compares options, drafts diagrams and contracts, finds missing transitions, reviews coupling. <b>Engineers own the trade-off and the accepted decision.</b> A proposed decision stays visibly proposed until a person accepts it.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>Requirements carry IDs and a first release has been chosen. Designing against an unranked wish list produces an unranked architecture.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>A developer traces one request &mdash; UI, authentication, authorisation, durable write, event delivery, visible result &mdash; by pointing at the drawing, without asking anyone a question.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for your product</div>
+    <p>Name the one boundary that carries the most risk: tenant isolation, money, personal data, or safety.
+      Draw that boundary first and put a sequence diagram either side of it.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Designing every future service before proving one user journey.
+    Or assuming frontend module boundaries must match backend service boundaries &mdash; they answer different questions.</p>
+
+  <div class="pfoot"><span>Stage 02 &middot; Architecture and UX</span><span>04 / 16</span></div>
+</section>
+
+<!-- ===================== 05 STAGE 03 ===================== -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Development playbook</span><span class="r">Stage 03 / 08 &middot; page 05 / 16</span></div>
+  <div class="rail">
+    <span>01 Define</span><span>02 Design</span><span class="on">03 Valid.</span><span>04 Plan</span>
+    <span>05 Enable</span><span>06 Build</span><span>07 Release</span><span>08 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">03</div><div class="fam-lbl">Set the frame &middot; once, then on change</div>
+    <h2>Technical validation</h2>
+    <p class="lede"><b>Which assumptions, if wrong, would force a redesign?</b> This is the cheapest stage
+      in the book and the one teams skip first.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>Engineering, together with the owner of the decision being tested.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>The proposed ADRs, and a ranked list of assumptions that are both <b>uncertain</b> and <b>expensive to change</b>. Ignore the cheap ones.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li>Write each experiment as a <b>question with a pass or fail answer, before you build it</b>. Keep it small enough to finish in days, not weeks.</li>
+      <li>Attack the boundaries: identity and session handling, tenant isolation, permission enforcement, reconnection, and what happens when access is revoked or a dependency disappears while a user is mid&#8209;task.</li>
+      <li>Test on the real target devices, browsers and network conditions the product claims to support. A platform's marketing page is not evidence that your use of it works.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>Reproducible experiments, measured findings with the date and machine recorded, accepted or revised ADRs, and a risk list with owners.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Builds fixtures, small prototypes and failure-injection scripts, and summarises observations. <b>Require real execution output.</b> A prediction is not a result, and generated tests are not evidence that anything ran.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>At least one decision is genuinely blocked on an unknown. An experiment that cannot change a decision is a hobby.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>Every high-impact question has either evidence behind a decision, or a written limitation with a workable fallback. The team has agreed which prototype code is kept and which is deleted.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for your product</div>
+    <p>Write down the one operational promise you are least sure you can keep &mdash; a latency, a delivery
+      guarantee, a background behaviour on a locked device. Measure it this week, not after the build.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Letting an experiment quietly become production code without
+    reviewing its error handling, its secrets, and whether it can be deployed and supported.</p>
+
+  <div class="pfoot"><span>Stage 03 &middot; Technical validation</span><span>05 / 16</span></div>
+</section>
+
+<!-- ===================== 06 STAGE 04 ===================== -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Development playbook</span><span class="r">Stage 04 / 08 &middot; page 06 / 16</span></div>
+  <div class="rail">
+    <span>01 Define</span><span>02 Design</span><span>03 Valid.</span><span class="on">04 Plan</span>
+    <span>05 Enable</span><span>06 Build</span><span>07 Release</span><span>08 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">04</div><div class="fam-lbl">The delivery loop &middot; every slice</div>
+    <h2>Delivery planning</h2>
+    <p class="lede"><b>What is the smallest useful increment we can finish and verify?</b> Planning is
+      where the size of a change is decided &mdash; and size is the single biggest lever on risk.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>Product owner and engineering lead, together.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>Accepted decisions, validated assumptions, ranked scope, and the acceptance journeys from stage 01.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li><b>Slice vertically.</b> Each slice connects one user action to its permission check, its persistence, its events, and a result the user can see. A slice that ends at an API is not a slice.</li>
+      <li>Write <b>task briefs, not tickets</b>: requirement IDs, context, dependencies, contracts, acceptance criteria, failure cases, and the evidence expected at completion. Page 15 has the template.</li>
+      <li>Agree a definition of ready and a definition of done. Limit work in progress. Estimate from the scope you know, <b>not from how fast code can be generated</b>.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>A ranked backlog of vertical slices, milestone outcomes, task briefs, and a requirement&#8209;to&#8209;test traceability map (page 12).</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Proposes decomposition and dependency order, flags an oversized change, drafts acceptance tests. <b>Humans choose priority, staffing, and how much change the team can actually review.</b> Review capacity, not typing speed, is the constraint.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>The contracts a slice depends on are stable enough to build against, or the slice explicitly owns defining them.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>The next three tasks each have an input, an owner, and an outcome somebody else could verify without asking the author what they meant.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for your product</div>
+    <p>If a slice cannot be finished, reviewed, tested and demonstrated inside two weeks, cut it until it can.
+      The cut you resist is usually the one that was hiding an unresolved decision.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> A backlog organised by layer &mdash; all database work, then all
+    API work, then all UI work. It delays every useful piece of feedback to the end of the project.</p>
+
+  <div class="pfoot"><span>Stage 04 &middot; Delivery planning</span><span>06 / 16</span></div>
+</section>
+
+<!-- ===================== 07 STAGE 05 ===================== -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Development playbook</span><span class="r">Stage 05 / 08 &middot; page 07 / 16</span></div>
+  <div class="rail">
+    <span>01 Define</span><span>02 Design</span><span>03 Valid.</span><span>04 Plan</span>
+    <span class="on">05 Enable</span><span>06 Build</span><span>07 Release</span><span>08 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">05</div><div class="fam-lbl">Lay the ground &middot; once, then grown</div>
+    <h2>Engineering foundation</h2>
+    <p class="lede"><b>Can anyone build, test, run and deploy the same system?</b> Build only as much of this
+      as the first slice needs. Then grow it one slice at a time.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>Engineering, with the platform or operations owner.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>The first slice's design, repository conventions, and the deployment target you actually intend to use.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li>Version control, repository layout, build conventions, shared packages, and <b>repeatable container image builds</b>. No build may depend on an undeclared path on somebody's laptop.</li>
+      <li><b>One documented command</b> from a clean checkout to a running system: migrations, seed data, and at least two tenants or fixtures. Secrets stay outside the repository.</li>
+      <li>Continuous integration for build, tests, contracts and dependency checks. Health and readiness endpoints, structured logs, a correlation ID, a staging deployment, and a rehearsed way back.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>A reproducible development environment, a CI pipeline, a deployment skeleton, shared libraries, and short repository instructions written <b>for people and for AI agents</b>.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Drafts scaffolding, container files, CI configuration and onboarding docs. <b>Run every generated command on the real environment</b> and check what is actually inside the image. A plausible pipeline file is not a working pipeline.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>You know which components the first slice needs. Anything else you set up now is a guess you will maintain.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>A person who has never seen the repository clones it, runs the documented commands, and reaches a working system. One correlation ID can then be followed across every component it touched.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for your product</div>
+    <p>The repository instructions are now a product input, not a courtesy. An AI agent given a vague
+      repository produces vague changes; the fix is a precise, short, honest set of conventions.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Building an internal platform before delivering a usable feature.
+    Or believing a green local build proves the container image works.</p>
+
+  <div class="pfoot"><span>Stage 05 &middot; Engineering foundation</span><span>07 / 16</span></div>
+</section>
+
+<!-- ===================== 08 STAGE 06 ===================== -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Development playbook</span><span class="r">Stage 06 / 08 &middot; page 08 / 16</span></div>
+  <div class="rail">
+    <span>01 Define</span><span>02 Design</span><span>03 Valid.</span><span>04 Plan</span>
+    <span>05 Enable</span><span class="on">06 Build</span><span>07 Release</span><span>08 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">06</div><div class="fam-lbl">The delivery loop &middot; every slice</div>
+    <h2>Incremental implementation</h2>
+    <p class="lede"><b>Does this change do what the user needs, under realistic conditions?</b> The stage AI
+      changed the most &mdash; which is exactly why its review rules must be the strictest.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>The implementing engineer, and a named reviewer who is accountable for accepting it.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>A ready task brief, accepted contracts, test fixtures, and the current state of the repository.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li>Implement <b>one behaviour across every layer it touches</b>. Keep authorisation, idempotency, acknowledgement and error handling with the feature that needs them, not in a later hardening task.</li>
+      <li>Test the <b>requirement</b>, not the implementation. Add integration or browser tests wherever a boundary is crossed or a visible state changes.</li>
+      <li>Review the diff, demonstrate the result, merge one coherent change, deploy to test. Update contracts and documentation <b>in the same change</b>.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>A working increment, a reviewed change, the tests that matter, deployment evidence, and updated documentation.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Implements bounded tasks, proposes tests, explains changes, assists review. Give it exact repository context and acceptance criteria. <b>A second AI review finds real issues. It does not replace an executed test or an accountable human reviewer.</b></p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>The task states its acceptance criteria and its failure cases. Without them, nobody can say later whether the change is finished.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>Acceptance criteria pass, checks are green, <b>the reviewer can explain the change in their own words</b>, and the deployed behaviour can be demonstrated. No unexplained failing test.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for your product</div>
+    <p>Set a size a reviewer can genuinely hold in their head and treat it as a rule, not a hope. When a
+      generated change exceeds it, split the task rather than skimming the diff.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Accepting a large generated change because it looks complete.
+    Or letting its tests repeat the same wrong assumption as the code they were generated beside.</p>
+
+  <div class="pfoot"><span>Stage 06 &middot; Incremental implementation</span><span>08 / 16</span></div>
+</section>
+
+<!-- ===================== 09 STAGE 07 ===================== -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Development playbook</span><span class="r">Stage 07 / 08 &middot; page 09 / 16</span></div>
+  <div class="rail">
+    <span>01 Define</span><span>02 Design</span><span>03 Valid.</span><span>04 Plan</span>
+    <span>05 Enable</span><span>06 Build</span><span class="on">07 Release</span><span>08 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">07</div><div class="fam-lbl">The delivery loop &middot; every slice</div>
+    <h2>Release validation</h2>
+    <p class="lede"><b>Can we put this in users' hands and support it?</b> Two different questions, and the
+      second one is the one teams answer last.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>A named release owner, with product, engineering and operations.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>An integrated release candidate, the acceptance journeys, the service targets, and a deployment plan.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li>Run acceptance on the <b>supported devices and browsers</b>, not the ones the team happens to own. Exercise the complete journeys, the role restrictions, and every recovery path.</li>
+      <li>Validate isolation between tenants, behaviour under realistic load, and durable acknowledgement. <b>Rehearse</b> a restore, a restart, and a failed deployment &mdash; do not merely document them.</li>
+      <li>Prepare a limited rollout, monitoring, release notes and a runbook. Name who answers when it breaks, and how the release is turned off.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>A release evidence summary, a written list of known limitations, tested recovery and rollback procedures, release notes, and a rollout decision.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Generates test scenarios, analyses failures, drafts runbooks and release notes. Use sanitised logs and dedicated test data. <b>The release owner weighs the evidence and accepts the remaining limitations.</b></p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">Do not start until</div>
+      <p>The rollback path exists and someone has used it at least once, in a rehearsal, on this system.</p></div>
+    <div class="panel pro"><div class="lbl">Completion test</div>
+      <p>The required journeys and service targets pass in the agreed environment; the remaining limitations are written down and accepted by name; deployment and recovery have been performed, not described.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for your product</div>
+    <p>Separate three things that get confused: the server <b>accepted</b> it, the connected client
+      <b>received</b> it, and the person was <b>notified</b>. Measure each one on its own.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Treating a green pipeline as proof of operational readiness.
+    Or trusting a third&#8209;party delivery service for something that must never be missed.</p>
+
+  <div class="pfoot"><span>Stage 07 &middot; Release validation</span><span>09 / 16</span></div>
+</section>
+
+<!-- ===================== 10 STAGE 08 ===================== -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>Development playbook</span><span class="r">Stage 08 / 08 &middot; page 10 / 16</span></div>
+  <div class="rail">
+    <span>01 Define</span><span>02 Design</span><span>03 Valid.</span><span>04 Plan</span>
+    <span>05 Enable</span><span>06 Build</span><span>07 Release</span><span class="on">08 Learn</span>
+  </div>
+
+  <div class="titleblock">
+    <div class="num">08</div><div class="fam-lbl">Always on &middot; never completed</div>
+    <h2>Operate and improve</h2>
+    <p class="lede"><b>Is the product useful, reliable, and getting better?</b> The only stage with no exit
+      criterion, because leaving it means the product is over.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Accountable owner</div>
+      <p>Product and operations owners, supported by engineering.</p></div>
+    <div class="panel flat"><div class="lbl">Start with</div>
+      <p>Real usage, service telemetry, user feedback, incident findings, and what the system costs to run.</p></div>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Activities</div>
+    <ul>
+      <li>Track <b>outcomes, not activity</b>: completed journeys, successful onboarding, work that reached the person it was meant for. Pair each outcome with its latency, failure rate, lag and recovery time.</li>
+      <li>Investigate every incident, fix the cause, and turn each finding into <b>a test or a design change</b>. A finding that becomes neither will be found again.</li>
+      <li>Choose the next slice from observed value and observed cost. Update requirements and supersede decision records when evidence changes an answer &mdash; and keep the old record readable.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Deliverables</div>
+      <p>A monitored service, incident learning that changed something, a refreshed backlog, and requirement and architecture records that match the system as it now is.</p></div>
+    <div class="panel ai"><div class="lbl">Where AI helps &middot; and where it must not</div>
+      <p>Summarises telemetry, groups feedback, suggests diagnostic hypotheses, drafts targeted fixes. <b>Check every explanation against the evidence</b>, and measure whether the change improved the user's outcome rather than the graph.</p></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel con"><div class="lbl">The signal you are drifting</div>
+      <p>Delivery speed rises while review time, rework, escaped defects and recovery time rise with it. That is not velocity; it is debt arriving early.</p></div>
+    <div class="panel pro"><div class="lbl">Rhythm, not completion</div>
+      <p>Each improvement ends with a verified outcome and feeds the next planning cycle. The return path <b>08 &rarr; 01</b> is the one loop that runs for the product's whole life.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Make it concrete for your product</div>
+    <p>Choose no more than five numbers you will actually look at every week. A dashboard nobody reads is
+      a cost, not an observability capability.</p></div>
+
+  <p class="trap"><b>COMMON TRAP &middot;</b> Measuring AI by lines of code or closed tasks, while review
+    effort, rework, defect escape and user experience all quietly get worse.</p>
+
+  <div class="pfoot"><span>Stage 08 &middot; Operate and improve</span><span>10 / 16</span></div>
+</section>
+
+<!-- ===================== 11 CADENCE ===================== -->
+<section class="page dense" style="--fam:var(--cyan)">
+  <div class="chead"><span>Development playbook</span><span class="r">Cadence and right&#8209;sizing &middot; 11 / 16</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">Scale the process to the team</div>
+    <h2>Cadence and right&#8209;sizing</h2>
+    <p class="lede">A process that costs more than the risk it removes is waste. This page says which stages
+      repeat, how often, and <b>what to drop when the team is small</b>. Dropping a stage is a decision; forgetting one is an accident.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px"><div class="lbl">Cadence &mdash; how often each stage actually runs</div>
+    <table>
+      <tr><th style="width:15%">Stage</th><th style="width:22%">Runs</th><th style="width:28%">Triggered again by</th><th>Timebox that keeps it honest</th></tr>
+      <tr><td><b>01 Define</b></td><td>Once, then on change</td><td>A stage&nbsp;08 finding, or a market change</td><td>Days, not months. Rank and move on.</td></tr>
+      <tr><td><b>02 Design</b></td><td>Once, then on change</td><td>A stage&nbsp;03 result, a new boundary</td><td>Only as far as the first slice needs.</td></tr>
+      <tr><td><b>03 Validate</b></td><td>Per risky assumption</td><td>Any decision blocked on an unknown</td><td>Each experiment finishes in days.</td></tr>
+      <tr><td><b>04 Plan</b></td><td><b>Every slice</b></td><td>The previous slice completing</td><td>Hours per slice, not a planning week.</td></tr>
+      <tr><td><b>05 Enable</b></td><td>Once, then grown</td><td>A slice needing a capability it lacks</td><td>Grow it; never pause delivery to rebuild it.</td></tr>
+      <tr><td><b>06 Build</b></td><td><b>Every slice</b></td><td>A ready task brief</td><td>Two weeks maximum from brief to demo.</td></tr>
+      <tr><td><b>07 Release</b></td><td><b>Every release</b></td><td>An integrated candidate</td><td>Rehearsals are scheduled, not improvised.</td></tr>
+      <tr><td><b>08 Learn</b></td><td>Continuous</td><td>&mdash;</td><td>A fixed weekly review of five numbers.</td></tr>
+    </table></div>
+
+  <div class="panel flat" style="margin-top:11px"><div class="lbl">Right&#8209;sizing &mdash; what to keep at three team sizes</div>
+    <table>
+      <tr><th style="width:26%">Artefact</th><th style="width:24%">1&ndash;3 people</th><th style="width:24%">4&ndash;12 people</th><th>Regulated or safety&#8209;critical</th></tr>
+      <tr><td><b>Requirements baseline</b></td><td>One file, IDs and acceptance examples</td><td>Versioned baseline, ranked</td><td>Versioned, signed, traced to controls</td></tr>
+      <tr><td><b>Architecture views</b></td><td>Two drawings</td><td>Three views plus sequences</td><td>Full set, reviewed and dated</td></tr>
+      <tr><td><b>Decision records</b></td><td>Short ADRs, 5&ndash;8 of them</td><td>ADRs per boundary decision</td><td>ADRs with an approval record</td></tr>
+      <tr><td><b>Validation</b></td><td>Top 3 risks only</td><td>Ranked risk list with owners</td><td>Evidence pack per control</td></tr>
+      <tr><td><b>Task briefs</b></td><td>Brief per slice</td><td>Brief per task</td><td>Brief plus traceability entry</td></tr>
+      <tr><td><b>Release evidence</b></td><td>A checklist plus a demo</td><td>Evidence summary and runbook</td><td>Formal acceptance record</td></tr>
+      <tr><td class="bad"><b>Never drop, any size</b></td><td colspan="3" class="good">An accountable owner per decision &middot; an acceptance example per requirement &middot; an executed test before merge &middot; a rehearsed way back</td></tr>
+    </table></div>
+
+  <div class="panel con" style="margin-top:11px"><div class="lbl">Failure modes of the process itself</div>
+    <ul>
+      <li><b>Gate theatre.</b> Stages become approvals to pass rather than questions to answer. The test: can anyone name a decision a gate actually changed?</li>
+      <li><b>Documents nobody reads.</b> If a document has not been opened since it was written, it is not a baseline, it is a receipt. Shrink it.</li>
+      <li><b>Front&#8209;loading.</b> Stages 01&ndash;05 expand to fill the time available because they feel safe. The cure is a dated first slice, agreed in advance.</li>
+      <li><b>Evidence drift.</b> A number from six months ago on an unnamed machine is a rumour. Every figure carries its date and where it was measured.</li>
+    </ul></div>
+
+  <div class="pfoot"><span>Cadence and right&#8209;sizing</span><span>11 / 16</span></div>
+</section>
+
+<!-- ===================== 12 CROSS-CUTTING + TRACEABILITY ===================== -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>Development playbook</span><span class="r">Cross&#8209;cutting concerns &middot; 12 / 16</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">The threads that run through every stage</div>
+    <h2>Cross&#8209;cutting concerns and traceability</h2>
+    <p class="lede">Some concerns belong to no single stage, so they end up belonging to nobody. Each one
+      below is <b>decided</b> in one stage, <b>proved</b> in another, and <b>watched</b> for ever. If a row
+      has no name against it, that row is currently unowned.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px"><div class="lbl">Decided here &middot; proved here &middot; watched here</div>
+    <table>
+      <tr><th style="width:24%">Concern</th><th style="width:15%">Decided in</th><th style="width:15%">Proved in</th><th style="width:14%">Watched in</th><th>The question that must have an answer</th></tr>
+      <tr><td><b>Identity and access</b></td><td>02 Design</td><td>03 Validate</td><td>08 Learn</td><td>Who is allowed to do this, and which component enforces it?</td></tr>
+      <tr><td><b>Tenant / data isolation</b></td><td>02 Design</td><td>03 &amp; 07</td><td>08 Learn</td><td>What stops one customer's data reaching another?</td></tr>
+      <tr><td><b>Personal data and privacy</b></td><td>01 Define</td><td>07 Release</td><td>08 Learn</td><td>What is collected, why, for how long, and who can erase it?</td></tr>
+      <tr><td><b>Security of the supply chain</b></td><td>05 Enable</td><td>06 Build</td><td>08 Learn</td><td>What is in the image, and who approved it being there?</td></tr>
+      <tr><td><b>Accessibility</b></td><td>02 Design</td><td>06 Build</td><td>07 Release</td><td>Can the journey be completed without a mouse, and with a screen reader?</td></tr>
+      <tr><td><b>Observability</b></td><td>05 Enable</td><td>06 Build</td><td>08 Learn</td><td>Can one user's request be followed end to end after the fact?</td></tr>
+      <tr><td><b>Resilience and recovery</b></td><td>02 Design</td><td>07 Release</td><td>08 Learn</td><td>What has actually been restored from a backup, and when?</td></tr>
+      <tr><td><b>Cost to run</b></td><td>02 Design</td><td>03 Validate</td><td>08 Learn</td><td>What does one more customer cost, and where does that curve bend?</td></tr>
+    </table></div>
+
+  <div class="panel flat" style="margin-top:11px;padding-bottom:6px"><div class="lbl">The traceability chain &mdash; every link is a named artefact</div>
+    <svg class="chain" viewBox="0 0 700 108" role="img"
+      aria-label="A chain of seven linked artefacts: a user need becomes a requirement with an ID, which is answered by a decision record, delivered by a vertical slice, checked by a test, recorded as evidence, and watched as telemetry, which returns to the user need.">
+      <defs><marker id="c1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#2fd4e8"/></marker></defs>
+      <g>
+        <rect class="box" x="2"   y="16" width="88" height="44" rx="6"/>
+        <text class="bt" x="14" y="38">User need</text><text class="bs" x="14" y="52">OBSERVED</text>
+        <rect class="box" x="102" y="16" width="88" height="44" rx="6"/>
+        <text class="bt" x="114" y="38">Requirement</text><text class="bs" x="114" y="52">STABLE ID</text>
+        <rect class="box" x="202" y="16" width="88" height="44" rx="6"/>
+        <text class="bt" x="214" y="38">Decision</text><text class="bs" x="214" y="52">ADR, ACCEPTED</text>
+        <rect class="box" x="302" y="16" width="88" height="44" rx="6"/>
+        <text class="bt" x="314" y="38">Slice</text><text class="bs" x="314" y="52">TASK BRIEF</text>
+        <rect class="box" x="402" y="16" width="88" height="44" rx="6"/>
+        <text class="bt" x="414" y="38">Test</text><text class="bs" x="414" y="52">EXECUTED</text>
+        <rect class="box" x="502" y="16" width="88" height="44" rx="6"/>
+        <text class="bt" x="514" y="38">Evidence</text><text class="bs" x="514" y="52">DATED</text>
+        <rect class="box" x="602" y="16" width="88" height="44" rx="6"/>
+        <text class="bt" x="614" y="38">Telemetry</text><text class="bs" x="614" y="52">IN USE</text>
+      </g>
+      <path class="ln" d="M90 38 H98"   marker-end="url(#c1)"/>
+      <path class="ln" d="M190 38 H198" marker-end="url(#c1)"/>
+      <path class="ln" d="M290 38 H298" marker-end="url(#c1)"/>
+      <path class="ln" d="M390 38 H398" marker-end="url(#c1)"/>
+      <path class="ln" d="M490 38 H498" marker-end="url(#c1)"/>
+      <path class="ln" d="M590 38 H598" marker-end="url(#c1)"/>
+      <path class="ln" style="stroke-dasharray:5 4" d="M646 60 V88 H46 V64" marker-end="url(#c1)"/>
+      <text class="bs" x="270" y="102" fill="#8b929b">WHAT USERS ACTUALLY DO RETURNS TO WHAT WE SAID THEY NEEDED</text>
+    </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">The chain test</div>
+      <p>Pick one requirement ID. Walk it forward to the executed test and the dated evidence, and back to the
+        user need. <b>If any link is missing, that requirement is not delivered</b> &mdash; it is only implemented.</p></div>
+    <div class="panel note"><div class="lbl">Keep it cheap</div>
+      <p>The chain is a habit, not a tool purchase. A requirement ID in the branch name, in the test name and
+        in the decision record gets you most of it for free.</p></div>
+  </div>
+
+  <div class="pfoot"><span>Cross&#8209;cutting concerns and traceability</span><span>12 / 16</span></div>
+</section>
+
+<!-- ===================== 13 ADR PACK ===================== -->
+<section class="page dense" style="--fam:var(--blue)">
+  <div class="chead"><span>Development playbook</span><span class="r">Architecture decision pack &middot; 13 / 16</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">Template &middot; stage 02 deliverable</div>
+    <h2>The architecture decision pack</h2>
+    <p class="lede">Enough design to make the first slice concrete and reviewable. Most products need
+      <b>five or six decisions</b> before they can build anything honestly. Resolve only those; give every
+      other open question an owner and a date.</p>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:12px"><div class="lbl">What to produce</div>
+    <p>One system&#8209;context drawing; one deployable&#8209;component drawing; a sequence for sign&#8209;in,
+      for the main command, and for whatever is delivered asynchronously; a data&#8209;ownership matrix; the
+      module or service contracts; and a first&#8209;slice deployment view.</p></div>
+
+  <div class="panel flat" style="margin-top:11px"><div class="lbl">The decisions almost every product has to make</div>
+    <table>
+      <tr><th style="width:26%">Decision</th><th>What it must settle</th></tr>
+      <tr><td><b>ADR&#8209;001 &middot; Identity and membership</b></td>
+        <td>Which identity provider, hosted or custom sign&#8209;in, how an organisation maps to a customer, and what happens to an active session when membership is removed.</td></tr>
+      <tr><td><b>ADR&#8209;002 &middot; Tenant isolation</b></td>
+        <td>The isolation boundary and how it is enforced in each store, queue and cache. Provisioning, credential scope, cross&#8209;tenant access, and the cost and scaling assumption behind the choice.</td></tr>
+      <tr><td><b>ADR&#8209;003 &middot; Data authority and history</b></td>
+        <td>One authoritative write path per aggregate. Whether history is a stored fact or a derived convenience. Concurrency control, replay, retention, and any outbox.</td></tr>
+      <tr><td><b>ADR&#8209;004 &middot; Module and service boundaries</b></td>
+        <td>What is one deployable unit and what is not. Versioned interfaces between them, shared packages, what happens when one is unavailable, and the compatibility rule for deploying them separately.</td></tr>
+      <tr><td><b>ADR&#8209;005 &middot; Deployment and operations</b></td>
+        <td>Local topology, staging, secrets handling, telemetry, durable storage configuration, backup and the recovery approach.</td></tr>
+      <tr><td><b>ADR&#8209;006 &middot; Non&#8209;functional targets</b></td>
+        <td>The numbers the product promises: latency, availability, durability, and what the product does when it cannot meet them. A target with no stated failure behaviour is a wish.</td></tr>
+    </table></div>
+
+  <div class="grid2">
+    <div class="panel note"><div class="lbl">A decision record is seven fields</div>
+      <ul>
+        <li><b>Context</b> &mdash; the forces, in the team's own words.</li>
+        <li><b>Options</b> &mdash; at least two that were genuinely considered.</li>
+        <li><b>Decision</b> &mdash; one sentence, active voice.</li>
+        <li><b>Consequences</b> &mdash; what gets harder, not only what gets better.</li>
+        <li><b>Evidence</b> &mdash; what was measured, when, on what.</li>
+        <li><b>Owner</b> &mdash; a person, not a team.</li>
+        <li><b>Status</b> &mdash; proposed, accepted, or superseded by a later record.</li>
+      </ul></div>
+    <div class="panel pro"><div class="lbl">Keep the status visible and the history intact</div>
+      <p>A proposed decision becomes accepted only after review. A later decision <b>supersedes</b> an earlier
+        one rather than editing it away, so the reasoning stays readable a year later. <sup>[1]</sup></p>
+      <p style="margin-top:9px">Number records globally and never renumber them. A renumbered decision breaks
+        every link that ever pointed at it.</p></div>
+  </div>
+
+  <div class="panel con" style="margin-top:11px"><div class="lbl">What a decision pack is not</div>
+    <p>It is not a design of the whole system, and it is not an approval to stop thinking. Its only job is to
+      make the first slice buildable by someone who was not in the room.</p></div>
+
+  <div class="pfoot"><span>Architecture decision pack</span><span>13 / 16</span></div>
+</section>
+
+<!-- ===================== 14 FIRST SLICE ===================== -->
+<section class="page dense" style="--fam:var(--purple)">
+  <div class="chead"><span>Development playbook</span><span class="r">The first working slice &middot; 14 / 16</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">Template &middot; milestone one</div>
+    <h2>The first working slice</h2>
+    <p class="lede">One thin path through every layer, proved end to end, <b>before</b> the full first
+      release is attempted. It is an integration proof, not a feature. Its purpose is to establish the
+      pattern every later slice copies.</p>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:12px"><div class="lbl">The demonstration journey &mdash; fill in your own nouns</div>
+    <p><b>Sign in &rarr; application shell loads &rarr; choose the authorised context (customer, tenant, workspace)
+      &rarr; submit one real command &rarr; durable acknowledgement &rarr; a second user sees the result live.</b></p></div>
+
+  <div class="panel flat" style="margin-top:11px"><div class="lbl">Five steps, each one provable on its own</div>
+    <table>
+      <tr><th style="width:24%">Step</th><th>What it proves</th></tr>
+      <tr><td><b>1 &middot; Identity and context</b></td>
+        <td>A user signs in, their memberships load, they select a context they are allowed, and a context they are <b>not</b> allowed is refused &mdash; including when the identifier is altered by hand.</td></tr>
+      <tr><td><b>2 &middot; Shell and modules</b></td>
+        <td>Versioned modules load, the shared theme applies, the active context is visible, and an unavailable module produces a recoverable error rather than a blank screen.</td></tr>
+      <tr><td><b>3 &middot; Command and durability</b></td>
+        <td>One command is submitted with an idempotency key. Permission and state transition are validated, the write reaches the authoritative store, and only then is it acknowledged.</td></tr>
+      <tr><td><b>4 &middot; Event and projection</b></td>
+        <td>The durable event is published and consumed, a read model updates, and the change reaches an authorised observer. A syncing or unavailable state is shown honestly.</td></tr>
+      <tr><td><b>5 &middot; Evidence</b></td>
+        <td>Repeat the command. Restart the consumer. Attempt cross&#8209;tenant access. Switch context. Sign out. Confirm no duplicate, no leak, and no stale subscription.</td></tr>
+    </table></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Scope discipline</div>
+      <p>Two synthetic tenants, two scoped identities, one observer session. Load only the modules the journey
+        needs, and implement only the controls it uses. <b>Declare the authoritative write path before building it</b>, not after.</p></div>
+    <div class="panel pro"><div class="lbl">Milestone acceptance</div>
+      <p>A clean checkout runs the whole journey from documented commands. CI builds the images and passes the
+        relevant tests. <b>A reviewer repeats the demonstration unaided</b> and follows one correlation ID through every component.</p></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">What this milestone does and does not establish</div>
+    <p>It establishes an <b>implementation pattern</b>: how a command is authorised, made durable, observed and
+      demonstrated. It does not establish feature completeness. The remaining requirements follow as further
+      slices, each copying this shape.</p></div>
+
+  <div class="panel con" style="margin-top:11px"><div class="lbl">Signals the slice is too big</div>
+    <ul>
+      <li>It cannot be demonstrated until several people have merged work in a particular order.</li>
+      <li>Its acceptance criteria contain the word "and" more than three times.</li>
+      <li>Nobody can say which decision record it depends on.</li>
+    </ul></div>
+
+  <div class="pfoot"><span>The first working slice</span><span>14 / 16</span></div>
+</section>
+
+<!-- ===================== 15 AI LOOP ===================== -->
+<section class="page dense" style="--fam:var(--purple)">
+  <div class="chead"><span>Development playbook</span><span class="r">AI&#8209;assisted delivery loop &middot; 15 / 16</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">Working agreement</div>
+    <h2>Making AI&#8209;assisted work reviewable</h2>
+    <p class="lede">AI does not remove work; it moves it. Writing gets cheaper, so <b>context, review and
+      evidence become the constraint</b>. This page is the agreement that keeps that constraint visible.</p>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">The loop</div>
+    <p><b>Brief the task &rarr; inspect the real context &rarr; propose a small change &rarr; implement &rarr;
+      execute the checks &rarr; review the diff and the behaviour &rarr; deploy and observe.</b>
+      Return to the brief whenever evidence changes an assumption. Never skip "execute the checks" because the
+      change looks obviously right; that is precisely when it is skipped.</p></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">A useful task brief &mdash; six fields</div>
+      <ul>
+        <li><b>Outcome</b> &mdash; one user&#8209;visible behaviour.</li>
+        <li><b>Traceability</b> &mdash; requirement IDs and accepted decision records.</li>
+        <li><b>Context</b> &mdash; the exact files, contracts, fixtures and conventions.</li>
+        <li><b>Boundaries</b> &mdash; what is in scope, and what existing behaviour must not change.</li>
+        <li><b>Acceptance</b> &mdash; success, plus the realistic failure cases.</li>
+        <li><b>Evidence</b> &mdash; commands to run, results to report, limitations to declare.</li>
+      </ul></div>
+    <div class="panel con"><div class="lbl">What AI must never own</div>
+      <ul>
+        <li><b>Priority.</b> What matters is a human judgement about users and money.</li>
+        <li><b>Acceptance.</b> A person accepts a requirement, a decision and a release.</li>
+        <li><b>Evidence.</b> A claim that a test passes is not a test passing.</li>
+        <li><b>Accountability.</b> Every merged change has a human name against it.</li>
+        <li><b>Secrets and real personal data.</b> They stay out of prompts and fixtures unless the environment is explicitly approved.</li>
+      </ul></div>
+  </div>
+
+  <div class="panel flat" style="margin-top:11px"><div class="lbl">Worked example of a brief &mdash; adapt the nouns</div>
+    <p>"Implement the <b>submit&#8209;order</b> command and its control, for requirement <code>ORD&#8209;01</code>
+      and decision <code>ADR&#8209;003</code>. The server derives the customer from verified membership, never
+      from the request body. A repeated idempotency key returns the same result. Two concurrent submissions
+      respect the single&#8209;active rule. Another customer cannot observe the event. Demonstrate with two
+      tenants and <b>report the actual test output</b>."</p></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Who reviews what</div>
+      <ul>
+        <li><b>Product owner</b> &mdash; scope and acceptance.</li>
+        <li><b>Technical lead</b> &mdash; architecture and contracts.</li>
+        <li><b>Engineer</b> &mdash; implementation and verification.</li>
+        <li><b>Reviewer</b> &mdash; challenges the assumption, not the formatting.</li>
+        <li><b>Release owner</b> &mdash; readiness and recovery.</li>
+        <li>In a small team one person holds several roles &mdash; but never both author and sole accepter of the same risky change.</li>
+      </ul></div>
+    <div class="panel flat"><div class="lbl">Running AI work in parallel</div>
+      <ul>
+        <li>Only where contracts and file ownership are already clear.</li>
+        <li>Give <b>integration one owner</b>, always.</li>
+        <li>Keep each change small and reconcile before adding another stream.</li>
+        <li>Concurrency multiplies review load. Add it when review capacity exists, not when the queue looks empty.</li>
+      </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Measure the system, not the output</div>
+    <p>Track <b>review and rework time, escaped defects, change failure rate, recovery time</b> and real user
+      outcomes alongside delivery speed. Small batches and fast feedback are what turn AI adoption into better
+      delivery, rather than into more work in progress. <sup>[2, 3]</sup></p></div>
+
+  <div class="pfoot"><span>AI&#8209;assisted delivery loop</span><span>15 / 16</span></div>
+</section>
+
+<!-- ===================== 16 USING THIS GUIDE ===================== -->
+<section class="page dense" style="--fam:var(--cyan)">
+  <div class="chead"><span>Development playbook</span><span class="r">Using this guide &middot; 16 / 16</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">Adopt it &middot; adapt it &middot; keep it proportional</div>
+    <h2>Using this guide</h2>
+    <p class="lede">Take it as a working guide informed by established engineering practice, not as a claim
+      that every organisation follows this exact sequence. Keep the process proportional to the size of the
+      product and the cost of being wrong.</p>
+  </div>
+
+  <div class="panel fam-l" style="margin-top:11px"><div class="lbl">Three actions that start it</div>
+    <ul>
+      <li><b>Design.</b> Produce the decision pack on page 13. Resolve only the decisions the first slice needs; give every other open question an owner and a date.</li>
+      <li><b>Validate.</b> Run experiments against your three riskiest assumptions. Record the results with their date and machine, and update the proposed decisions.</li>
+      <li><b>Deliver.</b> Turn the page 14 journey into a small backlog, build the minimum foundation it needs, and complete the first repeatable demonstration.</li>
+    </ul></div>
+
+  <div class="grid2">
+    <div class="panel flat"><div class="lbl">Glossary</div>
+      <ul>
+        <li><b>ADR</b> &mdash; architecture decision record: one decision, its options and its consequences.</li>
+        <li><b>Vertical slice</b> &mdash; one user action delivered through every layer it touches.</li>
+        <li><b>Acceptance example</b> &mdash; a concrete case showing a requirement is met.</li>
+        <li><b>Definition of ready / done</b> &mdash; the agreed entry and exit tests for a task.</li>
+        <li><b>Idempotency key</b> &mdash; a value that makes a repeated request safe.</li>
+        <li><b>Correlation ID</b> &mdash; one identifier followed across every component of a request.</li>
+        <li><b>Service target</b> &mdash; a promised number, with the behaviour when it is missed.</li>
+      </ul></div>
+    <div class="panel flat"><div class="lbl">Where the artefacts live</div>
+      <ul>
+        <li><code>docs/requirements/</code> &mdash; the product baseline and acceptance journeys.</li>
+        <li><code>docs/architecture/</code> &mdash; drawings, contracts and decision records.</li>
+        <li><code>docs/development/</code> &mdash; this playbook, delivery planning, task briefs.</li>
+        <li><code>docs/operations/</code> &mdash; runbooks, release notes, incident findings.</li>
+        <li>Adjust the paths to your repository. What matters is that each artefact has <b>one</b> home and that it is discoverable without asking.</li>
+      </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:11px"><div class="lbl">Document status</div>
+    <p>Version 1.0. This guide proposes a development process. It does not approve any architecture decision
+      and does not indicate that any implementation, experiment or acceptance test has been completed. Adapt
+      the stage names to the language your team already uses; the stages matter, the labels do not.</p></div>
+
+  <div class="panel flat" style="margin-top:11px"><div class="lbl">References</div>
+    <ul>
+      <li><b>[1] AWS &middot; Architectural decision record process</b><br>
+        <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html">docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html</a><br>
+        Supports the decision&#8209;record structure, ownership and lifecycle used on page 13.</li>
+      <li><b>[2] DORA &middot; Working in small batches</b><br>
+        <a href="https://dora.dev/capabilities/working-in-small-batches/">dora.dev/capabilities/working-in-small-batches/</a><br>
+        Supports small increments, fast feedback and bounded AI&#8209;assisted changes.</li>
+      <li><b>[3] DORA &middot; State of AI&#8209;assisted Software Development 2025</b><br>
+        <a href="https://dora.dev/research/2025/dora-report/">dora.dev/research/2025/dora-report/</a><br>
+        Research context for integrating AI with the surrounding engineering system.</li>
+    </ul></div>
+
+  <p class="trap">References checked 17 September 2026. The stage model and templates are a synthesis for
+    practical use, not a prescribed universal standard.</p>
+
+  <div class="pfoot"><span>Using this guide</span><span>16 / 16</span></div>
+</section>
+
+</body>
+</html>
