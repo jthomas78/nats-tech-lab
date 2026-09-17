@@ -2911,10 +2911,10 @@ expected to be untouched, and `domain.go` is not opened.
 - The `odometer-pool` tab reduced to a single row.
 - A sleep or a jitter added to `work()` to force the damage.
 
-## 14. Phase 04.11 — lesson 02 explains itself (PROPOSED)
+## 14. Phase 04.11 — lesson 02 explains itself (APPROVED)
 
-**Status:** PROPOSED 2026-09-17. Raised by the user immediately after 04.10.1
-landed. Nothing here starts until it is approved.
+**Status:** APPROVED 2026-09-17. Raised by the user immediately after 04.10.1
+landed, and approved the same day with D19 answered: **name nothing**.
 
 ### 14.1 Why
 
@@ -2965,7 +2965,7 @@ and a drawing can.
 probability it cannot defend. It says which way each dial moves the risk, and
 then hands the reader the Run button to find out.
 
-### 14.3 Design decisions — to settle on approval
+### 14.3 Design decisions
 
 - **D16 — a sixth tab, "How this works", not a note on each tab.** The four
   existing tabs each answer one question with one number. A paragraph of
@@ -2983,10 +2983,12 @@ then hands the reader the Run button to find out.
   constant from lesson 02 and `recorded.spec.js` guards it. The diagrams show
   SHAPE only — no counts, no seconds, no drop totals. Where a number would
   help, the tab shows the reader's OWN last run or shows nothing.
-- **D19 — the diagrams are parameterised by the current settings, or they are
-  not parameterised at all.** A drawing that says "3 vehicles, 8 workers"
-  while the reader has 4 workers selected is worse than a drawing that names
-  neither. Decide one way on approval; D18 leans to naming neither.
+- **D19 — the diagrams name NOTHING.** Settled by the user on approval. No
+  vehicle count, no worker count, no cap value is drawn. A drawing that says
+  "8 workers" while the reader has 4 selected is worse than one that names
+  neither, and keeping a drawing in step with four controls is a bug surface
+  bought for nothing. The drawings teach SHAPE; the controls and the Run
+  button supply the reader's own numbers. This also keeps D18 trivially true.
 
 ### 14.4 Business rules
 
@@ -2995,9 +2997,7 @@ None expected. This is explanation of rules that already exist — BR-OD07
 The tab CITES them by number. `BUSINESS_RULES-ODOMETER.md` is expected to be
 untouched and `domain.go` is not opened.
 
-### 14.5 Tasks — none until approved
-
-Sketch only, so the size is visible:
+### 14.5 Tasks
 
 1. The mockup — `diagrams/lesson-02-how-it-works.html`, dark UniFi palette.
 2. **One stream, many workers.** One log, one consumer, N workers pulling.
@@ -3021,3 +3021,103 @@ Sketch only, so the size is visible:
 - A measured constant back on lesson 02.
 - A drawing that says "starvation" without saying every worker still acked.
 - A drawing whose numbers disagree with the controls above it.
+
+## 15. Phase 04.12 — one Overview per lesson (PROPOSED)
+
+**Status:** PROPOSED 2026-09-17. Raised by the user. Nothing starts until it
+is approved. **04.11 waits on this** — see 15.4.
+
+### 15.1 Why
+
+`AboutPanel.vue` is lesson 01's Overview, and its "What it does" tab renders
+the WHOLE of `README.md` — all 647 lines of it. Lines 356 to 620 are lesson
+02: its own log, the damage, the four runs, what redelivery costs, whether
+`MaxAckPending` starves workers, 1 vs 4.
+
+So lesson 01's Overview explains lesson 02. The reader who clicks Overview
+under "01 · Stream + CQRS" is handed the pool lesson they have not reached,
+including its measurements, and lesson 02 has no Overview of its own at all.
+
+The UI has two lessons. The source has one file. That is the defect.
+
+`diagrams/demo04-jetstream-cqrs.html` — the "Classes and sequences" tab — is
+already lesson 01 only: it mentions neither `pool` nor `worker`. It does not
+need splitting, which is worth knowing before anyone opens it.
+
+### 15.2 The constraint that shapes this
+
+**`README.md` is the lab shell's intro text.** Root `CLAUDE.md`, and it is not
+negotiable: the lab shell renders that file to introduce the demo. So the
+split cannot be "cut the file in half and point the app at the halves" without
+deciding what the lab shell is left holding.
+
+### 15.3 Design decisions — one to settle on approval
+
+- **D20 — two sub-tabs on lesson 02's Overview, mirroring lesson 01.** Lesson
+  01 has `What it does` + `Classes and sequences`. Lesson 02 gets
+  `What it does` + `How this works`. The Overview is the first tab, so the
+  reader meets the explanation before the buttons.
+- **D21 — `AboutPanel.vue` is made to take its source, not to know it.** It
+  already renders "a markdown file and an HTML page" — it just has the two
+  filenames welded in. One component, two instances, each handed its lesson's
+  files. A second copy of 250 lines of CSS to render the same markdown is the
+  thing to avoid here.
+- **D22 — where the split line falls. TO SETTLE.** Two shapes:
+  - **A (recommended).** `README.md` keeps everything that is not lesson 02;
+    lesson 02's sections move to `docs/LESSON-02.md`. The lab shell intro
+    keeps the demo's headline question and its finding, and gains one line
+    pointing at the lesson 02 doc. Smallest move. Slightly asymmetric: lesson
+    01's Overview renders a file that also carries ports, how-to-run and the
+    command list, because those ARE lesson 01 plus the shared operational
+    bits.
+  - **B.** Both lessons move out — `docs/LESSON-01.md` and
+    `docs/LESSON-02.md` — and `README.md` becomes a short intro plus how to
+    run. Symmetric. But the lab shell then introduces the demo without its
+    finding, which is the most interesting thing in it.
+- **D23 — nothing is retyped.** The split is `git mv` of prose plus new
+  headers. Any sentence that gets rewritten is a sentence that can now
+  disagree with the one it was copied from. The measurement tables move
+  whole, with their dates and their commands.
+
+### 15.4 What this changes in 04.11 (APPROVED)
+
+**D16 is superseded if this is approved.** 04.11 approved a SIXTH top-level
+tab called "How this works". Under D20 the four drawings belong in lesson 02's
+Overview instead, as its second sub-tab — the same slot "Classes and
+sequences" occupies on lesson 01.
+
+That is better, not merely different: the tab count stays at five, the
+explanation sits beside the words that introduce it, and the two lessons get
+the same shape. 04.11's other decisions (D17 inline SVG, D18 no measured
+numbers, D19 name nothing) are unaffected.
+
+**Order: 04.12 first, then 04.11 fills the sub-tab it creates.** Doing 04.11
+first would build a tab that 04.12 then moves.
+
+### 15.5 Business rules
+
+None. Nothing here opens `domain.go`. `BUSINESS_RULES-ODOMETER.md` is expected
+to be untouched.
+
+### 15.6 Tasks
+
+Sketch only, so the size is visible:
+
+1. **The prose is split.** Lesson 02's sections leave `README.md` for their
+   own file. Both files gain a pointer to the other. A live guard spec fails
+   if lesson 02's headings reappear in the lab shell's intro, and fails if the
+   lesson 02 file is empty of them — the same shape as `recorded.spec.js`,
+   because a split that silently reverts is a split nobody notices.
+2. **`AboutPanel.vue` takes props.** Its files become inputs. Lesson 01's
+   instance is handed `README.md` + the class diagram page; the component
+   stops naming either.
+3. **Lesson 02 gets its Overview tab**, first in the strip, holding its own
+   "What it does". The second sub-tab is left empty for 04.11.
+4. **The documents catch up** — `CLAUDE.md`'s file table gains the new doc.
+
+### 15.7 What would make this phase a failure
+
+- Lesson 01's Overview still explaining the pool.
+- Two components rendering markdown two ways.
+- A sentence that exists in both files and can drift.
+- The lab shell's intro left saying nothing about what the demo found.
