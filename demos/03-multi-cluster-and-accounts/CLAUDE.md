@@ -96,7 +96,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 | `06-arbiter3.sh` | T4 / F — gateway + 3-node arbiter cluster | 9 |
 | `_common.sh` | the shared harness — config builders, freeze/thaw, the checks |
 | `render-report.py` | turns `run/results.tsv` into `REPORT.md`, and with `--html` into `REPORT.html` |
-| `figures.html` | the five topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
+| `figures.html` | the seven topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
 
 Rules for anything added here:
 

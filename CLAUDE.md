@@ -297,9 +297,11 @@ one out: bare `nats-server` processes started on the **host**, no Docker, no
 user/password pairs inside six hand-written `.conf` files.
 
 Its role is **validation only**, and the **topology itself is the variable** —
-five shapes (T1–T5) needing 6, 7 or 9 servers depending on the run. That is the
-mirror image of demo 02, which holds one topology still and varies the account
-model.
+five numbered shapes (T1–T5), plus two variants that answer their own question
+(**B** a domain per cluster, **E** export / import between accounts) — seven
+runnable shapes in all, needing 6, 7 or 9 servers depending on the run. That is
+the mirror image of demo 02, which holds one topology still and varies the
+account model.
 
 Three rules worth knowing from outside: every scratch config and `server_name`
 carries a **`t-` prefix**, because an unprefixed `pkill` has already killed the

@@ -49,6 +49,13 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [compose_split_aws_deployment_decision](compose_split_aws_deployment_decision.md) — ZA cell project is `-p poc` (renamed 2026-09-09, NOT lb-za-1); cell split DONE 2026-09-08 (ADR-055), global band not written: deploy/cell tier files x per-cell env files, prove multi-region locally before AWS, Compose local + Helm/EKS production; AWS work list
 - [local_mesh_replication_is_the_goal](local_mesh_replication_is_the_goal.md) — **[demo 02]** GOAL: run the full hub+za+au mesh locally, not in cloud; nats.conf has no cluster/gateway block yet
 
+## Demo 03 — multi-cluster and accounts (stage 03 complete 2026-09-17)
+- [demo03_state_and_handover](demo03_state_and_handover.md) — **[demo 03] START HERE** — seven shapes measured, 73 checks green, stage 04 pattern cards NOT started; reports are generated, `figures.html` is the one hand-drawn file, the `t-` prefix must not be tidied away
+- [demo03_both_edges_of_a_failover_lie](demo03_both_edges_of_a_failover_lie.md) — **[demo 03]** `/jsz` names a dead leader for up to 54s after, and a new leader seconds BEFORE it accepts a change; retry and measure, never `sleep`
+- [demo03_mirror_over_gateway_vs_leaf](demo03_mirror_over_gateway_vs_leaf.md) — **[demo 03]** over a gateway a mirror needs no `external.api`; over a leaf link, omitting it copies nothing, or silently copies the wrong local stream
+- [demo03_export_import_is_the_safe_sharing](demo03_export_import_is_the_safe_sharing.md) — **[demo 03]** account export/import is one-way, renamed and subject-only; the opposite of T5's silent double capture
+- [demo03_three_node_arbiter_buys_one_node_of_slack](demo03_three_node_arbiter_buys_one_node_of_slack.md) — **[demo 03]** T4 (9 peers, majority 5) survives a region plus one node; T3 (7 peers, majority 4) has no slack
+
 ## Reference material
 - [aws_console_as_shell_app](aws_console_as_shell_app.md) — AWS Console as app-shell mental model; documented MFE discovery pattern + where our contribution points go further
 
