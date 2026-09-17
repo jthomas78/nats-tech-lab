@@ -308,7 +308,9 @@ answer is read from `curl "localhost:8231/jsz?meta=1"`, never from the logs.
 
 Every measurement is re-runnable from `demos/03-multi-cluster-and-accounts/lab/`
 — `./run-all.sh` builds all five topologies from nothing and writes the demo's
-`REPORT.md`. That report is generated; do not hand-edit it.
+`REPORT.md` and `REPORT.html`. Both are generated; do not hand-edit either.
+The HTML edition adds a drawn diagram per topology, annotated with the IDs of
+the checks measured on it.
 
 ### Running demo 04
 

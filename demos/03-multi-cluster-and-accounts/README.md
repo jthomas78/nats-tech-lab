@@ -123,7 +123,7 @@ Measured on **`nats-server 2.14.6`**, September 2026.
 |---|---|
 | 01 Define | this page |
 | 02 Design | done — [`CLAUDE.md`](CLAUDE.md), the rig |
-| 03 Validate | done — measured by hand 2026-09-11, made re-runnable 2026-09-17: [`lab/`](lab/) and [`REPORT.md`](REPORT.md) |
+| 03 Validate | done — measured by hand 2026-09-11, made re-runnable 2026-09-17: [`lab/`](lab/), [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) |
 | 04 Learn | to write — pattern cards deck |
 
 See [`demo-playbook.pdf`](../../demo-playbook.pdf) for what those stages mean.
@@ -136,5 +136,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 ```
 
 That builds all five topologies from nothing, measures them, tears them down,
-and writes [`REPORT.md`](REPORT.md). It needs `nats-server`, `nats`, `jq`,
-`curl` and `python3`, and nothing else — no Docker, no trust chain.
+and writes [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) — the
+same findings, but the HTML edition draws each topology. It needs
+`nats-server`, `nats`, `jq`, `curl` and `python3`, and nothing else — no
+Docker, no trust chain.

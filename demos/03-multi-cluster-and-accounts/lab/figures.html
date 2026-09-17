@@ -1,0 +1,300 @@
+<!--FIG t1-->
+<svg viewBox="0 0 960 420" role="img" aria-label="T1 &mdash; two islands, no link. Six bare nats-server processes on 127.0.0.1 form independent three-peer clusters za and au. Each cluster has its own JetStream meta group and quorum of two. The shared LB account accepts ODOMETER in both islands, a ZA publish does not cross to AU, and freezing ZA does not stop AU from retaining its leader or creating a new three-replica stream.">
+  <text class="grp g" x="30" y="26">T1 &mdash; META GROUP za &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <text class="grp g" x="530" y="26">META GROUP au &mdash; 3 PEERS &mdash; QUORUM 2</text>
+
+  <rect class="nb" x="14" y="34" width="432" height="184" rx="4"/>
+  <rect class="nb clu" x="30" y="52" width="400" height="148" rx="4"/>
+  <text class="grp" x="44" y="70">CLUSTER za &mdash; REGION za</text>
+  <rect class="n" x="44" y="84" width="112" height="34" rx="3"/>
+  <text class="lbl" x="100" y="101" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="100" y="114" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="168" y="84" width="112" height="34" rx="3"/>
+  <text class="lbl" x="224" y="101" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="224" y="114" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="292" y="84" width="112" height="34" rx="3"/>
+  <text class="lbl" x="348" y="101" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="348" y="114" text-anchor="middle">127.0.0.1:4233</text>
+  <text class="ro h" x="44" y="146">JetStream system za &mdash; independent</text>
+  <text class="ro" x="44" y="166">accounts: LB / LB_ZA / LB_AU</text>
+  <text class="ro" x="44" y="186">no WAN link</text>
+
+  <rect class="nb" x="514" y="34" width="432" height="184" rx="4"/>
+  <rect class="nb clu" x="530" y="52" width="400" height="148" rx="4"/>
+  <text class="grp" x="544" y="70">CLUSTER au &mdash; REGION au</text>
+  <rect class="n" x="544" y="84" width="112" height="34" rx="3"/>
+  <text class="lbl" x="600" y="101" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="600" y="114" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="668" y="84" width="112" height="34" rx="3"/>
+  <text class="lbl" x="724" y="101" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="724" y="114" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="792" y="84" width="112" height="34" rx="3"/>
+  <text class="lbl" x="848" y="101" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="848" y="114" text-anchor="middle">127.0.0.1:4243</text>
+  <text class="ro h" x="544" y="146">JetStream system au &mdash; independent</text>
+  <text class="ro" x="544" y="166">accounts: LB / LB_ZA / LB_AU</text>
+  <text class="ro" x="544" y="186">no WAN link</text>
+
+  <text class="ro g" x="30" y="246">T1a  2 distinct meta groups</text>
+  <text class="ro g" x="30" y="268">T1b/T1c  sizes 3 and 3 &mdash; quorum 2 each</text>
+  <text class="ro g" x="30" y="290">T1d  shared account LB: AU also asks for ODOMETER &mdash; accepted, no 10058</text>
+  <text class="ro g" x="30" y="312">T1e  two real streams: za / au</text>
+  <text class="ro g" x="30" y="334">T1f  one publish in ZA: 1 in ZA, 0 in AU &mdash; nothing crosses</text>
+  <text class="ro g" x="30" y="356">T1g/T1h/T1i  ZA frozen: AU keeps its leader, creates a new R3 stream, size still 3</text>
+  <text class="ro g" x="30" y="398">both regions accept a write while the other is dark &mdash; at the price of total isolation</text>
+</svg>
+<!--/FIG-->
+<!--FIG a-->
+<svg viewBox="0 0 960 518" role="img" aria-label="T2 / A &mdash; one gateway. Six bare nats-server processes on 127.0.0.1 form clusters za and au joined by a bidirectional gateway inside shared account LB. One six-peer JetStream meta group needs four votes. ODOMETER placed in ZA is refused from AU with error 10058, regional accounts remain separate data walls, and freezing all three ZA processes removes the meta leader and blocks new stream creation while existing AU streams still accept publishes; thaw restores all six peers without loss.">
+  <defs>
+    <marker id="fa-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+  </defs>
+  <text class="grp g" x="22" y="26">T2 / A &mdash; ONE META GROUP &mdash; 6 PEERS &mdash; MAJORITY 4 &mdash; ONE SHARED JETSTREAM DOMAIN</text>
+  <rect class="nb" x="14" y="34" width="932" height="462" rx="4"/>
+  <rect class="nb acct" x="30" y="52" width="900" height="198" rx="4"/>
+  <text class="grp a" x="44" y="72">ACCOUNT LB &mdash; ONE STREAM NAMESPACE</text>
+
+  <rect class="nb clu dead" x="46" y="88" width="364" height="144" rx="4"/>
+  <text class="grp" x="60" y="106">CLUSTER za &mdash; REGION za</text>
+  <text class="grp r" x="244" y="106">FROZEN &mdash; kill -STOP</text>
+  <rect class="n" x="60" y="124" width="104" height="34" rx="3"/>
+  <text class="lbl" x="112" y="141" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="112" y="154" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="176" y="124" width="104" height="34" rx="3"/>
+  <text class="lbl" x="228" y="141" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="228" y="154" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="292" y="124" width="104" height="34" rx="3"/>
+  <text class="lbl" x="344" y="141" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="344" y="154" text-anchor="middle">127.0.0.1:4233</text>
+  <text class="ro h" x="60" y="190">LB ODOMETER &mdash; placement za</text>
+  <text class="ro" x="60" y="212">LB_ZA ODOMETER &mdash; placement za</text>
+
+  <rect class="nb clu" x="550" y="88" width="364" height="144" rx="4"/>
+  <text class="grp" x="564" y="106">CLUSTER au &mdash; REGION au</text>
+  <rect class="n" x="564" y="124" width="104" height="34" rx="3"/>
+  <text class="lbl" x="616" y="141" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="616" y="154" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="680" y="124" width="104" height="34" rx="3"/>
+  <text class="lbl" x="732" y="141" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="732" y="154" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="796" y="124" width="104" height="34" rx="3"/>
+  <text class="lbl" x="848" y="141" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="848" y="154" text-anchor="middle">127.0.0.1:4243</text>
+  <text class="ro r" x="564" y="190">LB duplicate ODOMETER &mdash; refused</text>
+  <text class="ro" x="564" y="212">LB_AU ODOMETER &mdash; placement au</text>
+
+  <line class="gw" x1="410" y1="141" x2="550" y2="141" marker-start="url(#fa-gw)" marker-end="url(#fa-gw)"/>
+  <text class="edge" x="480" y="135" text-anchor="middle">gateway</text>
+
+  <text class="ro h" x="30" y="276">A1  1 meta group    A2  size 6 &mdash; majority 4</text>
+  <text class="ro" x="30" y="294">A3  LB: ODOMETER placed in za</text>
+  <text class="ro r" x="30" y="312">A4  LB: AU asks for ODOMETER &mdash; 10058 refused</text>
+  <text class="ro r" x="30" y="330">A5  AU's stream info reports cluster za &mdash; the trap</text>
+  <text class="ro g" x="30" y="348">A6/A7  LB_ZA lands in za, LB_AU lands in au &mdash; the account is the wall</text>
+  <text class="ro" x="30" y="366">A8  one publish in ZA: LB_ZA 1 / LB_AU 0</text>
+  <text class="ro" x="30" y="384">A9  KV t7-vehicles created from AU, no placement flag &mdash; lands in au</text>
+  <text class="ro r" x="30" y="402">A10  ZA frozen (3 of 6): meta leader NONE</text>
+  <text class="ro r" x="30" y="420">A10a  but /jsz still named a leader for 22s</text>
+  <text class="ro r" x="30" y="438">A11/A11a  AU cannot create a new stream &mdash; 10008</text>
+  <text class="ro g" x="30" y="456">A12  AU CAN still publish to its EXISTING stream</text>
+  <text class="ro g" x="30" y="474">A13/A14  after thaw: size back to 6, nothing lost</text>
+</svg>
+<!--/FIG-->
+<!--FIG b-->
+<svg viewBox="0 0 960 416" role="img" aria-label="B &mdash; a domain per cluster over a gateway. Six bare nats-server processes on 127.0.0.1 retain their real za and au cluster names and carry domains za and au, but the gateway still creates one six-peer meta group. With nothing stopped, exactly one side elects a meta leader and the other is blind; the mapping to za or au is deliberately unspecified because measurements showed it swaps between runs. Placement succeeds only on the live side, proving domains do not split a supercluster.">
+  <defs>
+    <marker id="fb-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+  </defs>
+  <text class="grp r" x="22" y="26">B &mdash; ONE META GROUP &mdash; 6 PEERS &mdash; DOMAINS DID NOT SPLIT IT</text>
+  <text class="grp a" x="650" y="26">ACCOUNTS LB / LB_ZA / LB_AU</text>
+  <rect class="nb" x="14" y="34" width="932" height="218" rx="4"/>
+
+  <rect class="nb clu" x="30" y="54" width="380" height="112" rx="4"/>
+  <text class="grp" x="44" y="74">CLUSTER za &mdash; <tspan class="grp a">domain: za</tspan></text>
+  <rect class="n" x="44" y="90" width="104" height="34" rx="3"/>
+  <text class="lbl" x="96" y="107" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="96" y="120" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="160" y="90" width="104" height="34" rx="3"/>
+  <text class="lbl" x="212" y="107" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="212" y="120" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="276" y="90" width="104" height="34" rx="3"/>
+  <text class="lbl" x="328" y="107" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="328" y="120" text-anchor="middle">127.0.0.1:4233</text>
+  <text class="ro" x="44" y="150">real cluster name retained</text>
+
+  <rect class="nb clu" x="550" y="54" width="380" height="112" rx="4"/>
+  <text class="grp" x="564" y="74">CLUSTER au &mdash; <tspan class="grp a">domain: au</tspan></text>
+  <rect class="n" x="564" y="90" width="104" height="34" rx="3"/>
+  <text class="lbl" x="616" y="107" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="616" y="120" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="680" y="90" width="104" height="34" rx="3"/>
+  <text class="lbl" x="732" y="107" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="732" y="120" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="796" y="90" width="104" height="34" rx="3"/>
+  <text class="lbl" x="848" y="107" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="848" y="120" text-anchor="middle">127.0.0.1:4243</text>
+  <text class="ro" x="564" y="150">real cluster name retained</text>
+
+  <line class="gw" x1="410" y1="107" x2="550" y2="107" marker-start="url(#fb-gw)" marker-end="url(#fb-gw)"/>
+  <text class="edge" x="480" y="101" text-anchor="middle">gateway</text>
+
+  <rect class="n" x="238" y="190" width="220" height="40" rx="3"/>
+  <text class="lbl" x="348" y="207" text-anchor="middle">LIVE SIDE</text>
+  <text class="lbl2" x="348" y="220" text-anchor="middle">elects a meta leader</text>
+  <rect class="nb dead" x="502" y="190" width="220" height="40" rx="4"/>
+  <text class="lbl" x="612" y="207" text-anchor="middle">BLIND SIDE</text>
+  <text class="lbl2" x="612" y="220" text-anchor="middle">no meta leader</text>
+  <text class="ro r" x="734" y="214">za / au mapping varies</text>
+
+  <text class="ro r" x="30" y="282">B1  exactly 1 of 2 sides elects a leader &mdash; with NOTHING stopped</text>
+  <text class="ro r" x="30" y="304">B1a  which side loses is a COIN TOSS &mdash; it swapped between two runs minutes apart</text>
+  <text class="ro r" x="30" y="326">B2  the losing side has no meta leader</text>
+  <text class="ro r" x="30" y="348">B3  meta group size seen from the live side: 6 &mdash; the domains did NOT split it</text>
+  <text class="ro r" x="30" y="370">B4  placing a stream on the blind cluster: 10005 no suitable peers</text>
+  <text class="ro" x="30" y="392">B5  placing a stream on the live cluster: ok</text>
+  <text class="ro r" x="30" y="414">B6  verdict: a domain name cannot split a supercluster. A domain may only change across a LEAF link, and a gateway is not one.</text>
+</svg>
+<!--/FIG-->
+<!--FIG c-->
+<svg viewBox="0 0 960 566" role="img" aria-label="T3 / C &mdash; gateway plus a one-node arbiter. Seven bare nats-server processes on 127.0.0.1 form three clusters: three servers in za, three in au, and t-arb alone in a third-site arb cluster. A three-way gateway mesh creates one seven-peer JetStream meta group with majority four. Either regional freeze leaves exactly four voters and permits a new three-replica regional stream, but there is no remaining slack. Measurements also show explicit or direct-client placement can put unreplicated data on the arbiter.">
+  <defs>
+    <marker id="fc-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+  </defs>
+  <text class="grp g" x="22" y="26">T3 / C &mdash; ONE META GROUP &mdash; 7 PEERS &mdash; MAJORITY 4</text>
+  <text class="grp a" x="650" y="26">ACCOUNTS LB / LB_ZA / LB_AU</text>
+  <rect class="nb" x="14" y="34" width="932" height="520" rx="4"/>
+
+  <rect class="nb clu" x="30" y="52" width="360" height="126" rx="4"/>
+  <text class="grp" x="42" y="70">CLUSTER za &mdash; REGION za</text>
+  <rect class="n" x="44" y="84" width="104" height="34" rx="3"/>
+  <text class="lbl" x="96" y="101" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="96" y="114" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="160" y="84" width="104" height="34" rx="3"/>
+  <text class="lbl" x="212" y="101" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="212" y="114" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="276" y="84" width="104" height="34" rx="3"/>
+  <text class="lbl" x="328" y="101" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="328" y="114" text-anchor="middle">127.0.0.1:4233</text>
+  <text class="ro h" x="44" y="150">regional R3 streams stay inside za</text>
+
+  <rect class="nb clu" x="570" y="52" width="360" height="126" rx="4"/>
+  <text class="grp" x="582" y="70">CLUSTER au &mdash; REGION au</text>
+  <rect class="n" x="584" y="84" width="104" height="34" rx="3"/>
+  <text class="lbl" x="636" y="101" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="636" y="114" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="700" y="84" width="104" height="34" rx="3"/>
+  <text class="lbl" x="752" y="101" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="752" y="114" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="816" y="84" width="104" height="34" rx="3"/>
+  <text class="lbl" x="868" y="101" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="868" y="114" text-anchor="middle">127.0.0.1:4243</text>
+  <text class="ro h" x="584" y="150">regional R3 streams stay inside au</text>
+
+  <line class="gw" x1="390" y1="101" x2="570" y2="101" marker-start="url(#fc-gw)" marker-end="url(#fc-gw)"/>
+  <text class="edge" x="480" y="95" text-anchor="middle">gateway</text>
+
+  <path class="gw" d="M260 178 V214 H346 V252 H356" marker-start="url(#fc-gw)" marker-end="url(#fc-gw)"/>
+  <text class="edge" x="303" y="208" text-anchor="middle">gateway</text>
+  <path class="gw" d="M700 178 V214 H614 V252 H604" marker-start="url(#fc-gw)" marker-end="url(#fc-gw)"/>
+  <text class="edge" x="657" y="208" text-anchor="middle">gateway</text>
+
+  <rect class="nb clu" x="366" y="216" width="228" height="72" rx="4"/>
+  <text class="grp" x="382" y="234">CLUSTER arb &mdash; THIRD SITE</text>
+  <rect class="n" x="424" y="244" width="112" height="34" rx="3"/>
+  <text class="lbl" x="480" y="261" text-anchor="middle">t-arb</text>
+  <text class="lbl2" x="480" y="274" text-anchor="middle">127.0.0.1:4540</text>
+
+  <text class="ro h" x="30" y="316">C1  size 7 &mdash; majority 4    C2  1 meta group</text>
+  <text class="ro g" x="30" y="338">C3/C3a  AU frozen: a leader IS elected among the survivors</text>
+  <text class="ro g" x="30" y="360">C4  AU frozen: ZA creates a NEW 3-replica stream &mdash; ok</text>
+  <text class="ro g" x="30" y="382">C5/C5a  ZA frozen: a leader IS elected</text>
+  <text class="ro g" x="30" y="404">C6  ZA frozen: AU creates a NEW 3-replica stream &mdash; ok</text>
+  <text class="ro" x="30" y="426">C7  8 unplaced R1 streams: 0 landed on the arbiter</text>
+  <text class="ro r" x="30" y="448">C8  but an explicit --cluster arb R1 stream DOES land there</text>
+  <text class="ro" x="30" y="470">C9  --cluster arb --replicas 3: 10005 &mdash; the arbiter is one node</text>
+  <text class="ro r" x="30" y="492">C10  a client dialling 4540 directly creates its stream in arb</text>
+  <text class="ro r" x="30" y="514">C11  so: keep clients off the arbiter's client port, or fence it with placement</text>
+  <rect class="nb dead" x="22" y="526" width="916" height="28" rx="4"/>
+  <text class="ro r" x="34" y="545">C12  slack after losing one region: NONE &mdash; 4 of 7 is exactly the majority; one more node freezes it</text>
+</svg>
+<!--/FIG-->
+<!--FIG d-->
+<svg viewBox="0 0 960 598" role="img" aria-label="T5 / D &mdash; a hub with two leaf clusters. Nine bare nats-server processes on 127.0.0.1 form separate three-peer hub, za, and au clusters with domains hub, za, and au. ZA and AU connect to all three hub leaf ports. Each cluster has its own meta group and quorum of two. Shared account LB can hold ODOMETER in both regions, so one ZA publish is captured in both. A cross-domain mirror requires external API prefix $JS.au.API, and killing the hub leaves both regions independently writable while no data replicates unless configured.">
+  <defs>
+    <marker id="fd-lf" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+    <marker id="fd-mir" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+  </defs>
+  <rect class="nb acct" x="8" y="18" width="944" height="344" rx="4"/>
+  <text class="grp a" x="22" y="36">ACCOUNT LB &mdash; SHARED TRANSPORT, THREE JETSTREAM DOMAINS</text>
+
+  <text class="grp g" x="300" y="56">META GROUP hub &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="282" y="62" width="396" height="116" rx="4"/>
+  <rect class="nb clu" x="298" y="76" width="364" height="88" rx="4"/>
+  <text class="grp" x="312" y="94">CLUSTER hub &mdash; <tspan class="grp a">domain: hub</tspan></text>
+  <rect class="n" x="312" y="104" width="104" height="34" rx="3"/>
+  <text class="lbl" x="364" y="121" text-anchor="middle">t-hub-1</text>
+  <text class="lbl2" x="364" y="134" text-anchor="middle">127.0.0.1:4551</text>
+  <rect class="n" x="428" y="104" width="104" height="34" rx="3"/>
+  <text class="lbl" x="480" y="121" text-anchor="middle">t-hub-2</text>
+  <text class="lbl2" x="480" y="134" text-anchor="middle">127.0.0.1:4552</text>
+  <rect class="n" x="544" y="104" width="104" height="34" rx="3"/>
+  <text class="lbl" x="596" y="121" text-anchor="middle">t-hub-3</text>
+  <text class="lbl2" x="596" y="134" text-anchor="middle">127.0.0.1:4553</text>
+  <text class="ro" x="312" y="156">leaf listeners: 7560 / 7561 / 7562</text>
+
+  <!-- Straight verticals, labels beside them. The gutter under the hub is only
+       30px tall, so a routed elbow leaves nowhere to put a label off the line. -->
+  <path class="lf" d="M340 182 V204" marker-start="url(#fd-lf)" marker-end="url(#fd-lf)"/>
+  <text class="edge" x="348" y="196">leafnode</text>
+  <path class="lf" d="M620 182 V204" marker-start="url(#fd-lf)" marker-end="url(#fd-lf)"/>
+  <text class="edge" x="628" y="196">leafnode</text>
+
+  <text class="grp g" x="28" y="202">META GROUP za &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="14" y="208" width="432" height="148" rx="4"/>
+  <rect class="nb clu" x="30" y="224" width="400" height="116" rx="4"/>
+  <text class="grp" x="44" y="242">CLUSTER za &mdash; <tspan class="grp a">domain: za</tspan></text>
+  <rect class="n" x="44" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="100" y="269" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="100" y="282" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="168" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="224" y="269" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="224" y="282" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="292" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="348" y="269" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="348" y="282" text-anchor="middle">127.0.0.1:4233</text>
+  <rect class="n" x="44" y="300" width="128" height="28" rx="3"/>
+  <text class="lbl" x="108" y="317" text-anchor="middle">ODOMETER</text>
+  <rect class="n" x="260" y="300" width="144" height="28" rx="3"/>
+  <text class="lbl" x="332" y="317" text-anchor="middle">ODOMETER_MIRROR</text>
+
+  <text class="grp g" x="928" y="202" text-anchor="end">META GROUP au &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="514" y="208" width="432" height="148" rx="4"/>
+  <rect class="nb clu" x="530" y="224" width="400" height="116" rx="4"/>
+  <text class="grp" x="544" y="242">CLUSTER au &mdash; <tspan class="grp a">domain: au</tspan></text>
+  <rect class="n" x="544" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="600" y="269" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="600" y="282" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="668" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="724" y="269" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="724" y="282" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="792" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="848" y="269" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="848" y="282" text-anchor="middle">127.0.0.1:4243</text>
+  <rect class="n" x="544" y="300" width="128" height="28" rx="3"/>
+  <text class="lbl" x="608" y="317" text-anchor="middle">ODOMETER</text>
+
+  <line class="mir" x1="544" y1="314" x2="414" y2="314" marker-end="url(#fd-mir)"/>
+  <text class="edge" x="479" y="308" text-anchor="middle">mirror + external.api</text>
+
+  <text class="ro h" x="30" y="382">D1  3 distinct meta groups    D2  sizes 3 / 3 / 3 &mdash; quorum 2 each</text>
+  <text class="ro" x="30" y="402">D3/D4  shared account LB holds ODOMETER in BOTH regions &mdash; no 10058 &mdash; two real streams</text>
+  <rect class="nb dead" x="22" y="414" width="916" height="30" rx="4"/>
+  <text class="ro r" x="34" y="434">D5  ONE publish in ZA is stored in ZA and AU: 1 / 1 &mdash; THE DOUBLE CAPTURE</text>
+  <text class="ro" x="30" y="462">D6  two same-named SHADOW streams alive at once: ZA has 1, AU has 2</text>
+  <text class="ro r" x="30" y="482">D7/D7a  a mirror WITHOUT external.api copied 0 messages &mdash; and said nothing. No error, no warning, stream reports healthy.</text>
+  <text class="ro g" x="30" y="502">D8  the same mirror WITH external.api $JS.au.API copied 2</text>
+  <text class="ro r" x="30" y="522">D9/D9a  a name-only mirror silently copied the LOCAL stream, not the remote one</text>
+  <text class="ro g" x="30" y="542">D10-D14  whole hub killed: both regions keep their leaders, create new R3 streams, and store their own publishes</text>
+  <text class="ro r" x="30" y="562">D15  nothing replicates by itself &mdash; every cross-region copy is hand-written</text>
+</svg>
+<!--/FIG-->
