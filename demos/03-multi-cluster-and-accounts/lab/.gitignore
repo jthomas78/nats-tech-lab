@@ -1,0 +1,4 @@
+# The rig itself. Every script rebuilds this from nothing on each run:
+# generated t-*.conf files, server logs, pid files, JetStream stores, and
+# the results.tsv that REPORT.md is rendered from.
+run/

@@ -306,6 +306,10 @@ carries a **`t-` prefix**, because an unprefixed `pkill` has already killed the
 live lab twice; a region is cut with `kill -STOP`, never with Docker; and the
 answer is read from `curl "localhost:8231/jsz?meta=1"`, never from the logs.
 
+Every measurement is re-runnable from `demos/03-multi-cluster-and-accounts/lab/`
+— `./run-all.sh` builds all five topologies from nothing and writes the demo's
+`REPORT.md`. That report is generated; do not hand-edit it.
+
 ### Running demo 04
 
 **`demos/04-jetstream-cqrs/` has its own `CLAUDE.md`. Read that, not this file,
