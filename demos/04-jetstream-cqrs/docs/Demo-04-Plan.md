@@ -3410,3 +3410,76 @@ there.
 - The retraction quietly dropped, leaving only the flattering figures.
 - The deck in a shared folder instead of this demo's own `docs/`.
 - A guard weakened to let a missing card through.
+
+---
+
+## 17. The route table and its guard (2026-09-17, complete)
+
+A review of the shim found that `CLAUDE.md` listed `/rehydrate` as **POST**.
+It is **GET**, and it had been GET since the frontend first called it
+(`frontend/src/rehydrate/api.js:76`). The guard that is supposed to watch
+that table did not notice.
+
+### 17.1 Why the old guard could not have caught it
+
+`cqrs/docs_test.go` read the routes out of `serve.go` with
+`mux\.HandleFunc\("([^"]+)"` and then asked, per route, whether the document
+contained that string anywhere. Two holes:
+
+- **A route registration carries no method.** `mux.HandleFunc("/rehydrate",
+  ...)` says nothing about GET or POST — the method test lives inside the
+  handler body. So no regexp over `serve.go` can ever verify the Method
+  column. Extending the regexp was the obvious fix and it cannot work.
+- **`ContainSubstring` collides on a prefix.** `/pool` is a substring of
+  `/pool/run`. Deleting the `/pool` row left the `/pool` check passing on a
+  different row's text. This is the same prefix trap this demo already warns
+  about for `ODOMETER` and `ODOMETER_POOL` — and the guard walked into it.
+
+### 17.2 What replaced it
+
+Two halves, both in `cqrs/docs_test.go`.
+
+- **Set equality, not substring.** The routes parsed out of `serve.go` and
+  the rows parsed out of `CLAUDE.md` must match exactly, in both directions.
+  A row deleted fails. A row left behind after a route is removed fails. A
+  route added with no row fails.
+- **A behavioural contract test.** `newCommandAPI` is stood up under
+  `httptest` with all eight collaborators stubbed — no NATS. For each row,
+  the documented method must NOT answer 405, and the other method MUST. That
+  is the only way the Method column can be checked, because the claim is
+  about behaviour and behaviour is the thing being documented.
+
+The row parser is anchored at the start of a line, so a route mentioned in
+the prose below the table is not mistaken for a row.
+
+### 17.3 Confirmed red before green
+
+- With the old document, the new guard failed exactly twice: *really accepts
+  POST on /rehydrate* (got 405) and *really refuses GET on /rehydrate* (got
+  400 — the shim allowed the GET and only objected to the missing query).
+  That is the bug, named by the guard, before any fix.
+- With the `/pool` row deleted as a check on the second half, the guard
+  failed on *lists exactly the routes the shim registers* and *names /pool in
+  CLAUDE.md*. The old guard passed that deletion.
+- `go test ./...` from `cqrs/`: **296 of 296 green**.
+
+Note for later runs: `go test` caches a green result, so a guard fed a
+changed DOCUMENT can answer from cache. Use `go test -count=1 ./...` when
+checking that a guard still bites.
+
+### 17.4 What this does not fix
+
+Three findings from the same review are still open and are NOT actioned here:
+
+- **Command retries are not idempotent.** `handleCommand` rehydrates and
+  decides BEFORE publishing, so a `Nats-Msg-Id` dedup header would only
+  rescue a retried `travel`. A retried `register` or `retire` is refused by
+  the domain first. Worth its own decision, and probably its own card.
+- **The HTTP preamble repeats.** CORS, `MethodOptions` and the 405 block
+  appear nine times, about 108 lines gross. A wrapper would fold them, and
+  the per-endpoint outcome mapping must survive it.
+- **`serve.go` and `domain.go` sit in one flat `package main`.** A split
+  would make the dependency direction visible, but it would NOT make the
+  compiler enforce it — Go allows any import. Enforcement needs an
+  import-parsing guard. `names.go` holds streams, buckets, ports and worker
+  timing, so it is infrastructure and must not move into a domain package.

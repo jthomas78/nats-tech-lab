@@ -102,7 +102,7 @@ browser watches NATS over the WebSocket on `20403`.
 
 | Route | Method | What it does |
 |---|---|---|
-| `/rehydrate` | POST | rehydrates one vehicle, with and without a snapshot |
+| `/rehydrate` | GET | rehydrates one vehicle, with and without a snapshot |
 | `/bench` | GET | the `ODOMETER_BENCH` fixture's size, in messages AND bytes |
 | `/bench/seed` | POST | fills the fixture — 10 000, 100 000 or 1 000 000 |
 | `/pool` | GET | lesson 02's state: stream size, buckets, whether a run is going |
@@ -210,8 +210,13 @@ adding to the list a guard checks is the right move.
   command the binary would reject.
 - `frontend/src/view/recorded.spec.js` walks `src/` and fails if a deleted
   recorded-measurement file or constant comes back.
-- `cqrs/docs_test.go` reads `serve.go`'s routes and fails if this file does
-  not list one.
+- `cqrs/docs_test.go` guards the route table above, in two halves. It reads
+  the routes out of `serve.go` and the rows out of this file, and fails
+  unless the two sets match EXACTLY — a row deleted, a row left behind, or a
+  route added without a row. Then it stands the shim up under `httptest`
+  with every collaborator stubbed and sends a request per row: the Method
+  column must be accepted, and the other method must answer 405. A route
+  registration carries no method, so only a request can check that column.
 - `frontend/src/view/lesson-docs.spec.js` reads `README.md`,
   `docs/LESSON-02.md` and this file. It fails both ways round: if a lesson 02
   heading comes back into the intro, and if the lesson 02 document stops
