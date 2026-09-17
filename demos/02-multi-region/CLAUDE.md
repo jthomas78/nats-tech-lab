@@ -3,7 +3,8 @@
 **This folder is a sealed unit. Read this file instead of the root `CLAUDE.md`
 for anything inside it.**
 
-The root file describes demo 01 — a Postgres-backed, multi-service, multi-
+The root file covers the whole lab shell; demo 01's own rules moved to
+`demos/01-dictionary/CLAUDE.md` — a Postgres-backed, multi-service, multi-
 frontend POC. Demo 02 is six NATS servers and one small Go binary. Most of the
 root file does not apply, and applying it here has already caused wrong work.
 
