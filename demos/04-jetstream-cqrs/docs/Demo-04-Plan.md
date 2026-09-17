@@ -3022,7 +3022,7 @@ untouched and `domain.go` is not opened.
 - A drawing that says "starvation" without saying every worker still acked.
 - A drawing whose numbers disagree with the controls above it.
 
-## 15. Phase 04.12 — one Overview per lesson (APPROVED)
+## 15. Phase 04.12 — one Overview per lesson (APPROVED, complete)
 
 **Status:** APPROVED 2026-09-17, with D22 answered: **A**. **04.11 waits on
 this** — see 15.4, and D16 is superseded.
@@ -3111,7 +3111,7 @@ to be untouched.
    stops naming either.
 - [x] **04.12.3 Lesson 02 gets its Overview tab**, first in the strip, holding its own
    "What it does". The second sub-tab is left empty for 04.11.
-- [ ] **04.12.4 The documents catch up** — `CLAUDE.md`'s file table gains the
+- [x] **04.12.4 The documents catch up** — `CLAUDE.md`'s file table gains the
    new doc.
 
 **04.12.1 verified 2026-09-17.** README.md went 647 → 383 lines; lines 356 to
@@ -3170,6 +3170,21 @@ Gates: `npx vitest run` 471 specs in 32 files; eslint 0 errors / 3 warnings;
 `npm run build` clean. Live at 1920x1080: six tabs, Overview selected on
 arrival, one sub-tab `What it does`, filename line `docs/LESSON-02.md`,
 10 876 characters of lesson 02 rendered, and no command in the header.
+
+**04.12.4 verified 2026-09-17.** `CLAUDE.md`'s file table now has two rows —
+`README.md` is the intro and lesson 01, `docs/LESSON-02.md` is lesson 02 — and
+a new `## One lesson, one file` section records why, with the source-to-tab
+table and the "one component, two instances" rule. The guard list went from
+three to five and the vitest count from 431/29 to 472/32. The design gate
+records 04.12 COMPLETE and 04.11 APPROVED-not-started with D16 superseded.
+
+The guide is guarded, not just written: `lesson-docs.spec.js` gained a spec
+that fails if `CLAUDE.md` stops naming `docs/LESSON-02.md`, confirmed RED
+first. Gates: vitest 472 in 32 files; eslint 0 errors / 3 warnings; build
+clean; ginkgo 256.
+
+**Phase 04.12 is COMPLETE.** 04.11 is next: the four drawings fill lesson 02's
+second Overview sub-tab, which appears the moment the file exists.
 
 Not anticipated: the second sub-tab is OMITTED when a lesson has no page,
 rather than rendered empty as task 3 assumed. A tab that opens on nothing is

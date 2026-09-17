@@ -30,6 +30,7 @@ function findDemoRoot(from = process.cwd()) {
 const ROOT = findDemoRoot()
 const README = join(ROOT, 'README.md')
 const LESSON2 = join(ROOT, 'docs/LESSON-02.md')
+const GUIDE = join(ROOT, 'CLAUDE.md')
 
 // Named one by one, for the reason recorded.spec.js gives: a wildcard goes
 // quiet on the day somebody adds a section the list does not know about.
@@ -82,6 +83,13 @@ describe('the two lessons have two source files', () => {
   it('points each file at the other, so neither is a dead end', () => {
     expect(read(README)).toContain('docs/LESSON-02.md')
     expect(read(LESSON2)).toContain('README.md')
+  })
+
+  // 04.12.4 — the demo's own guide has a table of where everything lives. A
+  // new source file that the table does not know about is a file the next
+  // reader will not find.
+  it('is listed in the demo guide', () => {
+    expect(read(GUIDE)).toContain('docs/LESSON-02.md')
   })
 
   // The intro still has to introduce the demo. D22 chose A because the lab

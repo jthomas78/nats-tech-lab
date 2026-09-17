@@ -22,7 +22,8 @@ in a shared `diagrams/` directory.
 | Plan and phases | `docs/Demo-04-Plan.md` |
 | Business rules | `BUSINESS_RULES-ODOMETER.md` |
 | Diagrams (HTML + exported PNG) | `diagrams/` |
-| Lab shell intro text | `README.md` |
+| Lab shell intro text, and lesson 01 | `README.md` |
+| Lesson 02 | `docs/LESSON-02.md` |
 | UI layout mockups | `diagrams/*.html` (dark UniFi palette) |
 | Go module | `cqrs/` |
 | Compose | `deploy/compose.yaml` |
@@ -192,12 +193,12 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 431 specs, 29 files
+npx vitest run                      # 472 specs, 32 files
 npx eslint src --ext .js,.vue       # 0 errors; 3 warnings are the baseline
 npm run build
 ```
 
-Three live guards, not unit tests. Do not weaken one to make a screen pass —
+Five live guards, not unit tests. Do not weaken one to make a screen pass —
 adding to the list a guard checks is the right move.
 
 - `frontend/src/view/commands.spec.js` parses `cqrs/main.go` for the
@@ -207,6 +208,32 @@ adding to the list a guard checks is the right move.
   recorded-measurement file or constant comes back.
 - `cqrs/docs_test.go` reads `serve.go`'s routes and fails if this file does
   not list one.
+- `frontend/src/view/lesson-docs.spec.js` reads `README.md`,
+  `docs/LESSON-02.md` and this file. It fails both ways round: if a lesson 02
+  heading comes back into the intro, and if the lesson 02 document stops
+  holding one.
+- `frontend/src/components/AboutPanel.spec.js` reads `AboutPanel.vue` and
+  fails if it names a lesson file again.
+
+## One lesson, one file
+
+Set 04.12 (2026-09-17). `README.md` was the lab shell's intro AND lesson 01's
+Overview AND lesson 02 — so a reader who opened lesson 01's Overview was
+handed the pool lesson as well, measurements and all.
+
+| Lesson | Source | Rendered as |
+|---|---|---|
+| 01 | `README.md` + `diagrams/demo04-jetstream-cqrs.html` | Overview → `What it does` / `Classes and sequences` |
+| 02 | `docs/LESSON-02.md` (drawings land in 04.11) | Overview → `What it does` |
+
+`frontend/src/components/AboutPanel.vue` is ONE component used twice. It takes
+its files as props and names neither (D21). The naming lives in
+`frontend/src/about/sources.js`, one entry per lesson. A new lesson is an
+entry there, not a copy of the panel.
+
+A lesson with no drawings shows ONE sub-tab. A tab that opens on nothing is a
+promise the screen does not keep, so lesson 02's `How this works` tab appears
+when 04.11 supplies the page.
 
 ## The design gate
 
@@ -215,6 +242,13 @@ approves it. No tasks, no tests, no code before that. An entry marked PROPOSED
 is a request for a decision, not a backlog item to pick up.
 
 Nothing is PROPOSED right now.
+
+**04.12 is COMPLETE** (2026-09-17) — one Overview per lesson, one source file
+per lesson. See `docs/Demo-04-Plan.md` section 15, decisions D20 to D23.
+
+**04.11 is APPROVED and NOT started** — lesson 02 explains itself with four
+drawings, which land in the Overview sub-tab 04.12 made room for. D16 (a
+sixth top-level tab) is superseded by D20. See section 14.
 
 **04.10 is COMPLETE** (2026-09-17) — lesson 02's log is seeded over THREE
 vehicles, not ten. Round robin puts two events of one vehicle
