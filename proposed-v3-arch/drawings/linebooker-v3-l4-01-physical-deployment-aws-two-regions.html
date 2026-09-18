@@ -139,9 +139,9 @@
           <text class="title" x="976" y="91">Compute and storage</text><text class="sub" x="976" y="107">where a process actually runs</text><text class="mini" x="942" y="129">instance types are L3-12</text>
 
           <path class="place" d="M232 108 H248" marker-end="url(#l401a-green)"/><text class="edge-label" x="244" y="63" text-anchor="middle">is placed in</text>
-          <path class="place" d="M456 108 H472" marker-end="url(#l401a-green)"/><text class="edge-label" x="468" y="63" text-anchor="middle">contains</text>
-          <path class="place" d="M680 108 H696" marker-end="url(#l401a-green)"/><text class="edge-label" x="692" y="63" text-anchor="middle">contains</text>
-          <path class="place" d="M904 108 H920" marker-end="url(#l401a-green)"/><text class="edge-label" x="916" y="63" text-anchor="middle">contains</text>
+          <path class="place" d="M456 108 H472" marker-end="url(#l401a-green)"/><text class="edge-label" x="468" y="63" text-anchor="middle">hosts one cell</text>
+          <path class="place" d="M680 108 H696" marker-end="url(#l401a-green)"/><text class="edge-label" x="692" y="63" text-anchor="middle">spreads across three zones</text>
+          <path class="place" d="M904 108 H920" marker-end="url(#l401a-green)"/><text class="edge-label" x="916" y="63" text-anchor="middle">provides compute and storage</text>
 
           <!-- BAND 2: regions, cells and stable zone IDs -->
           <text class="group-title" x="36" y="194" fill="#34d399">AWS REGION af-south-1 &middot; AFRICA (CAPE TOWN) &middot; 3 ZONES &middot; OPT-IN</text>
@@ -225,11 +225,11 @@
           <rect class="group purple" x="20" y="526" width="1120" height="96" rx="12"/>
           <rect class="tile prop" x="40" y="546" width="170" height="58" rx="8"/><rect x="52" y="563" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="64" y="579">N</text><text class="title" x="86" y="579">NATS cluster</text>
           <rect class="tile prop" x="230" y="546" width="190" height="58" rx="8"/><rect x="242" y="563" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="254" y="579">S</text><text class="title" x="276" y="568">Server instance</text><text class="sub" x="276" y="584">3 instances, one per zone</text>
-          <path class="runtime" d="M210 575 H222" marker-end="url(#l401a-purple)"/><text class="edge-label" x="216" y="557" text-anchor="middle">holds</text>
+          <path class="runtime" d="M210 575 H222" marker-end="url(#l401a-purple)"/><text class="edge-label" x="216" y="617" text-anchor="middle">groups server instances</text>
 
           <rect class="tile prop" x="440" y="546" width="200" height="58" rx="8"/><rect x="452" y="563" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="464" y="579">D</text><text class="title" x="486" y="579">Service deployment</text>
           <rect class="tile prop" x="660" y="546" width="160" height="58" rx="8"/><rect x="672" y="563" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="684" y="579">R</text><text class="title" x="706" y="568">Replica</text><text class="sub" x="706" y="584">count set by L3-12</text>
-          <path class="runtime" d="M640 575 H652" marker-end="url(#l401a-purple)"/><text class="edge-label" x="646" y="557" text-anchor="middle">holds</text>
+          <path class="runtime" d="M640 575 H652" marker-end="url(#l401a-purple)"/><text class="edge-label" x="646" y="617" text-anchor="middle">manages replicas</text>
 
           <rect class="policy" x="840" y="542" width="280" height="66" rx="8"/><rect x="854" y="560" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="866" y="576">!</text><text class="title" x="888" y="563">The only join</text><text class="sub" x="888" y="580">this instance runs on that compute</text><text class="sub" x="888" y="594">in that availability zone</text>
 
@@ -237,8 +237,8 @@
           <text class="group-title" x="36" y="650" fill="#2fd4e8">Overlays &middot; five axes cross, they do not nest (ADR-056, L3-01-010)</text>
           <rect class="group cyan" x="20" y="658" width="1120" height="110" rx="12"/>
           <rect class="tile prop" x="40" y="674" width="340" height="82" rx="8"/><rect x="54" y="690" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="66" y="706">A</text><text class="title" x="88" y="694">Tenant overlay</text><text class="sub" x="88" y="710">business ownership</text><text class="body-copy" x="54" y="727">which tenants are served from which cell</text><text class="mini" x="54" y="740">a tenant may be served from both cells</text><text class="mini" x="54" y="752">crosses region &middot; L4-01-022</text>
-          <rect class="tile prop" x="410" y="674" width="340" height="82" rx="8"/><rect x="424" y="690" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="436" y="706">B</text><text class="title" x="458" y="694">Account overlay</text><text class="sub" x="458" y="710">the only machine-enforced wall</text><text class="body-copy" x="424" y="727">the NATS account walls data, not availability</text><text class="mini" x="424" y="740">one account, many cells</text><text class="mini" x="424" y="752">L3-01-027 &middot; L4-01-023</text>
-          <rect class="tile prop" x="780" y="674" width="340" height="82" rx="8"/><rect x="794" y="690" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="806" y="706">C</text><text class="title" x="828" y="694">JetStream domain overlay</text><text class="sub" x="828" y="710">storage identity</text><text class="body-copy" x="794" y="727">T3 and T4 one domain across the supercluster;</text><text class="body-copy" x="794" y="739">T5 one domain per cluster</text><text class="mini" x="794" y="752">za, au and hub in demo 03 &middot; L4-01-024</text>
+          <rect class="tile prop" x="410" y="674" width="340" height="82" rx="8"/><rect x="424" y="690" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="436" y="706">B</text><text class="title" x="458" y="694">Account overlay</text><text class="sub" x="458" y="710">the only machine-enforced wall</text><text class="body-copy" x="424" y="727">the NATS account walls data, not availability</text><text class="mini" x="424" y="740">one account, many cells</text><text class="mini" x="424" y="752">L3-01-027 &middot; L4-01-023</text>
+          <rect class="tile prop" x="780" y="674" width="340" height="82" rx="8"/><rect x="794" y="690" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="806" y="706">C</text><text class="title" x="828" y="694">JetStream domain overlay</text><text class="sub" x="828" y="710">storage identity</text><text class="body-copy" x="794" y="727">T3 and T4 one domain across the supercluster;</text><text class="body-copy" x="794" y="739">T5 one domain per cluster</text><text class="mini" x="794" y="752">za, au and hub in demo 03 &middot; L4-01-024</text>
         </svg>
       </div>
       <figcaption><b>Read it downward.</b> The physical chain names one home for everything; the two cells fill it in; the runtime chain is drawn beside it because a cluster is not a place; the overlays cross both. <b>Built today:</b> nothing &mdash; the lab runs one server in one region. <b>Not shown:</b> instance types and sizing, which are <code>LB-V3-L3-12</code>; cluster shape, which is sheet 2; cost, which is sheet 3.</figcaption>
@@ -262,7 +262,7 @@
     <div>
       <h2>Legend</h2>
       <div class="key-grid">
-        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; physical geography: zone, cell, region, country</span></div>
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; physical geography: zone, region, country</span></div>
         <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan boundary</b> &mdash; the cell boundary and what crosses it</span></div>
         <div class="key-item"><span class="sw sw-purple"></span><span><b>Purple boundary</b> &mdash; runtime: clusters, instances, deployments, replicas</span></div>
         <div class="key-item"><span class="sw sw-prop"></span><span><b>Dashed grey tile</b> &mdash; proposed for V3, not built</span></div>
@@ -366,7 +366,7 @@
           <line class="rule" x1="30" y1="578" x2="1130" y2="578"/>
           <text class="table-head" x="34" y="593">Survives one region</text><text class="table-text" x="312" y="593">yes, zero slack</text><text class="table-text" x="567" y="593">yes, one node of slack</text><text class="table-text" x="832" y="593">yes, each leaf on its own</text>
           <line class="rule" x1="30" y1="600" x2="1130" y2="600"/>
-          <text class="table-head" x="34" y="615">When the majority is lost</text><text class="table-text" x="312" y="615">no new stream or consumer</text><text class="table-text" x="567" y="615">no new stream or consumer</text><text class="table-text" x="832" y="615">one group at a time; the other two carry on</text>
+          <text class="table-head" x="34" y="615">When the majority is lost</text><text class="table-text" x="312" y="615">no new stream or consumer</text><text class="table-text" x="567" y="615">no new stream or consumer</text><text class="table-text" x="832" y="615">one group at a time; unaffected groups carry on</text>
           <line class="rule" x1="30" y1="622" x2="1130" y2="622"/>
           <text class="table-head" x="34" y="638">Cost to move a byte</text><text class="table-text" x="312" y="638">gateway traffic crosses the border</text><text class="table-text" x="567" y="638">same, plus a third region's control traffic</text><text class="table-text" x="832" y="638">au-to-hub crosses a region; za-to-hub does not</text>
 
@@ -379,13 +379,13 @@
           <text class="sub" x="790" y="735">Publishing into a stream that already exists</text><text class="mini" x="790" y="753">keeps working (F9)</text>
         </svg>
       </div>
-      <figcaption><b>One axis, three answers.</b> Cluster is the only axis that separates these shapes; placement and overlays are the same in all three. <b>Built today:</b> nothing. <b>Measured:</b> the voter arithmetic only, as bare <code>nats-server</code> processes on one Mac. <b>Not shown:</b> the chosen shape &mdash; that is open item <code>L4-01-O01</code>.</figcaption>
+      <figcaption><b>One axis, three answers.</b> Cluster is the only axis that separates these shapes; placement is the same in all three, and so is every overlay but the JetStream domain. <b>Built today:</b> nothing. <b>Measured:</b> the voter arithmetic only, as bare <code>nats-server</code> processes on one Mac. <b>Not shown:</b> the chosen shape &mdash; that is open item <code>L4-01-O01</code>.</figcaption>
     </figure>
 
     <aside class="notes">
       <div class="note"><span class="tag">SCOPE</span><p>One question. Which clusters exist, who votes, what survives? Cost is sheet 3.</p></div>
-      <div class="note"><span class="tag">DIRECTION</span><p>Directional as at 2026-09-18. No V3 decision of record exists (<code>L3-08-O10</code>).</p></div>
-      <div class="note"><span class="tag">AXIS</span><p>Cluster is the axis that separates the shapes. Region, tenant, account, cell and domain are the same in all three (<code>L4-01-009</code>).</p></div>
+      <div class="note"><span class="tag">DIRECTION</span><p>Directional as at 2026-09-18. No V3 decision of record exists (<code>L3-08-O10</code>, owned by Architecture).</p></div>
+      <div class="note"><span class="tag">AXIS</span><p>Cluster is the axis that separates the shapes. Region, tenant, account and cell are the same in all three; the JetStream domain is not (<code>L4-01-009</code>).</p></div>
       <div class="note"><span class="tag">GATEWAY</span><p>A gateway joins two clusters into one supercluster with one meta group (T3, T4).</p></div>
       <div class="note"><span class="tag">LEAFNODE</span><p>A leafnode link joins a cluster to a hub and keeps its own meta group and its own domain (T5).</p></div>
       <div class="note"><span class="tag">ARBITER</span><p>The arbiter holds no stream assets. It votes, and that is all (<code>L4-01-030</code>).</p></div>
@@ -525,7 +525,7 @@
     <div>
       <h2>Legend</h2>
       <div class="key-grid">
-        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; physical geography: zone, cell, region, country</span></div>
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; physical geography: zone, region, country</span></div>
         <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; cost, rates and rules that govern the sheet</span></div>
         <div class="key-item"><span class="sw sw-prop"></span><span><b>Dashed grey tile</b> &mdash; proposed for V3, not built</span></div>
         <div class="key-item"><span class="sw sw-openq"></span><span><b>Dashed amber tile</b> &mdash; open, a named owner must confirm</span></div>
