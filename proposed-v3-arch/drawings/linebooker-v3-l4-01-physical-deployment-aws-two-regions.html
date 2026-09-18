@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed Linebooker V3 Architecture - L4-01 Physical Deployment on AWS, Two Regions</title>
+<style>
+  :root {
+    --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --border:#2c3138; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --purple:#a78bfa; --amber:#f5b13d;
+    --store:#27c07f; --bad:#f87171;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  @page { size:A3 landscape; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .sheet { width:420mm; height:297mm; padding:8mm; overflow:hidden; background:var(--bg); display:grid; grid-template-rows:30mm minmax(0,1fr) auto 8mm; gap:3mm; page-break-after:always; }
+  .sheet:last-child { page-break-after:auto; }
+  .head { border-bottom:1px solid var(--stroke); padding-bottom:3mm; }
+  .eyebrow { color:var(--cyan); font:650 9px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; margin-bottom:2mm; }
+  .eyebrow .doc-title { text-transform:none; letter-spacing:.04em; }
+  h1 { margin:0; font-size:27px; line-height:1.1; letter-spacing:-.025em; font-weight:680; }
+  .head p { margin:2mm 0 0; max-width:1220px; color:var(--muted); font-size:11.5px; line-height:1.42; }
+  .head p b { color:var(--text); font-weight:650; }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; min-height:0; }
+  figure { margin:0; min-width:0; min-height:0; background:#0a0c0e; border:1px solid var(--border); display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+  .fig-body { min-height:0; padding:3mm 3mm 1mm; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  figure svg { display:block; width:100%; height:auto; max-height:100%; }
+  figcaption { border-top:1px solid var(--border); padding:2.2mm 3mm; color:var(--muted); font-size:8.8px; line-height:1.34; }
+  figcaption b { color:var(--text); font-weight:650; }
+  figcaption code, .note code { font:8px var(--mono); background:rgba(255,255,255,.06); border-radius:3px; padding:0 3px; }
+  .notes { min-height:0; padding:2mm 2mm 0 3mm; border-left:1px solid var(--stroke); background:var(--panel2); display:flex; flex-direction:column; gap:1.8mm; }
+  .note { display:grid; grid-template-columns:19mm 1fr; gap:2mm; align-items:start; }
+  .tag { border:1px solid #46505b; color:var(--muted); border-radius:3px; padding:1.1mm 1.3mm; font:650 7px/1 var(--mono); letter-spacing:.07em; text-align:center; }
+  .note p { margin:0; color:var(--muted); font-size:8.35px; line-height:1.29; }
+  .note b { color:var(--text); font-weight:650; }
+
+  /* Legend and acronym key - required on every sheet by the authority's
+     Visual and notation standard ("Every sheet must carry"). */
+  .legend { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; border-top:1px solid var(--stroke); padding-top:2.2mm; }
+  .legend h2 { margin:0 0 1.4mm; color:var(--cyan); font:650 8px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .key-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.9mm 3mm; }
+  .key-item { display:grid; grid-template-columns:9mm 1fr; gap:1.6mm; align-items:center; color:var(--muted); font-size:7.6px; line-height:1.22; }
+  .key-item b { color:var(--text); font-weight:650; }
+  .sw { display:block; height:3.1mm; border-radius:1px; background:rgba(255,255,255,.012); border:1.1px solid var(--stroke); }
+  .sw-blue { border-color:var(--blue); } .sw-purple { border-color:var(--purple); }
+  .sw-green { border-color:var(--green); } .sw-cyan { border-color:var(--cyan); }
+  .sw-amber { border-color:var(--amber); } .sw-grey { border-color:var(--stroke); }
+  .sw-tile { background:var(--panel); border:1.1px solid #3a424c; }
+  .sw-prop { background:var(--panel); border:1.1px dashed #5b646f; }
+  .sw-openq { background:var(--panel); border:1.1px dashed var(--amber); }
+  .sw-policy { background:#201b12; border:1.1px solid var(--amber); }
+  .sw-block { background:#22110f; border:1.1px solid var(--bad); }
+  .sw-svg { display:block; width:9mm; height:3.4mm; }
+  .abbr { margin:0; padding:0; list-style:none; columns:2; column-gap:3mm; color:var(--muted); font-size:7.4px; line-height:1.28; }
+  .abbr li { break-inside:avoid; }
+  .abbr b { color:var(--text); font:650 7.4px var(--mono); }
+  .foot { border-top:1px solid var(--border); padding-top:2mm; display:flex; justify-content:space-between; gap:8mm; color:var(--dim); font-size:7.8px; line-height:1.25; }
+  .brand { color:var(--amber); text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; font-weight:700; }
+
+  svg .group { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.1; }
+  svg .group.blue { stroke:var(--blue); } svg .group.purple { stroke:var(--purple); }
+  svg .group.green { stroke:var(--green); } svg .group.cyan { stroke:var(--cyan); }
+  svg .group.amber { stroke:var(--amber); }
+  svg .tile { fill:var(--panel); stroke:#3a424c; stroke-width:1.1; }
+  /* Dashed grey tile = proposed for V3 and not built in the Dictionary POC. */
+  svg .tile.prop { stroke:#5b646f; stroke-width:1.1; stroke-dasharray:5 4; }
+  /* Dashed amber tile = a position that needs a named owner's confirmation. */
+  svg .tile.openq { stroke:var(--amber); stroke-width:1.1; stroke-dasharray:5 4; }
+  svg .policy { fill:#201b12; stroke:var(--amber); stroke-width:1.1; }
+  svg .block { fill:#22110f; stroke:var(--bad); stroke-width:1.1; }
+  svg .title { fill:var(--text); font:650 10.8px var(--sans); }
+  svg .sub { fill:var(--muted); font:8.9px var(--sans); }
+  svg .mini { fill:var(--dim); font:8.4px var(--mono); }
+  svg .glyph { fill:#0d0f11; font:800 10.5px var(--sans); text-anchor:middle; }
+  /* Knockout halo so a label stays legible where an edge passes behind it. */
+  svg .edge-label { fill:var(--muted); font:8px var(--mono); paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .group-title { font:650 10px var(--sans); letter-spacing:.105em; text-transform:uppercase; paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .sync { fill:none; stroke:var(--blue); stroke-width:1.35; }
+  svg .event { fill:none; stroke:var(--amber); stroke-width:1.35; stroke-dasharray:5 4; }
+  svg .place { fill:none; stroke:var(--green); stroke-width:1.35; }
+  svg .rep { fill:none; stroke:var(--cyan); stroke-width:1.3; stroke-dasharray:2 4; }
+  svg .blocked { fill:none; stroke:var(--bad); stroke-width:1.6; stroke-dasharray:6 5; }
+
+  /* L4 additions keep the L3-08 visual language and add only the missing
+     runtime line, row rules and compact aligned table text. */
+  svg .runtime { fill:none; stroke:var(--purple); stroke-width:1.35; }
+  svg .open-marker { fill:none; stroke:var(--amber); stroke-width:1; stroke-dasharray:4 3; }
+  svg .rule { stroke:var(--stroke); stroke-width:.8; }
+  svg .table-head { fill:var(--text); font:650 8.2px var(--mono); }
+  svg .table-text { fill:var(--muted); font:7.5px var(--mono); }
+  svg .body-copy { fill:var(--muted); font:8.7px var(--sans); }
+  svg .headline { fill:var(--text); font:650 12px var(--sans); }
+</style>
+</head>
+<body>
+
+<!-- ============================ SHEET 1 ============================ -->
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L4-01 &middot; <span class="doc-title">Physical Deployment on AWS, Two Regions</span> &middot; Sheet 1 of 3 &middot; as at 18 September 2026</div>
+    <h1>Where Every Running Thing Sits</h1>
+    <p>Where does every running thing sit, from the system down to the availability zone, and what runs beside that placement? Defers: instance types, node counts and sizing (LB-V3-L3-12); cluster shape (sheet 2); cost (sheet 3). <b>This is a directional document:</b> a first-pass position as at 18 September 2026. Nothing on this sheet is built.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1160 780" role="img" aria-label="Sheet one of LB-V3-L4-01 Physical Deployment on AWS, Two Regions shows four bands read downward. First, a proposed physical chain places the Linebooker V3 system in an AWS Region, equates each V3 cell with one region, divides each region into availability zones, and places compute and storage in those zones. Second, the proposed za cell in af-south-1 and au cell in ap-southeast-2 each contain three stable zone IDs, with one NATS voter, Kubernetes capacity, service replicas, PostgreSQL role, Temporal instance, ingress instance and zone-bound volumes per zone, plus a regional object store; the non-NATS stateful spread is visibly open. Third, a separate runtime chain shows a NATS cluster holding server instances and a service deployment holding replicas, joined to placement only by the statement that an instance runs on compute in a zone. Fourth, tenant, NATS account and JetStream domain overlays cross the placement rather than nesting inside it. Every item is directional and nothing is built.">
+          <defs>
+            <marker id="l401a-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34d399"/></marker>
+            <marker id="l401a-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#a78bfa"/></marker>
+          </defs>
+
+          <!-- BAND 1: physical chain -->
+          <text class="group-title" x="36" y="34" fill="#34d399">Physical chain &middot; every element on this document has one home in it</text>
+          <rect class="group green" x="20" y="42" width="1120" height="118" rx="12"/>
+
+          <rect class="tile prop" x="32" y="72" width="200" height="72" rx="8"/>
+          <rect x="46" y="87" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="58" y="103">S</text>
+          <text class="title" x="80" y="91">System</text><text class="sub" x="80" y="107">Linebooker V3 platform</text><text class="mini" x="46" y="129">one system</text>
+
+          <rect class="tile prop" x="256" y="72" width="200" height="72" rx="8"/>
+          <rect x="270" y="87" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="282" y="103">R</text>
+          <text class="title" x="304" y="91">AWS Region</text><text class="sub" x="304" y="107">a named AWS place</text><text class="mini" x="270" y="129">af-south-1 &middot; ap-southeast-2</text>
+
+          <rect class="tile prop" x="480" y="72" width="200" height="72" rx="8"/>
+          <rect x="494" y="87" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="506" y="103">C</text>
+          <text class="title" x="528" y="91">Cell</text><text class="sub" x="528" y="107">one region's complete runtime</text><text class="mini" x="494" y="129">L3-01-007 &middot; cell = region in V3</text>
+
+          <rect class="tile prop" x="704" y="72" width="200" height="72" rx="8"/>
+          <rect x="718" y="87" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="730" y="103">Z</text>
+          <text class="title" x="752" y="91">Availability Zone</text><text class="sub" x="752" y="107">one or more data centres</text><text class="mini" x="718" y="129">own power, cooling, security</text>
+
+          <rect class="tile prop" x="928" y="72" width="200" height="72" rx="8"/>
+          <rect x="942" y="87" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="954" y="103">I</text>
+          <text class="title" x="976" y="91">Compute and storage</text><text class="sub" x="976" y="107">where a process actually runs</text><text class="mini" x="942" y="129">instance types are L3-12</text>
+
+          <path class="place" d="M232 108 H248" marker-end="url(#l401a-green)"/><text class="edge-label" x="244" y="63" text-anchor="middle">is placed in</text>
+          <path class="place" d="M456 108 H472" marker-end="url(#l401a-green)"/><text class="edge-label" x="468" y="63" text-anchor="middle">contains</text>
+          <path class="place" d="M680 108 H696" marker-end="url(#l401a-green)"/><text class="edge-label" x="692" y="63" text-anchor="middle">contains</text>
+          <path class="place" d="M904 108 H920" marker-end="url(#l401a-green)"/><text class="edge-label" x="916" y="63" text-anchor="middle">contains</text>
+
+          <!-- BAND 2: regions, cells and stable zone IDs -->
+          <text class="group-title" x="36" y="194" fill="#34d399">AWS REGION af-south-1 &middot; AFRICA (CAPE TOWN) &middot; 3 ZONES &middot; OPT-IN</text>
+          <rect class="group green" x="20" y="200" width="550" height="292" rx="12"/>
+          <text class="group-title" x="606" y="194" fill="#34d399">AWS REGION ap-southeast-2 &middot; ASIA PACIFIC (SYDNEY) &middot; 3 ZONES &middot; ON BY DEFAULT</text>
+          <rect class="group green" x="590" y="200" width="550" height="292" rx="12"/>
+
+          <text class="group-title" x="50" y="220" fill="#2fd4e8">CELL za &middot; one region's complete runtime</text>
+          <rect class="group cyan" x="34" y="224" width="522" height="250" rx="12"/>
+          <text class="group-title" x="620" y="220" fill="#2fd4e8">CELL au &middot; one region's complete runtime</text>
+          <rect class="group cyan" x="604" y="224" width="522" height="250" rx="12"/>
+
+          <!-- za zones -->
+          <g>
+            <rect class="tile prop" x="48" y="244" width="155" height="186" rx="8"/>
+            <text class="title" x="62" y="261">afs1-az1</text>
+            <text class="mini" x="62" y="277">nats-server</text><text class="mini" x="62" y="287">1 of 3 &middot; meta voter</text>
+            <text class="mini" x="62" y="300">Kubernetes nodes</text><text class="mini" x="62" y="310">node group &middot; 1 of 3 zones</text>
+            <text class="mini" x="62" y="323">Service replicas</text><text class="mini" x="62" y="333">&gt;= 1 replica per service</text>
+            <rect class="open-marker" x="57" y="337" width="137" height="25" rx="4"/><text class="mini" x="62" y="346">PostgreSQL</text><text class="mini" x="62" y="356">primary</text>
+            <text class="mini" x="62" y="371">Temporal &middot; 1 of 3</text><text class="mini" x="62" y="389">Ingress &middot; 1 of 3</text>
+            <text class="mini" x="62" y="405">Attached volumes</text><text class="mini" x="62" y="415">zone bound &middot; do not move</text><text class="mini" x="62" y="426" fill="#f5b13d">open &middot; L4-01-O07</text>
+          </g>
+          <g>
+            <rect class="tile prop" x="210" y="244" width="155" height="186" rx="8"/>
+            <text class="title" x="224" y="261">afs1-az2</text>
+            <text class="mini" x="224" y="277">nats-server</text><text class="mini" x="224" y="287">1 of 3 &middot; meta voter</text>
+            <text class="mini" x="224" y="300">Kubernetes nodes</text><text class="mini" x="224" y="310">node group &middot; 1 of 3 zones</text>
+            <text class="mini" x="224" y="323">Service replicas</text><text class="mini" x="224" y="333">&gt;= 1 replica per service</text>
+            <rect class="open-marker" x="219" y="337" width="137" height="25" rx="4"/><text class="mini" x="224" y="346">PostgreSQL</text><text class="mini" x="224" y="356">standby &middot; promoted in cell</text>
+            <text class="mini" x="224" y="371">Temporal &middot; 1 of 3</text><text class="mini" x="224" y="389">Ingress &middot; 1 of 3</text>
+            <text class="mini" x="224" y="405">Attached volumes</text><text class="mini" x="224" y="415">zone bound &middot; do not move</text><text class="mini" x="224" y="426" fill="#f5b13d">open &middot; L4-01-O07</text>
+          </g>
+          <g>
+            <rect class="tile prop" x="372" y="244" width="155" height="186" rx="8"/>
+            <text class="title" x="386" y="261">afs1-az3</text>
+            <text class="mini" x="386" y="277">nats-server</text><text class="mini" x="386" y="287">1 of 3 &middot; meta voter</text>
+            <text class="mini" x="386" y="300">Kubernetes nodes</text><text class="mini" x="386" y="310">node group &middot; 1 of 3 zones</text>
+            <text class="mini" x="386" y="323">Service replicas</text><text class="mini" x="386" y="333">&gt;= 1 replica per service</text>
+            <rect class="open-marker" x="381" y="337" width="137" height="25" rx="4"/><text class="mini" x="386" y="346">PostgreSQL</text><text class="mini" x="386" y="356">standby &middot; read only</text>
+            <text class="mini" x="386" y="371">Temporal &middot; 1 of 3</text><text class="mini" x="386" y="389">Ingress &middot; 1 of 3</text>
+            <text class="mini" x="386" y="405">Attached volumes</text><text class="mini" x="386" y="415">zone bound &middot; do not move</text><text class="mini" x="386" y="426" fill="#f5b13d">open &middot; L4-01-O07</text>
+          </g>
+          <rect class="tile prop" x="48" y="440" width="479" height="26" rx="8"/><text class="mini" x="287.5" y="457" text-anchor="middle">Object store &middot; regional, not zonal &middot; stored across all three zones</text>
+
+          <!-- au zones -->
+          <g>
+            <rect class="tile prop" x="618" y="244" width="155" height="186" rx="8"/>
+            <text class="title" x="632" y="261">apse2-az1</text>
+            <text class="mini" x="632" y="277">nats-server</text><text class="mini" x="632" y="287">1 of 3 &middot; meta voter</text>
+            <text class="mini" x="632" y="300">Kubernetes nodes</text><text class="mini" x="632" y="310">node group &middot; 1 of 3 zones</text>
+            <text class="mini" x="632" y="323">Service replicas</text><text class="mini" x="632" y="333">&gt;= 1 replica per service</text>
+            <rect class="open-marker" x="627" y="337" width="137" height="25" rx="4"/><text class="mini" x="632" y="346">PostgreSQL</text><text class="mini" x="632" y="356">primary</text>
+            <text class="mini" x="632" y="371">Temporal &middot; 1 of 3</text><text class="mini" x="632" y="389">Ingress &middot; 1 of 3</text>
+            <text class="mini" x="632" y="405">Attached volumes</text><text class="mini" x="632" y="415">zone bound &middot; do not move</text><text class="mini" x="632" y="426" fill="#f5b13d">open &middot; L4-01-O07</text>
+          </g>
+          <g>
+            <rect class="tile prop" x="780" y="244" width="155" height="186" rx="8"/>
+            <text class="title" x="794" y="261">apse2-az2</text>
+            <text class="mini" x="794" y="277">nats-server</text><text class="mini" x="794" y="287">1 of 3 &middot; meta voter</text>
+            <text class="mini" x="794" y="300">Kubernetes nodes</text><text class="mini" x="794" y="310">node group &middot; 1 of 3 zones</text>
+            <text class="mini" x="794" y="323">Service replicas</text><text class="mini" x="794" y="333">&gt;= 1 replica per service</text>
+            <rect class="open-marker" x="789" y="337" width="137" height="25" rx="4"/><text class="mini" x="794" y="346">PostgreSQL</text><text class="mini" x="794" y="356">standby &middot; promoted in cell</text>
+            <text class="mini" x="794" y="371">Temporal &middot; 1 of 3</text><text class="mini" x="794" y="389">Ingress &middot; 1 of 3</text>
+            <text class="mini" x="794" y="405">Attached volumes</text><text class="mini" x="794" y="415">zone bound &middot; do not move</text><text class="mini" x="794" y="426" fill="#f5b13d">open &middot; L4-01-O07</text>
+          </g>
+          <g>
+            <rect class="tile prop" x="942" y="244" width="155" height="186" rx="8"/>
+            <text class="title" x="956" y="261">apse2-az3</text>
+            <text class="mini" x="956" y="277">nats-server</text><text class="mini" x="956" y="287">1 of 3 &middot; meta voter</text>
+            <text class="mini" x="956" y="300">Kubernetes nodes</text><text class="mini" x="956" y="310">node group &middot; 1 of 3 zones</text>
+            <text class="mini" x="956" y="323">Service replicas</text><text class="mini" x="956" y="333">&gt;= 1 replica per service</text>
+            <rect class="open-marker" x="951" y="337" width="137" height="25" rx="4"/><text class="mini" x="956" y="346">PostgreSQL</text><text class="mini" x="956" y="356">standby &middot; read only</text>
+            <text class="mini" x="956" y="371">Temporal &middot; 1 of 3</text><text class="mini" x="956" y="389">Ingress &middot; 1 of 3</text>
+            <text class="mini" x="956" y="405">Attached volumes</text><text class="mini" x="956" y="415">zone bound &middot; do not move</text><text class="mini" x="956" y="426" fill="#f5b13d">open &middot; L4-01-O07</text>
+          </g>
+          <rect class="tile prop" x="618" y="440" width="479" height="26" rx="8"/><text class="mini" x="857.5" y="457" text-anchor="middle">Object store &middot; regional, not zonal &middot; stored across all three zones</text>
+
+          <!-- BAND 3: runtime chain beside placement -->
+          <text class="group-title" x="36" y="518" fill="#a78bfa">Runtime chain &middot; drawn beside the placement, not inside it</text>
+          <rect class="group purple" x="20" y="526" width="1120" height="96" rx="12"/>
+          <rect class="tile prop" x="40" y="546" width="170" height="58" rx="8"/><rect x="52" y="563" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="64" y="579">N</text><text class="title" x="86" y="579">NATS cluster</text>
+          <rect class="tile prop" x="230" y="546" width="190" height="58" rx="8"/><rect x="242" y="563" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="254" y="579">S</text><text class="title" x="276" y="568">Server instance</text><text class="sub" x="276" y="584">3 instances, one per zone</text>
+          <path class="runtime" d="M210 575 H222" marker-end="url(#l401a-purple)"/><text class="edge-label" x="216" y="557" text-anchor="middle">holds</text>
+
+          <rect class="tile prop" x="440" y="546" width="200" height="58" rx="8"/><rect x="452" y="563" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="464" y="579">D</text><text class="title" x="486" y="579">Service deployment</text>
+          <rect class="tile prop" x="660" y="546" width="160" height="58" rx="8"/><rect x="672" y="563" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="684" y="579">R</text><text class="title" x="706" y="568">Replica</text><text class="sub" x="706" y="584">count set by L3-12</text>
+          <path class="runtime" d="M640 575 H652" marker-end="url(#l401a-purple)"/><text class="edge-label" x="646" y="557" text-anchor="middle">holds</text>
+
+          <rect class="policy" x="840" y="542" width="280" height="66" rx="8"/><rect x="854" y="560" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="866" y="576">!</text><text class="title" x="888" y="563">The only join</text><text class="sub" x="888" y="580">this instance runs on that compute</text><text class="sub" x="888" y="594">in that availability zone</text>
+
+          <!-- BAND 4: crossing overlays -->
+          <text class="group-title" x="36" y="650" fill="#2fd4e8">Overlays &middot; five axes cross, they do not nest (ADR-056, L3-01-010)</text>
+          <rect class="group cyan" x="20" y="658" width="1120" height="110" rx="12"/>
+          <rect class="tile prop" x="40" y="674" width="340" height="82" rx="8"/><rect x="54" y="690" width="24" height="24" rx="7" fill="#2fd4e8"/><text class="glyph" x="66" y="706">A</text><text class="title" x="88" y="694">Tenant overlay</text><text class="sub" x="88" y="710">business ownership</text><text class="body-copy" x="54" y="727">which tenants are served from which cell</text><text class="mini" x="54" y="740">a tenant may be served from both cells</text><text class="mini" x="54" y="752">crosses region &middot; L4-01-022</text>
+          <rect class="tile prop" x="410" y="674" width="340" height="82" rx="8"/><rect x="424" y="690" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="436" y="706">B</text><text class="title" x="458" y="694">Account overlay</text><text class="sub" x="458" y="710">the only machine-enforced wall</text><text class="body-copy" x="424" y="727">the NATS account walls data, not availability</text><text class="mini" x="424" y="740">one account, many cells</text><text class="mini" x="424" y="752">L3-01-027 &middot; L4-01-023</text>
+          <rect class="tile prop" x="780" y="674" width="340" height="82" rx="8"/><rect x="794" y="690" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="806" y="706">C</text><text class="title" x="828" y="694">JetStream domain overlay</text><text class="sub" x="828" y="710">storage identity</text><text class="body-copy" x="794" y="727">T3 and T4 one domain across the supercluster;</text><text class="body-copy" x="794" y="739">T5 one domain per cluster</text><text class="mini" x="794" y="752">za, au and hub in demo 03 &middot; L4-01-024</text>
+        </svg>
+      </div>
+      <figcaption><b>Read it downward.</b> The physical chain names one home for everything; the two cells fill it in; the runtime chain is drawn beside it because a cluster is not a place; the overlays cross both. <b>Built today:</b> nothing &mdash; the lab runs one server in one region. <b>Not shown:</b> instance types and sizing, which are <code>LB-V3-L3-12</code>; cluster shape, which is sheet 2; cost, which is sheet 3.</figcaption>
+    </figure>
+
+    <aside class="notes">
+      <div class="note"><span class="tag">SCOPE</span><p>One question. Where does every running thing sit? Cluster shape is sheet 2, cost is sheet 3.</p></div>
+      <div class="note"><span class="tag">DIRECTION</span><p>Directional. A first pass as at 2026-09-18 so work can start. Not a decision and not a forecast.</p></div>
+      <div class="note"><span class="tag">CELL</span><p>In V3 the cell boundary and the AWS Region boundary are the same boundary (<code>L4-01-002</code>).</p></div>
+      <div class="note"><span class="tag">ZONE</span><p>An availability zone is one <b>or more</b> data centres with their own power, cooling and physical security. It is not one building (<code>L4-01-005</code>).</p></div>
+      <div class="note"><span class="tag">ZONE ID</span><p>Zones are named by zone ID, <code>afs1-az1</code>, not <code>af-south-1a</code>. The account-local name is shuffled per account; the ID is not (<code>L4-01-006</code>).</p></div>
+      <div class="note"><span class="tag">OPT-IN</span><p><code>af-south-1</code> is opt-in. An account must enable it before anything can be placed there. <code>ap-southeast-2</code> is on by default (<code>L4-01-003</code>, <code>L4-01-004</code>).</p></div>
+      <div class="note"><span class="tag">THREE</span><p>Three NATS servers across three zones is the smallest number that keeps a majority when one zone is lost (<code>L4-01-008</code>).</p></div>
+      <div class="note"><span class="tag">ONLY NATS</span><p>Three NATS servers prove NATS availability only. Every other stateful part states its own replica count and zone spread (<code>L4-01-010</code>).</p></div>
+      <div class="note"><span class="tag">BESIDE</span><p>Placement and runtime are two chains, not one tree. The only join is: this instance runs on that compute in that zone (<code>L4-01-007</code>).</p></div>
+      <div class="note"><span class="tag">OPEN</span><p>Zone spread and failover for Postgres, the object store, Temporal, ingress, nodes and volumes is open. See <code>L4-01-O07</code>, owned by Architecture.</p></div>
+    </aside>
+  </div>
+
+  <div class="legend">
+    <div>
+      <h2>Legend</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; physical geography: zone, cell, region, country</span></div>
+        <div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan boundary</b> &mdash; the cell boundary and what crosses it</span></div>
+        <div class="key-item"><span class="sw sw-purple"></span><span><b>Purple boundary</b> &mdash; runtime: clusters, instances, deployments, replicas</span></div>
+        <div class="key-item"><span class="sw sw-prop"></span><span><b>Dashed grey tile</b> &mdash; proposed for V3, not built</span></div>
+        <div class="key-item"><span class="sw sw-openq"></span><span><b>Dashed amber tile</b> &mdash; open, a named owner must confirm</span></div>
+        <div class="key-item"><span class="sw sw-policy"></span><span><b>Amber panel</b> &mdash; a rule or a rate that governs the sheet</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#34d399" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#34d399"/></svg><span><b>Green line</b> &mdash; a containment or placement relationship</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#a78bfa" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#a78bfa"/></svg><span><b>Purple line</b> &mdash; a runtime relationship</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><path d="M26 2.4 L33 6 L26 9.6 z" fill="#b7bcc2"/></svg><span><b>Arrow head</b> &mdash; the direction of the relationship</span></div>
+        <div class="key-item"><span class="sw" style="background:none;border:none"></span><span><b>Line label</b> &mdash; names the relationship, never bare "uses"</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Words on this sheet</h2>
+      <ul class="abbr">
+        <li><b>AWS</b> Amazon Web Services</li><li><b>AZ</b> availability zone, one or more data centres with their own power</li>
+        <li><b>cell</b> one region's complete runtime</li><li><b>region</b> a named AWS place holding several zones</li>
+        <li><b>zone ID</b> the stable zone name, <code>afs1-az1</code></li><li><b>opt-in</b> a region an account must enable before use</li>
+        <li><b>RAFT</b> the vote NATS uses to pick a leader</li><li><b>meta group</b> the servers that vote on JetStream changes</li>
+        <li><b>replica</b> one more copy of the same thing</li><li><b>JetStream domain</b> the storage identity of a cluster</li>
+        <li><b>ADR</b> architecture decision record</li><li><b>NATS</b> the messaging system; a product name, not an abbreviation</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Traceability: L4-01-001 to L4-01-010 and L4-01-022 to L4-01-024 (physical chain, the two cells, per-zone parts, runtime chain, the three overlays). Parent: LB-V3-L3-08 Multi-Region requirement L3-08-037. Related: LB-V3-L3-12 for packaging, scaling and sizing per cell.</span>
+    <span class="brand">LB-V3-L4-01 &middot; 1/3 &middot; Physical placement</span>
+  </footer>
+</section>
+
+<!-- ============================ SHEET 2 ============================ -->
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L4-01 &middot; <span class="doc-title">Physical Deployment on AWS, Two Regions</span> &middot; Sheet 2 of 3 &middot; as at 18 September 2026</div>
+    <h1>Cluster Shapes T3, T4 and T5</h1>
+    <p>Which clusters exist, who votes, and what does each shape survive? Defers: which shape is chosen (<code>L4-01-O01</code>, open, Architecture); cost per byte, which is sheet 3. <b>This is a directional document:</b> a first-pass position as at 18 September 2026. Nothing on this sheet is built.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1160 800" role="img" aria-label="Sheet two of LB-V3-L4-01 Physical Deployment on AWS, Two Regions compares three proposed NATS cluster shapes on one axis. T3 joins three-server za and au clusters plus one arbiter instance through gateways into one seven-voter supercluster and one JetStream meta group. T4 uses the same regional clusters plus a three-server arbiter cluster, producing nine voters and one node of slack after a region loss. T5 links three independent three-server clusters through leafnode connections, keeps a separate meta group and JetStream domain, named za, au and hub, in each cluster, and places the hub beside the za cell in af-south-1 as a business decision taken on 2026-09-18. A six-row comparison aligns voter count, majority, zone and region survival, behaviour after majority loss, and transfer-cost shape. A warning strip states that losing a meta majority blocks stream and consumer changes after leader age-out but does not stop publishing to an existing stream. Nothing is built; only voter arithmetic was measured on one Mac.">
+          <defs>
+            <marker id="l401b-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#3b8bff"/></marker>
+            <marker id="l401b-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#2fd4e8"/></marker>
+          </defs>
+
+          <text class="group-title" x="36" y="28" fill="#b7bcc2">Cluster is the axis that separates the three shapes (L4-01-009)</text>
+
+          <!-- T3 -->
+          <text class="group-title" x="36" y="48" fill="#3b8bff">T3 &middot; GATEWAY SUPERCLUSTER &middot; ONE ARBITER</text>
+          <rect class="group blue" x="20" y="56" width="360" height="396" rx="12"/>
+          <rect class="tile prop" x="70" y="78" width="260" height="50" rx="8"/><rect x="84" y="91" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="96" y="107">Z</text><text class="title" x="118" y="98">za cluster</text><text class="sub" x="118" y="114">3 servers &middot; af-south-1</text>
+          <rect class="tile prop" x="70" y="166" width="260" height="50" rx="8"/><rect x="84" y="179" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="96" y="195">A</text><text class="title" x="118" y="186">au cluster</text><text class="sub" x="118" y="202">3 servers &middot; ap-southeast-2</text>
+          <rect class="tile prop" x="70" y="254" width="260" height="50" rx="8"/><rect x="84" y="267" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="96" y="283">V</text><text class="title" x="118" y="274">arbiter</text><text class="sub" x="118" y="290">1 server &middot; holds no stream assets</text>
+          <path class="sync" d="M160 128 V158" marker-end="url(#l401b-blue)"/><text class="edge-label" x="174" y="151">gateway &middot; one supercluster</text>
+          <path class="sync" d="M330 191 H366 V103 H338" marker-end="url(#l401b-blue)"/><text class="edge-label" x="357" y="147" text-anchor="middle" transform="rotate(-90 357 147)">gateway &middot; one supercluster</text>
+          <path class="sync" d="M70 103 H40 V279 H62" marker-end="url(#l401b-blue)"/><text class="edge-label" x="51" y="191" text-anchor="middle" transform="rotate(-90 51 191)">gateway &middot; one supercluster</text>
+          <path class="sync" d="M160 216 V246" marker-end="url(#l401b-blue)"/><text class="edge-label" x="174" y="239">gateway &middot; one supercluster</text>
+          <line class="rule" x1="40" y1="320" x2="360" y2="320"/>
+          <text class="title" x="50" y="340">7 meta voters &middot; majority 4</text><text class="sub" x="50" y="359">one meta group &middot; one JetStream domain</text>
+          <text class="mini" x="50" y="381">lose one region: 4 voters left, a majority with zero slack</text><text class="mini" x="50" y="402">evidence: demo 03 checks C1 to C12</text>
+
+          <!-- T4 -->
+          <text class="group-title" x="416" y="48" fill="#3b8bff">T4 &middot; GATEWAY SUPERCLUSTER &middot; ARBITER CLUSTER OF 3</text>
+          <rect class="group blue" x="400" y="56" width="360" height="396" rx="12"/>
+          <rect class="tile prop" x="450" y="78" width="260" height="50" rx="8"/><rect x="464" y="91" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="476" y="107">Z</text><text class="title" x="498" y="98">za cluster</text><text class="sub" x="498" y="114">3 servers &middot; af-south-1</text>
+          <rect class="tile prop" x="450" y="166" width="260" height="50" rx="8"/><rect x="464" y="179" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="476" y="195">A</text><text class="title" x="498" y="186">au cluster</text><text class="sub" x="498" y="202">3 servers &middot; ap-southeast-2</text>
+          <rect class="tile prop" x="450" y="254" width="260" height="50" rx="8"/><rect x="464" y="267" width="24" height="24" rx="7" fill="#3b8bff"/><text class="glyph" x="476" y="283">V</text><text class="title" x="498" y="274">arbiter cluster</text><text class="sub" x="498" y="290">3 servers &middot; holds no stream assets</text>
+          <path class="sync" d="M540 128 V158" marker-end="url(#l401b-blue)"/><text class="edge-label" x="554" y="151">gateway &middot; one supercluster</text>
+          <path class="sync" d="M710 191 H746 V103 H718" marker-end="url(#l401b-blue)"/><text class="edge-label" x="737" y="147" text-anchor="middle" transform="rotate(-90 737 147)">gateway &middot; one supercluster</text>
+          <path class="sync" d="M450 103 H420 V279 H442" marker-end="url(#l401b-blue)"/><text class="edge-label" x="431" y="191" text-anchor="middle" transform="rotate(-90 431 191)">gateway &middot; one supercluster</text>
+          <path class="sync" d="M540 216 V246" marker-end="url(#l401b-blue)"/><text class="edge-label" x="554" y="239">gateway &middot; one supercluster</text>
+          <line class="rule" x1="420" y1="320" x2="740" y2="320"/>
+          <text class="title" x="430" y="340">9 meta voters &middot; majority 5</text><text class="sub" x="430" y="359">one meta group &middot; one JetStream domain</text>
+          <text class="mini" x="430" y="381">lose one region: 6 voters left, one node of slack (F11)</text><text class="mini" x="430" y="400">survives a region plus one more node, and no further (F12)</text><text class="mini" x="430" y="421">evidence: demo 03 checks F1 to F12</text>
+
+          <!-- T5 -->
+          <text class="group-title" x="796" y="48" fill="#a78bfa">T5 &middot; LEAFNODE HUB AND TWO LEAVES</text>
+          <rect class="group purple" x="780" y="56" width="360" height="396" rx="12"/>
+          <rect class="tile prop" x="830" y="78" width="260" height="58" rx="8"/><rect x="844" y="91" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="856" y="107">H</text><text class="title" x="878" y="96">hub cluster</text><text class="sub" x="878" y="111">3 servers &middot; af-south-1 &middot; domain hub</text><text class="mini" x="844" y="128">decision taken 2026-09-18 &middot; L4-01-016</text>
+          <rect class="tile prop" x="830" y="166" width="260" height="50" rx="8"/><rect x="844" y="179" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="856" y="195">Z</text><text class="title" x="878" y="186">za leaf</text><text class="sub" x="878" y="202">3 servers &middot; af-south-1 &middot; domain za</text>
+          <rect class="tile prop" x="830" y="254" width="260" height="50" rx="8"/><rect x="844" y="267" width="24" height="24" rx="7" fill="#a78bfa"/><text class="glyph" x="856" y="283">A</text><text class="title" x="878" y="274">au leaf</text><text class="sub" x="878" y="290">3 servers &middot; ap-southeast-2 &middot; domain au</text>
+          <path class="rep" d="M920 166 V144" marker-end="url(#l401b-cyan)"/><text class="edge-label" x="934" y="158">leafnode link</text>
+          <path class="rep" d="M830 279 H800 V107 H822" marker-end="url(#l401b-cyan)"/><text class="edge-label" x="811" y="193" text-anchor="middle" transform="rotate(-90 811 193)">leafnode link</text>
+          <line class="rule" x1="800" y1="320" x2="1120" y2="320"/>
+          <text class="title" x="810" y="339">three separate meta groups of 3 &middot; majority 2 each</text><text class="sub" x="810" y="357">one JetStream domain per cluster (za, au, hub)</text>
+          <text class="mini" x="810" y="377">lose the whole hub: both leaves keep a meta leader and</text><text class="mini" x="810" y="390">still create streams (D10 to D14)</text><text class="mini" x="810" y="408">nothing replicates between domains by itself (D15)</text><text class="mini" x="810" y="426">evidence: demo 03 checks D1 to D15</text>
+
+          <!-- BAND 2: aligned SVG comparison table -->
+          <text class="group-title" x="36" y="474" fill="#f5b13d">Compared on one basis (L4-01-014)</text>
+          <rect class="group amber" x="20" y="482" width="1120" height="174" rx="12"/>
+          <line class="rule" x1="300" y1="492" x2="300" y2="646"/><line class="rule" x1="555" y1="492" x2="555" y2="646"/><line class="rule" x1="820" y1="492" x2="820" y2="646"/>
+          <text class="table-head" x="312" y="505">T3</text><text class="table-head" x="567" y="505">T4</text><text class="table-head" x="832" y="505">T5</text>
+          <line class="rule" x1="30" y1="512" x2="1130" y2="512"/>
+          <text class="table-head" x="34" y="527">Meta voters</text><text class="table-text" x="312" y="527">7</text><text class="table-text" x="567" y="527">9</text><text class="table-text" x="832" y="527">3 + 3 + 3, separate</text>
+          <line class="rule" x1="30" y1="534" x2="1130" y2="534"/>
+          <text class="table-head" x="34" y="549">Majority</text><text class="table-text" x="312" y="549">4</text><text class="table-text" x="567" y="549">5</text><text class="table-text" x="832" y="549">2 in each group</text>
+          <line class="rule" x1="30" y1="556" x2="1130" y2="556"/>
+          <text class="table-head" x="34" y="571">Survives one zone</text><text class="table-text" x="312" y="571">yes</text><text class="table-text" x="567" y="571">yes</text><text class="table-text" x="832" y="571">yes</text>
+          <line class="rule" x1="30" y1="578" x2="1130" y2="578"/>
+          <text class="table-head" x="34" y="593">Survives one region</text><text class="table-text" x="312" y="593">yes, zero slack</text><text class="table-text" x="567" y="593">yes, one node of slack</text><text class="table-text" x="832" y="593">yes, each leaf on its own</text>
+          <line class="rule" x1="30" y1="600" x2="1130" y2="600"/>
+          <text class="table-head" x="34" y="615">When the majority is lost</text><text class="table-text" x="312" y="615">no new stream or consumer</text><text class="table-text" x="567" y="615">no new stream or consumer</text><text class="table-text" x="832" y="615">one group at a time; the other two carry on</text>
+          <line class="rule" x1="30" y1="622" x2="1130" y2="622"/>
+          <text class="table-head" x="34" y="638">Cost to move a byte</text><text class="table-text" x="312" y="638">gateway traffic crosses the border</text><text class="table-text" x="567" y="638">same, plus a third region's control traffic</text><text class="table-text" x="832" y="638">au-to-hub crosses a region; za-to-hub does not</text>
+
+          <!-- BAND 3: majority-loss warning -->
+          <rect class="block" x="20" y="682" width="1120" height="98" rx="8"/>
+          <text class="group-title" x="38" y="705" fill="#f87171">Losing a majority blocks changes, not traffic (L4-01-015)</text>
+          <line class="rule" x1="390" y1="716" x2="390" y2="764"/><line class="rule" x1="770" y1="716" x2="770" y2="764"/>
+          <text class="sub" x="40" y="735">Creating or editing a stream or consumer returns</text><text class="mini" x="40" y="753">10008 JetStream system temporarily unavailable</text>
+          <text class="sub" x="410" y="735">Only after the old leader ages out,</text><text class="mini" x="410" y="753">about 40 seconds (D03-R5, F7a)</text>
+          <text class="sub" x="790" y="735">Publishing into a stream that already exists</text><text class="mini" x="790" y="753">keeps working (F9)</text>
+        </svg>
+      </div>
+      <figcaption><b>One axis, three answers.</b> Cluster is the only axis that separates these shapes; placement and overlays are the same in all three. <b>Built today:</b> nothing. <b>Measured:</b> the voter arithmetic only, as bare <code>nats-server</code> processes on one Mac. <b>Not shown:</b> the chosen shape &mdash; that is open item <code>L4-01-O01</code>.</figcaption>
+    </figure>
+
+    <aside class="notes">
+      <div class="note"><span class="tag">SCOPE</span><p>One question. Which clusters exist, who votes, what survives? Cost is sheet 3.</p></div>
+      <div class="note"><span class="tag">DIRECTION</span><p>Directional as at 2026-09-18. No V3 decision of record exists (<code>L3-08-O10</code>).</p></div>
+      <div class="note"><span class="tag">AXIS</span><p>Cluster is the axis that separates the shapes. Region, tenant, account, cell and domain are the same in all three (<code>L4-01-009</code>).</p></div>
+      <div class="note"><span class="tag">GATEWAY</span><p>A gateway joins two clusters into one supercluster with one meta group (T3, T4).</p></div>
+      <div class="note"><span class="tag">LEAFNODE</span><p>A leafnode link joins a cluster to a hub and keeps its own meta group and its own domain (T5).</p></div>
+      <div class="note"><span class="tag">ARBITER</span><p>The arbiter holds no stream assets. It votes, and that is all (<code>L4-01-030</code>).</p></div>
+      <div class="note"><span class="tag">HUB</span><p>If T5 is chosen the hub sits beside the <code>za</code> cell in <code>af-south-1</code>. One region failure then takes the hub and the <code>za</code> cell together; the <code>au</code> leaf keeps serving (<code>L4-01-016</code>, <code>L4-01-017</code>).</p></div>
+      <div class="note"><span class="tag">EVIDENCE</span><p>Demo 03 ran these shapes as bare processes on one Mac. It measured NATS quorum, not AWS (<code>L4-01-031</code>).</p></div>
+      <div class="note"><span class="tag">OPEN</span><p>Which shape is chosen is open. It is decided by which failure boundary the business is buying (<code>L4-01-O01</code>, owned by Architecture; <code>L4-01-O03</code>, owned by the business owner).</p></div>
+    </aside>
+  </div>
+
+  <div class="legend">
+    <div>
+      <h2>Legend</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-blue"></span><span><b>Blue boundary</b> &mdash; a gateway supercluster</span></div>
+        <div class="key-item"><span class="sw sw-purple"></span><span><b>Purple boundary</b> &mdash; runtime: clusters, instances, deployments, replicas</span></div>
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; cost, rates and rules that govern the sheet</span></div>
+        <div class="key-item"><span class="sw sw-prop"></span><span><b>Dashed grey tile</b> &mdash; proposed for V3, not built</span></div>
+        <div class="key-item"><span class="sw sw-block"></span><span><b>Red panel</b> &mdash; a warning or a limit on the evidence</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#3b8bff" stroke-width="1.6"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#3b8bff"/></svg><span><b>Blue line</b> &mdash; a gateway link between clusters</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" y1="6" x2="26" y2="6" stroke="#2fd4e8" stroke-width="1.5" stroke-dasharray="2 4"/><path d="M26 2.4 L33 6 L26 9.6 z" fill="#2fd4e8"/></svg><span><b>Cyan dotted line</b> &mdash; a leafnode link, one thing that crosses a cell boundary</span></div>
+        <div class="key-item"><svg class="sw-svg" viewBox="0 0 34 12" aria-hidden="true"><path d="M26 2.4 L33 6 L26 9.6 z" fill="#b7bcc2"/></svg><span><b>Arrow head</b> &mdash; the direction of the relationship</span></div>
+        <div class="key-item"><span class="sw" style="background:none;border:none"></span><span><b>Line label</b> &mdash; names the relationship, never bare "uses"</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Words on this sheet</h2>
+      <ul class="abbr">
+        <li><b>AWS</b> Amazon Web Services</li><li><b>cell</b> one region's complete runtime</li>
+        <li><b>RAFT</b> the vote NATS uses to pick a leader</li><li><b>meta group</b> the servers that vote on JetStream changes</li>
+        <li><b>quorum / majority</b> more than half the voters</li><li><b>gateway</b> a link joining two NATS clusters into one supercluster</li>
+        <li><b>leafnode</b> a link joining a cluster to a hub, keeping its own meta group</li><li><b>JetStream domain</b> the storage identity of a cluster</li>
+        <li><b>arbiter</b> a voter holding no stream data</li><li><b>mirror</b> a copy of one stream in another place</li>
+        <li><b>replica</b> one more copy of the same thing</li><li><b>ADR</b> architecture decision record</li>
+        <li><b>NATS</b> the messaging system; a product name, not an abbreviation</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Traceability: L4-01-009 and L4-01-011 to L4-01-017 and L4-01-030 (cluster axis, the three shapes, the one-basis comparison, quorum-loss behaviour, the hub decision). Evidence: demos/03-multi-cluster-and-accounts/REPORT.md checks C1-C12, F1-F12, D1-D15. Open: L4-01-O01 (Architecture), L4-01-O05 (Architecture).</span>
+    <span class="brand">LB-V3-L4-01 &middot; 2/3 &middot; Cluster shapes</span>
+  </footer>
+</section>
+
+<!-- ============================ SHEET 3 ============================ -->
+<section class="sheet">
+  <header class="head">
+    <div class="eyebrow">Proposed Linebooker V3 Architecture &middot; LB-V3-L4-01 &middot; <span class="doc-title">Physical Deployment on AWS, Two Regions</span> &middot; Sheet 3 of 3 &middot; as at 18 September 2026</div>
+    <h1>Failure Boundaries and Transfer Cost</h1>
+    <p>Which failure is being bought, and what does each shape cost per byte moved? Defers: the actual GB per day per cell (<code>L4-01-O04</code>, open) &mdash; every figure here is a shape, not a forecast. <b>This is a directional document:</b> an initial estimate as at 18 September 2026. Nothing on this sheet is built.</p>
+  </header>
+
+  <div class="body-grid">
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1160 800" role="img" aria-label="Sheet three of LB-V3-L4-01 Physical Deployment on AWS, Two Regions separates three failure boundaries and then prices the data movement each topology can force. The first band distinguishes loss of one availability zone, one AWS Region, and one country or jurisdiction; it records Melbourne as an opt-in candidate arbiter region but not a cell, and explains that placing the arbiter there biases T3's majority toward Australia without creating a second jurisdiction. The second band gives published AWS cross-zone and directional cross-region rates, the formula for three-replica cross-zone cost, a headline comparing one Cape Town-to-Sydney gigabyte with a cross-zone gigabyte, and a worked monthly table at one, ten and one hundred gigabytes per day. The third band distinguishes close-to-constant arbiter control traffic from variable mirror, gateway and leaf-to-hub traffic, then warns that the lab measured quorum behaviour on one Mac and did not measure AWS latency, networking, availability or cost. Nothing is built and actual daily volume remains open.">
+          <defs>
+            <marker id="l401c-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f5b13d"/></marker>
+          </defs>
+
+          <!-- BAND 1: three distinct failure boundaries -->
+          <text class="group-title" x="36" y="32" fill="#34d399">Three failure boundaries, treated separately (L4-01-018)</text>
+          <rect class="group green" x="20" y="40" width="1120" height="280" rx="12"/>
+          <rect class="tile prop" x="40" y="64" width="350" height="84" rx="8"/><rect x="54" y="80" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="66" y="96">1</text><text class="title" x="88" y="84">One availability zone</text><text class="sub" x="88" y="100">a zone is lost</text><text class="body-copy" x="54" y="119">three servers across three zones keep a majority</text><text class="mini" x="54" y="136">answered by all three shapes</text>
+          <rect class="tile prop" x="405" y="64" width="350" height="84" rx="8"/><rect x="419" y="80" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="431" y="96">2</text><text class="title" x="453" y="84">One AWS Region</text><text class="sub" x="453" y="100">a whole region is lost</text><text class="body-copy" x="419" y="117">needs voters outside that region</text><text class="mini" x="419" y="132">T3 zero slack &middot; T4 one node of slack &middot;</text><text class="mini" x="419" y="144">T5 each leaf on its own</text>
+          <rect class="tile openq" x="770" y="64" width="350" height="84" rx="8"/><rect x="784" y="80" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="796" y="96">3</text><text class="title" x="818" y="84">One country or jurisdiction</text><text class="sub" x="818" y="100">a country is lost or closed</text><text class="body-copy" x="784" y="119">needs a third jurisdiction, not a third region</text><text class="mini" x="784" y="136">open &middot; L4-01-O03 &middot; business owner</text>
+
+          <text class="group-title" x="54" y="166" fill="#34d399">Candidate arbiter home</text>
+          <rect class="tile prop" x="40" y="174" width="350" height="126" rx="8"/><rect x="54" y="190" width="24" height="24" rx="7" fill="#34d399"/><text class="glyph" x="66" y="206">M</text><text class="title" x="88" y="194">ap-southeast-4 &middot; Asia Pacific (Melbourne)</text><text class="sub" x="88" y="210">3 zones &middot; opt-in</text><text class="body-copy" x="54" y="238">a second AWS Region in Australia, recorded as a</text><text class="body-copy" x="54" y="252">candidate arbiter home</text><text class="mini" x="54" y="286">it is not a cell (L4-01-019)</text>
+          <rect class="policy" x="410" y="174" width="710" height="126" rx="8"/><rect x="426" y="190" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="438" y="206">!</text><text class="title" x="460" y="195">Vote-bias analysis</text>
+          <text class="sub" x="426" y="224">Sydney and Melbourne are separate AWS Regions in ONE country (L4-01-020)</text>
+          <text class="sub" x="426" y="248">In T3 an arbiter in Melbourne gives Australia 3 + 1 = 4 of 7, a majority.</text><text class="sub" x="426" y="262">South Africa holds 3 and can never reach one (L4-01-021)</text>
+          <text class="sub" x="426" y="286">An arbiter in Melbourne answers an AWS Region failure. It does not answer a country failure.</text>
+
+          <!-- BAND 2: rates, formula and aligned SVG table -->
+          <text class="group-title" x="36" y="342" fill="#f5b13d">Transfer cost is a design input, not a footnote (L4-01-025)</text>
+          <rect class="group amber" x="20" y="350" width="1120" height="276" rx="12"/>
+
+          <rect class="policy" x="40" y="374" width="360" height="228" rx="8"/>
+          <text class="title" x="54" y="391">Rate card &middot; AWS list prices, published 2026-09-16,</text><text class="mini" x="54" y="404">version 20260916132208</text>
+          <line class="rule" x1="54" y1="412" x2="386" y2="412"/>
+          <text class="table-text" x="54" y="429">Inside one zone, private addresses</text><text class="table-head" x="370" y="429" text-anchor="end">free</text>
+          <text class="table-text" x="54" y="449">Across a zone, same region</text><text class="table-head" x="370" y="461" text-anchor="end">$0.01 / GB, charged at BOTH ends = $0.02 / GB</text>
+          <text class="mini" x="54" y="478">Same rate in af-south-1, ap-southeast-2 and ap-southeast-4</text>
+          <line class="rule" x1="54" y1="488" x2="386" y2="488"/>
+          <text class="table-text" x="54" y="505">af-south-1 -&gt; ap-southeast-2</text><text class="table-head" x="370" y="505" text-anchor="end">$0.147 / GB</text>
+          <text class="table-text" x="54" y="523">ap-southeast-2 -&gt; af-south-1</text><text class="table-head" x="370" y="523" text-anchor="end">$0.098 / GB</text>
+          <text class="table-text" x="54" y="541">ap-southeast-4 -&gt; af-south-1</text><text class="table-head" x="370" y="541" text-anchor="end">$0.100 / GB</text>
+          <text class="table-text" x="54" y="559">ap-southeast-2 &lt;-&gt; ap-southeast-4</text><text class="table-head" x="370" y="559" text-anchor="end">$0.080 / GB</text>
+          <text class="mini" x="54" y="588">cross-region is charged on the SENDING side only; inbound is free</text>
+
+          <rect class="policy" x="415" y="374" width="300" height="110" rx="8"/>
+          <text class="title" x="431" y="395">Formula (L4-01-028)</text><text class="table-head" x="431" y="418">cost per cell per day = D x ((R - 1) + f) x $0.02</text>
+          <text class="mini" x="431" y="439">D = GB published per day &middot; R = JetStream replica count</text><text class="mini" x="431" y="455">f = share of reads served from a different zone</text><text class="mini" x="431" y="471">with R = 3 and f = 0.67 the factor is 2.67</text>
+          <rect class="policy" x="415" y="494" width="300" height="108" rx="8"/>
+          <text class="headline" x="431" y="521">One cross-border GB costs about SEVEN</text><text class="headline" x="431" y="539">cross-zone GB ($0.147 against $0.02)</text><text class="sub" x="431" y="561">The zone spread is cheap. The region crossing is the</text><text class="sub" x="431" y="575">part worth designing around (L4-01-029).</text>
+
+          <rect class="policy" x="730" y="374" width="390" height="228" rx="8"/>
+          <text class="title" x="744" y="394">Worked table &middot; 30-day month</text>
+          <line class="rule" x1="744" y1="404" x2="1106" y2="404"/><line class="rule" x1="822" y1="404" x2="822" y2="528"/><line class="rule" x1="900" y1="404" x2="900" y2="528"/><line class="rule" x1="1006" y1="404" x2="1006" y2="528"/>
+          <text class="table-head" x="750" y="414">Published per</text><text class="table-head" x="750" y="425">cell per day</text><text class="table-head" x="830" y="414">Cross-zone,</text><text class="table-head" x="830" y="425">one cell</text><text class="table-head" x="908" y="414">Mirror it all</text><text class="table-head" x="908" y="425">Cape Town</text><text class="table-head" x="908" y="436">to Sydney</text><text class="table-head" x="1014" y="414">Mirror it all</text><text class="table-head" x="1014" y="425">Sydney to</text><text class="table-head" x="1014" y="436">Cape Town</text>
+          <line class="rule" x1="744" y1="445" x2="1106" y2="445"/>
+          <text class="table-text" x="750" y="465">1 GB</text><text class="table-text" x="830" y="465">$1.60 / mo</text><text class="table-text" x="908" y="465">$4.41 / mo</text><text class="table-text" x="1014" y="465">$2.94 / mo</text>
+          <line class="rule" x1="744" y1="475" x2="1106" y2="475"/>
+          <text class="table-text" x="750" y="495">10 GB</text><text class="table-text" x="830" y="495">$16.02 / mo</text><text class="table-text" x="908" y="495">$44.10 / mo</text><text class="table-text" x="1014" y="495">$29.40 / mo</text>
+          <line class="rule" x1="744" y1="505" x2="1106" y2="505"/>
+          <text class="table-text" x="750" y="525">100 GB</text><text class="table-text" x="830" y="525">$160.20 / mo</text><text class="table-text" x="908" y="525">$441.00 / mo</text><text class="table-text" x="1014" y="525">$294.00 / mo</text>
+          <line class="rule" x1="744" y1="534" x2="1106" y2="534"/>
+          <text class="mini" x="744" y="552">excludes committed-use discounts, NAT gateway, Transit Gateway,</text><text class="mini" x="744" y="566">PrivateLink and VPC endpoint charges. Every figure depends on</text><text class="mini" x="744" y="580">open item L4-01-O04.</text>
+
+          <!-- BAND 3: traffic shape and evidence limit -->
+          <text class="group-title" x="36" y="646" fill="#f5b13d">What each shape forces across a boundary</text>
+          <rect class="group amber" x="10" y="650" width="1140" height="142" rx="12"/>
+          <rect class="tile prop" x="20" y="658" width="360" height="64" rx="8"/><rect x="34" y="675" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="46" y="691">A</text><text class="title" x="68" y="679">T3 and T4</text><text class="sub" x="68" y="694">the arbiter holds no stream assets, so it carries</text><text class="sub" x="68" y="706">meta-group control traffic only.</text><text class="mini" x="68" y="718">Small and close to constant (L4-01-030).</text>
+          <rect class="tile prop" x="400" y="658" width="360" height="64" rx="8"/><rect x="414" y="675" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="426" y="691">V</text><text class="title" x="448" y="679">T3, T4 and T5</text><text class="sub" x="448" y="694">mirrors and gateway message flow are the variable part.</text><text class="mini" x="448" y="710">How much is mirrored is the lever that matters.</text>
+          <rect class="tile prop" x="780" y="658" width="360" height="64" rx="8"/><rect x="794" y="675" width="24" height="24" rx="7" fill="#f5b13d"/><text class="glyph" x="806" y="691">H</text><text class="title" x="828" y="679">T5</text><text class="sub" x="828" y="694">only au-to-hub bytes cross a region</text><text class="mini" x="828" y="710">The hub sits in af-south-1; its placement sets the bill.</text>
+          <rect class="block" x="20" y="734" width="1120" height="54" rx="8"/><text class="title" x="36" y="751">Evidence note (L4-01-031)</text><text class="sub" x="36" y="766">Demo 03 ran seven topologies as bare nats-server processes on one Mac. It measured quorum and NATS behaviour. It did NOT measure AWS latency, AWS networking, real availability or cost.</text><text class="mini" x="36" y="780">Every AWS number on these sheets is a published list price or a published region fact, not a measurement.</text>
+        </svg>
+      </div>
+      <figcaption><b>Pick the failure first, then read the bill.</b> The failure boundary decides the shape; the shape decides how many bytes cross a border; the rate card turns that into money. <b>Built today:</b> nothing. <b>Measured:</b> nothing on this sheet &mdash; every price is a published list price. <b>Not shown:</b> real volumes, which are open item <code>L4-01-O04</code>.</figcaption>
+    </figure>
+
+    <aside class="notes">
+      <div class="note"><span class="tag">SCOPE</span><p>One question. Which failure is bought, and what does a byte cost? Placement is sheet 1, shapes are sheet 2.</p></div>
+      <div class="note"><span class="tag">DIRECTION</span><p>Directional as at 2026-09-18. An initial estimate, not a cost forecast.</p></div>
+      <div class="note"><span class="tag">SEPARATE</span><p>A shape that answers one failure boundary does not answer the others (<code>L4-01-018</code>).</p></div>
+      <div class="note"><span class="tag">REGION vs COUNTRY</span><p>Sydney and Melbourne are two AWS Regions in one country. Two regions is not two jurisdictions (<code>L4-01-020</code>).</p></div>
+      <div class="note"><span class="tag">BIAS</span><p>An arbiter in Melbourne biases the vote toward Australia. In T3, Australia then holds 4 of 7 (<code>L4-01-021</code>).</p></div>
+      <div class="note"><span class="tag">BOTH ENDS</span><p>Cross-zone traffic is charged at both ends. That is why a GB across a zone costs <code>$0.02</code>, not <code>$0.01</code> (<code>L4-01-026</code>).</p></div>
+      <div class="note"><span class="tag">ONE WAY</span><p>Cross-region traffic is charged on the sending side only. Inbound is free, so direction changes the bill (<code>L4-01-027</code>).</p></div>
+      <div class="note"><span class="tag">LEVER</span><p>At these volumes the three-zone spread is cheap. The lever is how much is mirrored, not how many zones are used.</p></div>
+      <div class="note"><span class="tag">OPEN</span><p>Actual GB per day per cell is not known. Every figure here is a shape, not a forecast (<code>L4-01-O04</code>, owned by business and architecture; <code>L4-01-039</code>).</p></div>
+    </aside>
+  </div>
+
+  <div class="legend">
+    <div>
+      <h2>Legend</h2>
+      <div class="key-grid">
+        <div class="key-item"><span class="sw sw-green"></span><span><b>Green boundary</b> &mdash; physical geography: zone, cell, region, country</span></div>
+        <div class="key-item"><span class="sw sw-amber"></span><span><b>Amber boundary</b> &mdash; cost, rates and rules that govern the sheet</span></div>
+        <div class="key-item"><span class="sw sw-prop"></span><span><b>Dashed grey tile</b> &mdash; proposed for V3, not built</span></div>
+        <div class="key-item"><span class="sw sw-openq"></span><span><b>Dashed amber tile</b> &mdash; open, a named owner must confirm</span></div>
+        <div class="key-item"><span class="sw sw-policy"></span><span><b>Amber panel</b> &mdash; a rule or a rate that governs the sheet</span></div>
+        <div class="key-item"><span class="sw sw-block"></span><span><b>Red panel</b> &mdash; a warning or a limit on the evidence</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Words on this sheet</h2>
+      <ul class="abbr">
+        <li><b>AWS</b> Amazon Web Services</li><li><b>AZ</b> availability zone, one or more data centres with their own power</li>
+        <li><b>cell</b> one region's complete runtime</li><li><b>region</b> a named AWS place holding several zones</li>
+        <li><b>opt-in</b> a region an account must enable before use</li><li><b>quorum / majority</b> more than half the voters</li>
+        <li><b>arbiter</b> a voter holding no stream data</li><li><b>mirror</b> a copy of one stream in another place</li>
+        <li><b>replica</b> one more copy of the same thing</li><li><b>GB</b> gigabyte</li>
+        <li><b>NATS</b> the messaging system; a product name, not an abbreviation</li><li><b>NAT</b> network address translation</li>
+        <li><b>VPC</b> virtual private cloud, a private AWS network</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Traceability: L4-01-018 to L4-01-021 and L4-01-025 to L4-01-031 (failure boundaries, the Melbourne candidate and its vote bias, rate card, formula, worked estimate, evidence caveat). Prices: AWS AWSDataTransfer price list version 20260916132208, published 2026-09-16. Open: L4-01-O03 (business owner), L4-01-O04 (business and architecture), L4-01-O06 (business owner).</span>
+    <span class="brand">LB-V3-L4-01 &middot; 3/3 &middot; Failure and cost</span>
+  </footer>
+</section>
+
+</body>
+</html>

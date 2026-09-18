@@ -146,7 +146,7 @@ document repository.
 | LB-V3-L3-10 | L3 | Observability | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-11 | L3 | Financial Architecture | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-12 | L3 | Deployment + Services | LB-V3-L2-01 | PLANNED | Create when scoped |
-| LB-V3-L4-01 | L4 | Physical Deployment on AWS, Two Regions | LB-V3-L3-08 | PLANNED | [L4-01 requirements](Proposed-Linebooker-V3-L4-01-Requirements.md) |
+| LB-V3-L4-01 | L4 | Physical Deployment on AWS, Two Regions | LB-V3-L3-08 | AVAILABLE | [L4-01 requirements](Proposed-Linebooker-V3-L4-01-Requirements.md) |
 
 ### Published artefacts
 
@@ -177,6 +177,9 @@ document repository.
 - `LB-V3-L3-08`
   - [Editable HTML](drawings/linebooker-v3-l3-08-multi-region.html)
   - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3-08 Multi-Region.pdf>)
+- `LB-V3-L4-01`
+  - [Editable HTML](drawings/linebooker-v3-l4-01-physical-deployment-aws-two-regions.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L4-01 Physical Deployment on AWS, Two Regions.pdf>)
 
 ## Modelling invariants
 
