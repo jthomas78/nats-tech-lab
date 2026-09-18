@@ -22,7 +22,7 @@ narrows it: shared Postgres by default, and standard Postgres always);
 [ADR-048](../lab/ADR-048-lab-organizations-document-storage-nats-object-store.md)
 (NATS Object Store as today's blob store — rule 1 makes it the first of two
 adapters, not the only one);
-[Proposed-Linebooker-V3-Architecture-Authority.md](../../Dictionary-POC/Proposed-Linebooker-V3-Architecture-Authority.md)
+[Proposed-Linebooker-V3-Architecture-Authority.md](../../../../../proposed-v3-arch/Proposed-Linebooker-V3-Architecture-Authority.md)
 (the L0-L4 hierarchy these rules govern);
 `demos/02-multi-region/diagrams/multi-cluster-and-region/` (the drawings that
 apply them)

@@ -27,7 +27,7 @@ fix is a change to the drawing by `architecture-draughtsman`, then a rewrite her
 Never describe architecture the drawing does not show.
 
 The canonical operational contract is
-`obsidian/V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-Architecture-Authority.md`,
+`proposed-v3-arch/Proposed-Linebooker-V3-Architecture-Authority.md`,
 in particular **File and output conventions → Written edition on the docs site**.
 This skill executes that authority and must not override it.
 
@@ -162,7 +162,7 @@ read as a set.
    mkdir -p demos/01-dictionary/docs/public/v3-architecture
 
    node demos/01-dictionary/diagrams/export-html-png.mjs \
-     demos/01-dictionary/diagrams/<html-file>.html \
+     proposed-v3-arch/drawings/<html-file>.html \
      demos/01-dictionary/docs/public/v3-architecture/<lowercase-stable-id>.png \
      1600 --clip=".sheet"
    ```

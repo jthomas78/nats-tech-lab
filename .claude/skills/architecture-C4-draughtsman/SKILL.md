@@ -24,7 +24,7 @@ blocks, no C4 blue-and-grey palette, no stick figures, no cloud-vendor
 logos. Every view is drawn in the dark UniFi token set defined in
 `html-diagram-drawer`'s "Page chrome" section. This matches the standing
 rule in
-`obsidian/V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-Architecture-Authority.md`
+`proposed-v3-arch/Proposed-Linebooker-V3-Architecture-Authority.md`
 § "Visual and notation standard", which already adopts C4's concepts and
 rejects its visuals.
 
@@ -135,7 +135,7 @@ recognisable as one:
 - `c4-<system>-deployment-<environment>.html`
 - `c4-<system>-dynamic-<flow>.html`
 
-Sources live in `demos/01-dictionary/diagrams/`. PNGs export to
+Sources live in `proposed-v3-arch/drawings/`. PNGs export to
 `obsidian/V3-Platform/Architecture/Dictionary-POC/images/` and embed into the
 relevant `ARCHITECTURE-*.md` with the re-export blockquote
 `html-diagram-drawer` § Workflow step 8 defines. Do not create a

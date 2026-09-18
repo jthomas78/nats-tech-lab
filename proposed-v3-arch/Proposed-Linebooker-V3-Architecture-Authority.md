@@ -133,7 +133,7 @@ document repository.
 | LB-V3-L1-01 | L1 | System and Platform Overview | Authority | AVAILABLE | [L1 requirements](Proposed-Linebooker-V3-L1-Requirements.md) |
 | LB-V3-L2-01 | L2 | Logical and Technical Architecture | LB-V3-L1-01 | AVAILABLE | [L2 requirements](Proposed-Linebooker-V3-L2-Requirements.md) |
 | LB-V3-L2-02 | L2 | Technology Selection and Rationale | LB-V3-L1-01 | DRAFT | [L2-02 requirements](Proposed-Linebooker-V3-L2-02-Requirements.md) |
-| LB-V3-L3-01 | L3 | Participant + Tenancy | LB-V3-L2-01 | PLANNED | Create when scoped |
+| LB-V3-L3-01 | L3 | Participant + Tenancy | LB-V3-L2-01 | AVAILABLE | [L3-01 requirements](Proposed-Linebooker-V3-L3-01-Requirements.md) |
 | LB-V3-L3-02 | L3 | Functional Domains | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-03 | L3 | Application / MFE | LB-V3-L2-01 | AVAILABLE | [L3-03 requirements](Proposed-Linebooker-V3-L3-03-Requirements.md) |
 | LB-V3-L3-04 | L3 | External Integration | LB-V3-L2-01 | PLANNED | Create when scoped |
@@ -149,29 +149,32 @@ document repository.
 ### Published artefacts
 
 - `LB-V3-L0-01`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l0-architecture-atlas.html)
-  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L0 Architecture Atlas.pdf>)
+  - [Editable HTML](drawings/proposed-linebooker-v3-l0-architecture-atlas.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L0 Architecture Atlas.pdf>)
 - `LB-V3-L1-01`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l1-system-platform-overview.html)
-  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L1 System and Platform Overview.pdf>)
+  - [Editable HTML](drawings/proposed-linebooker-v3-l1-system-platform-overview.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L1 System and Platform Overview.pdf>)
 - `LB-V3-L2-01`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l2-logical-technical-architecture.html)
-  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L2 Logical and Technical Architecture.pdf>)
+  - [Editable HTML](drawings/proposed-linebooker-v3-l2-logical-technical-architecture.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L2 Logical and Technical Architecture.pdf>)
 - `LB-V3-L2-02`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l2-technology-selection-rationale.html)
-  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L2 Technology Selection and Rationale.pdf>)
+  - [Editable HTML](drawings/proposed-linebooker-v3-l2-technology-selection-rationale.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L2 Technology Selection and Rationale.pdf>)
+- `LB-V3-L3-01`
+  - [Editable HTML](drawings/proposed-linebooker-v3-l3-participant-tenancy.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Participant and Tenancy.pdf>)
 - `LB-V3-L3-03`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l3-application-mfe.html)
-  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L3 Application and MFE.pdf>)
+  - [Editable HTML](drawings/proposed-linebooker-v3-l3-application-mfe.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Application and MFE.pdf>)
 - `LB-V3-L3-05`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l3-messaging-nats.html)
-  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L3 Messaging and NATS.pdf>)
+  - [Editable HTML](drawings/proposed-linebooker-v3-l3-messaging-nats.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Messaging and NATS.pdf>)
 - `LB-V3-L3-07`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l3-data-architecture.html)
-  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L3 Data Architecture.pdf>)
+  - [Editable HTML](drawings/proposed-linebooker-v3-l3-data-architecture.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Data Architecture.pdf>)
 - `LB-V3-L3-08`
-  - [Editable HTML](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l3-multi-region.html)
-  - [Final PDF](<../../../../output/pdf/Proposed Linebooker V3 Architecture - L3 Multi-Region.pdf>)
+  - [Editable HTML](drawings/proposed-linebooker-v3-l3-multi-region.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Multi-Region.pdf>)
 
 ## Modelling invariants
 
@@ -314,8 +317,12 @@ rules above are the specification.
 
 ## File and output conventions
 
+- This authority and every requirements register:
+  `proposed-v3-arch/Proposed-Linebooker-V3-*.md`. They sit beside the drawings
+  they govern, not in the Obsidian vault. Moved there 2026-09-18;
+  `proposed-v3-arch/CLAUDE.md` seals the folder.
 - HTML source:
-  `demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l<level>-<lowercase-kebab-title>.html`
+  `proposed-v3-arch/drawings/proposed-linebooker-v3-l<level>-<lowercase-kebab-title>.html`
 - Final PDF:
   `output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf`
 - Written edition (Markdown page on the docs site):
@@ -349,7 +356,7 @@ rules above are the specification.
 
   ```bash
   node demos/01-dictionary/diagrams/export-html-png.mjs \
-    demos/01-dictionary/diagrams/<html-file>.html \
+    proposed-v3-arch/drawings/<html-file>.html \
     demos/01-dictionary/docs/public/v3-architecture/<lowercase-stable-id>.png \
     1600 --clip=".sheet"
   ```
@@ -402,11 +409,11 @@ authorized creation or revision:
 
 ## Supporting sources
 
-- [Background and rationale](../../../../proposed-linebooker-v3-architecture-discussion.md)
-- [Execution workflow - drawn and print editions](../../../../.claude/skills/architecture-draughtsman/SKILL.md)
-- [Execution workflow - written edition](../../../../.claude/skills/architecture-document-writer/SKILL.md)
-- [Drawing workflow](../../../../.claude/skills/html-diagram-drawer/SKILL.md)
-- [Graphical catalogue - LB-V3-L0-01](../../../../demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l0-architecture-atlas.html)
+- [Background and rationale](../proposed-linebooker-v3-architecture-discussion.md)
+- [Execution workflow - drawn and print editions](../.claude/skills/architecture-draughtsman/SKILL.md)
+- [Execution workflow - written edition](../.claude/skills/architecture-document-writer/SKILL.md)
+- [Drawing workflow](../.claude/skills/html-diagram-drawer/SKILL.md)
+- [Graphical catalogue - LB-V3-L0-01](drawings/proposed-linebooker-v3-l0-architecture-atlas.html)
 
 ## Change history
 
@@ -454,6 +461,22 @@ authorized creation or revision:
   directional documents.
 - 2026-09-03 - Added a paper size rule: A4 landscape when the content fits,
   A3 landscape otherwise. A3 remains the working default, not a target.
+- 2026-09-17 - `LB-V3-L3-01 Participant + Tenancy` moved from `PLANNED` to
+  `AVAILABLE`. Three A3 landscape sheets: the trust hierarchy against the cell
+  placement hierarchy, drawn as two crossing axes with an account-by-cell grid;
+  then one cell opened, showing which services run in it and whose credential
+  they hold; then a service-by-account matrix, mapping every control-plane and
+  domain service to the account it connects as, the account it only imports
+  from, and the account it is refused. That third sheet carries no solid tile,
+  because nothing on it is measured: it marks a verdict with a small coloured
+  square and a word instead. Its register is `Proposed-Linebooker-V3-L3-01-Requirements.md`.
+  Published as directional as at 2026-09-17. The document adds a fourth tile
+  treatment to the solid / dashed grey / dashed amber set: a red square marks a
+  combination the platform refuses outright, so a refusal reads as a decision
+  rather than as a gap in the drawing. Its solid tiles carry a new meaning as
+  well - measured in the demo 03 lab, with the topology named, rather than built
+  in the Dictionary POC. Both meanings are stated in that sheet's legend.
+
 - 2026-09-03 - Added an audience column to the hierarchy, an element vocabulary
   per level, and a binding visual and notation standard adapting C4 notation
   concepts to the existing Linebooker theme. Enforcement is by review.

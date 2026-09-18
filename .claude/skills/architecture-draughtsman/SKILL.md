@@ -28,7 +28,7 @@ Decide the mode before touching files:
   requirements traceability, HTML/PDF parity, validation, and L0 synchronization.
 
 The canonical operational contract is
-`obsidian/V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-Architecture-Authority.md`.
+`proposed-v3-arch/Proposed-Linebooker-V3-Architecture-Authority.md`.
 This skill must not override it. `CLAUDE.md` routes work to the authority and this
 workflow; the architecture discussion and memory are background only.
 
@@ -97,19 +97,19 @@ The HTML page size is authoritative; `export-html-pdf.mjs` uses
 mkdir -p tmp/pdfs
 
 node demos/01-dictionary/diagrams/audit-svg-layout.mjs \
-  demos/01-dictionary/diagrams/<html-file>.html
+  proposed-v3-arch/drawings/<html-file>.html
 
 node demos/01-dictionary/diagrams/export-html-png.mjs \
-  demos/01-dictionary/diagrams/<html-file>.html \
+  proposed-v3-arch/drawings/<html-file>.html \
   tmp/pdfs/<html-file>.png 1600 --clip=".sheet"
 
 node demos/01-dictionary/diagrams/export-html-pdf.mjs \
-  demos/01-dictionary/diagrams/<html-file>.html \
+  proposed-v3-arch/drawings/<html-file>.html \
   "output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf"
 
 pdfinfo "output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf"
-rg -F "LB-V3-L<level>-<nn>" demos/01-dictionary/diagrams/<html-file>.html
-rg -F "<Title>" demos/01-dictionary/diagrams/<html-file>.html
+rg -F "LB-V3-L<level>-<nn>" proposed-v3-arch/drawings/<html-file>.html
+rg -F "<Title>" proposed-v3-arch/drawings/<html-file>.html
 pdftotext \
   "output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf" \
   tmp/pdfs/l<level>-text.txt
@@ -144,7 +144,7 @@ Before assigning `AVAILABLE`, verify all of the following:
 ## Catalogue synchronization
 
 `LB-V3-L0-01` is the navigation root at
-`demos/01-dictionary/diagrams/proposed-v3-arch/proposed-linebooker-v3-l0-architecture-atlas.html`.
+`proposed-v3-arch/drawings/proposed-linebooker-v3-l0-architecture-atlas.html`.
 
 When authorized work adds, renames, re-parents, completes or supersedes an
 architecture document, update the authority's canonical catalogue first. Then:

@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ADR-056 — Five Independent Axes</title>
+  <style>
+    :root {
+      --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+      --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+      --accent: #006fff; --nested: #171c29;
+      --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+      --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+      --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 13px;
+      line-height: 20px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 24px 18px 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+
+    .head {
+      display: flex;
+      align-items: flex-end;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .head-txt {
+      flex: 1;
+      min-width: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--dim);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 26px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      text-wrap: balance;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 21px;
+      font-weight: 600;
+      text-wrap: balance;
+    }
+
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      max-width: 92ch;
+    }
+
+    .diagram-section {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    figure {
+      margin: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .fig-body {
+      padding: 14px 14px 4px;
+      overflow-x: auto;
+    }
+
+    figure svg {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      height: auto;
+      color: var(--muted);
+    }
+
+    figcaption {
+      padding: 9px 14px 11px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    figcaption b,
+    li b {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    figcaption code,
+    .sub code,
+    li code,
+    p code {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: color-mix(in srgb, var(--text) 8%, transparent);
+      border-radius: 3px;
+      padding: 0 4px;
+    }
+
+    .sec {
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-width: 92ch;
+    }
+
+    .n {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1;
+    }
+
+    .nb {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1;
+      stroke-dasharray: 4 3;
+      stroke-opacity: 0.5;
+    }
+
+    .lbl {
+      font-family: var(--mono);
+      font-size: 11px;
+      fill: var(--text);
+    }
+
+    .lbl2 {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      fill: var(--dim);
+    }
+
+    .grp {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      fill: var(--dim);
+      letter-spacing: 0.07em;
+    }
+
+    .edge {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      fill: var(--muted);
+    }
+
+    .flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+    .proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+    .rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+    .err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+    .lane { fill: none; stroke: var(--hop); stroke-width: 1; stroke-opacity: 0.45; }
+
+    .server-group { color: var(--sync); }
+    .server-label { fill: var(--sync); }
+    .bad-node { color: var(--bad); }
+    .bad-label { fill: var(--bad); }
+    .tone-bad { color: var(--bad); }
+    .tone-bad .lbl { fill: var(--bad); }
+    .tone-store { color: var(--store); }
+    .tone-store .lbl { fill: var(--store); }
+    .tone-evtl { color: var(--evtl); }
+    .tone-evtl .lbl { fill: var(--evtl); }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <div class="head-txt">
+        <div class="eyebrow">ADR-056 . PROPOSED LINEBOOKER V3 . PLATFORM VOCABULARY</div>
+        <h1>Five Independent Axes</h1>
+        <p class="sub">Region, tenant, account, cell and JetStream domain each answer a different question. No two of them may be defined as permanently equal. Companion figure to ADR-056; it is not a catalogued LB-V3 document and carries no LB-V3 identifier.</p>
+      </div>
+    </header>
+
+    <section class="diagram-section" aria-labelledby="figure-a-title">
+      <h2 id="figure-a-title">Five questions, five words</h2>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 1000 196" role="img" aria-label="Five independent vocabulary axes appear in one row: region answers where it runs, tenant answers whose it is, account answers what it may touch, cell answers what ships together, and JetStream domain answers which storage pool. Account alone sits inside a server-enforced boundary; the other four sit inside separate convention boundaries made real by naming and configuration.">
+            <defs>
+              <marker id="a-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <polygon points="0,1 8,4 0,7" fill="var(--hop)"/>
+              </marker>
+            </defs>
+
+            <rect class="nb" x="17" y="28" width="362" height="140" rx="4"/>
+            <rect class="nb server-group" x="403" y="28" width="194" height="140" rx="4"/>
+            <rect class="nb" x="621" y="28" width="362" height="140" rx="4"/>
+
+            <rect class="n" x="38" y="52" width="124" height="66" rx="3"/>
+            <text class="lbl" x="100" y="78" text-anchor="middle">REGION</text>
+            <text class="lbl2" x="100" y="91" text-anchor="middle">Where does it run?</text>
+            <text class="lbl2" x="100" y="104" text-anchor="middle">placement</text>
+
+            <rect class="n" x="255" y="52" width="90" height="66" rx="3"/>
+            <text class="lbl" x="300" y="78" text-anchor="middle">TENANT</text>
+            <text class="lbl2" x="300" y="91" text-anchor="middle">Whose is it?</text>
+            <text class="lbl2" x="300" y="104" text-anchor="middle">ownership</text>
+
+            <rect class="n" x="438" y="52" width="124" height="66" rx="3"/>
+            <text class="lbl" x="500" y="78" text-anchor="middle">ACCOUNT</text>
+            <text class="lbl2" x="500" y="91" text-anchor="middle">What may it touch?</text>
+            <text class="lbl2" x="500" y="104" text-anchor="middle">authority</text>
+
+            <rect class="n" x="632" y="52" width="136" height="66" rx="3"/>
+            <text class="lbl" x="700" y="78" text-anchor="middle">CELL</text>
+            <text class="lbl2" x="700" y="91" text-anchor="middle">What ships together?</text>
+            <text class="lbl2" x="700" y="104" text-anchor="middle">deployment</text>
+
+            <rect class="n" x="835" y="52" width="130" height="66" rx="3"/>
+            <text class="lbl" x="900" y="78" text-anchor="middle">JETSTREAM DOMAIN</text>
+            <text class="lbl2" x="900" y="91" text-anchor="middle">Which storage pool?</text>
+            <text class="lbl2" x="900" y="104" text-anchor="middle">storage identity</text>
+
+            <text class="grp" x="199" y="152" text-anchor="middle">CONVENTION -- MADE REAL BY NAMING AND CONFIG</text>
+            <text class="grp server-label" x="500" y="152" text-anchor="middle">ENFORCED BY THE NATS SERVER</text>
+            <text class="grp" x="801" y="152" text-anchor="middle">CONVENTION -- MADE REAL BY NAMING AND CONFIG</text>
+          </svg>
+        </div>
+        <figcaption><b>Five questions.</b> Each word answers exactly one question (ADR-056 rule 1), and only the account is a boundary the server itself enforces (rule 3), measured across seven NATS topologies and 73 checks in <code>demos/03-multi-cluster-and-accounts</code>.</figcaption>
+      </figure>
+    </section>
+
+    <section class="diagram-section" aria-labelledby="figure-b-title">
+      <h2 id="figure-b-title">The axes cross, they do not nest</h2>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 1000 370" role="img" aria-label="A four-by-three matrix crosses the trust axis of the system, platform, tenant A and tenant B accounts with the placement axis of the af-south-1, eu-central-1 and bw-sovereign cells. System administration is present in every cell; platform is refused in bw-sovereign; tenant A has the same account identity in the first two cells; tenant B is permitted only in af-south-1 and explicitly refused in the other two.">
+            <defs>
+              <marker id="b-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <polygon points="0,1 8,4 0,7" fill="var(--hop)"/>
+              </marker>
+            </defs>
+
+            <text class="grp" x="610" y="18" text-anchor="middle">PLACEMENT AXIS -- CARRIES NO IDENTITY</text>
+            <text class="grp" transform="translate(34 310) rotate(-90)" text-anchor="start">TRUST AXIS -- CARRIES NO GEOGRAPHY</text>
+
+            <text class="grp" x="370" y="64" text-anchor="middle">CELL af-south-1</text>
+            <text class="grp" x="610" y="64" text-anchor="middle">CELL eu-central-1</text>
+            <text class="grp" x="850" y="64" text-anchor="middle">CELL bw-sovereign</text>
+
+            <text class="lbl" x="228" y="122" text-anchor="end">$SYS</text>
+            <text class="lbl" x="228" y="188" text-anchor="end">PLATFORM</text>
+            <text class="lbl" x="228" y="254" text-anchor="end">TENANT A</text>
+            <text class="lbl" x="228" y="320" text-anchor="end">TENANT B</text>
+
+            <path class="lane" d="M242 118 H262 M478 118 H502 M718 118 H742 M958 118 H980"/>
+            <path class="lane" d="M242 184 H262 M478 184 H502 M718 184 H742 M958 184 H980"/>
+            <path class="lane" d="M242 250 H262 M478 250 H502 M718 250 H742 M958 250 H980"/>
+            <path class="lane" d="M242 316 H262 M478 316 H502 M718 316 H742 M958 316 H980"/>
+
+            <path class="lane" d="M370 78 V100 M370 136 V166 M370 202 V232 M370 268 V298 M370 334 V356"/>
+            <path class="lane" d="M610 78 V100 M610 136 V166 M610 202 V232 M610 268 V298 M610 334 V356"/>
+            <path class="lane" d="M850 78 V100 M850 136 V166 M850 202 V232 M850 268 V298 M850 334 V356"/>
+
+            <rect class="n" x="262" y="100" width="216" height="36" rx="3"/>
+            <text class="lbl2" x="370" y="122" text-anchor="middle">admin only</text>
+            <rect class="n" x="502" y="100" width="216" height="36" rx="3"/>
+            <text class="lbl2" x="610" y="122" text-anchor="middle">admin only</text>
+            <rect class="n" x="742" y="100" width="216" height="36" rx="3"/>
+            <text class="lbl2" x="850" y="122" text-anchor="middle">admin only</text>
+
+            <rect class="n" x="262" y="166" width="216" height="36" rx="3"/>
+            <text class="lbl2" x="370" y="188" text-anchor="middle">permitted</text>
+            <rect class="n" x="502" y="166" width="216" height="36" rx="3"/>
+            <text class="lbl2" x="610" y="188" text-anchor="middle">permitted</text>
+            <rect class="n bad-node" x="742" y="166" width="216" height="36" rx="3"/>
+            <text class="lbl2 bad-label" x="850" y="188" text-anchor="middle">Not permitted</text>
+
+            <rect class="n" x="262" y="232" width="216" height="36" rx="3"/>
+            <text class="lbl2" x="370" y="254" text-anchor="middle">same account, one identity in each</text>
+            <rect class="n" x="502" y="232" width="216" height="36" rx="3"/>
+            <text class="lbl2" x="610" y="254" text-anchor="middle">same account, one identity in each</text>
+            <rect class="n bad-node" x="742" y="232" width="216" height="36" rx="3"/>
+            <text class="lbl2 bad-label" x="850" y="254" text-anchor="middle">Not permitted</text>
+
+            <rect class="n" x="262" y="298" width="216" height="36" rx="3"/>
+            <text class="lbl2" x="370" y="320" text-anchor="middle">permitted</text>
+            <rect class="n bad-node" x="502" y="298" width="216" height="36" rx="3"/>
+            <text class="lbl2 bad-label" x="610" y="320" text-anchor="middle">Not permitted</text>
+            <rect class="n bad-node" x="742" y="298" width="216" height="36" rx="3"/>
+            <text class="lbl2 bad-label" x="850" y="320" text-anchor="middle">Not permitted</text>
+          </svg>
+        </div>
+        <figcaption><b>They cross.</b> A cell holds many accounts, an account spans many cells, and neither contains the other. <code>L3-01-011</code> and <code>L3-01-014</code> in the LB-V3-L3-01 requirements register state those two directions; a refused intersection is drawn as an explicit refusal, not left blank (<code>L3-01-016</code>).</figcaption>
+      </figure>
+    </section>
+
+    <section class="diagram-section" aria-labelledby="figure-c-title">
+      <h2 id="figure-c-title">One word, three meanings</h2>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 1000 154" role="img" aria-label="Three uses of the word domain are resolved independently. The DNS domain linebooker.co.za follows a red arrow to a renamed market host verdict. The JetStream domain API subject follows a teal arrow to a verdict that keeps the bare word. The domain-driven-design sense booking and invoicing follows a dashed amber arrow to a verdict requiring the phrase business domain in full.">
+            <defs>
+              <marker id="c-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+              </marker>
+              <marker id="c-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+              </marker>
+              <marker id="c-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+              </marker>
+            </defs>
+
+            <rect class="n" x="18" y="52" width="112" height="58" rx="3"/>
+            <text class="lbl" x="74" y="78" text-anchor="middle">domain (DNS)</text>
+            <text class="lbl2" x="74" y="91" text-anchor="middle">linebooker.co.za</text>
+            <path class="err" d="M130 81 H166" marker-end="url(#c-bad)"/>
+            <g class="tone-bad">
+              <rect class="n" x="176" y="52" width="84" height="58" rx="3"/>
+              <text class="lbl" x="218" y="78" text-anchor="middle">RENAMED</text>
+              <text class="lbl2" x="218" y="91" text-anchor="middle">market host</text>
+            </g>
+
+            <rect class="n" x="288" y="52" width="140" height="58" rx="3"/>
+            <text class="lbl" x="358" y="78" text-anchor="middle">domain (JetStream)</text>
+            <text class="lbl2" x="358" y="91" text-anchor="middle">$JS.&lt;domain&gt;.API.&gt;</text>
+            <path class="proj" d="M428 81 H460" marker-end="url(#c-store)"/>
+            <g class="tone-store">
+              <rect class="n" x="470" y="52" width="146" height="58" rx="3"/>
+              <text class="lbl" x="543" y="85" text-anchor="middle">KEEPS THE BARE WORD</text>
+            </g>
+
+            <rect class="n" x="644" y="52" width="124" height="58" rx="3"/>
+            <text class="lbl" x="706" y="78" text-anchor="middle">domain (DDD)</text>
+            <text class="lbl2" x="706" y="91" text-anchor="middle">booking, invoicing</text>
+            <path class="rep" d="M768 81 H800" marker-end="url(#c-evtl)"/>
+            <g class="tone-evtl">
+              <rect class="n" x="810" y="52" width="166" height="58" rx="3"/>
+              <text class="lbl" x="893" y="78" text-anchor="middle">ALWAYS WRITTEN IN FULL</text>
+              <text class="lbl2" x="893" y="91" text-anchor="middle">business domain</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>The collision.</b> The word carried three unrelated senses in the same documents. LB-V3-L3-01 uses it 26 times across at least two senses, and ADR-056 rules 4 to 6 resolve it by renaming the DNS sense rather than policing a qualifier forever.</figcaption>
+      </figure>
+    </section>
+
+    <section class="sec">
+      <h2>What this does and does not settle</h2>
+      <ul>
+        <li><b>Settled -- the words.</b> Each of the five answers one question, and the mapping between any two is a choice recorded per tenant, never a law.</li>
+        <li><b>Settled -- the naming.</b> A bare “domain” means JetStream. The DNS sense is a market host. The DDD sense is a business domain, written in full.</li>
+        <li><b>Not settled -- the mappings.</b> How many accounts a tenant owns, how many cells a region holds, and whether a service replica is shared across accounts all stay open as L3-01-O01 to L3-01-O05, L3-01-O07 and L3-01-O08.</li>
+        <li><b>Not settled -- the sweep.</b> Existing material saying “site domain” is now wrong and must be renamed.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

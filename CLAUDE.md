@@ -219,9 +219,15 @@ after any front matter change.
 
 ### Proposed Linebooker V3 architecture levels
 
+- **`proposed-v3-arch/` is a sealed unit and owns its own `CLAUDE.md`.** An agent
+  working inside that folder reads that file, not this one. It holds the whole
+  series: the operational authority and every requirements register
+  (`Proposed-Linebooker-V3-*.md`) at its top level, and every drawing in
+  `proposed-v3-arch/drawings/`. Those Markdown files are hand-written sources of
+  truth, not generated — never delete or relocate one.
 - For any creation, revision, catalogue, or review work in this document series,
   first read
-  `obsidian/V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-Architecture-Authority.md`.
+  `proposed-v3-arch/Proposed-Linebooker-V3-Architecture-Authority.md`.
   It is the central operational authority for the L0-L4 hierarchy, catalogue,
   IDs, statuses, scope, traceability and branching rules. Then follow
   `.claude/skills/architecture-draughtsman/SKILL.md` for the execution,
