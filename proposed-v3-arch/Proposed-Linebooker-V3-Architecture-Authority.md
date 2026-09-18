@@ -63,6 +63,7 @@ Architecture Operational Authority
     |   +-- LB-V3-L3-06  Workflow / Temporal
     |   +-- LB-V3-L3-07  Data Architecture
     |   +-- LB-V3-L3-08  Multi-Region
+    |   |   `-- LB-V3-L4-01  Physical Deployment on AWS, Two Regions
     |   +-- LB-V3-L3-09  Security + Identity
     |   +-- LB-V3-L3-10  Observability
     |   +-- LB-V3-L3-11  Financial Architecture
@@ -145,6 +146,7 @@ document repository.
 | LB-V3-L3-10 | L3 | Observability | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-11 | L3 | Financial Architecture | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-12 | L3 | Deployment + Services | LB-V3-L2-01 | PLANNED | Create when scoped |
+| LB-V3-L4-01 | L4 | Physical Deployment on AWS, Two Regions | LB-V3-L3-08 | PLANNED | [L4-01 requirements](Proposed-Linebooker-V3-L4-01-Requirements.md) |
 
 ### Published artefacts
 
@@ -417,6 +419,19 @@ authorized creation or revision:
 
 ## Change history
 
+- 2026-09-18 - Registered `LB-V3-L4-01 Physical Deployment on AWS, Two
+  Regions` as PLANNED, the first L4 document in the series, parented under
+  `LB-V3-L3-08 Multi-Region`. It exists because `L3-08-037` delegates cloud
+  region names, provider services, network paths and capacity per cell to L4
+  once a vendor is confirmed, and AWS is now the stated vendor. Its register
+  records two cells - `af-south-1` Africa (Cape Town) and `ap-southeast-2` Asia
+  Pacific (Sydney) - a parallel physical and runtime chain that keeps cluster
+  and server instance distinct from region, cell and availability zone, the
+  five axes drawn as overlays rather than levels, the T3, T4 and T5 cluster
+  shapes compared on one basis and traced to demo 03 check IDs, three separate
+  failure boundaries (zone, AWS Region, jurisdiction), the Cape Town hub
+  decision for T5, and a first data-transfer cost estimate from list prices.
+  Published as a directional document as at 2026-09-18.
 - 2026-09-04 - Published `LB-V3-L3-03 Application / MFE` as two A3 landscape
   sheets and moved it from PLANNED to AVAILABLE. Sheet 1 covers ownership of the
   application frame, the platform's curated list of plugins, the three gates an
