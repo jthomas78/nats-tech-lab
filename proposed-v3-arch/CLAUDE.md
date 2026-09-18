@@ -67,7 +67,7 @@ The skills implement the authority's workflow and **must not redefine it**.
 | Files | Governed by | Has an `LB-V3` ID |
 |---|---|---|
 | `Proposed-Linebooker-V3-*.md` | Themselves — the authority and its registers | n/a |
-| `drawings/proposed-linebooker-v3-l*.html` | The authority's catalogue | Yes |
+| `drawings/linebooker-v3-l*.html` | The authority's catalogue | Yes |
 | `drawings/c4-*.html` | `.claude/skills/architecture-C4-draughtsman/SKILL.md` | **No** |
 | `drawings/*-landscape.html`, `drawings/adr-*.html` | Nothing. Standalone figures | **No** |
 
@@ -98,7 +98,7 @@ an ID, you are drawing the wrong kind of document.
 
 ## Outputs
 
-- Print editions: `output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf`
+- Print editions: `output/pdf/Proposed Linebooker V3 Architecture - L<level>-<index> <Title>.pdf`
 - Written editions: `demos/01-dictionary/docs/v3-architecture/`
 
 Both are regenerated from the HTML in `drawings/`. `output/pdf/` stays at the

@@ -105,18 +105,18 @@ node demos/01-dictionary/diagrams/export-html-png.mjs \
 
 node demos/01-dictionary/diagrams/export-html-pdf.mjs \
   proposed-v3-arch/drawings/<html-file>.html \
-  "output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf"
+  "output/pdf/Proposed Linebooker V3 Architecture - L<level>-<index> <Title>.pdf"
 
-pdfinfo "output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf"
+pdfinfo "output/pdf/Proposed Linebooker V3 Architecture - L<level>-<index> <Title>.pdf"
 rg -F "LB-V3-L<level>-<nn>" proposed-v3-arch/drawings/<html-file>.html
 rg -F "<Title>" proposed-v3-arch/drawings/<html-file>.html
 pdftotext \
-  "output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf" \
+  "output/pdf/Proposed Linebooker V3 Architecture - L<level>-<index> <Title>.pdf" \
   tmp/pdfs/l<level>-text.txt
 rg -F "LB-V3-L<level>-<nn>" tmp/pdfs/l<level>-text.txt
 rg -F "<Title>" tmp/pdfs/l<level>-text.txt
 pdftoppm -png -r 120 \
-  "output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf" \
+  "output/pdf/Proposed Linebooker V3 Architecture - L<level>-<index> <Title>.pdf" \
   tmp/pdfs/l<level>-qa
 ```
 
@@ -144,7 +144,7 @@ Before assigning `AVAILABLE`, verify all of the following:
 ## Catalogue synchronization
 
 `LB-V3-L0-01` is the navigation root at
-`proposed-v3-arch/drawings/proposed-linebooker-v3-l0-architecture-atlas.html`.
+`proposed-v3-arch/drawings/linebooker-v3-l0-01-architecture-atlas.html`.
 
 When authorized work adds, renames, re-parents, completes or supersedes an
 architecture document, update the authority's canonical catalogue first. Then:
@@ -160,8 +160,8 @@ architecture document, update the authority's canonical catalogue first. Then:
 ## Worked example: `LB-V3-L1-01`
 
 For the System and Platform Overview, update the L1 requirements register first,
-edit `proposed-linebooker-v3-l1-system-platform-overview.html`, export
-`Proposed Linebooker V3 Architecture - L1 System and Platform Overview.pdf`, and
+edit `linebooker-v3-l1-01-system-platform-overview.html`, export
+`Proposed Linebooker V3 Architecture - L1-01 System and Platform Overview.pdf`, and
 confirm both editions contain `LB-V3-L1-01` and `System and Platform Overview`.
 Only after the SVG audit, page-size/page-count check, text check, and rendered-page review
 pass should its L0 node be `AVAILABLE`.

@@ -90,7 +90,7 @@ it belongs on a lower page. Link down to the child page instead of widening this
 Write in this order. Do not invent an alternative running order — the series is
 read as a set.
 
-1. **Frontmatter** — `title` exactly `L<level> <Title>`, and `aside: false`.
+1. **Frontmatter** — `title` exactly `L<level>-<index> <Title>`, and `aside: false`.
    `aside: false` is required, not cosmetic: it drops VitePress's on-page table
    of contents and widens the content column from 688px to about 1040px, which
    is the difference between a legible figure and an unreadable one. Verified at
@@ -186,7 +186,7 @@ read as a set.
    repository path from the page — it is not a URL and the reader gets nothing.
 
 3. Write the page at
-   `demos/01-dictionary/docs/v3-architecture/l<level>-<lowercase-kebab-title>.md`.
+   `demos/01-dictionary/docs/v3-architecture/l<level>-<index>-<lowercase-kebab-title>.md`.
 
 4. Reference the image by its site-absolute path — `/v3-architecture/<id>.png`,
    not a relative path into `public/`. VitePress serves `public/` at the site root.

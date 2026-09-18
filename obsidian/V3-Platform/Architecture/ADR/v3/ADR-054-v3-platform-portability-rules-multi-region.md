@@ -47,7 +47,7 @@ preference:
    must already exist in writing.
 
 The consolidated companion view
-(`proposed-linebooker-v3-high-level-architecture-landscape.html`) already
+(`linebooker-v3-high-level-architecture-landscape.html`) already
 shows the shape this implies in two places — an `Evidence Store Adapter`
 tile marked "S3-compatible option", and a Botswana cell with its own
 isolated NATS and local resolver. Both were drawn as observations. Neither

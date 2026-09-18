@@ -6,7 +6,7 @@ aside: false
 # Logical and Technical Architecture
 
 <div class="v3-meta">
-<strong>LB-V3-L2-01</strong> &middot; Level L2 &middot; Parent: <a href="/v3-architecture/l1-system-platform-overview">LB-V3-L1-01 System and Platform Overview</a> &middot;
+<strong>LB-V3-L2-01</strong> &middot; Level L2 &middot; Parent: <a href="/v3-architecture/l1-01-system-platform-overview">LB-V3-L1-01 System and Platform Overview</a> &middot;
 Requirements register: <code>Proposed-Linebooker-V3-L2-Requirements.md</code> &middot;
 Catalogue status: AVAILABLE
 </div>
@@ -29,7 +29,7 @@ selected, and why. Both sit at L2 because they ask different questions, not
 because they cover different areas. Splitting L2 up by concern is not allowed;
 that is what L3 is for.
 
-The parent view, [LB-V3-L1-01](/v3-architecture/l1-system-platform-overview),
+The parent view, [LB-V3-L1-01](/v3-architecture/l1-01-system-platform-overview),
 established *who* participates and *where* the platform runs. This view keeps
 those boundaries and adds the construction behind them: which elements exist,
 which one owns what, and what runs in which place.
@@ -401,7 +401,7 @@ the drawing.
 
 ## Related documents
 
-- **Parent:** [`LB-V3-L1-01` System and Platform Overview](/v3-architecture/l1-system-platform-overview)
+- **Parent:** [`LB-V3-L1-01` System and Platform Overview](/v3-architecture/l1-01-system-platform-overview)
   — who participates, and where the platform runs.
 - **Sibling:** `LB-V3-L2-02` Technology Selection and Rationale — which
   technologies were selected and why. Status `DRAFT`; no written edition yet.

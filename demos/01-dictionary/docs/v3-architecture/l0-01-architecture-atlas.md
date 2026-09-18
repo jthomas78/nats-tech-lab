@@ -146,5 +146,5 @@ documents the atlas links to — see each document's own requirements register.
 
 ## Related documents
 
-- Child: [L1-01 · System and Platform Overview](/v3-architecture/l1-system-platform-overview)
-- Also reachable from L1: [L2-01 · Logical and Technical Architecture](/v3-architecture/l2-logical-technical-architecture)
+- Child: [L1-01 · System and Platform Overview](/v3-architecture/l1-01-system-platform-overview)
+- Also reachable from L1: [L2-01 · Logical and Technical Architecture](/v3-architecture/l2-01-logical-technical-architecture)

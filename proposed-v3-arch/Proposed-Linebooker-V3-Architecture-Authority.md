@@ -151,32 +151,32 @@ document repository.
 ### Published artefacts
 
 - `LB-V3-L0-01`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l0-architecture-atlas.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L0 Architecture Atlas.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l0-01-architecture-atlas.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L0-01 Architecture Atlas.pdf>)
 - `LB-V3-L1-01`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l1-system-platform-overview.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L1 System and Platform Overview.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l1-01-system-platform-overview.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L1-01 System and Platform Overview.pdf>)
 - `LB-V3-L2-01`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l2-logical-technical-architecture.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L2 Logical and Technical Architecture.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l2-01-logical-technical-architecture.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L2-01 Logical and Technical Architecture.pdf>)
 - `LB-V3-L2-02`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l2-technology-selection-rationale.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L2 Technology Selection and Rationale.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l2-02-technology-selection-rationale.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L2-02 Technology Selection and Rationale.pdf>)
 - `LB-V3-L3-01`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l3-participant-tenancy.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Participant and Tenancy.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l3-01-participant-tenancy.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3-01 Participant and Tenancy.pdf>)
 - `LB-V3-L3-03`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l3-application-mfe.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Application and MFE.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l3-03-application-mfe.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3-03 Application and MFE.pdf>)
 - `LB-V3-L3-05`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l3-messaging-nats.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Messaging and NATS.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l3-05-messaging-nats.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3-05 Messaging and NATS.pdf>)
 - `LB-V3-L3-07`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l3-data-architecture.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Data Architecture.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l3-07-data-architecture.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3-07 Data Architecture.pdf>)
 - `LB-V3-L3-08`
-  - [Editable HTML](drawings/proposed-linebooker-v3-l3-multi-region.html)
-  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3 Multi-Region.pdf>)
+  - [Editable HTML](drawings/linebooker-v3-l3-08-multi-region.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L3-08 Multi-Region.pdf>)
 
 ## Modelling invariants
 
@@ -324,17 +324,28 @@ rules above are the specification.
   they govern, not in the Obsidian vault. Moved there 2026-09-18;
   `proposed-v3-arch/CLAUDE.md` seals the folder.
 - HTML source:
-  `proposed-v3-arch/drawings/proposed-linebooker-v3-l<level>-<lowercase-kebab-title>.html`
+  `proposed-v3-arch/drawings/linebooker-v3-l<level>-<index>-<lowercase-kebab-title>.html`
 - Final PDF:
-  `output/pdf/Proposed Linebooker V3 Architecture - L<level> <Title>.pdf`
+  `output/pdf/Proposed Linebooker V3 Architecture - L<level>-<index> <Title>.pdf`
 - Written edition (Markdown page on the docs site):
-  `demos/01-dictionary/docs/v3-architecture/l<level>-<lowercase-kebab-title>.md`
+  `demos/01-dictionary/docs/v3-architecture/l<level>-<index>-<lowercase-kebab-title>.md`
 - Published diagram image for that page:
   `demos/01-dictionary/docs/public/v3-architecture/<lowercase-stable-id>.png`
 - `output/pdf/` is the committed deliverable location for this series.
 - PDFs in the Obsidian architecture directory are historical or separately
   governed references unless this authority explicitly registers them.
 - Every edition must display the exact stable ID and document title.
+- `<index>` is the two-digit sequence from the stable ID, so `LB-V3-L3-01`
+  files are named `l3-01`. It is never omitted, not even at a level that holds
+  only one document. Without it a file name cannot be traced back to a
+  catalogue row, and file listings sort alphabetically instead of in catalogue
+  order.
+- The HTML source and the written edition do not carry a `proposed-` prefix.
+  Their folders already say so. The PDF keeps the word `Proposed` in its title
+  because `output/pdf/` sits at the repository root beside unrelated decks, and
+  a PDF that leaves this repository must still say that none of this is built.
+- An ungoverned figure in `drawings/` has no stable ID and therefore no index.
+  It is named `linebooker-v3-<lowercase-kebab-title>.html`.
 
 ### Written edition on the docs site
 
@@ -415,10 +426,23 @@ authorized creation or revision:
 - [Execution workflow - drawn and print editions](../.claude/skills/architecture-draughtsman/SKILL.md)
 - [Execution workflow - written edition](../.claude/skills/architecture-document-writer/SKILL.md)
 - [Drawing workflow](../.claude/skills/html-diagram-drawer/SKILL.md)
-- [Graphical catalogue - LB-V3-L0-01](drawings/proposed-linebooker-v3-l0-architecture-atlas.html)
+- [Graphical catalogue - LB-V3-L0-01](drawings/linebooker-v3-l0-01-architecture-atlas.html)
 
 ## Change history
 
+- 2026-09-18 - Renamed every drawing, print and written edition to carry the
+  two-digit index from its stable ID, and dropped the `proposed-` prefix from
+  the HTML source names. `proposed-linebooker-v3-l3-participant-tenancy.html`
+  became `linebooker-v3-l3-01-participant-tenancy.html`. The prefix was
+  redundant inside `proposed-v3-arch/`, and the written edition had already
+  dropped it, so the HTML was the odd one out. The index was the real gap: a
+  file named `l3-participant-tenancy` could not be traced to a catalogue row,
+  and a second document at one level had nothing to distinguish it. The PDF
+  titles keep the word `Proposed` and gain the index, because `output/pdf/` is
+  at the repository root beside unrelated decks and a shared PDF must still
+  say that nothing here is built. Ungoverned figures kept no index because
+  they hold no stable ID. 24 files renamed, every reference swept, and the
+  naming rules above restated.
 - 2026-09-18 - Registered `LB-V3-L4-01 Physical Deployment on AWS, Two
   Regions` as PLANNED, the first L4 document in the series, parented under
   `LB-V3-L3-08 Multi-Region`. It exists because `L3-08-037` delegates cloud

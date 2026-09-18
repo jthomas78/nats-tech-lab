@@ -206,7 +206,7 @@
     };
     async function renderCanvas(){const c=captureOptions();return html2canvas(document.body,c.options);}
     async function copyAsImage(){const canvas=await renderCanvas();canvas.toBlob(async blob=>navigator.clipboard.write([new ClipboardItem({'image/png':blob})]));}
-    async function downloadPNG(){const canvas=await renderCanvas();const a=document.createElement('a');a.download='proposed-linebooker-v3-adr-decision-landscape.png';a.href=canvas.toDataURL('image/png');a.click();}
+    async function downloadPNG(){const canvas=await renderCanvas();const a=document.createElement('a');a.download='linebooker-v3-adr-decision-landscape.png';a.href=canvas.toDataURL('image/png');a.click();}
     async function downloadPDF(){const canvas=await renderCanvas();const {jsPDF}=window.jspdf;const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a3'});pdf.addImage(canvas.toDataURL('image/png'),'PNG',0,0,420,297);pdf.save('Proposed Linebooker V3 Architecture - ADR Decision Landscape.pdf');}
   </script>
 </body>

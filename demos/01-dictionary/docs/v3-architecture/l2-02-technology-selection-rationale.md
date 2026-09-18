@@ -6,7 +6,7 @@ aside: false
 # Technology Selection and Rationale
 
 <div class="v3-meta">
-<strong>LB-V3-L2-02</strong> &middot; Level L2 &middot; Parent: <a href="/v3-architecture/l1-system-platform-overview">LB-V3-L1-01 System and Platform Overview</a> &middot;
+<strong>LB-V3-L2-02</strong> &middot; Level L2 &middot; Parent: <a href="/v3-architecture/l1-01-system-platform-overview">LB-V3-L1-01 System and Platform Overview</a> &middot;
 Requirements register: <code>Proposed-Linebooker-V3-L2-02-Requirements.md</code> &middot;
 Catalogue status: DRAFT
 </div>
@@ -32,7 +32,7 @@ Document `LB-V3-L2-02` answers one question:
 
 **Which technologies were selected for the proposed platform, and why?**
 
-Its sibling [LB-V3-L2-01](/v3-architecture/l2-logical-technical-architecture)
+Its sibling [LB-V3-L2-01](/v3-architecture/l2-01-logical-technical-architecture)
 answers a different one — how the platform would be constructed. Both sit at
 L2 because they ask different questions about the same system, not because
 they cover different areas. This document deliberately draws no relationships
@@ -228,6 +228,6 @@ Carried from the requirements register, unresolved:
 
 ## Related documents
 
-- Parent: [LB-V3-L1-01 · System and Platform Overview](/v3-architecture/l1-system-platform-overview)
-- Sibling: [LB-V3-L2-01 · Logical and Technical Architecture](/v3-architecture/l2-logical-technical-architecture)
-- Atlas: [LB-V3-L0-01 · Architecture Atlas](/v3-architecture/l0-architecture-atlas)
+- Parent: [LB-V3-L1-01 · System and Platform Overview](/v3-architecture/l1-01-system-platform-overview)
+- Sibling: [LB-V3-L2-01 · Logical and Technical Architecture](/v3-architecture/l2-01-logical-technical-architecture)
+- Atlas: [LB-V3-L0-01 · Architecture Atlas](/v3-architecture/l0-01-architecture-atlas)

@@ -53,21 +53,21 @@ const v3ArchitectureSidebar: DefaultTheme.SidebarItem[] = [
     items: [
       {
         text: 'L0-01 \u00b7 Architecture Atlas',
-        link: '/v3-architecture/l0-architecture-atlas',
+        link: '/v3-architecture/l0-01-architecture-atlas',
         collapsed: false,
         items: [
           {
             text: 'L1-01 \u00b7 System and Platform Overview',
-            link: '/v3-architecture/l1-system-platform-overview',
+            link: '/v3-architecture/l1-01-system-platform-overview',
             collapsed: false,
             items: [
               {
                 text: 'L2-01 \u00b7 Logical and Technical Architecture',
-                link: '/v3-architecture/l2-logical-technical-architecture',
+                link: '/v3-architecture/l2-01-logical-technical-architecture',
               },
               {
                 text: 'L2-02 \u00b7 Technology Selection and Rationale',
-                link: '/v3-architecture/l2-technology-selection-rationale',
+                link: '/v3-architecture/l2-02-technology-selection-rationale',
               },
             ],
           },
@@ -85,7 +85,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/' },
       { text: 'Architecture', link: '/architecture/' },
-      { text: 'Proposed V3', link: '/v3-architecture/l1-system-platform-overview' },
+      { text: 'Proposed V3', link: '/v3-architecture/l1-01-system-platform-overview' },
     ],
     sidebar: {
       '/architecture/': architectureSidebar,
