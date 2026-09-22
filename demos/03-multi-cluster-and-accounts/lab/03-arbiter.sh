@@ -21,7 +21,7 @@
 # The arbiter must sit somewhere independent of BOTH regions. One living in the
 # ZA data centre is worth nothing.
 #
-# Requirements exercised: D03-R1, D03-R5, D03-R9.
+# Requirements exercised: D03-R1, D03-R2, D03-R4, D03-R5, D03-R9.
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -148,9 +148,55 @@ nats_as 4231 lb stream add SHARED_ODO --subjects "evt.shared.v1" --storage file 
 nats_as 4231 lb pub "evt.shared.v1" '{"km":9.0}' >/dev/null 2>&1
 sleep 2
 check C13 D03-R2 "one publish in region ZA, shared account LB: messages seen from region ZA / region AU" \
-      "1 / 1" "$(stream_msgs 4231 lb SHARED_ODO) / $(stream_msgs 4241 lb SHARED_ODO)"
+      "1 / 1" "$(stream_msgs 4231 lb SHARED_ODO) / $(stream_msgs 4241 lb SHARED_ODO)" \
+      A26
 note  C13a D03-R2 "why that reads 1 / 1 and not 1 / 0" \
-      "ONE stream in za, read over the WAN from au -- the arbiter did not change it"
+      "ONE stream in za, read over the WAN from au -- the arbiter did not change it" \
+      A26
+
+# --- DOES ANY OF IT LAND ON THE ARBITER? -----------------------------------
+# C7-C10 asked that of placement: what happens when a client picks the site,
+# by flag or by accident. This asks it of everything else. A26, A6, A9, A18,
+# A22, A24 and A25 were all measured on T2/A's six peers, where there was no
+# third site to drift onto. Re-asked here, every answer must be the same one.
+#
+# A third site changes the QUORUM arithmetic. If it also changed where data
+# sits, the arbiter would be a data centre, not a vote.
+nats_as 4231 za stream add ODOMETER --subjects "$SUBJECT" --storage file \
+        --replicas 3 --cluster za --defaults >/dev/null 2>&1 || true
+nats_as 4241 au stream add ODOMETER --subjects "$SUBJECT" --storage file \
+        --replicas 3 --cluster au --defaults >/dev/null 2>&1 || true
+sleep 2
+check C14 D03-R2 "per-region accounts: LB_ZA / LB_AU ODOMETER land in" \
+      "za / au" "$(stream_cluster 4231 za ODOMETER) / $(stream_cluster 4241 au ODOMETER)" \
+      A6
+check C15 D03-R5 "LB_ZA ODOMETER: replicas asked for / peers built" \
+      "3 / 3" "$(stream_replicas 4231 za ODOMETER) / $(stream_peers 4231 za ODOMETER)" \
+      A22
+check C16 D03-R5 "LB_ZA / LB_AU ODOMETER: region holding the stream leader" \
+      "za / au" "$(stream_leader_region 4231 za ODOMETER) / $(stream_leader_region 4241 au ODOMETER)" \
+      A24
+note  C16a D03-R5 "which server won the ZA stream election this run" \
+      "$(stream_leader 4231 za ODOMETER)" A24a
+
+# The one question T2/A could not ask, because T2/A had nowhere to drift to.
+check C17 D03-R9 "sites actually carrying LB_ZA ODOMETER's three copies" \
+      "za" "$(stream_peer_regions 4231 za ODOMETER)"
+
+nats_as 4241 au kv add t7-vehicles --storage file --replicas 3 >/dev/null 2>&1 || true
+check C18 D03-R4 "KV t7-vehicles created from AU, no placement flag, lands in" \
+      "au" "$(stream_cluster 4241 au KV_t7-vehicles)" A9
+
+nats_as 4241 au consumer add ODOMETER AU_READER --pull --deliver all \
+        --ack explicit --defaults >/dev/null 2>&1 || true
+check C19 D03-R4 "LB_AU's consumer, made from AU on AU's stream, lives in cluster" \
+      "au" "$(consumer_cluster 4241 au ODOMETER AU_READER)" A18
+
+check C20 D03-R5 "shared LB SHARED_ODO, seen from AU: peers / leader region" \
+      "3 / za" "$(stream_peers 4241 lb SHARED_ODO) / $(stream_leader_region 4241 lb SHARED_ODO)" \
+      A25
+note  C20a D03-R9 "so the arbiter is a VOTE and not a data centre" \
+      "it changes the quorum arithmetic only -- no copy, KV or consumer moved to it"
 
 note C12 D03-R5 "slack after losing one region" \
      "none -- 4 of 7 is exactly the majority; one more node freezes it"

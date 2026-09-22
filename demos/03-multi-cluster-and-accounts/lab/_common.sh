@@ -329,6 +329,20 @@ stream_leader_region() {
   esac
 }
 
+# Which REGIONS carry a stream's RAFT group, leader included, joined by "+".
+#
+# T3 and T4 add a third site that is ALSO a storage server. "Did a copy land on
+# the arbiter?" is a question the peer COUNT cannot answer -- three peers is
+# three peers wherever they sit. This names the sites instead.
+stream_peer_regions() {
+  local port="$1" user="$2" stream="$3"
+  nats_as "$port" "$user" stream info "$stream" --json 2>/dev/null \
+    | jq -r 'if .cluster then
+               ([ .cluster.leader // empty ] + [ (.cluster.replicas // [])[].name ])
+               | map(sub("^t-"; "") | sub("-[0-9]+$"; "")) | unique | join("+")
+             else "?" end' 2>/dev/null || echo "?"
+}
+
 # The raw leader name, for a note. Never for a check.
 stream_leader() {
   local port="$1" user="$2" stream="$3"

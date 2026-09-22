@@ -338,17 +338,17 @@
 <!--/FIG-->
 
 <!--FIG e-->
-<svg viewBox="0 0 960 466" role="img" aria-label="E &mdash; export and import between two accounts. Clusters za and au are joined by one gateway. Account LB_ZA exports the subject evt.odo.v1 and account LB_AU imports it with the prefix za, so it arrives as za.evt.odo.v1. One publish in LB_ZA is stored by both accounts on two different subjects, and LB_AU's stream on the raw subject stays empty. The hole is one-way and carries subjects only: LB_AU cannot read stream info on LB_ZA's ODOMETER stream, and may use the same stream name for a stream of its own. Both accounts sit in one JetStream system with no domain name set, drawn as one orange dashed box.">
+<svg viewBox="0 0 960 542" role="img" aria-label="E &mdash; export and import between two accounts. Clusters za and au are joined by one gateway. Account LB_ZA exports the subject evt.odo.v1 and account LB_AU imports it with the prefix za, so it arrives as za.evt.odo.v1. One publish in LB_ZA is stored by both accounts on two different subjects, and LB_AU's stream on the raw subject stays empty. The hole is one-way and carries subjects only: LB_AU cannot read stream info on LB_ZA's ODOMETER stream, and may use the same stream name for a stream of its own, drawn in the LB_AU box as ODOMETER on subject evt.dup.v1. A mirror asked for in LB_AU by the name ODOMETER is accepted with no error and stays empty, because the name resolves inside the asking account, drawn as M_E. Both accounts sit in one JetStream system with no domain name set, drawn as one orange dashed box.">
   <defs>
     <marker id="fe-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
     <marker id="fe-im" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
   </defs>
   <text class="grp g" x="22" y="26">E &mdash; ONE HOLE IN THE ACCOUNT WALL, OPENED ON PURPOSE &mdash; 6 PEERS &mdash; ONE GATEWAY</text>
-  <rect class="nb" x="14" y="34" width="932" height="412" rx="4"/>
-  <rect class="nb dom" x="24" y="46" width="912" height="230" rx="4"/>
+  <rect class="nb" x="14" y="34" width="932" height="488" rx="4"/>
+  <rect class="nb dom" x="24" y="46" width="912" height="270" rx="4"/>
   <text class="grp d" x="36" y="66">JETSTREAM DOMAIN &mdash; NONE SET &mdash; ONE SYSTEM OVER ALL 6</text>
 
-  <rect class="nb acct" x="30" y="74" width="400" height="196" rx="4"/>
+  <rect class="nb acct" x="30" y="74" width="400" height="236" rx="4"/>
   <text class="grp a" x="44" y="94">ACCOUNT LB_ZA &mdash; EXPORTS evt.odo.&gt;</text>
   <rect class="nb clu" x="44" y="106" width="372" height="104" rx="4"/>
   <text class="grp" x="58" y="124">CLUSTER za &mdash; REGION za</text>
@@ -364,7 +364,7 @@
   <text class="ro" x="44" y="234">ODOMETER &mdash; evt.odo.v1</text>
   <text class="ro h" x="44" y="254">export stream evt.odo.&gt;</text>
 
-  <rect class="nb acct" x="530" y="74" width="400" height="196" rx="4"/>
+  <rect class="nb acct" x="530" y="74" width="400" height="236" rx="4"/>
   <text class="grp a" x="544" y="94">ACCOUNT LB_AU &mdash; IMPORTS IT AS za.evt.odo.&gt;</text>
   <rect class="nb clu" x="544" y="106" width="372" height="104" rx="4"/>
   <text class="grp" x="558" y="124">CLUSTER au &mdash; REGION au</text>
@@ -379,20 +379,24 @@
   <text class="lbl2" x="838" y="166" text-anchor="middle">127.0.0.1:4243</text>
   <text class="ro g" x="544" y="234">IMPORTED &mdash; za.evt.odo.v1</text>
   <text class="ro r" x="544" y="254">RAW &mdash; evt.odo.v1 &mdash; stays empty</text>
+  <text class="ro" x="544" y="274">ODOMETER &mdash; evt.dup.v1 &mdash; AU's OWN, same name</text>
+  <text class="ro r" x="544" y="294">M_E &mdash; mirror of &quot;ODOMETER&quot; &mdash; stays empty</text>
 
   <line class="gw" x1="436" y1="153" x2="524" y2="153" marker-start="url(#fe-gw)" marker-end="url(#fe-gw)"/>
   <text class="edge" x="480" y="147" text-anchor="middle">gateway</text>
   <line class="mir" x1="436" y1="234" x2="524" y2="234" marker-end="url(#fe-im)"/>
   <text class="edge" x="480" y="228" text-anchor="middle">import, renamed</text>
 
-  <text class="ro g" x="30" y="302">E1  one publish in ZA: the owning account stored it</text>
-  <text class="ro g" x="30" y="320">E2  the importing account stored it too, across the gateway</text>
-  <text class="ro g" x="30" y="338">E3  and it arrived PREFIXED &mdash; the raw-subject stream stays empty</text>
-  <text class="ro" x="30" y="356">E3a  the importer renames it, so the two sources can never be confused</text>
-  <text class="ro g" x="30" y="374">E4/E5  the hole is ONE-WAY &mdash; AU's publish does not move ZA's stream</text>
-  <text class="ro g" x="30" y="392">E6  LB_AU cannot even read stream info on ZA's ODOMETER</text>
-  <text class="ro g" x="30" y="410">E7/E8  and it may reuse the name ODOMETER for a stream of its own</text>
-  <text class="ro h" x="30" y="428">E9  explicit, one-way, renamed &mdash; the opposite of T5's silent copy</text>
+  <text class="ro g" x="30" y="342">E1  one publish in ZA: the owning account stored it</text>
+  <text class="ro g" x="30" y="360">E2  the importing account stored it too, across the gateway</text>
+  <text class="ro g" x="30" y="378">E3  and it arrived PREFIXED &mdash; the raw-subject stream stays empty</text>
+  <text class="ro" x="30" y="396">E3a  the importer renames it, so the two sources can never be confused</text>
+  <text class="ro g" x="30" y="414">E4/E5  the hole is ONE-WAY &mdash; AU's publish does not move ZA's stream</text>
+  <text class="ro g" x="30" y="432">E6  LB_AU cannot even read stream info on ZA&apos;s ODOMETER</text>
+  <text class="ro g" x="30" y="450">E7/E8  and it may reuse the name ODOMETER for a stream of its own</text>
+  <text class="ro r" x="30" y="468">E17  LB_AU asks to mirror &quot;ODOMETER&quot; &mdash; ACCEPTED, no error at all</text>
+  <text class="ro r" x="30" y="486">E18  0 messages in it &mdash; the name resolved inside LB_AU, not across the wall</text>
+  <text class="ro h" x="30" y="504">E9  explicit, one-way, renamed &mdash; the opposite of T5&apos;s silent copy</text>
 </svg>
 <!--/FIG-->
 
