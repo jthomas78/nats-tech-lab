@@ -293,6 +293,49 @@ consumer_cluster() {
     | jq -r '.cluster.name // "?"' 2>/dev/null || echo "?"
 }
 
+# A stream is a RAFT group of its own, separate from the meta group. Three
+# things about it can be read apart, and all three matter:
+#
+#   config.num_replicas   what was ASKED for
+#   cluster.replicas      the peers actually carrying it, minus the leader
+#   cluster.leader        the ONE server that takes the writes
+#
+# Asked-for and got are not the same number. A stream can be created with
+# --replicas 3 and sit at one peer when placement had nowhere to put the rest.
+stream_replicas() {
+  local port="$1" user="$2" stream="$3"
+  nats_as "$port" "$user" stream info "$stream" --json 2>/dev/null \
+    | jq -r '.config.num_replicas // "?"' 2>/dev/null || echo "?"
+}
+
+# Peers actually in the stream's RAFT group: the leader plus its followers.
+stream_peers() {
+  local port="$1" user="$2" stream="$3"
+  nats_as "$port" "$user" stream info "$stream" --json 2>/dev/null \
+    | jq -r 'if .cluster then (1 + ((.cluster.replicas // []) | length)) else "?" end' \
+      2>/dev/null || echo "?"
+}
+
+# Which REGION holds the stream's RAFT leader. Server names are t-za-1, t-au-2,
+# t-hub-3 and so on, so the region is the middle token. The raw server name is
+# a coin toss between the three peers and cannot be a check; the region can.
+stream_leader_region() {
+  local port="$1" user="$2" stream="$3" name
+  name="$(nats_as "$port" "$user" stream info "$stream" --json 2>/dev/null \
+          | jq -r '.cluster.leader // ""' 2>/dev/null)"
+  case "$name" in
+    ""|null) echo "NONE" ;;
+    *) printf '%s\n' "$name" | sed -E 's/^t-//; s/-[0-9]+$//' ;;
+  esac
+}
+
+# The raw leader name, for a note. Never for a check.
+stream_leader() {
+  local port="$1" user="$2" stream="$3"
+  nats_as "$port" "$user" stream info "$stream" --json 2>/dev/null \
+    | jq -r '.cluster.leader // "NONE"' 2>/dev/null || echo "NONE"
+}
+
 stream_msgs() {
   local port="$1" user="$2" stream="$3"
   nats_as "$port" "$user" stream info "$stream" --json 2>/dev/null \
@@ -305,31 +348,47 @@ stream_msgs() {
 
 results_reset() { : > "$RESULTS"; }
 
-# record <id> <requirement> <what it checks> <expected> <actual> <PASS|FAIL>
+# PROVENANCE -- the last argument of record, note and check.
+#
+# Some questions are worth asking on more than one rig. When a check here is
+# the SAME question another topology already answered, it carries the id of
+# that original as its last argument: `A4`, `A22`, and so on. The report then
+# prints a "from" column, so a reader can put the two answers side by side and
+# see what the topology changed.
+#
+# The argument is optional. Left out, it is written as `-` and the report
+# shows nothing. It is never a citation of a document -- only of another check
+# id measured in this same lab.
+
+# record <id> <requirement> <what it checks> <expected> <actual> <PASS|FAIL> [from]
 record() {
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$1" "$2" "$TOPOLOGY" "$3" "$4" "$5" "$6" >> "$RESULTS"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$1" "$2" "$TOPOLOGY" "$3" "$4" "$5" "$6" "${7:--}" >> "$RESULTS"
 }
 
-# note <id> <requirement> <what was observed> <value>
+# note <id> <requirement> <what was observed> <value> [from]
 # An observation that is evidence but has no right answer to compare against.
 note() {
-  record "$1" "$2" "$3" "-" "$4" "NOTE"
+  record "$1" "$2" "$3" "-" "$4" "NOTE" "${5:--}"
   printf '  \033[36mNOTE\033[0m  %-8s %s\n            %s\n' "$1" "$3" "$4"
+  [ -n "${5:-}" ] && printf '            (same question as %s)\n' "$5"
+  return 0
 }
 
-# check <id> <requirement> <what it checks> <expected> <actual>
+# check <id> <requirement> <what it checks> <expected> <actual> [from]
 # PASS when the measured string equals the expected string, exactly.
 check() {
-  local id="$1" req="$2" desc="$3" want="$4" got="$5" status="FAIL"
+  local id="$1" req="$2" desc="$3" want="$4" got="$5" from="${6:--}" status="FAIL"
   [ "$want" = "$got" ] && status="PASS"
-  record "$id" "$req" "$desc" "$want" "$got" "$status"
+  record "$id" "$req" "$desc" "$want" "$got" "$status" "$from"
   if [ "$status" = "PASS" ]; then
     printf '  \033[32mPASS\033[0m  %-8s %s\n            expected and got: %s\n' "$id" "$desc" "$got"
   else
     printf '  \033[31mFAIL\033[0m  %-8s %s\n            expected: %s\n            got:      %s\n' \
       "$id" "$desc" "$want" "$got"
   fi
+  [ "$from" != "-" ] && printf '            (same question as %s)\n' "$from"
+  return 0
 }
 
 banner() {

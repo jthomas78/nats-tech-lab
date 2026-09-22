@@ -298,6 +298,16 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   `no suitable peers for placement (10005)`. Use the same domain everywhere, or
   none. This is Figure B, and it is the second deliberate reproduction of a
   demo 02 finding.
+- **A broken domain config breaks PLACEMENT, not a stream** (measured
+  2026-09-22, `lab/02-domain-over-gateway.sh`, checks `B8`–`B16`). Under
+  Figure B the healthy half behaves exactly as a plain gateway does: the stream
+  name is still taken supercluster-wide (`10058`), an existing stream is still
+  a whole 3-peer RAFT group, a KV bucket and a consumer still land with their
+  client and their stream, and a mirror still copies with no `external.api`.
+  Everything aimed at the blind half fails with `10005`, including a mirror.
+  One account per region does **not** rescue it. Those checks carry the ID of
+  the `T2 / A` check they repeat, in the report's **From** column.
+
 - **WHICH cluster goes blind under Figure B is a coin toss** (measured
   2026-09-17, `lab/02-domain-over-gateway.sh`). Demo 02 recorded `au` as the
   blind side and so did this demo's first run. A later run of the *same* configs,
@@ -379,10 +389,11 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
 
 - **`D03-R8`** — two accounts sharing a subject **on purpose**, via explicit
   export / import. The one unmeasured claim in the matrix.
-- **`D03-R7`** — whether `source`/`mirror` survives across two **gateway**-joined
-  clusters with different domains. Placement already fails there with `10005`,
-  so do not trust it without a test. Mirror catch-up time at production volume
-  is also unmeasured.
+- **`D03-R7`** — mirror catch-up time at **production volume**. The
+  gateway-plus-different-domains case was closed on 2026-09-22 by `B15` and
+  `B16` in `lab/02-domain-over-gateway.sh`: the mirror itself is fine and
+  copies with no `external.api`, but placing it into the blind half fails with
+  `10005`, like every other placement into that half.
 - The hub as a **real JetStream store**, not a pass-through (T5).
 - Leaf reconnect behaviour with **many** regions, not two.
 - **T4** — the three-instance arbiter was never built. Every T4 row is

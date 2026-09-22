@@ -32,7 +32,7 @@
 # This is the second deliberate reproduction. Demo 02 hit it by accident in
 # September 2026. Do not reintroduce a per-region domain.
 #
-# Requirements exercised: D03-R3, D03-R5, D03-R6.
+# Requirements exercised: D03-R2, D03-R3, D03-R4, D03-R5, D03-R6, D03-R7.
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -82,9 +82,9 @@ live_n=0
 [ "$au_leader" != "NONE" ] && live_n=$((live_n+1))
 
 if [ "$za_leader" != "NONE" ]; then
-  live_side=za; live_mon=8231; live_cli=4231; blind_side=au; blind_mon=8241
+  live_side=za; live_mon=8231; live_cli=4231; blind_side=au; blind_mon=8241; blind_cli=4241
 else
-  live_side=au; live_mon=8241; live_cli=4241; blind_side=za; blind_mon=8231
+  live_side=au; live_mon=8241; live_cli=4241; blind_side=za; blind_mon=8231; blind_cli=4231
 fi
 
 # --- Nothing is stopped. Nothing is broken. Look at both sides anyway. -----
@@ -106,6 +106,139 @@ check B4 D03-R3 "placing a stream on the BLIND cluster, from a live client" \
 check B5 D03-R3 "placing a stream on the LIVE cluster still works" \
       "ok" "$(fails_or_ok "$live_cli" lb stream add ODOMETER --subjects "$SUBJECT" \
               --storage file --replicas 3 --cluster "$live_side" --defaults)"
+
+# --- THE SHARED ACCOUNT, ASKED FROM BOTH SIDES -----------------------------
+# A26 asks this of a healthy gateway and gets a clean 1 / 1. Here one side is
+# already blind with nothing stopped, so only the LIVE half has a predictable
+# answer. The blind half is recorded as a note, because the rig cannot say in
+# advance which region is blind.
+nats_as "$live_cli" lb pub "$SUBJECT" '{"km":9.0}' >/dev/null 2>&1 || true
+sleep 2
+check B7 D03-R3 "one publish on the LIVE side, shared account LB: messages seen from the LIVE side" \
+      "1" "$(stream_msgs "$live_cli" lb ODOMETER)"
+note  B7a D03-R3 "the same count asked of the BLIND side ($blind_side)" \
+      "$(stream_msgs "$blind_cli" lb ODOMETER)"
+
+# --- THE SAME QUESTIONS T2 / A ANSWERED, ASKED AGAIN ON THIS RIG ------------
+# Everything below carries the id of the T2 / A check it repeats. Same six
+# servers, same gateway, same slice -- the ONLY difference is the domain per
+# cluster. So any answer that changes was changed by the domain, and the
+# report can print the pair side by side.
+#
+# Nothing here names a region. The live side is whichever one won the race.
+
+# A4 -- is the stream NAMESPACE still shared? B3 shows the meta GROUP is still
+# one group of six. That is not the same claim. This one asks whether the name
+# ODOMETER is still taken.
+#
+# The second ask must carry a DIFFERENT configuration, or the server treats it
+# as a repeat of the first and answers ok. A4 gets its difference for free, by
+# asking from the far region with `--cluster au`. Here the far region is blind,
+# so the difference is the subject instead.
+check B8 D03-R3 "shared account LB: the SAME stream name asked for with a different config" \
+      "10058" "$(err_code "$live_cli" lb stream add ODOMETER --subjects "evt.other.v1" \
+                 --storage file --replicas 3 --cluster "$live_side" --defaults)" \
+      A4
+# And aimed at the blind half. A4 gets 10058 because the name is checked before
+# anything else. B4 gets 10005 because placement into the blind half fails.
+# This asks both at once, and which one answers first is not knowable in
+# advance, so it is a note.
+note B8b D03-R3 "the same name aimed at the BLIND cluster -- name clash or placement?" \
+     "$(err_code "$live_cli" lb stream add ODOMETER --subjects "evt.other.v1" \
+        --storage file --replicas 3 --cluster "$blind_side" --defaults)" \
+     A4
+# A5 -- and the far side is handed a live handle to it. Over a healthy gateway
+# that answer is the other region's name. Here the far side is blind, so the
+# answer is not knowable in advance and this is a note.
+note B8a D03-R3 "the same 'stream info' question asked of the BLIND side ($blind_side)" \
+     "$(stream_cluster "$blind_cli" lb ODOMETER)" \
+     A5
+
+# A22 / A24 -- the stream's OWN raft group is a different thing from the meta
+# group. A22 found it healthy over a plain gateway. The stream that DID get
+# placed here is healthy too: a broken domain config breaks PLACEMENT, not an
+# existing stream.
+check B9 D03-R5 "the stream that was placed: replicas asked for / peers built" \
+      "3 / 3" \
+      "$(stream_replicas "$live_cli" lb ODOMETER) / $(stream_peers "$live_cli" lb ODOMETER)" \
+      A22
+check B10 D03-R5 "that stream's leader sits in the LIVE region" \
+      "yes" \
+      "$([ "$(stream_leader_region "$live_cli" lb ODOMETER)" = "$live_side" ] && echo yes || echo no)" \
+      A24
+note  B10a D03-R5 "which server won that stream election this run" \
+      "$(stream_leader "$live_cli" lb ODOMETER)" \
+      A24a
+
+# A6 / A7 -- one account per region is the fix for the SHARED-name problem. It
+# is not a fix for this one. A6 and A7 both land cleanly over a plain gateway.
+# Here the live side still works and the blind side still refuses, because an
+# account is a wall for data and the broken thing is placement.
+check B11 D03-R2 "per-region account on the LIVE side: its own ODOMETER lands in the live region" \
+      "yes" \
+      "$([ "$(fails_or_ok "$live_cli" "$live_side" stream add ODOMETER --subjects "$SUBJECT" \
+             --storage file --replicas 3 --cluster "$live_side" --defaults)" = "ok" ] \
+         && echo yes || echo no)" \
+      A6
+check B12 D03-R2 "per-region account on the BLIND side, placed from a live client" \
+      "10005" \
+      "$(err_code "$live_cli" "$blind_side" stream add ODOMETER --subjects "$SUBJECT" \
+         --storage file --replicas 3 --cluster "$blind_side" --defaults)" \
+      A7
+
+# A9 -- a new KV bucket with no placement flag follows the CLIENT. That still
+# holds on the healthy half.
+nats_as "$live_cli" lb kv add t7-vehicles --storage file --replicas 3 >/dev/null 2>&1
+check B13 D03-R4 "KV t7-vehicles made from the LIVE side, no placement flag, lands in the live region" \
+      "yes" \
+      "$([ "$(stream_cluster "$live_cli" lb KV_t7-vehicles)" = "$live_side" ] && echo yes || echo no)" \
+      A9
+
+# A18 / A19 -- a durable consumer lives with its STREAM, not with the client
+# that made it. A18 is the local case and still holds here.
+nats_as "$live_cli" lb consumer add ODOMETER LIVE_READER --pull --deliver all \
+        --ack explicit --defaults >/dev/null 2>&1 || true
+check B14 D03-R4 "a consumer made on the LIVE side's stream lives in the live region" \
+      "yes" \
+      "$([ "$(consumer_cluster "$live_cli" lb ODOMETER LIVE_READER)" = "$live_side" ] \
+         && echo yes || echo no)" \
+      A18
+# A19 is the cross-region case. Asked through the blind side's client it has no
+# answer that can be stated in advance, so it is a note.
+note B14a D03-R4 "the same consumer question asked through the BLIND side's client" \
+     "$(consumer_cluster "$blind_cli" lb ODOMETER LIVE_READER)" \
+     A19
+
+# A15 / A16 -- the second copy in the other region. This is the open half of
+# D03-R7: a mirror was measured over a LEAF link and over a plain gateway, but
+# never across two gateway-joined clusters with DIFFERENT domains. It is
+# measured here. Placement into the blind region fails the same way every other
+# placement into it fails.
+cat > "$RUN_DIR/M_B_BLIND.json" <<JSON
+{ "name": "M_B_BLIND", "num_replicas": 3,
+  "placement": { "cluster": "$blind_side" },
+  "mirror": { "name": "ODOMETER" } }
+JSON
+check B15 D03-R7 "a mirror of the live stream, placed in the BLIND region" \
+      "10005" "$(err_code "$live_cli" lb stream add --config "$RUN_DIR/M_B_BLIND.json")" \
+      A15
+
+# And the same mirror placed on the healthy half copies, with no external.api,
+# exactly as A16 found over a plain gateway. So the mirror is not broken. The
+# place you want to put it is.
+cat > "$RUN_DIR/M_B_LIVE.json" <<JSON
+{ "name": "M_B_LIVE", "num_replicas": 3,
+  "placement": { "cluster": "$live_side" },
+  "mirror": { "name": "ODOMETER" } }
+JSON
+nats_as "$live_cli" lb stream add --config "$RUN_DIR/M_B_LIVE.json" >/dev/null 2>&1 || true
+sleep 6
+check B16 D03-R7 "the same mirror placed on the LIVE cluster instead: messages copied" \
+      "1" "$(stream_msgs "$live_cli" lb M_B_LIVE)" \
+      A16
+note  B16a D03-R7 "so, a domain over a gateway" \
+      "does not break mirroring -- it breaks every placement into the blind half" \
+      A17a
 
 note B6 D03-R3 "verdict" \
      "does not work -- a domain name cannot split a supercluster"

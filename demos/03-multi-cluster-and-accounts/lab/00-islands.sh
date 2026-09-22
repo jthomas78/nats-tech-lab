@@ -67,7 +67,7 @@ check T1e D03-R2 "and they are two real streams, in" \
 # --- A publish cannot cross. That is the price. -----------------------------
 nats_as 4231 lb pub "$SUBJECT" '{"km":12.5}' >/dev/null 2>&1
 sleep 2
-check T1f D03-R6 "one publish in ZA: messages in ZA / AU" \
+check T1f D03-R6 "one publish in region ZA, shared account LB: messages in region ZA / region AU" \
       "1 / 0" "$(stream_msgs 4231 lb ODOMETER) / $(stream_msgs 4241 lb ODOMETER)"
 
 # --- The region goes dark, and the other side never notices -----------------
@@ -83,4 +83,28 @@ check T1h D03-R1 "ZA dark: AU creates a NEW 3-replica stream" \
 check T1i D03-R5 "ZA dark: AU meta group size, unchanged" "3" "$(meta_size 8241)"
 
 thaw za-1 za-2 za-3
+wait_meta_leader 8231 || true
+sleep 3
+
+# --- THE STREAM'S OWN RAFT GROUP -------------------------------------------
+# The checks above ask WHERE a stream is. These ask WHAT it is made of. A
+# stream is its own RAFT group, separate from the meta group, with its own
+# peers and its own leader.
+#
+# Two numbers, not one. `num_replicas` is what was ASKED for. The peer count
+# is what the cluster actually built. They agree here because each region has
+# three servers, which is exactly what --replicas 3 needs.
+check T1j D03-R5 "ZA ODOMETER: replicas asked for / peers built" \
+      "3 / 3" "$(stream_replicas 4231 lb ODOMETER) / $(stream_peers 4231 lb ODOMETER)"
+check T1k D03-R5 "AU ODOMETER: replicas asked for / peers built" \
+      "3 / 3" "$(stream_replicas 4241 lb ODOMETER) / $(stream_peers 4241 lb ODOMETER)"
+
+# WHICH of the three servers leads is a coin toss, so it cannot be a check.
+# Which REGION leads is not a coin toss at all -- a stream's leader is always
+# one of its own peers, so it can never sit in the other region.
+check T1l D03-R5 "ZA / AU ODOMETER: region holding the stream leader" \
+      "za / au" "$(stream_leader_region 4231 lb ODOMETER) / $(stream_leader_region 4241 lb ODOMETER)"
+note  T1m D03-R5 "which server won the ZA stream election this run" \
+      "$(stream_leader 4231 lb ODOMETER)"
+
 banner "$TOPOLOGY -- done"

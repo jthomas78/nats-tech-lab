@@ -10,7 +10,8 @@ Usage:  render-report.py run/results.tsv run/env.txt > ../REPORT.md
 """
 import sys, collections
 
-COLS = ("id", "req", "topology", "desc", "expected", "actual", "status")
+COLS = ("id", "req", "topology", "desc", "expected", "actual", "status",
+        "from")
 
 # What each requirement asks, and what this run said back. No numbers here.
 REQS = {
@@ -328,7 +329,7 @@ HEAD = """<!doctype html>
   --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
   --accent: #006fff; --nested: #171c29;
   --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
-  --good: #2dd4bf; --warn: #f0b429;
+  --good: #2dd4bf; --warn: #f0b429; --dom: #f97316;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
   --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
@@ -384,13 +385,16 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 .nb.clu { stroke-dasharray: none; stroke-opacity: 0.32; }
 .nb.dead { stroke: var(--bad); stroke-opacity: 0.55; }
 .nb.acct { stroke: var(--warn); stroke-opacity: 0.7; stroke-dasharray: 7 3; }
+.nb.dom  { stroke: var(--dom); stroke-opacity: 0.75; stroke-dasharray: 3 3; }
 .lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
 .lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
 .grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
 .grp.g { fill: var(--good); } .grp.r { fill: var(--bad); } .grp.a { fill: var(--warn); }
+.grp.d { fill: var(--dom); }
 .edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
 .ro   { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
 .ro.g { fill: var(--good); } .ro.r { fill: var(--bad); } .ro.h { fill: var(--text); }
+.ro.d { fill: var(--dom); }
 .gw   { fill: none; stroke: var(--sync); stroke-width: 1.4; }
 .lf   { fill: none; stroke: var(--store); stroke-width: 1.4; }
 .dead { fill: none; stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 4 4; }
@@ -441,6 +445,47 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     o("<pre>cd demos/03-multi-cluster-and-accounts/lab\n./run-all.sh</pre>")
     o("</section>")
 
+    # --- the accounts, held still in every topology -------------------------
+    # The topology is the variable. The account block is NOT -- it is byte for
+    # byte the same in all nine config files of every run. A reader who does
+    # not know that will read "shared account LB" as jargon.
+    o('<section class="sec">')
+    o("<h2>The four accounts</h2>")
+    o("<p>An <strong>account</strong> is a wall around data. Two accounts "
+      "cannot see each other&rsquo;s subjects, streams or consumers. The same "
+      "four exist in every server of every topology on this page, so the "
+      "account is never the variable &mdash; the topology is.</p>")
+    o('<div class="card"><table><thead><tr>'
+      "<th>Account</th><th>Who uses it</th><th>Why it is here</th>"
+      "</tr></thead><tbody>")
+    for acct, who, why in (
+        ("LB", "<strong>shared</strong> &mdash; both regions log in to the "
+               "same one",
+               "the broken shape: one JetStream namespace across both "
+               "regions, so a stream name can only exist once"),
+        ("LB_ZA", "ZA only",
+                  "ZA owns its own streams, and AU cannot see them at all"),
+        ("LB_AU", "AU only",
+                  "AU owns its own streams, and ZA cannot see them at all"),
+        ("$SYS", "the servers",
+                 "the system account, used for cluster and gateway traffic"),
+    ):
+        o(f"<tr><td><code>{esc(acct)}</code></td><td>{who}</td>"
+          f"<td>{why}</td></tr>")
+    o("</tbody></table></div>")
+    o("<p>Users are plain user / password pairs, and the password equals the "
+      "user name. That is lab-only, bound to <code>127.0.0.1</code>, and "
+      "worthless anywhere else. In the diagrams an account is drawn as a "
+      "<strong>yellow dashed box</strong> around everything it contains.</p>")
+    o("<p>A <strong>JetStream domain</strong> is a different wall, and the "
+      "diagrams draw it as an <strong>orange dashed box</strong>. It names "
+      "one JetStream system &mdash; one meta group, one set of stream "
+      "names. A gateway puts both regions inside <em>one</em> orange box, "
+      "whatever you name it; only a <strong>leaf-node</strong> link can "
+      "give each side an orange box of its own. That single fact is what "
+      "topology <code>T2 / B</code> fails to beat.</p>")
+    o("</section>")
+
     # --- summary -----------------------------------------------------------
     o('<section class="sec">')
     o("<h2>Per topology</h2>")
@@ -467,6 +512,12 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     o("<p>Each diagram carries the IDs of the checks measured on it. Look at "
       "the picture, find the claim, then find the same ID in the table under "
       "it.</p>")
+    o("<p>The <strong>From</strong> column is provenance. A row with a value "
+      "there is the <em>same question</em> another topology already answered, "
+      "re-asked on this rig; the value is that original check&rsquo;s ID. Put "
+      "the two answers side by side and the difference is the topology, "
+      "because nothing else moved. A row with no value is a question first "
+      "asked here.</p>")
     o("</section>")
 
     for t in topos:
@@ -482,19 +533,23 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
             o(f"<figcaption><b>{esc(lead)}</b> {esc(body)}</figcaption>")
             o("</figure>")
         o('<div class="card"><table><thead><tr>'
-          "<th></th><th>Check</th><th>Req</th><th>Expected</th>"
+          "<th></th><th>Check</th><th>Req</th><th>From</th><th>Expected</th>"
           "<th>Measured</th></tr></thead><tbody>")
         for r in by_topo[t]:
             mark, cls = {"PASS": ("✓", "pass"),
                          "FAIL": ("✗", "fail"),
                          "NOTE": ("○", "note")}.get(r["status"], ("", ""))
             exp = esc(r["expected"]) if r["status"] != "NOTE" else "&mdash;"
+            src = r.get("from", "-")
+            src_cell = ("&mdash;" if src in ("", "-")
+                        else f"<code>{esc(src)}</code>")
             o(f"<tr><td class='mark {cls}'>{mark}</td>"
               f"<td class='mono'>{esc(r['id'])}</td>"
               f"<td><code>{esc(r['req'])}</code></td>"
+              f"<td class='mono'>{src_cell}</td>"
               f"<td>{exp}</td>"
               f"<td class='mono'>{esc(r['actual'])}</td></tr>")
-            o(f"<tr><td></td><td colspan='4'>{esc(r['desc'])}</td></tr>")
+            o(f"<tr><td></td><td colspan='5'>{esc(r['desc'])}</td></tr>")
         o("</tbody></table></div>")
         o("</section>")
 
@@ -557,13 +612,13 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     for s, t, n in (("00-islands.sh", "T1 &mdash; two regions, no link", 6),
                     ("01-gateway.sh", "T2 / A &mdash; one gateway", 6),
                     ("02-domain-over-gateway.sh",
-                     "B &mdash; a domain per cluster over a gateway", 6),
+                     "T2 / B &mdash; a domain per cluster over a gateway", 6),
                     ("03-arbiter.sh",
                      "T3 / C &mdash; gateway plus a 1-node arbiter", 7),
                     ("04-hub-and-leaf.sh",
                      "T5 / D &mdash; a hub with two leaf clusters", 9),
                     ("05-export-import.sh",
-                     "E &mdash; export / import between two accounts", 6),
+                     "T2 / E &mdash; export / import between two accounts", 6),
                     ("06-arbiter3.sh",
                      "T4 / F &mdash; gateway plus a 3-node arbiter", 9),
                     ("07-gateway-and-hub.sh",
@@ -662,6 +717,38 @@ def main():
       "the number is on the record. Notes cannot pass or fail.")
     o("")
 
+    o("## The four accounts")
+    o("")
+    o("An **account** is a wall around data. Two accounts cannot see each "
+      "other's subjects, streams or consumers. The same four exist in every "
+      "server of every topology below, so the account is never the variable "
+      "— the topology is.")
+    o("")
+    o("| Account | Who uses it | Why it is here |")
+    o("|---|---|---|")
+    o("| `LB` | **shared** — both regions log in to the same one | "
+      "the broken shape: one JetStream namespace across both regions, so a "
+      "stream name can only exist once |")
+    o("| `LB_ZA` | ZA only | ZA owns its own streams, and AU cannot see them "
+      "at all |")
+    o("| `LB_AU` | AU only | AU owns its own streams, and ZA cannot see them "
+      "at all |")
+    o("| `$SYS` | the servers | the system account, used for cluster and "
+      "gateway traffic |")
+    o("")
+    o("Users are plain user / password pairs, and the password equals the "
+      "user name. That is lab-only, bound to `127.0.0.1`, and worthless "
+      "anywhere else. In `REPORT.html` an account is drawn as a **yellow "
+      "dashed box** around everything it contains.")
+    o("")
+    o("A **JetStream domain** is a different wall, drawn in `REPORT.html` "
+      "as an **orange dashed box**. It names one JetStream system — one "
+      "meta group, one set of stream names. A gateway puts both regions "
+      "inside *one* orange box, whatever you name it; only a **leaf-node** "
+      "link can give each side an orange box of its own. That single fact "
+      "is what topology `T2 / B` fails to beat.")
+    o("")
+
     o("## Per topology")
     o("")
     o("| Topology | Checks | Passed | Failed | Notes |")
@@ -716,15 +803,23 @@ def main():
 
     o("## Every result")
     o("")
+    o("The **From** column is provenance. A row with a value there is the "
+      "*same question* another topology already answered, re-asked on this "
+      "rig; the value is that original check's ID. Put the two answers side "
+      "by side and the difference is the topology, because nothing else "
+      "moved. A row with no value is a question first asked here.")
+    o("")
     for t in topos:
         o(f"### {t}")
         o("")
-        o("| | Check | Req | Expected | Measured |")
-        o("|---|---|---|---|---|")
+        o("| | Check | Req | From | Expected | Measured |")
+        o("|---|---|---|---|---|---|")
         for r in by_topo[t]:
             mark = {"PASS": "✅", "FAIL": "❌", "NOTE": "📋"}.get(r["status"], "")
             exp = r["expected"] if r["status"] != "NOTE" else "—"
-            o(f"| {mark} `{r['id']}` | {r['desc']} | {r['req']} | "
+            src = r.get("from", "-")
+            src = "—" if src in ("", "-") else f"`{src}`"
+            o(f"| {mark} `{r['id']}` | {r['desc']} | {r['req']} | {src} | "
               f"{exp} | **{r['actual']}** |")
         o("")
 

@@ -138,6 +138,20 @@ check C10 D03-R9 "a client dialling the arbiter's port directly creates a stream
 
 note C11 D03-R9 "so" \
      "keep clients off the arbiter's client port, or fence it with placement"
+# --- THE SHARED ACCOUNT, ASKED FROM BOTH REGIONS ---------------------------
+# The same scenario as T2's A26, on seven peers instead of six. The arbiter
+# changes the QUORUM arithmetic and nothing else, so the answer must not move:
+# one stream, placed in za, counted as 1 from both regions because a gateway
+# joins one namespace -- it does not copy anything.
+nats_as 4231 lb stream add SHARED_ODO --subjects "evt.shared.v1" --storage file \
+        --replicas 3 --cluster za --defaults >/dev/null
+nats_as 4231 lb pub "evt.shared.v1" '{"km":9.0}' >/dev/null 2>&1
+sleep 2
+check C13 D03-R2 "one publish in region ZA, shared account LB: messages seen from region ZA / region AU" \
+      "1 / 1" "$(stream_msgs 4231 lb SHARED_ODO) / $(stream_msgs 4241 lb SHARED_ODO)"
+note  C13a D03-R2 "why that reads 1 / 1 and not 1 / 0" \
+      "ONE stream in za, read over the WAN from au -- the arbiter did not change it"
+
 note C12 D03-R5 "slack after losing one region" \
      "none -- 4 of 7 is exactly the majority; one more node freezes it"
 

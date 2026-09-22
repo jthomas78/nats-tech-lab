@@ -100,8 +100,10 @@ check D4 D03-R3 "and they are two real streams, in" \
 # neither can refuse it. Two stored copies from one send.
 nats_as 4231 lb pub "$SUBJECT" '{"km":12.5}' >/dev/null 2>&1
 sleep 6
-check D5 D03-R6 "ONE publish in ZA: messages stored in ZA / AU" \
+check D5 D03-R6 "one publish in region ZA, shared account LB: messages STORED in region ZA / region AU" \
       "1 / 1" "$(stream_msgs 4231 lb ODOMETER) / $(stream_msgs 4241 lb ODOMETER)"
+note  D5a D03-R6 "the same 1 / 1 as A26, C13 and F13 -- and the opposite meaning" \
+      "over a gateway 1 / 1 is ONE stored copy read twice; here it is TWO stored copies of one send"
 
 # --- A cross-domain mirror that forgets external.api ------------------------
 # This is the trap, and it has TWO faces. Without `external.api` a mirror looks

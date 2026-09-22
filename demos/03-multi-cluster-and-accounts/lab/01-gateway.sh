@@ -68,6 +68,19 @@ check A4 D03-R2 "shared account LB: AU asks for ODOMETER too" \
 # The trap: the refusal is not the dangerous part. This is.
 check A5 D03-R2 "shared account LB: AU's 'stream info ODOMETER' reports cluster" \
       "za" "$(stream_cluster 4241 lb ODOMETER)"
+
+# The other half of A5, and the exact mirror of A8 further down. A5 says AU is
+# handed a HANDLE to ZA's stream. This says the handle is live: publish once
+# from a ZA client, then count from both sides. Both say 1, because there is
+# only ONE stream. Compare with A8, where the per-region accounts give 1 / 0.
+#
+# So the shared account does not "replicate to AU". It puts AU's data in ZA and
+# lets AU read it over the WAN. That is the cost A19 to A21 then measure.
+nats_as 4231 lb pub "$SUBJECT" '{"km":9.0}' >/dev/null 2>&1
+sleep 1
+check A26 D03-R2 "one publish in region ZA, shared account LB: messages seen from region ZA / region AU" \
+      "1 / 1" "$(stream_msgs 4231 lb ODOMETER) / $(stream_msgs 4241 lb ODOMETER)"
+
 nats_as 4231 lb stream rm ODOMETER -f >/dev/null 2>&1 || true
 
 # --- One account per region -------------------------------------------------
@@ -83,7 +96,7 @@ check A7 D03-R2 "LB_AU ODOMETER lands in" "au" "$(stream_cluster 4241 au ODOMETE
 # measured sharing one to the second.
 nats_as 4231 za pub "$SUBJECT" '{"km":12.5}' >/dev/null 2>&1
 sleep 1
-check A8 D03-R2 "one publish in ZA: messages in LB_ZA / LB_AU" \
+check A8 D03-R2 "one publish in region ZA: messages in LB_ZA / LB_AU" \
       "1 / 0" "$(stream_msgs 4231 za ODOMETER) / $(stream_msgs 4241 au ODOMETER)"
 
 # --- Where does a NEW thing land? ------------------------------------------
@@ -198,5 +211,29 @@ check A21 D03-R1 "ZA dark: AU pulls from the SHARED account's ZA stream" \
 note  A21a D03-R1 "how that cross-region pull failed" \
       "$(err_code 4241 lb consumer next SHARED_ODO AU_REMOTE --count 1 --timeout 8s)"
 thaw za-1 za-2 za-3
+wait_meta_leader 8231 || true
+sleep 3
+
+# --- THE STREAM'S OWN RAFT GROUP, OVER A GATEWAY ---------------------------
+# T1 asks this same question with no link. The answer must NOT change here,
+# and that is the finding: the gateway merges the META group into one group of
+# six, but it does NOT touch a stream's own RAFT group. Each stream stays a
+# group of three inside its own region.
+#
+# This is why a WAN cut is a change freeze and not an outage. The frozen thing
+# is the meta group, which has lost its majority. The stream groups are whole.
+check A22 D03-R5 "LB_ZA ODOMETER: replicas asked for / peers built" \
+      "3 / 3" "$(stream_replicas 4231 za ODOMETER) / $(stream_peers 4231 za ODOMETER)"
+check A23 D03-R5 "LB_AU ODOMETER: replicas asked for / peers built" \
+      "3 / 3" "$(stream_replicas 4241 au ODOMETER) / $(stream_peers 4241 au ODOMETER)"
+check A24 D03-R5 "LB_ZA / LB_AU ODOMETER: region holding the stream leader" \
+      "za / au" "$(stream_leader_region 4231 za ODOMETER) / $(stream_leader_region 4241 au ODOMETER)"
+note  A24a D03-R5 "which server won the ZA stream election this run" \
+      "$(stream_leader 4231 za ODOMETER)"
+
+# The shared account's stream was PLACED in za from a za client, and the
+# gateway does not move it. Six servers are reachable; only three carry it.
+check A25 D03-R5 "shared LB SHARED_ODO, seen from AU: peers / leader region" \
+      "3 / za" "$(stream_peers 4241 lb SHARED_ODO) / $(stream_leader_region 4241 lb SHARED_ODO)"
 
 banner "$TOPOLOGY -- done"

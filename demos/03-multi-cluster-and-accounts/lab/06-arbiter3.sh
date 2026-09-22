@@ -129,6 +129,18 @@ wait_meta_leader 8231 || true
 sleep 8
 check F10 D03-R5 "after recovery: meta group size" "9" "$(meta_size 8231)"
 
+# --- THE SHARED ACCOUNT, ASKED FROM BOTH REGIONS ---------------------------
+# A26 on six peers, C13 on seven, this on nine. The arbiter cluster changes the
+# quorum arithmetic and nothing else, so the answer must not move.
+nats_as 4231 lb stream add SHARED_ODO --subjects "evt.shared.v1" --storage file \
+        --replicas 3 --cluster za --defaults >/dev/null
+nats_as 4231 lb pub "evt.shared.v1" '{"km":9.0}' >/dev/null 2>&1
+sleep 2
+check F13 D03-R2 "one publish in region ZA, shared account LB: messages seen from region ZA / region AU" \
+      "1 / 1" "$(stream_msgs 4231 lb SHARED_ODO) / $(stream_msgs 4241 lb SHARED_ODO)"
+note  F13a D03-R2 "why that reads 1 / 1 and not 1 / 0" \
+      "ONE stream in za, read over the WAN from au -- a 3-node arbiter did not change it"
+
 note F11 D03-R5 "slack after losing one region" \
      "one node -- 6 of 9 against a majority of 5; T3 in the same state has none"
 note F12 D03-R1 "so T4 is no longer inferred" \
