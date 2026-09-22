@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# FIGURE B -- THE POPULAR ADVICE THAT DOES NOT WORK.
+# T2 / B -- THE POPULAR ADVICE THAT DOES NOT WORK.
+#
+# Same six servers and same gateway as T2 / A. The only thing that changes is
+# a `jetstream.domain` per cluster, which is why this is a T2 variant and not
+# a topology of its own.
 #
 # The idea is sound: stop sharing a meta group, give each region its own
 # JetStream domain, and each side then votes alone. The METHOD is wrong.
@@ -32,7 +36,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-TOPOLOGY="B -- gateway + per-cluster domain"
+TOPOLOGY="T2 / B -- gateway + per-cluster domain"
 SUBJECT="evt.odo.v1"
 
 build() {

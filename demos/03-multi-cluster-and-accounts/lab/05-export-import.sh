@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# E -- SHARING A SUBJECT ON PURPOSE. Export / import between two accounts.
+# T2 / E -- SHARING A SUBJECT ON PURPOSE. Export / import between accounts.
+#
+# Same six servers and same gateway as T2 / A. The only thing that changes is
+# the accounts block, which is why this is a T2 variant and not a topology of
+# its own.
 #
 # Every other script in this folder measures accidents: a name collision, a
 # double capture nobody asked for, a mirror that copies the wrong stream in
@@ -27,7 +31,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-TOPOLOGY="E -- export / import between accounts"
+TOPOLOGY="T2 / E -- export / import between accounts"
 SUBJECT="evt.odo.v1"
 ALL_HTTP=(8231 8232 8233 8241 8242 8243)
 

@@ -77,6 +77,11 @@ The two evidence pages use **different names for the same shapes**. The map:
 T4 also has a figure **F**, but only in [`REPORT.html`](REPORT.html). It was
 built and measured on 2026-09-17, after both evidence pages were written.
 
+**B and E are not topologies.** Both are T2 — the same six servers and the same
+gateway — with one thing changed: a domain per cluster for B, an export/import
+pair for E. The lab labels them `T2 / B` and `T2 / E` so the rig and the
+variable can be read apart. Every label starts with its topology number.
+
 ## Requirements
 
 Ranked by *uncertain and expensive to change*. The cheap ones are not here.

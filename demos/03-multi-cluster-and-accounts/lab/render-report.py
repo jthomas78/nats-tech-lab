@@ -198,10 +198,10 @@ OPEN = [
 FIGKEY = {
     "T1 -- no link":                       "t1",
     "T2 / A -- gateway":                   "a",
-    "B -- gateway + per-cluster domain":   "b",
+    "T2 / B -- gateway + per-cluster domain": "b",
     "T3 / C -- gateway + arbiter":         "c",
     "T5 / D -- hub and leaf":              "d",
-    "E -- export / import between accounts": "e",
+    "T2 / E -- export / import between accounts": "e",
     "T4 / F -- gateway + 3-node arbiter":   "f",
     "T6 / G -- gateway AND hub leaf":       "g",
 }

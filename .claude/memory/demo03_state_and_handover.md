@@ -16,10 +16,10 @@ Stages 01, 02 and 03. Seven runnable shapes, one script each, in `lab/`:
 |---|---|---|
 | `00-islands.sh` | T1 — no link | 6 |
 | `01-gateway.sh` | T2 / A — gateway | 6 |
-| `02-domain-over-gateway.sh` | B — gateway + per-cluster domain (**does not work**) | 6 |
+| `02-domain-over-gateway.sh` | T2 / B — gateway + per-cluster domain (**does not work**) | 6 |
 | `03-arbiter.sh` | T3 / C — gateway + 1-node arbiter | 7 |
 | `04-hub-and-leaf.sh` | T5 / D — hub + leaf clusters | 9 |
-| `05-export-import.sh` | E — export / import between accounts | 6 |
+| `05-export-import.sh` | T2 / E — export / import between accounts | 6 |
 | `06-arbiter3.sh` | T4 / F — gateway + 3-node arbiter | 9 |
 
 Last full run: **73 passed, 0 failed, 19 notes**. Takes about 12 minutes.

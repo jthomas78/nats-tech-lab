@@ -61,9 +61,9 @@ Every other topology is a variation of these six files:
 |---|---|---|---|---|
 | **T1** | — | one cluster per region, **no link** | 6 | 3 + 3, quorum 2 each |
 | **T2** | **A** | one cluster per region, **gateway** | 6 | 6, majority 4 |
-| — | **B** | T2 + a **domain per cluster** | 6 | 6, half-blind — **does not work** |
+| **T2** | **B** | T2 + a **domain per cluster** | 6 | 6, half-blind — **does not work** |
 | **T3** | **C** | T2 + a **1-instance** arbiter site | 7 | 7, majority 4 |
-| **T4** | — | T2 + a **3-instance** arbiter cluster | 9 | 9, majority 5 |
+| **T4** | **F** | T2 + a **3-instance** arbiter cluster | 9 | 9, majority 5 |
 | **T5** | **D** | 3-instance **hub** + a **leaf** cluster per region | 9 | 3 + 3 + 3, quorum 2 each |
 | **T6** | **G** | a **gateway** AND a hub **leaf** link, both at once | 9 | 3 (hub) + 6 (both regions) |
 
@@ -90,10 +90,10 @@ cd demos/03-multi-cluster-and-accounts/lab
 |---|---|---|
 | `00-islands.sh` | T1 — no link | 6 |
 | `01-gateway.sh` | T2 / A — one gateway | 6 |
-| `02-domain-over-gateway.sh` | B — a domain per cluster over a gateway | 6 |
+| `02-domain-over-gateway.sh` | T2 / B — a domain per cluster over a gateway | 6 |
 | `03-arbiter.sh` | T3 / C — gateway + 1-node arbiter | 7 |
 | `04-hub-and-leaf.sh` | T5 / D — hub + two leaf clusters | 9 |
-| `05-export-import.sh` | E — export / import between two accounts | 6 |
+| `05-export-import.sh` | T2 / E — export / import between two accounts | 6 |
 | `06-arbiter3.sh` | T4 / F — gateway + 3-node arbiter cluster | 9 |
 | `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |
 | `_common.sh` | the shared harness — config builders, freeze/thaw, the checks |
