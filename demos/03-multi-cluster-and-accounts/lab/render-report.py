@@ -698,6 +698,19 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     o("</html>")
 
 
+def topo_key(t):
+    """Sort 'T2 / B -- gateway + per-cluster domain' as (2, 'B').
+
+    A label always starts with its topology number; the variant letter, when
+    there is one, follows a slash. Anything unparsable sorts last rather than
+    raising, because the label is written by hand in each script.
+    """
+    m = re.match(r"T(\d+)(?:\s*/\s*([A-Z]))?", t)
+    if not m:
+        return (999, "", t)
+    return (int(m.group(1)), m.group(2) or "", t)
+
+
 def main():
     rows = []
     with open(sys.argv[1]) as fh:
@@ -723,12 +736,19 @@ def main():
     nfail = sum(1 for r in checks if r["status"] == "FAIL")
     nnote = sum(1 for r in rows if r["status"] == "NOTE")
 
-    # Topologies in the order the run produced them.
+    # Topologies in TOPOLOGY order -- T1, T2, T3 and so on, with the variants
+    # of one topology together and in letter order: T2 / A, T2 / B, T2 / E.
+    #
+    # This is NOT the order the run produced them in. The scripts are numbered
+    # by the order they were written, so 04-hub-and-leaf.sh (T5) runs before
+    # 05-export-import.sh (T2 / E). A reader comparing two variants of T2
+    # should not have to scroll past T5 to do it.
     topos, seen = [], set()
     for r in rows:
         if r["topology"] not in seen:
             seen.add(r["topology"])
             topos.append(r["topology"])
+    topos.sort(key=topo_key)
 
     by_topo = collections.defaultdict(list)
     for r in rows:

@@ -46,10 +46,10 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 | T1 -- no link | 12 | 12 | 0 | 1 |
 | T2 / A -- gateway | 26 | 26 | 0 | 5 |
 | T2 / B -- gateway + per-cluster domain | 15 | 15 | 0 | 8 |
-| T3 / C -- gateway + arbiter | 11 | 11 | 0 | 5 |
-| T5 / D -- hub and leaf | 14 | 14 | 0 | 4 |
 | T2 / E -- export / import between accounts | 8 | 8 | 0 | 2 |
+| T3 / C -- gateway + arbiter | 11 | 11 | 0 | 5 |
 | T4 / F -- gateway + 3-node arbiter | 11 | 11 | 0 | 6 |
+| T5 / D -- hub and leaf | 14 | 14 | 0 | 4 |
 | T6 / G -- gateway AND hub leaf | 23 | 23 | 0 | 6 |
 
 ## The answers, requirement by requirement
@@ -277,6 +277,21 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | 📋 `B16a` | so, a domain over a gateway | D03-R7 | `A17a` | — | **does not break mirroring -- it breaks every placement into the blind half** | — |
 | 📋 `B6` | verdict | D03-R3 | — | — | **does not work -- a domain name cannot split a supercluster** | — |
 
+### T2 / E -- export / import between accounts
+
+| | Check | Req | From | Expected | Measured | Extra info |
+|---|---|---|---|---|---|---|
+| ✅ `E1` | one publish in LB_ZA: the owning account stored it | D03-R8 | — | 1 | **1** | — |
+| ✅ `E2` | the importing account LB_AU stored it too, across the gateway | D03-R8 | — | 1 | **1** | — |
+| ✅ `E3` | and it arrived PREFIXED -- LB_AU's raw-subject stream | D03-R8 | — | 0 | **0** | — |
+| 📋 `E3a` | so the deliberate copy and the accidental one differ | D03-R8 | — | — | **the importing side renames the subject, so the two sources can never be confused** | — |
+| ✅ `E4` | LB_AU publishes the same subject: ZA's stream is unchanged | D03-R8 | — | 1 | **1** | — |
+| ✅ `E5` | and LB_AU's own raw stream took that one | D03-R8 | — | 1 | **1** | — |
+| ✅ `E6` | LB_AU asks for stream info on ZA's ODOMETER | D03-R2 | — | fails | **fails** | — |
+| ✅ `E7` | LB_AU creates its OWN stream named ODOMETER -- no 10058 | D03-R2 | — | ok | **ok** | — |
+| ✅ `E8` | and they are two real streams, in | D03-R2 | — | za / au | **za / au** | — |
+| 📋 `E9` | the verdict | D03-R8 | — | — | **works, and it is the only sharing in this demo that is explicit, one-way and renamed** | — |
+
 ### T3 / C -- gateway + arbiter
 
 | | Check | Req | From | Expected | Measured | Extra info |
@@ -297,6 +312,28 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `C13` | one publish in region ZA, shared account LB: messages seen from region ZA / region AU | D03-R2 | — | 1 / 1 | **1 / 1** | — |
 | 📋 `C13a` | why that reads 1 / 1 and not 1 / 0 | D03-R2 | — | — | **ONE stream in za, read over the WAN from au -- the arbiter did not change it** | — |
 | 📋 `C12` | slack after losing one region | D03-R5 | — | — | **none -- 4 of 7 is exactly the majority; one more node freezes it** | — |
+
+### T4 / F -- gateway + 3-node arbiter
+
+| | Check | Req | From | Expected | Measured | Extra info |
+|---|---|---|---|---|---|---|
+| ✅ `F1` | meta group size (majority is 5) | D03-R5 | — | 9 | **9** | — |
+| ✅ `F2` | distinct JetStream meta groups across all three sites | D03-R5 | — | 1 | **1** | — |
+| ✅ `F3` | AU dark (6 of 9 left): a leader is elected among the survivors | D03-R1 | — | yes | **yes** | — |
+| ✅ `F4` | AU dark: ZA creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
+| ✅ `F5` | AU dark AND one arbiter node dark (5 of 9 -- exactly the majority) | D03-R5 | — | yes | **yes** | — |
+| 📋 `F5a` | which server held the lead on the last surviving majority | D03-R5 | — | — | **t-arb-2** | — |
+| ✅ `F6` | 5 of 9: ZA still creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
+| 📋 `F6a` | seconds after the new leader was named before it accepted a change | D03-R5 | — | — | **20s** | — |
+| 📋 `F7a` | seconds /jsz still named a meta leader after the majority went | D03-R5 | — | — | **20s** | — |
+| ✅ `F7` | 4 of 9 left: meta leader seen from ZA | D03-R5 | — | NONE | **NONE** | — |
+| ✅ `F8` | 4 of 9 left: ZA tries to create a NEW stream | D03-R1 | — | fails | **fails** | — |
+| ✅ `F9` | 4 of 9 left: publishing into an EXISTING stream still works | D03-R1 | — | ok | **ok** | — |
+| ✅ `F10` | after recovery: meta group size | D03-R5 | — | 9 | **9** | — |
+| ✅ `F13` | one publish in region ZA, shared account LB: messages seen from region ZA / region AU | D03-R2 | — | 1 / 1 | **1 / 1** | — |
+| 📋 `F13a` | why that reads 1 / 1 and not 1 / 0 | D03-R2 | — | — | **ONE stream in za, read over the WAN from au -- a 3-node arbiter did not change it** | — |
+| 📋 `F11` | slack after losing one region | D03-R5 | — | — | **one node -- 6 of 9 against a majority of 5; T3 in the same state has none** | — |
+| 📋 `F12` | so T4 is no longer inferred | D03-R1 | — | — | **measured here: it survives a region plus one more node, and no further** | — |
 
 ### T5 / D -- hub and leaf
 
@@ -320,43 +357,6 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `D13` | whole hub gone: AU creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
 | ✅ `D14` | whole hub gone: AU still stores its own publishes | D03-R1 | — | ok | **ok** | — |
 | 📋 `D15` | the cost | D03-R6 | — | — | **nothing replicates by itself -- every cross-region copy is hand-written** | — |
-
-### T2 / E -- export / import between accounts
-
-| | Check | Req | From | Expected | Measured | Extra info |
-|---|---|---|---|---|---|---|
-| ✅ `E1` | one publish in LB_ZA: the owning account stored it | D03-R8 | — | 1 | **1** | — |
-| ✅ `E2` | the importing account LB_AU stored it too, across the gateway | D03-R8 | — | 1 | **1** | — |
-| ✅ `E3` | and it arrived PREFIXED -- LB_AU's raw-subject stream | D03-R8 | — | 0 | **0** | — |
-| 📋 `E3a` | so the deliberate copy and the accidental one differ | D03-R8 | — | — | **the importing side renames the subject, so the two sources can never be confused** | — |
-| ✅ `E4` | LB_AU publishes the same subject: ZA's stream is unchanged | D03-R8 | — | 1 | **1** | — |
-| ✅ `E5` | and LB_AU's own raw stream took that one | D03-R8 | — | 1 | **1** | — |
-| ✅ `E6` | LB_AU asks for stream info on ZA's ODOMETER | D03-R2 | — | fails | **fails** | — |
-| ✅ `E7` | LB_AU creates its OWN stream named ODOMETER -- no 10058 | D03-R2 | — | ok | **ok** | — |
-| ✅ `E8` | and they are two real streams, in | D03-R2 | — | za / au | **za / au** | — |
-| 📋 `E9` | the verdict | D03-R8 | — | — | **works, and it is the only sharing in this demo that is explicit, one-way and renamed** | — |
-
-### T4 / F -- gateway + 3-node arbiter
-
-| | Check | Req | From | Expected | Measured | Extra info |
-|---|---|---|---|---|---|---|
-| ✅ `F1` | meta group size (majority is 5) | D03-R5 | — | 9 | **9** | — |
-| ✅ `F2` | distinct JetStream meta groups across all three sites | D03-R5 | — | 1 | **1** | — |
-| ✅ `F3` | AU dark (6 of 9 left): a leader is elected among the survivors | D03-R1 | — | yes | **yes** | — |
-| ✅ `F4` | AU dark: ZA creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
-| ✅ `F5` | AU dark AND one arbiter node dark (5 of 9 -- exactly the majority) | D03-R5 | — | yes | **yes** | — |
-| 📋 `F5a` | which server held the lead on the last surviving majority | D03-R5 | — | — | **t-arb-2** | — |
-| ✅ `F6` | 5 of 9: ZA still creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
-| 📋 `F6a` | seconds after the new leader was named before it accepted a change | D03-R5 | — | — | **20s** | — |
-| 📋 `F7a` | seconds /jsz still named a meta leader after the majority went | D03-R5 | — | — | **20s** | — |
-| ✅ `F7` | 4 of 9 left: meta leader seen from ZA | D03-R5 | — | NONE | **NONE** | — |
-| ✅ `F8` | 4 of 9 left: ZA tries to create a NEW stream | D03-R1 | — | fails | **fails** | — |
-| ✅ `F9` | 4 of 9 left: publishing into an EXISTING stream still works | D03-R1 | — | ok | **ok** | — |
-| ✅ `F10` | after recovery: meta group size | D03-R5 | — | 9 | **9** | — |
-| ✅ `F13` | one publish in region ZA, shared account LB: messages seen from region ZA / region AU | D03-R2 | — | 1 / 1 | **1 / 1** | — |
-| 📋 `F13a` | why that reads 1 / 1 and not 1 / 0 | D03-R2 | — | — | **ONE stream in za, read over the WAN from au -- a 3-node arbiter did not change it** | — |
-| 📋 `F11` | slack after losing one region | D03-R5 | — | — | **one node -- 6 of 9 against a majority of 5; T3 in the same state has none** | — |
-| 📋 `F12` | so T4 is no longer inferred | D03-R1 | — | — | **measured here: it survives a region plus one more node, and no further** | — |
 
 ### T6 / G -- gateway AND hub leaf
 
