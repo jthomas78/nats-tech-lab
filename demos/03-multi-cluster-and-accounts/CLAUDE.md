@@ -96,9 +96,10 @@ cd demos/03-multi-cluster-and-accounts/lab
 | `05-export-import.sh` | T2 / E — export / import between two accounts | 6 |
 | `06-arbiter3.sh` | T4 / F — gateway + 3-node arbiter cluster | 9 |
 | `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |
+| `08-hub-leaf-per-region.sh` | T5 / H — hub + two leaf clusters, an account per region | 9 |
 | `_common.sh` | the shared harness — config builders, freeze/thaw, the checks |
 | `render-report.py` | turns `run/results.tsv` into `REPORT.md`, and with `--html` into `REPORT.html` |
-| `figures.html` | the eight topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
+| `figures.html` | the nine topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
 
 Rules for anything added here:
 
@@ -392,6 +393,22 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   nothing can be stored twice. Real double capture happens in **hub-and-leaf**
   (Figure D / T5) instead — two separate JetStream systems, neither able to see
   the other's subjects, so neither can refuse the overlap.
+- **A leaf remote binds exactly ONE account** (measured 2026-09-22,
+  `lab/04-hub-and-leaf.sh`, T5 / D, `D16`-`D22`). `LB_ZA` and `LB_AU` are
+  switched on with JetStream on all nine servers, but the remotes bind only
+  `LB`. So those two accounts cross no link at all: they are **six islands**,
+  one per account per site. Each region creates its own `ODOMETER`, one publish
+  in ZA is `1 / 0`, the hub cannot read ZA's stream by name, and the hub's own
+  `LB_ZA` may create a **third** `ODOMETER` of the same name.
+- **An account per region buys a subject feed, and nothing else** (measured
+  2026-09-22, `lab/08-hub-leaf-per-region.sh`, T5 / H). A second leaf remote
+  per region server joins `LB_ZA` / `LB_AU` to the hub. Placement, leaders and
+  peers do not move. The hub still cannot read a region stream **by name**
+  (`H7`), a hub stream on the same subject does capture the live publish
+  (`H8`), the two regional accounts still cannot see each other on the hub
+  (`H9`), the mirror still needs `external.api` (`H10` / `H11`), and killing
+  the whole hub still leaves the region working (`H12`-`H14`). **A stream name
+  resolves in a DOMAIN; an account only moves subjects.**
 
 ## Still open — do not claim these are settled
 

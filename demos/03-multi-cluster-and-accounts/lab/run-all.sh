@@ -7,7 +7,7 @@
 # original measurements in September 2026 were driven by hand through a
 # terminal and never captured. This is that rig, written down.
 #
-#   ./run-all.sh          run all eight, then write both reports
+#   ./run-all.sh          run all nine, then write both reports
 #   ./run-all.sh report   re-render both reports from the last run's results
 #
 # Takes about 15 minutes. It starts and stops up to 9 nats-server processes at
@@ -21,10 +21,10 @@ RESULTS="$RUN_DIR/results.tsv"
 
 LABS=(00-islands.sh 01-gateway.sh 02-domain-over-gateway.sh 03-arbiter.sh
       04-hub-and-leaf.sh 05-export-import.sh 06-arbiter3.sh
-      07-gateway-and-hub.sh)
+      07-gateway-and-hub.sh 08-hub-leaf-per-region.sh)
 
 # Two editions of one report, from the same numbers. The HTML one adds the
-# eight hand-drawn topology figures from figures.html; the Markdown one does
+# nine hand-drawn topology figures from figures.html; the Markdown one does
 # not. Both are generated -- never hand-edit either.
 render() {
   python3 ./render-report.py "$RESULTS" "$RUN_DIR/env.txt" > ../REPORT.md

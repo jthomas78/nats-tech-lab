@@ -19,7 +19,7 @@
 # cross-domain mirror that forgets `external.api` sits at zero messages
 # forever, WITH NO ERROR. This script measures that silence.
 #
-# Requirements exercised: D03-R1, D03-R3, D03-R6, D03-R7.
+# Requirements exercised: D03-R1, D03-R2, D03-R3, D03-R5, D03-R6, D03-R7.
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -164,6 +164,52 @@ check D9 D03-R7 "mirror of SHADOW WITHOUT external.api -- messages copied" \
       "1" "$(stream_msgs 4231 lb M_SHADOW_BROKEN)"
 note  D9a D03-R7 "what that means" \
       "a name-only mirror silently copied the LOCAL stream, not the remote one"
+
+# --- THE TWO ACCOUNTS NOTHING BINDS ----------------------------------------
+# LB_ZA and LB_AU are switched on, with JetStream, on all nine servers. They
+# are in every topology's accounts block, held still on purpose.
+#
+# But `leaf_remotes` above binds ONE account: LB. So in this shape the two
+# per-region accounts cross no link at all. They are not two islands -- they
+# are SIX, one per account per site, and nobody had ever measured them here.
+#
+# A6, A7, A8, A22 and A24 asked these same questions over a gateway. The
+# answers must change in exactly one place, and D18 is that place.
+nats_as 4231 za stream add ODOMETER --subjects "$SUBJECT" --storage file \
+        --replicas 3 --defaults >/dev/null 2>&1 || true
+nats_as 4241 au stream add ODOMETER --subjects "$SUBJECT" --storage file \
+        --replicas 3 --defaults >/dev/null 2>&1 || true
+sleep 3
+check D16 D03-R2 "per-region account LB_ZA: its ODOMETER lands in" \
+      "za" "$(stream_cluster 4231 za ODOMETER)" A6
+check D17 D03-R2 "per-region account LB_AU: its ODOMETER lands in" \
+      "au" "$(stream_cluster 4241 au ODOMETER)" A7
+
+# Over a gateway A8 read 1 / 0 because the account wall stopped it. Here the
+# wall is not even needed -- there is no link to stop. Same number, and the
+# contrast with D5's 1 / 1 in the SHARED account is the whole point of the row.
+nats_as 4231 za pub "$SUBJECT" '{"km":12.5}' >/dev/null 2>&1
+sleep 3
+check D18 D03-R6 "one publish in LB_ZA: messages in LB_ZA / LB_AU" \
+      "1 / 0" "$(stream_msgs 4231 za ODOMETER) / $(stream_msgs 4241 au ODOMETER)" A8
+note  D18a D03-R6 "why this is 1 / 0 where D5 was 1 / 1" \
+      "D5 shares ONE account across the leaf link -- these two share nothing"
+
+check D19 D03-R5 "LB_ZA ODOMETER: replicas asked for / peers built" \
+      "3 / 3" "$(stream_replicas 4231 za ODOMETER) / $(stream_peers 4231 za ODOMETER)" A22
+check D20 D03-R5 "LB_ZA / LB_AU ODOMETER: region holding the stream leader" \
+      "za / au" "$(stream_leader_region 4231 za ODOMETER) / $(stream_leader_region 4241 au ODOMETER)" \
+      A24
+
+# And the hub has its own LB_ZA, in a third domain, bound to nothing at all.
+check D21 D03-R3 "the HUB's own LB_ZA asks for stream info on ZA's ODOMETER" \
+      "fails" "$(fails_or_ok 4551 za stream info ODOMETER --json)"
+check D22 D03-R3 "so the HUB's LB_ZA may create a THIRD ODOMETER, in" \
+      "hub" "$(nats_as 4551 za stream add ODOMETER --subjects "$SUBJECT" \
+               --storage file --replicas 3 --defaults >/dev/null 2>&1; \
+               stream_cluster 4551 za ODOMETER)"
+note  D22a D03-R3 "so the leaf link binds ONE account" \
+      "LB reaches the hub; LB_ZA and LB_AU are six separate islands, one per site"
 
 # --- Kill the ENTIRE hub ----------------------------------------------------
 # Not one node. All three. Both regions must keep full JetStream.

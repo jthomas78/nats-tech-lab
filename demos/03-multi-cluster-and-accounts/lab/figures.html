@@ -251,89 +251,99 @@
 </svg>
 <!--/FIG-->
 <!--FIG d-->
-<svg viewBox="0 0 960 642" role="img" aria-label="T5 / D &mdash; a hub with two leaf clusters. Nine bare nats-server processes on 127.0.0.1 form separate three-peer hub, za, and au clusters with domains hub, za, and au. ZA and AU connect to all three hub leaf ports. Each cluster has its own meta group and quorum of two. Shared account LB can hold ODOMETER in both regions, so one ZA publish is captured in both. A cross-domain mirror requires external API prefix $JS.au.API, and killing the hub leaves both regions independently writable while no data replicates unless configured. Each cluster is its own named JetStream domain, drawn as an orange dashed box per cluster.">
+<svg viewBox="0 0 960 878" role="img" aria-label="T5 / D &mdash; a hub with two leaf clusters. Nine bare nats-server processes on 127.0.0.1 form separate three-peer hub, za and au clusters with domains hub, za and au. Each region connects to all three hub leaf ports with ONE leaf remote, binding the shared account LB only. Each cluster is its own JetStream domain with its own meta group and a quorum of two, drawn as an orange dashed box per cluster. Inside each domain two yellow dashed account boxes are drawn: the shared account LB, which the leaf link binds, and the site's own per-region account LB_ZA or LB_AU, which nothing binds at all. Shared account LB can hold ODOMETER in both regions, so one ZA publish is captured in both. The per-region accounts are isolated islands, one per site, so a publish in LB_ZA is stored once and never reaches LB_AU. A cross-domain mirror requires the external API prefix $JS.au.API, and killing the hub leaves both regions independently writable.">
   <defs>
     <marker id="fd-lf" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
     <marker id="fd-mir" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
   </defs>
-  <rect class="nb acct" x="8" y="18" width="944" height="388" rx="4"/>
-  <text class="grp a" x="22" y="36">ACCOUNT LB &mdash; SHARED TRANSPORT, THREE JETSTREAM DOMAINS</text>
-
-  <text class="grp g" x="300" y="56">META GROUP hub &mdash; 3 PEERS &mdash; QUORUM 2</text>
-  <rect class="nb" x="282" y="62" width="396" height="134" rx="4"/>
-  <rect class="nb dom" x="289" y="69" width="382" height="122" rx="4"/>
-  <text class="grp d" x="301" y="89">JETSTREAM DOMAIN: hub</text>
-  <rect class="nb clu" x="298" y="98" width="364" height="88" rx="4"/>
-  <text class="grp" x="312" y="116">CLUSTER hub &mdash; THIRD SITE</text>
-  <rect class="n" x="312" y="126" width="104" height="34" rx="3"/>
-  <text class="lbl" x="364" y="143" text-anchor="middle">t-hub-1</text>
-  <text class="lbl2" x="364" y="156" text-anchor="middle">127.0.0.1:4551</text>
-  <rect class="n" x="428" y="126" width="104" height="34" rx="3"/>
-  <text class="lbl" x="480" y="143" text-anchor="middle">t-hub-2</text>
-  <text class="lbl2" x="480" y="156" text-anchor="middle">127.0.0.1:4552</text>
-  <rect class="n" x="544" y="126" width="104" height="34" rx="3"/>
-  <text class="lbl" x="596" y="143" text-anchor="middle">t-hub-3</text>
-  <text class="lbl2" x="596" y="156" text-anchor="middle">127.0.0.1:4553</text>
-  <text class="ro" x="312" y="178">leaf listeners: 7560 / 7561 / 7562</text>
-
-  <!-- Straight verticals, labels beside them. The gutter under the hub is only
-       30px tall, so a routed elbow leaves nowhere to put a label off the line. -->
-  <path class="lf" d="M340 204 V228" marker-start="url(#fd-lf)" marker-end="url(#fd-lf)"/>
-  <text class="edge" x="348" y="218">leafnode</text>
-  <path class="lf" d="M620 204 V228" marker-start="url(#fd-lf)" marker-end="url(#fd-lf)"/>
-  <text class="edge" x="628" y="218">leafnode</text>
-
-  <text class="grp g" x="28" y="226">META GROUP za &mdash; 3 PEERS &mdash; QUORUM 2</text>
-  <rect class="nb" x="14" y="232" width="432" height="166" rx="4"/>
-  <rect class="nb dom" x="21" y="239" width="418" height="152" rx="4"/>
-  <text class="grp d" x="33" y="259">JETSTREAM DOMAIN: za</text>
-  <rect class="nb clu" x="30" y="268" width="400" height="116" rx="4"/>
-  <text class="grp" x="44" y="286">CLUSTER za &mdash; REGION za</text>
-  <rect class="n" x="44" y="296" width="112" height="34" rx="3"/>
-  <text class="lbl" x="100" y="313" text-anchor="middle">t-za-1</text>
-  <text class="lbl2" x="100" y="326" text-anchor="middle">127.0.0.1:4231</text>
-  <rect class="n" x="168" y="296" width="112" height="34" rx="3"/>
-  <text class="lbl" x="224" y="313" text-anchor="middle">t-za-2</text>
-  <text class="lbl2" x="224" y="326" text-anchor="middle">127.0.0.1:4232</text>
-  <rect class="n" x="292" y="296" width="112" height="34" rx="3"/>
-  <text class="lbl" x="348" y="313" text-anchor="middle">t-za-3</text>
-  <text class="lbl2" x="348" y="326" text-anchor="middle">127.0.0.1:4233</text>
-  <rect class="n" x="44" y="344" width="128" height="28" rx="3"/>
-  <text class="lbl" x="108" y="361" text-anchor="middle">ODOMETER</text>
-  <rect class="n" x="260" y="344" width="144" height="28" rx="3"/>
-  <text class="lbl" x="332" y="361" text-anchor="middle">ODOMETER_MIRROR</text>
-
-  <text class="grp g" x="928" y="226" text-anchor="end">META GROUP au &mdash; 3 PEERS &mdash; QUORUM 2</text>
-  <rect class="nb" x="514" y="232" width="432" height="166" rx="4"/>
-  <rect class="nb dom" x="521" y="239" width="418" height="152" rx="4"/>
-  <text class="grp d" x="533" y="259">JETSTREAM DOMAIN: au</text>
-  <rect class="nb clu" x="530" y="268" width="400" height="116" rx="4"/>
-  <text class="grp" x="544" y="286">CLUSTER au &mdash; REGION au</text>
-  <rect class="n" x="544" y="296" width="112" height="34" rx="3"/>
-  <text class="lbl" x="600" y="313" text-anchor="middle">t-au-1</text>
-  <text class="lbl2" x="600" y="326" text-anchor="middle">127.0.0.1:4241</text>
-  <rect class="n" x="668" y="296" width="112" height="34" rx="3"/>
-  <text class="lbl" x="724" y="313" text-anchor="middle">t-au-2</text>
-  <text class="lbl2" x="724" y="326" text-anchor="middle">127.0.0.1:4242</text>
-  <rect class="n" x="792" y="296" width="112" height="34" rx="3"/>
-  <text class="lbl" x="848" y="313" text-anchor="middle">t-au-3</text>
-  <text class="lbl2" x="848" y="326" text-anchor="middle">127.0.0.1:4243</text>
-  <rect class="n" x="544" y="344" width="128" height="28" rx="3"/>
-  <text class="lbl" x="608" y="361" text-anchor="middle">ODOMETER</text>
-
-  <line class="mir" x1="544" y1="358" x2="414" y2="358" marker-end="url(#fd-mir)"/>
-  <text class="edge" x="479" y="352" text-anchor="middle">mirror + external.api</text>
-
-  <text class="ro h" x="30" y="426">D1  3 distinct meta groups    D2  sizes 3 / 3 / 3 &mdash; quorum 2 each</text>
-  <text class="ro" x="30" y="446">D3/D4  shared account LB holds ODOMETER in BOTH regions &mdash; no 10058 &mdash; two real streams</text>
-  <rect class="nb dead" x="22" y="458" width="916" height="30" rx="4"/>
-  <text class="ro r" x="34" y="478">D5/D5a  one publish in region ZA stored in BOTH: 1 / 1 &mdash; THE DOUBLE CAPTURE, not A26's one copy</text>
-  <text class="ro" x="30" y="506">D6  two same-named SHADOW streams alive at once: ZA has 1, AU has 2</text>
-  <text class="ro r" x="30" y="526">D7/D7a  a mirror WITHOUT external.api copied 0 messages &mdash; and said nothing. No error, no warning, stream reports healthy.</text>
-  <text class="ro g" x="30" y="546">D8  the same mirror WITH external.api $JS.au.API copied 2</text>
-  <text class="ro r" x="30" y="566">D9/D9a  a name-only mirror silently copied the LOCAL stream, not the remote one</text>
-  <text class="ro g" x="30" y="586">D10-D14  whole hub killed: both regions keep their leaders, create new R3 streams, and store their own publishes</text>
-  <text class="ro r" x="30" y="606">D15  nothing replicates by itself &mdash; every cross-region copy is hand-written</text>
+  <text class="grp g" x="300" y="36">META GROUP hub &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="282" y="42" width="396" height="210" rx="4"/>
+  <rect class="nb dom" x="289" y="49" width="382" height="196" rx="4"/>
+  <text class="grp d" x="301" y="69">JETSTREAM DOMAIN: hub</text>
+  <rect class="nb clu" x="298" y="78" width="364" height="96" rx="4"/>
+  <text class="grp" x="312" y="96">CLUSTER hub &mdash; THIRD SITE</text>
+  <rect class="n" x="312" y="106" width="104" height="34" rx="3"/>
+  <text class="lbl" x="364" y="123" text-anchor="middle">t-hub-1</text>
+  <text class="lbl2" x="364" y="136" text-anchor="middle">127.0.0.1:4551</text>
+  <rect class="n" x="428" y="106" width="104" height="34" rx="3"/>
+  <text class="lbl" x="480" y="123" text-anchor="middle">t-hub-2</text>
+  <text class="lbl2" x="480" y="136" text-anchor="middle">127.0.0.1:4552</text>
+  <rect class="n" x="544" y="106" width="104" height="34" rx="3"/>
+  <text class="lbl" x="596" y="123" text-anchor="middle">t-hub-3</text>
+  <text class="lbl2" x="596" y="136" text-anchor="middle">127.0.0.1:4553</text>
+  <text class="ro" x="312" y="160">leaf listeners: 7560 / 7561 / 7562</text>
+  <rect class="nb acct" x="298" y="178" width="364" height="26" rx="4"/>
+  <text class="grp a" x="310" y="195">ACCOUNT LB &mdash; THE ONE ACCOUNT THE LEAF REMOTES BIND</text>
+  <rect class="nb acct" x="298" y="210" width="364" height="26" rx="4"/>
+  <text class="grp a" x="310" y="227">LB_ZA / LB_AU &mdash; PRESENT, BOUND TO NOTHING</text>
+  <path class="lf" d="M340 252 V282" marker-start="url(#fd-lf)" marker-end="url(#fd-lf)"/>
+  <text class="edge" x="326" y="264" text-anchor="end">leafnode &mdash; account: LB only</text>
+  <path class="lf" d="M620 252 V282" marker-start="url(#fd-lf)" marker-end="url(#fd-lf)"/>
+  <text class="edge" x="634" y="264">leafnode &mdash; account: LB only</text>
+  <text class="grp g" x="28" y="282">META GROUP za &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="14" y="288" width="432" height="282" rx="4"/>
+  <rect class="nb dom" x="21" y="295" width="418" height="268" rx="4"/>
+  <text class="grp d" x="33" y="315">JETSTREAM DOMAIN: za</text>
+  <rect class="nb clu" x="30" y="324" width="400" height="76" rx="4"/>
+  <text class="grp" x="44" y="342">CLUSTER za &mdash; REGION za</text>
+  <rect class="n" x="44" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="100" y="369" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="100" y="382" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="168" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="224" y="369" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="224" y="382" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="292" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="348" y="369" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="348" y="382" text-anchor="middle">127.0.0.1:4233</text>
+  <rect class="nb acct" x="30" y="408" width="400" height="64" rx="4"/>
+  <text class="grp a" x="44" y="424">ACCOUNT LB &mdash; BOUND TO THE LEAF LINK</text>
+  <rect class="n" x="44" y="434" width="120" height="26" rx="3"/>
+  <text class="lbl" x="104" y="451" text-anchor="middle">ODOMETER</text>
+  <rect class="n" x="180" y="434" width="180" height="26" rx="3"/>
+  <text class="lbl" x="270" y="451" text-anchor="middle">ODOMETER_MIRROR</text>
+  <rect class="nb acct" x="30" y="480" width="400" height="64" rx="4"/>
+  <text class="grp a" x="44" y="496">ACCOUNT LB_ZA &mdash; ISLAND, NO LEAF REMOTE</text>
+  <rect class="n" x="44" y="506" width="120" height="26" rx="3"/>
+  <text class="lbl" x="104" y="523" text-anchor="middle">ODOMETER</text>
+  <text class="grp g" x="928" y="282" text-anchor="end">META GROUP au &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="514" y="288" width="432" height="282" rx="4"/>
+  <rect class="nb dom" x="521" y="295" width="418" height="268" rx="4"/>
+  <text class="grp d" x="533" y="315">JETSTREAM DOMAIN: au</text>
+  <rect class="nb clu" x="530" y="324" width="400" height="76" rx="4"/>
+  <text class="grp" x="544" y="342">CLUSTER au &mdash; REGION au</text>
+  <rect class="n" x="544" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="600" y="369" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="600" y="382" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="668" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="724" y="369" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="724" y="382" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="792" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="848" y="369" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="848" y="382" text-anchor="middle">127.0.0.1:4243</text>
+  <rect class="nb acct" x="530" y="408" width="400" height="64" rx="4"/>
+  <text class="grp a" x="544" y="424">ACCOUNT LB &mdash; BOUND TO THE LEAF LINK</text>
+  <rect class="n" x="544" y="434" width="120" height="26" rx="3"/>
+  <text class="lbl" x="604" y="451" text-anchor="middle">ODOMETER</text>
+  <rect class="nb acct" x="530" y="480" width="400" height="64" rx="4"/>
+  <text class="grp a" x="544" y="496">ACCOUNT LB_AU &mdash; ISLAND, NO LEAF REMOTE</text>
+  <rect class="n" x="544" y="506" width="120" height="26" rx="3"/>
+  <text class="lbl" x="604" y="523" text-anchor="middle">ODOMETER</text>
+  <line class="mir" x1="560" y1="447" x2="386" y2="447" marker-end="url(#fd-mir)"/>
+  <text class="edge" x="473" y="441" text-anchor="middle">mirror + external.api</text>
+  <text class="ro h" x="30" y="598">D1  3 distinct meta groups    D2  sizes 3 / 3 / 3 &mdash; quorum 2 each</text>
+  <text class="ro" x="30" y="618">D3/D4  shared account LB holds ODOMETER in BOTH regions &mdash; no 10058 &mdash; two real streams</text>
+  <rect class="nb dead" x="22" y="630" width="916" height="30" rx="4"/>
+  <text class="ro r" x="30" y="650">D5/D5a  one publish in region ZA stored in BOTH: 1 / 1 &mdash; THE DOUBLE CAPTURE, not A26&apos;s one copy</text>
+  <text class="ro" x="30" y="678">D6  two same-named SHADOW streams alive at once: ZA has 1, AU has 2</text>
+  <text class="ro r" x="30" y="698">D7/D7a  a mirror WITHOUT external.api copied 0 messages &mdash; and said nothing. No error, no warning, stream reports healthy.</text>
+  <text class="ro g" x="30" y="718">D8  the same mirror WITH external.api $JS.au.API copied 2</text>
+  <text class="ro r" x="30" y="738">D9/D9a  a name-only mirror silently copied the LOCAL stream, not the remote one</text>
+  <text class="ro g" x="30" y="758">D10-D14  whole hub killed: both regions keep their leaders, create new R3 streams, and store their own publishes</text>
+  <text class="ro" x="30" y="778">D16/D17  the per-region accounts work normally at home: LB_ZA&apos;s ODOMETER in za, LB_AU&apos;s in au</text>
+  <text class="ro g" x="30" y="798">D18/D18a  one publish in LB_ZA: 1 / 0 &mdash; NO double capture, because these two share nothing</text>
+  <text class="ro" x="30" y="818">D19/D20  each is still a RAFT group of 3 inside its own region, with its leader at home</text>
+  <text class="ro r" x="30" y="838">D21/D22/D22a  the HUB&apos;s own LB_ZA cannot see ZA&apos;s stream and may create a THIRD one &mdash; the link binds LB alone</text>
+  <text class="ro r" x="30" y="858">D15  nothing replicates by itself &mdash; every cross-region copy is hand-written</text>
 </svg>
 <!--/FIG-->
 
@@ -467,6 +477,99 @@
   <text class="ro g" x="30" y="542">F10  after thaw: size back to 9</text>
   <text class="ro h" x="30" y="560">F11  slack after losing one region: ONE node &mdash; T3 in the same state has none</text>
   <text class="ro" x="30" y="578">F13/F13a  one publish in region ZA, shared LB: 1 from ZA, 1 from AU &mdash; the arbiter did not change it</text>
+</svg>
+<!--/FIG-->
+<!--FIG h-->
+<svg viewBox="0 0 960 818" role="img" aria-label="T5 / H &mdash; the same hub and two leaf clusters as figure D, with one thing changed: every region server carries TWO leaf remotes instead of one. The first binds the shared account LB, as in figure D; the second binds that region's own account, LB_ZA on the za servers and LB_AU on the au servers. Nine bare nats-server processes on 127.0.0.1 form separate three-peer hub, za and au clusters with domains hub, za and au, drawn as an orange dashed box per cluster, each holding two yellow dashed account boxes. The hub therefore carries three account namespaces instead of one. A stream name still resolves in the local domain, so the hub cannot read a region's stream by name; a hub stream on the same subject does capture the region's publishes live, and a mirror still needs the external API prefix $JS.za.API. The two regional accounts cannot see each other even on the hub, and each region keeps full JetStream for its own account when all three hub servers are killed.">
+  <defs>
+    <marker id="fh-lf" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+    <marker id="fh-mir" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+  </defs>
+  <text class="grp g" x="300" y="36">META GROUP hub &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="282" y="42" width="396" height="210" rx="4"/>
+  <rect class="nb dom" x="289" y="49" width="382" height="196" rx="4"/>
+  <text class="grp d" x="301" y="69">JETSTREAM DOMAIN: hub</text>
+  <rect class="nb clu" x="298" y="78" width="364" height="96" rx="4"/>
+  <text class="grp" x="312" y="96">CLUSTER hub &mdash; THIRD SITE</text>
+  <rect class="n" x="312" y="106" width="104" height="34" rx="3"/>
+  <text class="lbl" x="364" y="123" text-anchor="middle">t-hub-1</text>
+  <text class="lbl2" x="364" y="136" text-anchor="middle">127.0.0.1:4551</text>
+  <rect class="n" x="428" y="106" width="104" height="34" rx="3"/>
+  <text class="lbl" x="480" y="123" text-anchor="middle">t-hub-2</text>
+  <text class="lbl2" x="480" y="136" text-anchor="middle">127.0.0.1:4552</text>
+  <rect class="n" x="544" y="106" width="104" height="34" rx="3"/>
+  <text class="lbl" x="596" y="123" text-anchor="middle">t-hub-3</text>
+  <text class="lbl2" x="596" y="136" text-anchor="middle">127.0.0.1:4553</text>
+  <text class="ro" x="312" y="160">leaf listeners: 7560 / 7561 / 7562</text>
+  <rect class="nb acct" x="298" y="178" width="364" height="26" rx="4"/>
+  <text class="grp a" x="310" y="195">ACCOUNT LB &mdash; LEAF REMOTE 1, FROM BOTH REGIONS</text>
+  <rect class="nb acct" x="298" y="210" width="364" height="26" rx="4"/>
+  <text class="grp a" x="310" y="227">LB_ZA &mdash; LEAF REMOTE 2 FROM za    LB_AU &mdash; LEAF REMOTE 2 FROM au</text>
+  <path class="lf" d="M330 252 V282" marker-start="url(#fh-lf)" marker-end="url(#fh-lf)"/>
+  <path class="lf" d="M344 252 V282" marker-start="url(#fh-lf)" marker-end="url(#fh-lf)"/>
+  <text class="edge" x="316" y="264" text-anchor="end">2 leafnodes &mdash; accounts: LB + LB_ZA</text>
+  <path class="lf" d="M616 252 V282" marker-start="url(#fh-lf)" marker-end="url(#fh-lf)"/>
+  <path class="lf" d="M630 252 V282" marker-start="url(#fh-lf)" marker-end="url(#fh-lf)"/>
+  <text class="edge" x="644" y="264">2 leafnodes &mdash; accounts: LB + LB_AU</text>
+  <text class="grp g" x="28" y="282">META GROUP za &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="14" y="288" width="432" height="282" rx="4"/>
+  <rect class="nb dom" x="21" y="295" width="418" height="268" rx="4"/>
+  <text class="grp d" x="33" y="315">JETSTREAM DOMAIN: za</text>
+  <rect class="nb clu" x="30" y="324" width="400" height="76" rx="4"/>
+  <text class="grp" x="44" y="342">CLUSTER za &mdash; REGION za</text>
+  <rect class="n" x="44" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="100" y="369" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="100" y="382" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="168" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="224" y="369" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="224" y="382" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="292" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="348" y="369" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="348" y="382" text-anchor="middle">127.0.0.1:4233</text>
+  <rect class="nb acct" x="30" y="408" width="400" height="64" rx="4"/>
+  <text class="grp a" x="44" y="424">ACCOUNT LB &mdash; BOUND TO THE LEAF LINK</text>
+  <rect class="n" x="44" y="434" width="120" height="26" rx="3"/>
+  <text class="lbl" x="104" y="451" text-anchor="middle">ODOMETER</text>
+  <rect class="nb acct" x="30" y="480" width="400" height="64" rx="4"/>
+  <text class="grp a" x="44" y="496">ACCOUNT LB_ZA &mdash; NOW REACHES THE HUB</text>
+  <rect class="n" x="44" y="506" width="120" height="26" rx="3"/>
+  <text class="lbl" x="104" y="523" text-anchor="middle">ODOMETER</text>
+  <text class="grp g" x="928" y="282" text-anchor="end">META GROUP au &mdash; 3 PEERS &mdash; QUORUM 2</text>
+  <rect class="nb" x="514" y="288" width="432" height="282" rx="4"/>
+  <rect class="nb dom" x="521" y="295" width="418" height="268" rx="4"/>
+  <text class="grp d" x="533" y="315">JETSTREAM DOMAIN: au</text>
+  <rect class="nb clu" x="530" y="324" width="400" height="76" rx="4"/>
+  <text class="grp" x="544" y="342">CLUSTER au &mdash; REGION au</text>
+  <rect class="n" x="544" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="600" y="369" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="600" y="382" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="668" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="724" y="369" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="724" y="382" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="792" y="352" width="112" height="34" rx="3"/>
+  <text class="lbl" x="848" y="369" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="848" y="382" text-anchor="middle">127.0.0.1:4243</text>
+  <rect class="nb acct" x="530" y="408" width="400" height="64" rx="4"/>
+  <text class="grp a" x="544" y="424">ACCOUNT LB &mdash; BOUND TO THE LEAF LINK</text>
+  <rect class="n" x="544" y="434" width="120" height="26" rx="3"/>
+  <text class="lbl" x="604" y="451" text-anchor="middle">ODOMETER</text>
+  <rect class="nb acct" x="530" y="480" width="400" height="64" rx="4"/>
+  <text class="grp a" x="544" y="496">ACCOUNT LB_AU &mdash; NOW REACHES THE HUB</text>
+  <rect class="n" x="544" y="506" width="120" height="26" rx="3"/>
+  <text class="lbl" x="604" y="523" text-anchor="middle">ODOMETER</text>
+  <line class="mir" x1="560" y1="447" x2="386" y2="447" marker-end="url(#fh-mir)"/>
+  <text class="edge" x="473" y="441" text-anchor="middle">mirror + external.api</text>
+  <text class="ro h" x="30" y="598">H1/H2  3 distinct meta groups, sizes 3 / 3 / 3 &mdash; a second leaf remote changed NO JetStream arithmetic</text>
+  <text class="ro" x="30" y="618">H3/H4/H5  each region still owns its streams: 3 copies inside its own cluster, leader at home</text>
+  <text class="ro g" x="30" y="638">H6/H6a  one publish in LB_ZA: 1 / 0 &mdash; both regions reach the SAME hub and still cannot see each other</text>
+  <rect class="nb dead" x="22" y="650" width="916" height="30" rx="4"/>
+  <text class="ro r" x="30" y="670">H7/H7a  the HUB&apos;s LB_ZA still cannot read ZA&apos;s ODOMETER by name &mdash; a stream name resolves in the LOCAL domain</text>
+  <text class="ro g" x="30" y="698">H8/H8a  a hub stream on the SAME SUBJECT captured the publish live: 1 &mdash; the link carries subjects, not streams</text>
+  <text class="ro" x="30" y="718">H9/H9a  on the hub, LB_AU cannot read LB_ZA&apos;s stream &mdash; three namespaces land there, not one</text>
+  <text class="ro r" x="30" y="738">H10  the hub mirrors ZA&apos;s ODOMETER by NAME alone: 0 messages, silently &mdash; same trap as D7</text>
+  <text class="ro g" x="30" y="758">H11/H11a  the same mirror WITH external.api $JS.za.API copied 2 &mdash; external.api names a DOMAIN, not an account</text>
+  <text class="ro g" x="30" y="778">H12-H14/H14a  whole hub killed: LB_ZA keeps its leader, creates new R3 streams and stores its own publishes</text>
+  <text class="ro h" x="30" y="798">H15  an account per region on the link buys the hub a live SUBJECT feed and nothing more</text>
 </svg>
 <!--/FIG-->
 <!--FIG g-->

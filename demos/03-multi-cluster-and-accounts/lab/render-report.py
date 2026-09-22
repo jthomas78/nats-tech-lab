@@ -247,6 +247,7 @@ FIGKEY = {
     "T2 / E -- export / import between accounts": "e",
     "T4 / F -- gateway + 3-node arbiter":   "f",
     "T6 / G -- gateway AND hub leaf":       "g",
+    "T5 / H -- hub and leaf, account per region": "h",
 }
 
 # One prose caption per figure. Claims only, no numbers.
@@ -278,7 +279,9 @@ FIGCAP = {
         "votes alone and the hub can die without stopping either. Nothing "
         "replicates by itself: every cross-region copy is hand-written, and a "
         "mirror written without an external API prefix copies the wrong "
-        "stream, or nothing at all, and says so nowhere."),
+        "stream, or nothing at all, and says so nowhere. The leaf link binds "
+        "ONE account, so the two per-region accounts are switched on at every "
+        "site and reach nothing: six islands for two account names."),
  "e":  ("One hole in the account wall, opened on purpose.",
         "The exporting account offers a subject; the importing account takes "
         "it and renames it with a prefix of its own choosing. One publish is "
@@ -286,6 +289,15 @@ FIGCAP = {
         "crosses the gateway like any other message. The wall still stands "
         "everywhere else: the importer cannot reach the exporter's streams, "
         "and may reuse the same stream name for its own."),
+ "h":  ("The same hub, with each region's own account on the link.",
+        "One thing changes from the shape above: every region server carries "
+        "a second leaf remote, binding its own account as well as the shared "
+        "one. The hub then holds three account namespaces instead of one. It "
+        "buys a live subject feed into the hub and nothing else \u2014 a "
+        "stream name still resolves in the local domain, the two regional "
+        "accounts still cannot see each other even where they land on the "
+        "same three servers, and a region keeps full JetStream for its own "
+        "account with the whole hub dead."),
  "g":  ("Both links at once \u2014 a gateway and a hub leaf link.",
         "The obvious idea: keep the gateway for one namespace, add the hub "
         "leaf link for independence, take the good half of each. It does not "
