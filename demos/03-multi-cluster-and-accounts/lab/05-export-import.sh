@@ -27,7 +27,7 @@
 # The shape underneath is T2, the plain gateway -- so this also shows that an
 # import crosses a gateway exactly like an ordinary subject does.
 #
-# Requirements exercised: D03-R2, D03-R8.
+# Requirements exercised: D03-R2, D03-R3, D03-R5, D03-R8.
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -129,6 +129,84 @@ check E7 D03-R2 "LB_AU creates its OWN stream named ODOMETER -- no 10058" \
               --storage file --replicas 3 --cluster au --defaults)"
 check E8 D03-R2 "and they are two real streams, in" \
       "za / au" "$(stream_cluster 4231 za ODOMETER) / $(stream_cluster 4241 au ODOMETER)"
+
+# --- THE SAME QUESTIONS T2 / B ASKED, ASKED AGAIN HERE ----------------------
+# T2 / B is the warning next door: one small block in the config file left a
+# whole cluster unable to elect, on a healthy machine, with no error anywhere
+# until something tried to place a stream. This script changes a config block
+# too -- the accounts block. So it re-asks B's questions, and each row carries
+# the id of the B check it repeats.
+#
+# The first seven are controls. They should all say "normal", and saying so is
+# the point: an exports/imports block changes exactly one thing.
+
+za_leader="$(meta_leader 8231)"
+au_leader="$(meta_leader 8241)"
+live_n=0
+[ "$za_leader" != "NONE" ] && live_n=$((live_n+1))
+[ "$au_leader" != "NONE" ] && live_n=$((live_n+1))
+
+# B1 got 1 here, on a healthy machine, because a domain per cluster blinded one
+# side. An exports/imports block does not.
+check E10 D03-R3 "sides that can name a meta leader, with NOTHING stopped (of 2)" \
+      "2" "$live_n" \
+      B1
+# B2's mirror image. Over a gateway there is ONE meta group, so both sides must
+# name the SAME server, not merely some server.
+check E11 D03-R3 "and both sides name the SAME meta leader" \
+      "yes" "$([ "$za_leader" = "$au_leader" ] && echo yes || echo no)" \
+      B2
+check E12 D03-R3 "meta group size seen from ZA / from AU" \
+      "6 / 6" "$(meta_size 8231) / $(meta_size 8241)" \
+      B3
+
+# B4 and B5: placement. On B one of the two fails with 10005. Here both work,
+# asked from one client, so the answer cannot be blamed on which side asked.
+check E13 D03-R3 "shared account LB: placing a stream on cluster za" \
+      "ok" "$(fails_or_ok 4231 lb stream add P_ZA --subjects "evt.p.za.v1" \
+              --storage file --replicas 3 --cluster za --defaults)" \
+      B5
+check E14 D03-R3 "shared account LB: placing a stream on cluster au, from the SAME client" \
+      "ok" "$(fails_or_ok 4231 lb stream add P_AU --subjects "evt.p.au.v1" \
+              --storage file --replicas 3 --cluster au --defaults)" \
+      B4
+
+# B9 and B10: a stream is a RAFT group of its own. The exported stream is an
+# ordinary three-peer group and the export does not stretch it across the WAN.
+check E15 D03-R5 "the EXPORTED stream: replicas asked for / peers built" \
+      "3 / 3" "$(stream_replicas 4231 za ODOMETER) / $(stream_peers 4231 za ODOMETER)" \
+      B9
+check E16 D03-R5 "the EXPORTED stream: region holding its leader" \
+      "za" "$(stream_leader_region 4231 za ODOMETER)" \
+      B10
+
+# --- AND THE ONE NEW QUESTION: CAN A MIRROR CROSS THE ACCOUNT WALL? ---------
+# B15 asks whether a mirror can be placed somewhere it must not go, and gets a
+# clean 10005. This is the nastier version. E6 already shows LB_AU cannot read
+# ZA's stream info. So what happens when LB_AU asks to MIRROR a stream called
+# ODOMETER?
+#
+# It is allowed. There is no error. A mirror name is resolved inside the
+# ASKING account, and E7 put an ODOMETER in LB_AU -- so LB_AU mirrors its own
+# empty stream and never touches ZA's. The copy is silent, it is wrong, and
+# nothing in the output says so. Compare A15/A16, where the same request over
+# the same gateway copies real messages, because there both streams were in
+# one account.
+cat > "$RUN_DIR/M_E.json" <<'JSON'
+{ "name": "M_E", "num_replicas": 3,
+  "placement": { "cluster": "au" },
+  "mirror": { "name": "ODOMETER" } }
+JSON
+check E17 D03-R8 "LB_AU asks to mirror a stream named ODOMETER -- is it refused?" \
+      "ok" "$(fails_or_ok 4241 au stream add --config "$RUN_DIR/M_E.json")" \
+      B15
+sleep 6
+check E18 D03-R8 "messages in that mirror / in the ZA stream it appears to name" \
+      "0 / 1" "$(stream_msgs 4241 au M_E) / $(stream_msgs 4231 za ODOMETER)" \
+      B16
+note  E18a D03-R8 "so a mirror cannot cross an account wall, and does not say so" \
+      "the name resolved inside LB_AU, so it copied LB_AU's own empty ODOMETER" \
+      B16a
 
 note E9 D03-R8 "the verdict" \
      "works, and it is the only sharing in this demo that is explicit, one-way and renamed"

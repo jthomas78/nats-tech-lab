@@ -94,12 +94,12 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <section class="sec">
 <h2>The run that produced this</h2>
 <div class="card"><table><tbody>
-<tr><th>When</th><td>2026-09-22 13:17 SAST</td></tr>
+<tr><th>When</th><td>2026-09-22 16:43 SAST</td></tr>
 <tr><th>Server</th><td><code>nats-server v2.14.6</code></td></tr>
 <tr><th>Client</th><td><code>0.4.0</code></td></tr>
 <tr><th>Machine</th><td>Darwin 25.4.0 arm64</td></tr>
-<tr><th>Checks</th><td><strong class="pass">120 passed</strong>, <strong class="note">0 failed</strong></td></tr>
-<tr><th>Recorded observations</th><td>37</td></tr>
+<tr><th>Checks</th><td><strong class="pass">129 passed</strong>, <strong class="note">0 failed</strong></td></tr>
+<tr><th>Recorded observations</th><td>38</td></tr>
 </tbody></table></div>
 <p>A <strong>check</strong> has an expected answer and passes only on an exact match. A <strong>note</strong> has no expected answer &mdash; it records what the machine did, so the number is on the record. A note can never fail, so it guards nothing.</p>
 <p>To reproduce the whole thing:</p>
@@ -124,7 +124,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td>T1 -- no link</td><td class='num'>12</td><td class='num pass'>12</td><td class='num note'>0</td><td class='num note'>1</td></tr>
 <tr><td>T2 / A -- gateway</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>5</td></tr>
 <tr><td>T2 / B -- gateway + per-cluster domain</td><td class='num'>15</td><td class='num pass'>15</td><td class='num note'>0</td><td class='num note'>8</td></tr>
-<tr><td>T2 / E -- export / import between accounts</td><td class='num'>8</td><td class='num pass'>8</td><td class='num note'>0</td><td class='num note'>2</td></tr>
+<tr><td>T2 / E -- export / import between accounts</td><td class='num'>17</td><td class='num pass'>17</td><td class='num note'>0</td><td class='num note'>3</td></tr>
 <tr><td>T3 / C -- gateway + arbiter</td><td class='num'>11</td><td class='num pass'>11</td><td class='num note'>0</td><td class='num note'>5</td></tr>
 <tr><td>T4 / F -- gateway + 3-node arbiter</td><td class='num'>11</td><td class='num pass'>11</td><td class='num note'>0</td><td class='num note'>6</td></tr>
 <tr><td>T5 / D -- hub and leaf</td><td class='num'>14</td><td class='num pass'>14</td><td class='num note'>0</td><td class='num note'>4</td></tr>
@@ -326,7 +326,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>one publish in region ZA: messages in LB_ZA / LB_AU</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>A9</td><td><code>D03-R4</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>KV t7-vehicles created from AU, no placement flag, lands in</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>A10a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>0s</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>A10a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>7s</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>seconds /jsz still named a meta leader after ZA stopped answering</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>A10</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>NONE</td><td class='mono'>NONE</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>ZA dark: meta leader seen from AU (3 of 6 is below 4)</td></tr>
@@ -364,7 +364,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>LB_AU ODOMETER: replicas asked for / peers built</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>A24</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>za / au</td><td class='mono'>za / au</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>LB_ZA / LB_AU ODOMETER: region holding the stream leader</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>A24a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-za-2</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>A24a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-za-3</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>which server won the ZA stream election this run</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>A25</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>3 / za</td><td class='mono'>3 / za</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>shared LB SHARED_ODO, seen from AU: peers / leader region</td></tr>
@@ -465,7 +465,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>the stream that was placed: replicas asked for / peers built</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B10</td><td><code>D03-R5</code></td><td class='mono'><code>A24</code></td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>that stream's leader sits in the LIVE region</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>B10a</td><td><code>D03-R5</code></td><td class='mono'><code>A24a</code></td><td>&mdash;</td><td class='mono'>t-au-2</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>B10a</td><td><code>D03-R5</code></td><td class='mono'><code>A24a</code></td><td>&mdash;</td><td class='mono'>t-au-1</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>which server won that stream election this run</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B11</td><td><code>D03-R2</code></td><td class='mono'><code>A6</code></td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>per-region account on the LIVE side: its own ODOMETER lands in the live region</td></tr>
@@ -569,6 +569,26 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>LB_AU creates its OWN stream named ODOMETER -- no 10058</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>E8</td><td><code>D03-R2</code></td><td class='mono'>&mdash;</td><td>za / au</td><td class='mono'>za / au</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>and they are two real streams, in</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E10</td><td><code>D03-R3</code></td><td class='mono'><code>B1</code></td><td>2</td><td class='mono'>2</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>sides that can name a meta leader, with NOTHING stopped (of 2)</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E11</td><td><code>D03-R3</code></td><td class='mono'><code>B2</code></td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>and both sides name the SAME meta leader</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E12</td><td><code>D03-R3</code></td><td class='mono'><code>B3</code></td><td>6 / 6</td><td class='mono'>6 / 6</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>meta group size seen from ZA / from AU</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E13</td><td><code>D03-R3</code></td><td class='mono'><code>B5</code></td><td>ok</td><td class='mono'>ok</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>shared account LB: placing a stream on cluster za</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E14</td><td><code>D03-R3</code></td><td class='mono'><code>B4</code></td><td>ok</td><td class='mono'>ok</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>shared account LB: placing a stream on cluster au, from the SAME client</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E15</td><td><code>D03-R5</code></td><td class='mono'><code>B9</code></td><td>3 / 3</td><td class='mono'>3 / 3</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>the EXPORTED stream: replicas asked for / peers built</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E16</td><td><code>D03-R5</code></td><td class='mono'><code>B10</code></td><td>za</td><td class='mono'>za</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>the EXPORTED stream: region holding its leader</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E17</td><td><code>D03-R8</code></td><td class='mono'><code>B15</code></td><td>ok</td><td class='mono'>ok</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>LB_AU asks to mirror a stream named ODOMETER -- is it refused?</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>E18</td><td><code>D03-R8</code></td><td class='mono'><code>B16</code></td><td>0 / 1</td><td class='mono'>0 / 1</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>messages in that mirror / in the ZA stream it appears to name</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>E18a</td><td><code>D03-R8</code></td><td class='mono'><code>B16a</code></td><td>&mdash;</td><td class='mono'>the name resolved inside LB_AU, so it copied LB_AU's own empty ODOMETER</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>so a mirror cannot cross an account wall, and does not say so</td></tr>
 <tr><td class='mark note'>○</td><td class='mono'>E9</td><td><code>D03-R8</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>works, and it is the only sharing in this demo that is explicit, one-way and renamed</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>the verdict</td></tr>
 </tbody></table></div>
@@ -659,7 +679,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>AU dark: ZA creates a NEW 3-replica stream</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>C5</td><td><code>D03-R1</code></td><td class='mono'>&mdash;</td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>ZA dark: a leader is elected among the survivors</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>C5a</td><td><code>D03-R1</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-arb</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>C5a</td><td><code>D03-R1</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-au-1</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>ZA dark: which server took the lead</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>C6</td><td><code>D03-R1</code></td><td class='mono'>&mdash;</td><td>ok</td><td class='mono'>ok</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>ZA dark: AU creates a NEW 3-replica stream</td></tr>
@@ -766,13 +786,13 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>AU dark: ZA creates a NEW 3-replica stream</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>F5</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>AU dark AND one arbiter node dark (5 of 9 -- exactly the majority)</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>F5a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-arb-2</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>F5a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-za-2</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>which server held the lead on the last surviving majority</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>F6</td><td><code>D03-R1</code></td><td class='mono'>&mdash;</td><td>ok</td><td class='mono'>ok</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>5 of 9: ZA still creates a NEW 3-replica stream</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>F6a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>20s</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>F6a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>0s</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>seconds after the new leader was named before it accepted a change</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>F7a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>20s</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>F7a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>21s</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>seconds /jsz still named a meta leader after the majority went</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>F7</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>NONE</td><td class='mono'>NONE</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>4 of 9 left: meta leader seen from ZA</td></tr>
@@ -1033,7 +1053,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>a stream created by a client on the HUB lands in</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>G9</td><td><code>D03-R10</code></td><td class='mono'>&mdash;</td><td>?</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>and ZA's view of that hub stream (? = it cannot see it)</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>G10a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>21s</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>G10a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>0s</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>seconds /jsz still named a meta leader after AU stopped answering</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>G10</td><td><code>D03-R10</code></td><td class='mono'>&mdash;</td><td>NONE</td><td class='mono'>NONE</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>AU dark: meta leader seen from ZA (3 of 6 is below 4)</td></tr>
@@ -1091,7 +1111,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <h3>D03-R3</h3>
 <p><strong>Asks:</strong> What does <code>jetstream.domain</code> actually change, in each of the five topologies?</p>
 <p><strong>This run says:</strong> Over a <strong>gateway</strong> it changes nothing useful and quietly makes things worse -- the supercluster stays one meta group and one of the two regions stops electing a leader. Over a <strong>leaf link</strong> it is real: the hub, ZA and AU each become a separate JetStream system with its own vote, and the same stream name can live in all three at once. A domain is a leaf-link tool. A gateway is not a leaf link.</p>
-<p><em>Evidence:</em> <code>B1</code>, <code>B1a</code>, <code>B2</code>, <code>B3</code>, <code>B4</code>, <code>B5</code>, <code>B7</code>, <code>B7a</code>, <code>B8</code>, <code>B8b</code>, <code>B8a</code>, <code>B6</code>, <code>D1</code>, <code>D3</code>, <code>D4</code>, <code>D6</code>, <code>G19</code>, <code>G19a</code>, <code>G20</code>, <code>G21</code>, <code>G22</code>, <code>G23</code></p>
+<p><em>Evidence:</em> <code>B1</code>, <code>B1a</code>, <code>B2</code>, <code>B3</code>, <code>B4</code>, <code>B5</code>, <code>B7</code>, <code>B7a</code>, <code>B8</code>, <code>B8b</code>, <code>B8a</code>, <code>B6</code>, <code>D1</code>, <code>D3</code>, <code>D4</code>, <code>D6</code>, <code>E10</code>, <code>E11</code>, <code>E12</code>, <code>E13</code>, <code>E14</code>, <code>G19</code>, <code>G19a</code>, <code>G20</code>, <code>G21</code>, <code>G22</code>, <code>G23</code></p>
 </div>
 <div class="card">
 <h3>D03-R4</h3>
@@ -1103,7 +1123,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <h3>D03-R5</h3>
 <p><strong>Asks:</strong> What does losing a <strong>region</strong>, a <strong>cluster</strong> or a <strong>single instance</strong> do to quorum, and what error code does the client see?</p>
 <p><strong>This run says:</strong> It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees <code>10008 JetStream system temporarily unavailable</code> on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, because a stream's replicas all sit inside one cluster.</p>
-<p><em>Evidence:</em> <code>T1a</code>, <code>T1b</code>, <code>T1c</code>, <code>T1i</code>, <code>T1j</code>, <code>T1k</code>, <code>T1l</code>, <code>T1m</code>, <code>A1</code>, <code>A2</code>, <code>A10a</code>, <code>A10</code>, <code>A13</code>, <code>A14</code>, <code>A22</code>, <code>A23</code>, <code>A24</code>, <code>A24a</code>, <code>A25</code>, <code>B9</code>, <code>B10</code>, <code>B10a</code>, <code>C1</code>, <code>C2</code>, <code>C12</code>, <code>D2</code>, <code>F1</code>, <code>F2</code>, <code>F5</code>, <code>F5a</code>, <code>F6a</code>, <code>F7a</code>, <code>F7</code>, <code>F10</code>, <code>F11</code>, <code>G10a</code>, <code>G15</code></p>
+<p><em>Evidence:</em> <code>T1a</code>, <code>T1b</code>, <code>T1c</code>, <code>T1i</code>, <code>T1j</code>, <code>T1k</code>, <code>T1l</code>, <code>T1m</code>, <code>A1</code>, <code>A2</code>, <code>A10a</code>, <code>A10</code>, <code>A13</code>, <code>A14</code>, <code>A22</code>, <code>A23</code>, <code>A24</code>, <code>A24a</code>, <code>A25</code>, <code>B9</code>, <code>B10</code>, <code>B10a</code>, <code>C1</code>, <code>C2</code>, <code>C12</code>, <code>D2</code>, <code>E15</code>, <code>E16</code>, <code>F1</code>, <code>F2</code>, <code>F5</code>, <code>F5a</code>, <code>F6a</code>, <code>F7a</code>, <code>F7</code>, <code>F10</code>, <code>F11</code>, <code>G10a</code>, <code>G15</code></p>
 </div>
 <div class="card">
 <h3>D03-R6</h3>
@@ -1121,7 +1141,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <h3>D03-R8</h3>
 <p><strong>Asks:</strong> Can two accounts share a subject <strong>on purpose</strong>, via export / import?</p>
 <p><strong>This run says:</strong> Yes, and it is the only sharing in this demo that is safe by design. The exporting account opens one hole, in one direction, and the importing account renames what comes through it -- so the copy can never be mistaken for its own data. The hole is a <strong>subject</strong> hole only: the importing account still cannot read, name or delete a stream that belongs to the exporter, and it may use the same stream name for something else. That is the deliberate opposite of T5's silent double capture.</p>
-<p><em>Evidence:</em> <code>E1</code>, <code>E2</code>, <code>E3</code>, <code>E3a</code>, <code>E4</code>, <code>E5</code>, <code>E9</code></p>
+<p><em>Evidence:</em> <code>E1</code>, <code>E2</code>, <code>E3</code>, <code>E3a</code>, <code>E4</code>, <code>E5</code>, <code>E17</code>, <code>E18</code>, <code>E18a</code>, <code>E9</code></p>
 </div>
 <div class="card">
 <h3>D03-R9</h3>
