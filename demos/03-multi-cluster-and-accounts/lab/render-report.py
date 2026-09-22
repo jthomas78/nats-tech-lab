@@ -8,10 +8,52 @@ table. That way the words can never drift away from the measurement.
 
 Usage:  render-report.py run/results.tsv run/env.txt > ../REPORT.md
 """
-import sys, collections
+import re, sys, collections
 
 COLS = ("id", "req", "topology", "desc", "expected", "actual", "status",
         "from")
+
+# NATS JetStream error codes, as measured in this lab. A bare five-digit code
+# tells a reader nothing, and looking it up online breaks the read, so every
+# code printed in a table carries its meaning beside it.
+#
+# code: (short phrase for the table, the server's own constant, the full text)
+ERRS = {
+    "10005": ("no suitable peers for placement",
+              "JSClusterNoPeersErrF",
+              "No suitable peers for placement. Asked to put a stream "
+              "somewhere that cannot hold it \u2014 wrong cluster name, too "
+              "few servers for the replica count, or a cluster that is not "
+              "answering."),
+    "10008": ("JetStream system temporarily unavailable",
+              "JSClusterNotAvailErr",
+              "JetStream system temporarily unavailable. The meta group has "
+              "lost its majority, so no change can be agreed. Reads and "
+              "publishes to streams that already exist keep working."),
+    "10058": ("stream name already in use",
+              "JSStreamNameExistErr",
+              "Stream name already in use with a different configuration. "
+              "Inside one account a stream name is unique across the whole "
+              "supercluster, not per cluster."),
+}
+
+ERR_RE = re.compile(r"\b(%s)\b" % "|".join(ERRS))
+
+
+def err_extra(row):
+    """The 'Extra info' cell: what the codes in this row mean.
+
+    A bare five-digit code tells a reader nothing. Rather than pad the
+    Expected and Measured cells, which must stay comparable at a glance, the
+    meaning goes in a column of its own.
+    """
+    seen, out = set(), []
+    for code in ERR_RE.findall(row["expected"] + " " + row["actual"]):
+        if code in seen:
+            continue
+        seen.add(code)
+        out.append(ERRS[code][0])
+    return "; ".join(out)
 
 # What each requirement asks, and what this run said back. No numbers here.
 REQS = {
@@ -373,6 +415,7 @@ tr:last-child td { border-bottom: none; }
 td.num, th.num { text-align: right; font-family: var(--mono); }
 td.mark { width: 22px; text-align: center; }
 td.mono { font-family: var(--mono); color: var(--text); }
+td.extra { font-size: 12px; color: var(--muted); }
 .pass { color: var(--good); } .fail { color: var(--bad); } .note { color: var(--dim); }
 
 ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
@@ -520,6 +563,24 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
       "asked here.</p>")
     o("</section>")
 
+    # --- the three error codes this lab ever sees -------------------------
+    o('<section class="sec">')
+    o("<h2>The three error codes</h2>")
+    o("<p>Three codes carry almost every finding below. Each table has an "
+      "<strong>Extra info</strong> column that says in words what the code "
+      "in that row means; the full meaning is here, so the page can be read "
+      "without the NATS documentation open beside it.</p>")
+    o('<div class="card"><table><thead><tr>'
+      "<th>Code</th><th>Server constant</th><th>What it means</th>"
+      "</tr></thead><tbody>")
+    for code in sorted(ERRS):
+        _short, const, full = ERRS[code]
+        o(f"<tr><td class='mono'>{code}</td>"
+          f"<td class='mono'>{esc(const)}</td>"
+          f"<td>{esc(full)}</td></tr>")
+    o("</tbody></table></div>")
+    o("</section>")
+
     for t in topos:
         key = FIGKEY.get(t)
         o('<section class="sec" id="topology-%s">' % (key or "x"))
@@ -534,12 +595,14 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
             o("</figure>")
         o('<div class="card"><table><thead><tr>'
           "<th></th><th>Check</th><th>Req</th><th>From</th><th>Expected</th>"
-          "<th>Measured</th></tr></thead><tbody>")
+          "<th>Measured</th><th>Extra info</th></tr></thead><tbody>")
         for r in by_topo[t]:
             mark, cls = {"PASS": ("✓", "pass"),
                          "FAIL": ("✗", "fail"),
                          "NOTE": ("○", "note")}.get(r["status"], ("", ""))
             exp = esc(r["expected"]) if r["status"] != "NOTE" else "&mdash;"
+            act = esc(r["actual"])
+            extra = err_extra(r)
             src = r.get("from", "-")
             src_cell = ("&mdash;" if src in ("", "-")
                         else f"<code>{esc(src)}</code>")
@@ -548,8 +611,9 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
               f"<td><code>{esc(r['req'])}</code></td>"
               f"<td class='mono'>{src_cell}</td>"
               f"<td>{exp}</td>"
-              f"<td class='mono'>{esc(r['actual'])}</td></tr>")
-            o(f"<tr><td></td><td colspan='5'>{esc(r['desc'])}</td></tr>")
+              f"<td class='mono'>{act}</td>"
+              f"<td class='extra'>{esc(extra) if extra else '&mdash;'}</td></tr>")
+            o(f"<tr><td></td><td colspan='6'>{esc(r['desc'])}</td></tr>")
         o("</tbody></table></div>")
         o("</section>")
 
@@ -809,18 +873,29 @@ def main():
       "by side and the difference is the topology, because nothing else "
       "moved. A row with no value is a question first asked here.")
     o("")
+    o("Three error codes carry almost every finding. Each table has an "
+      "**Extra info** column that says in words what the code in that row "
+      "means; the full meaning is here.")
+    o("")
+    o("| Code | Server constant | What it means |")
+    o("|---|---|---|")
+    for code in sorted(ERRS):
+        _short, const, full = ERRS[code]
+        o(f"| `{code}` | `{const}` | {full} |")
+    o("")
     for t in topos:
         o(f"### {t}")
         o("")
-        o("| | Check | Req | From | Expected | Measured |")
-        o("|---|---|---|---|---|---|")
+        o("| | Check | Req | From | Expected | Measured | Extra info |")
+        o("|---|---|---|---|---|---|---|")
         for r in by_topo[t]:
             mark = {"PASS": "✅", "FAIL": "❌", "NOTE": "📋"}.get(r["status"], "")
             exp = r["expected"] if r["status"] != "NOTE" else "—"
             src = r.get("from", "-")
             src = "—" if src in ("", "-") else f"`{src}`"
+            extra = err_extra(r) or "—"
             o(f"| {mark} `{r['id']}` | {r['desc']} | {r['req']} | {src} | "
-              f"{exp} | **{r['actual']}** |")
+              f"{exp} | **{r['actual']}** | {extra} |")
         o("")
 
     o("## What each script builds")
