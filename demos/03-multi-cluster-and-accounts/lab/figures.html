@@ -421,3 +421,84 @@
   <text class="ro h" x="30" y="502">F11  slack after losing one region: ONE node &mdash; T3 in the same state has none</text>
 </svg>
 <!--/FIG-->
+<!--FIG g-->
+<svg viewBox="0 0 960 650" role="img" aria-label="T6 / G &mdash; a gateway and a hub leaf link at once. Nine bare nats-server processes on 127.0.0.1: a three-peer hub cluster with leaf listeners 7560, 7561 and 7562, and clusters za and au which each hold a leaf remote up to that hub and a bidirectional gateway to each other. The result is two JetStream meta groups, not three: the hub votes alone with a quorum of two, while the gateway fuses za and au into one six-peer group needing four votes. A second ODOMETER in the shared LB account is refused with error 10058, one publish in ZA is stored once and read through two handles, freezing AU removes the meta leader and blocks new streams with error 10008 while the healthy hub can do nothing to help, killing the whole hub changes nothing, and a domain per site half-blinds one region exactly as it does with no hub present.">
+  <defs>
+    <marker id="fg-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+    <marker id="fg-lf" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+  </defs>
+  <rect class="nb acct" x="8" y="18" width="944" height="370" rx="4"/>
+  <text class="grp a" x="22" y="36">ACCOUNT LB &mdash; ONE ACCOUNT, TWO LINKS, ONE STREAM NAMESPACE PER REGION PAIR</text>
+
+  <text class="grp g" x="282" y="56">META GROUP hub &mdash; 3 PEERS &mdash; QUORUM 2 &mdash; AND NO VOTE TO LEND</text>
+  <rect class="nb" x="282" y="62" width="396" height="116" rx="4"/>
+  <rect class="nb clu" x="298" y="76" width="364" height="88" rx="4"/>
+  <text class="grp" x="312" y="94">CLUSTER hub &mdash; <tspan class="grp a">no domain</tspan></text>
+  <rect class="n" x="312" y="104" width="104" height="34" rx="3"/>
+  <text class="lbl" x="364" y="121" text-anchor="middle">t-hub-1</text>
+  <text class="lbl2" x="364" y="134" text-anchor="middle">127.0.0.1:4551</text>
+  <rect class="n" x="428" y="104" width="104" height="34" rx="3"/>
+  <text class="lbl" x="480" y="121" text-anchor="middle">t-hub-2</text>
+  <text class="lbl2" x="480" y="134" text-anchor="middle">127.0.0.1:4552</text>
+  <rect class="n" x="544" y="104" width="104" height="34" rx="3"/>
+  <text class="lbl" x="596" y="121" text-anchor="middle">t-hub-3</text>
+  <text class="lbl2" x="596" y="134" text-anchor="middle">127.0.0.1:4553</text>
+  <text class="ro" x="312" y="156">leaf listeners: 7560 / 7561 / 7562</text>
+
+  <!-- Straight verticals into the fused group, labels beside them. Same gutter
+       constraint as figure D: 30px, so no room for a routed elbow. -->
+  <path class="lf" d="M340 182 V204" marker-start="url(#fg-lf)" marker-end="url(#fg-lf)"/>
+  <text class="edge" x="348" y="196">leafnode</text>
+  <path class="lf" d="M620 182 V204" marker-start="url(#fg-lf)" marker-end="url(#fg-lf)"/>
+  <text class="edge" x="628" y="196">leafnode</text>
+
+  <text class="grp g" x="28" y="202">META GROUP za + au &mdash; 6 PEERS &mdash; MAJORITY 4</text>
+  <text class="grp g" x="928" y="202" text-anchor="end">FUSED BY THE GATEWAY, NOT BY THE HUB</text>
+  <rect class="nb" x="14" y="208" width="932" height="170" rx="4"/>
+
+  <rect class="nb clu" x="30" y="224" width="400" height="130" rx="4"/>
+  <text class="grp" x="44" y="242">CLUSTER za &mdash; REGION za</text>
+  <rect class="n" x="44" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="100" y="269" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="100" y="282" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="168" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="224" y="269" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="224" y="282" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="292" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="348" y="269" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="348" y="282" text-anchor="middle">127.0.0.1:4233</text>
+  <text class="ro h" x="44" y="308">LB ODOMETER &mdash; placement za</text>
+  <text class="ro" x="44" y="330">leaf remote &rarr; 7560 / 7561 / 7562</text>
+
+  <rect class="nb clu dead" x="530" y="224" width="400" height="130" rx="4"/>
+  <text class="grp" x="544" y="242">CLUSTER au &mdash; REGION au</text>
+  <text class="grp r" x="916" y="242" text-anchor="end">FROZEN &mdash; kill -STOP</text>
+  <rect class="n" x="544" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="600" y="269" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="600" y="282" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="668" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="724" y="269" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="724" y="282" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="792" y="252" width="112" height="34" rx="3"/>
+  <text class="lbl" x="848" y="269" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="848" y="282" text-anchor="middle">127.0.0.1:4243</text>
+  <text class="ro r" x="544" y="308">LB duplicate ODOMETER &mdash; 10058 refused</text>
+  <text class="ro" x="544" y="330">leaf remote &rarr; 7560 / 7561 / 7562</text>
+
+  <line class="gw" x1="430" y1="269" x2="530" y2="269" marker-start="url(#fg-gw)" marker-end="url(#fg-gw)"/>
+  <text class="edge" x="480" y="263" text-anchor="middle">gateway</text>
+
+  <text class="ro h" x="30" y="410">G1  2 meta groups, not 3    G2  sizes 3 / 6 / 6    G3  ZA and AU name the SAME leader</text>
+  <text class="ro r" x="30" y="430">G4/G5  LB: AU asks for ODOMETER &mdash; 10058 refused &mdash; and AU's stream info then reports cluster za</text>
+  <rect class="nb dead" x="22" y="442" width="916" height="30" rx="4"/>
+  <text class="ro r" x="34" y="462">G6/G7  one publish in ZA reads 1 / 1 &mdash; but BOTH handles are cluster za: ONE stored copy. T5's double capture is gone.</text>
+  <text class="ro" x="30" y="492">G8/G9  the hub is still its own system: a hub client's stream lands in hub, and ZA cannot see it at all</text>
+  <text class="ro r" x="30" y="512">G10/G11/G11a  AU dark (3 of 6): meta leader NONE, and ZA cannot create a stream &mdash; 10008</text>
+  <text class="ro g" x="30" y="532">G12  ZA CAN still publish to its EXISTING stream &mdash; a change freeze, not an outage</text>
+  <text class="ro r" x="30" y="552">G13/G14/G14a  the hub keeps its leader and creates streams throughout &mdash; and cannot lend ZA a vote</text>
+  <text class="ro g" x="30" y="572">G15  after thaw: size back to 6</text>
+  <text class="ro r" x="30" y="592">G16-G18  whole hub killed: nothing changes &mdash; both regions still create 3-replica streams</text>
+  <text class="ro r" x="30" y="612">G19-G23  a domain per site: one region goes blind, size still 6, placement 10005 &mdash; Figure B again, hub and all</text>
+  <text class="ro r" x="30" y="632">G24  the gateway decides &mdash; a leaf link added to a gateway buys nothing</text>
+</svg>
+<!--/FIG-->

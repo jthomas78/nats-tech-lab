@@ -88,6 +88,19 @@ REQS = {
    "belongs to the exporter, and it may use the same stream name for "
    "something else. That is the deliberate opposite of T5's silent double "
    "capture."),
+ "D03-R10": (
+   "If a system has a **gateway and a leaf link at the same time**, which one "
+   "decides the JetStream shape?",
+   "The **gateway**, completely. Wiring both links on the same servers gives "
+   "**two** JetStream systems, not three: the hub keeps its own group, and "
+   "the gateway still fuses the two regions into one. Every benefit the leaf "
+   "link has on its own then disappears -- the second stream of the same name "
+   "in a shared account is refused again, the double capture collapses to one "
+   "stored copy, and a dark region still freezes every create while the hub "
+   "sits beside it, healthy, unable to lend a vote. Deleting the hub entirely "
+   "changes nothing. A per-site domain is still illegal here and still "
+   "half-blinds one region, exactly as it does with no hub at all. **A leaf "
+   "link added to a gateway buys nothing.**"),
  "D03-R9": (
    "If we add an arbiter site, can real data land on it **by accident**?",
    "Not by accident -- but it is not fenced off either. Unplaced streams "
@@ -118,6 +131,19 @@ NEW = [
   "is gone, and the new one is announced before it is ready. The T4 script "
   "does not sleep a magic number for this -- it retries and records how long "
   "it waited."),
+ ("Two links at once is not two shapes at once -- the gateway wins",
+  "G1, G4, G6, G13",
+  "A gateway and a hub leaf link were wired onto the same nine servers, to "
+  "see whether a system could keep the gateway's single namespace and still "
+  "get the leaf link's independent vote. It cannot. The result is two "
+  "JetStream systems, not three: the hub in its own group, and both regions "
+  "still fused into one by the gateway. Every property the leaf link has on "
+  "its own is gone -- the duplicate stream name is refused again, the double "
+  "capture collapses to a single stored copy, and a dark region freezes every "
+  "create while the hub sits alongside it perfectly healthy and unable to "
+  "help. The hub can be killed outright with no effect on either region. "
+  "This is the first shape in the lab that costs real money and buys "
+  "nothing."),
  ("A name-only mirror can silently copy the WRONG stream",
   "D9, D9a",
   "A mirror with no `external.api` does not fail when the name it wants only "
@@ -177,6 +203,7 @@ FIGKEY = {
     "T5 / D -- hub and leaf":              "d",
     "E -- export / import between accounts": "e",
     "T4 / F -- gateway + 3-node arbiter":   "f",
+    "T6 / G -- gateway AND hub leaf":       "g",
 }
 
 # One prose caption per figure. Claims only, no numbers.
@@ -216,6 +243,15 @@ FIGCAP = {
         "crosses the gateway like any other message. The wall still stands "
         "everywhere else: the importer cannot reach the exporter's streams, "
         "and may reuse the same stream name for its own."),
+ "g":  ("Both links at once \u2014 a gateway and a hub leaf link.",
+        "The obvious idea: keep the gateway for one namespace, add the hub "
+        "leaf link for independence, take the good half of each. It does not "
+        "work that way. The gateway still fuses both regions into one meta "
+        "group, so the hub is a third JetStream system standing next to them "
+        "with nothing to contribute \u2014 it cannot vote for them, cannot "
+        "hold their streams, and can be deleted without either region "
+        "noticing. A domain per site is no more legal here than it is without "
+        "the hub."),
  "f":  ("A gateway plus a three-node arbiter cluster.",
         "The same idea as the one-node arbiter, with the arbiter site no "
         "longer a single point of failure. Nine voters instead of seven means "
@@ -223,6 +259,11 @@ FIGCAP = {
         "one-node shape does not have. One node further and it freezes, in "
         "exactly the way the plain gateway does."),
 }
+
+
+def req_key(rid):
+    """Sort D03-R10 after D03-R9, not between R1 and R2."""
+    return int(rid.rsplit("R", 1)[1])
 
 
 def esc(s):
@@ -460,7 +501,7 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     # --- requirements ------------------------------------------------------
     o('<section class="sec">')
     o("<h2>The answers, requirement by requirement</h2>")
-    for rid in sorted(REQS):
+    for rid in sorted(REQS, key=req_key):
         q, a = REQS[rid]
         ids = by_req.get(rid, [])
         o('<div class="card">')
@@ -479,8 +520,8 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     # --- findings ----------------------------------------------------------
     o('<section class="sec">')
     o("<h2>Findings this rig added</h2>")
-    o("<p>Four things came out of building the scripts that are <strong>not"
-      "</strong> in the demo&rsquo;s existing evidence pages. Three are NATS "
+    o("<p>Five things came out of building the scripts that are <strong>not"
+      "</strong> in the demo&rsquo;s existing evidence pages. Four are NATS "
       "behaviour. One is about measuring.</p>")
     for title, ids, body in NEW:
         o('<div class="card">')
@@ -524,7 +565,9 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
                     ("05-export-import.sh",
                      "E &mdash; export / import between two accounts", 6),
                     ("06-arbiter3.sh",
-                     "T4 / F &mdash; gateway plus a 3-node arbiter", 9)):
+                     "T4 / F &mdash; gateway plus a 3-node arbiter", 9),
+                    ("07-gateway-and-hub.sh",
+                     "T6 / G &mdash; a gateway AND a hub leaf link", 9)):
         o(f"<tr><td><code>{s}</code></td><td>{t}</td>"
           f"<td class='num'>{n}</td></tr>")
     o("</tbody></table></div>")
@@ -634,7 +677,7 @@ def main():
 
     o("## The answers, requirement by requirement")
     o("")
-    for rid in sorted(REQS):
+    for rid in sorted(REQS, key=req_key):
         q, a = REQS[rid]
         ids = by_req.get(rid, [])
         o(f"### {rid}")
@@ -651,8 +694,8 @@ def main():
 
     o("## Findings this rig added")
     o("")
-    o("Four things came out of building the scripts that are **not** in the "
-      "demo's existing evidence pages. Three are NATS behaviour. One is about "
+    o("Five things came out of building the scripts that are **not** in the "
+      "demo's existing evidence pages. Four are NATS behaviour. One is about "
       "measuring.")
     o("")
     for title, ids, body in NEW:
@@ -700,6 +743,7 @@ def main():
     o("| `04-hub-and-leaf.sh` | T5 / D — a hub with two leaf clusters | 9 |")
     o("| `05-export-import.sh` | E — export / import between two accounts | 6 |")
     o("| `06-arbiter3.sh` | T4 / F — gateway plus a 3-node arbiter | 9 |")
+    o("| `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |")
     o("")
     o("Run one on its own the same way: `./01-gateway.sh`.")
 

@@ -45,7 +45,7 @@ Four things, one at a time. Everything else held still.
 A "cluster" here means **3 NATS instances**, which is what RAFT needs to elect
 a leader and survive one loss.
 
-## The five topologies
+## The six topologies
 
 | ID | Shape | Meta group | Majority |
 |---|---|---|---|
@@ -54,6 +54,11 @@ a leader and survive one loss.
 | **T3** | T2 + a **1-instance** arbiter site | 7, shared | 4 |
 | **T4** | T2 + a **3-instance** arbiter cluster | 9, shared | 5 |
 | **T5** | 3-instance **hub** + a **leaf** cluster per region | 3 + 3 + 3, separate | 2, 2 and 2 |
+| **T6** | T2 **and** T5 at once — a gateway **and** a hub leaf link | 3 + 6 | 2 for the hub, 4 for the regions |
+
+T6 was added on **2026-09-21**, after the other five. It asks the one question
+the first five leave open: if a system has **both** links, which one decides?
+Its figure is **G**, and it appears only in [`REPORT.html`](REPORT.html).
 
 T2 is the real rig in this folder. T1 is the same six files with the
 `gateway {}` block removed.
@@ -67,6 +72,7 @@ The two evidence pages use **different names for the same shapes**. The map:
 | T3 | **C** | the arbiter |
 | T5 | **D** | hub and leaf |
 | T1, T4 | — | matrix only |
+| T6 | — | neither page — [`REPORT.html`](REPORT.html) only, as figure **G** |
 
 T4 also has a figure **F**, but only in [`REPORT.html`](REPORT.html). It was
 built and measured on 2026-09-17, after both evidence pages were written.
@@ -79,13 +85,14 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
 |---|---|---|
 | **D03-R1** | Which topology lets **both** regions accept a JetStream write while the other is dark? | answered |
 | **D03-R2** | Is it the **account**, the **cluster**, or the **domain** that lets a region own its own stream? | answered |
-| **D03-R3** | What does `jetstream.domain` actually change, in each of the five topologies? | answered |
+| **D03-R3** | What does `jetstream.domain` actually change, in each of the six topologies? | answered |
 | **D03-R4** | Where do a stream, its **consumer** and its **KV bucket** physically land, and what does a read from the other region cost? | answered |
 | **D03-R5** | What does losing a **region**, a **cluster** or a **single instance** do to quorum, and what error code does the client see? | answered |
 | **D03-R6** | **Gateway or leaf node** for two regions — what does each one buy, and what does each one cost? | answered |
 | **D03-R7** | How does data get a **second copy** in the other region, and what does that cost? | partly answered |
 | **D03-R8** | Can two accounts share a subject **on purpose**, via export / import? | answered |
 | **D03-R9** | If we add an arbiter site, can real data land on it **by accident**? | answered |
+| **D03-R10** | If a system has a **gateway and a leaf link at the same time**, which one decides the JetStream shape? | answered |
 
 ### Carried forward — not measured
 
@@ -138,7 +145,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 ./run-all.sh
 ```
 
-That builds all seven topologies from nothing, measures them, tears them down,
+That builds all eight topologies from nothing, measures them, tears them down,
 and writes [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) — the
 same findings, but the HTML edition draws each topology. It needs
 `nats-server`, `nats`, `jq`, `curl` and `python3`, and nothing else — no

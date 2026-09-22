@@ -32,7 +32,7 @@ The one question, from `README.md`:
 
 | | |
 |---|---|
-| **The variable** | the **topology** — T1 to T5. How many clusters, what links them, where the JetStream meta vote lives. |
+| **The variable** | the **topology** — T1 to T6. How many clusters, what links them, where the JetStream meta vote lives. |
 | Held still | the domain slice (`ODOMETER`, KV `t7-vehicles`), the two regions (ZA, AU), the three accounts, `nats-server 2.14.6`, the host `nats` CLI, plain password auth, `127.0.0.1` only. |
 
 **This is the opposite of demo 02.** Demo 02 holds the topology still (one
@@ -65,6 +65,7 @@ Every other topology is a variation of these six files:
 | **T3** | **C** | T2 + a **1-instance** arbiter site | 7 | 7, majority 4 |
 | **T4** | — | T2 + a **3-instance** arbiter cluster | 9 | 9, majority 5 |
 | **T5** | **D** | 3-instance **hub** + a **leaf** cluster per region | 9 | 3 + 3 + 3, quorum 2 each |
+| **T6** | **G** | a **gateway** AND a hub **leaf** link, both at once | 9 | 3 (hub) + 6 (both regions) |
 
 T1 is the same six files with the `gateway {}` block deleted. T4 was never
 built; its row in the matrix is marked `inferred` and must stay that way until
@@ -80,7 +81,7 @@ playbook's own exit test for a validation demo.
 
 ```bash
 cd demos/03-multi-cluster-and-accounts/lab
-./run-all.sh              # all seven topologies, then write ../REPORT.md + ../REPORT.html
+./run-all.sh              # all eight topologies, then write ../REPORT.md + ../REPORT.html
 ./run-all.sh report       # re-render both reports from the last run
 ./01-gateway.sh           # or run one topology on its own
 ```
@@ -94,9 +95,10 @@ cd demos/03-multi-cluster-and-accounts/lab
 | `04-hub-and-leaf.sh` | T5 / D — hub + two leaf clusters | 9 |
 | `05-export-import.sh` | E — export / import between two accounts | 6 |
 | `06-arbiter3.sh` | T4 / F — gateway + 3-node arbiter cluster | 9 |
+| `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |
 | `_common.sh` | the shared harness — config builders, freeze/thaw, the checks |
 | `render-report.py` | turns `run/results.tsv` into `REPORT.md`, and with `--html` into `REPORT.html` |
-| `figures.html` | the seven topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
+| `figures.html` | the eight topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
 
 Rules for anything added here:
 
@@ -121,9 +123,9 @@ Rules for anything added here:
 `REPORT.md` and `REPORT.html` are generated. Do not hand-edit either — change
 the scripts, or the prose in `render-report.py`, and re-run.
 
-`figures.html` is the one hand-drawn file in the lab. It holds seven SVG
-fragments, keyed `t1` / `a` / `b` / `c` / `d` / `e` / `f` by `<!--FIG key-->`
-markers, in
+`figures.html` is the one hand-drawn file in the lab. It holds eight SVG
+fragments, keyed `t1` / `a` / `b` / `c` / `d` / `e` / `f` / `g` by
+`<!--FIG key-->` markers, in
 the visual language of `diagrams/combination-matrix.html`. Each figure carries
 the IDs of the checks measured on that topology, so the picture and its proof
 stay joined. Follow `.claude/skills/html-diagram-drawer/SKILL.md` when editing
@@ -155,7 +157,10 @@ Used by the extra topologies:
 |---|---|
 | arbiter client (T3, T4) | 4540 |
 | arbiter route (T3, T4) | 6540 |
-| hub leaf-node listeners (T5) | 7560, 7561, 7562 |
+| hub client (T5, T6) | 4551, 4552, 4553 |
+| hub monitor (T5, T6) | 8551, 8552, 8553 |
+| hub route (T5, T6) | 6551, 6552, 6553 |
+| hub leaf-node listeners (T5, T6) | 7560, 7561, 7562 |
 
 Keep a new port inside these families. Do not borrow demo 02's 46xx / 47xx or
 demo 04's 20402.
@@ -353,6 +358,16 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   sits at 0 messages forever, **with no error**. Measured over a **leaf** link
   only.
 - **`Duplicate Route` in the log is gossip finding a peer twice.** It is normal.
+- **When both links are present, the gateway decides** (measured 2026-09-21,
+  `lab/07-gateway-and-hub.sh`, T6). A gateway and a hub leaf link on the same
+  servers give **two** JetStream systems, not three: the hub keeps its own
+  group of 3, and the gateway still fuses ZA and AU into one group of 6. Every
+  T5 benefit disappears. `10058` comes back for a second `ODOMETER` in the
+  shared account, the T5 double capture collapses to one stored copy, a dark
+  region still freezes every create with `10008`, and the healthy hub cannot
+  lend a vote. Killing the whole hub changes nothing. A per-site domain is
+  still illegal, and breaks exactly the way Figure B breaks — the leaf link
+  does not rescue it. **A leaf link added to a gateway buys nothing.**
 - **Demo 02's `gateway-double-capture-options.html` is superseded**
   (correction, 2026-09-11). Over a gateway a per-cluster domain protects
   nothing, and one account holds ONE stream for the whole supercluster, so
