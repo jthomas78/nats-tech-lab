@@ -506,7 +506,9 @@ pre .hi  { color: var(--text); }
     <p class="sub">The figures above show stream placement, but a durable consumer is part of that stream's
       read side. In T2.1 the table's <b>WAN</b> answer understates the cost: AU pays the WAN on every pull and
       the pull stops with <code>10008</code> when ZA is cut. T2.2 keeps the read side in AU and keeps pulling.
-      <span class="badge b-good">measured</span></p>
+      <span class="badge b-good">measured</span> &mdash; re-runnable as <code>A18</code>, <code>A19</code>,
+      <code>A20</code>, <code>A21</code>, <code>A21a</code> in
+      <code>demo 03 lab/01-gateway.sh</code>.</p>
 
     <div class="note"><b>Rig.</b> T2 is the real demo-03 lab: za-1..3 and au-1..3 joined by one gateway, no
       <code>domain</code> anywhere, and accounts <code>LB</code> (shared), <code>LB_ZA</code>, and

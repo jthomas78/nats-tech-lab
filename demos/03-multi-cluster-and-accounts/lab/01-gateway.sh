@@ -156,4 +156,47 @@ check A17 D03-R7 "one more publish into the source: mirror messages now" \
 note  A17a D03-R7 "so, over a gateway" \
       "a mirror needs no external.api, because a supercluster has ONE JetStream namespace"
 
+# --- THE READ SIDE, AND WHAT A WAN CUT DOES TO IT ---------------------------
+# The figures above place STREAMS. A durable consumer is the other half, and it
+# does not follow the client that created it -- it lands with its stream. That
+# is the real argument for one account per region, and until 2026-09-21 the
+# matrix page claimed it with no script behind it.
+#
+# Two consumers, one rig, one difference. Both are created from an AU client:
+#
+#   AU_READER  on LB_AU's own ODOMETER          -- the stream is in AU
+#   AU_REMOTE  on the SHARED account's SHARED_ODO, placed in ZA
+#
+# The shared account is one JetStream namespace, so its second stream cannot be
+# called ODOMETER (that is A4). The name is the only thing that differs; the
+# placement is the point.
+nats_as 4241 au consumer add ODOMETER AU_READER --pull --deliver all \
+        --ack explicit --defaults >/dev/null 2>&1 || true
+check A18 D03-R4 "LB_AU's consumer, made from AU on AU's stream, lives in cluster" \
+      "au" "$(consumer_cluster 4241 au ODOMETER AU_READER)"
+
+nats_as 4231 lb stream add SHARED_ODO --subjects "evt.shared.v1" --storage file \
+        --replicas 3 --cluster za --defaults >/dev/null
+nats_as 4241 lb consumer add SHARED_ODO AU_REMOTE --pull --deliver all \
+        --ack explicit --defaults >/dev/null 2>&1 || true
+check A19 D03-R4 "a consumer made from AU on a ZA stream lives in cluster" \
+      "za" "$(consumer_cluster 4241 lb SHARED_ODO AU_REMOTE)"
+
+for m in a b c; do nats_as 4241 au pub "$SUBJECT" "$m" >/dev/null 2>&1; done
+for m in x y z; do nats_as 4231 lb pub "evt.shared.v1" "$m" >/dev/null 2>&1; done
+sleep 1
+
+# Same cut as A10-A12, asked of the read side instead of the write side.
+freeze za-1 za-2 za-3
+wait_dark "${ZA_HTTP[@]}"
+check A20 D03-R1 "ZA dark: AU pulls from its OWN region's stream" \
+      "ok" "$(fails_or_ok 4241 au consumer next ODOMETER AU_READER \
+              --count 1 --timeout 5s)"
+check A21 D03-R1 "ZA dark: AU pulls from the SHARED account's ZA stream" \
+      "fails" "$(fails_or_ok 4241 lb consumer next SHARED_ODO AU_REMOTE \
+                 --count 1 --timeout 8s)"
+note  A21a D03-R1 "how that cross-region pull failed" \
+      "$(err_code 4241 lb consumer next SHARED_ODO AU_REMOTE --count 1 --timeout 8s)"
+thaw za-1 za-2 za-3
+
 banner "$TOPOLOGY -- done"

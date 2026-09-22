@@ -285,6 +285,14 @@ stream_cluster() {
     | jq -r '.cluster.name // "?"' 2>/dev/null || echo "?"
 }
 
+# A durable consumer does NOT live with the client that made it. It lives with
+# its stream, which is what makes a cross-region read a WAN read.
+consumer_cluster() {
+  local port="$1" user="$2" stream="$3" consumer="$4"
+  nats_as "$port" "$user" consumer info "$stream" "$consumer" --json 2>/dev/null \
+    | jq -r '.cluster.name // "?"' 2>/dev/null || echo "?"
+}
+
 stream_msgs() {
   local port="$1" user="$2" stream="$3"
   nats_as "$port" "$user" stream info "$stream" --json 2>/dev/null \
