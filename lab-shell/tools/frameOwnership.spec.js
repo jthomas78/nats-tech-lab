@@ -54,3 +54,28 @@ describe('the check itself catches what it is for', () => {
     expect(importsOf("/* the value comes from 'somewhere else' entirely */\n")).toEqual([])
   })
 })
+
+/* The named exception (BR-AS79, task 16e). It buys ONE component for ONE
+   file, and these specs exist so it cannot quietly become a doorway. */
+describe('the one named frame exception', () => {
+  const gate = join(SHELL_DIR, 'demos/demoGate.js')
+  const other = join(SHELL_DIR, 'bootShell.js')
+  const panel = "import DemoStatePanel from '@ui-shell/DemoStatePanel.vue'\n"
+
+  it('lets the readiness gate draw the one shared panel', () => {
+    expect(frameViolations(gate, panel)).toEqual([])
+  })
+
+  it('does not let any other shell module draw it', () => {
+    expect(frameViolations(other, panel).map((v) => v.specifier)).toEqual([
+      '@ui-shell/DemoStatePanel.vue',
+    ])
+  })
+
+  it('does not open the rest of @ui-shell to the gate', () => {
+    const source = "import AppShell from '@ui-shell/AppShell.vue'\n"
+    expect(frameViolations(gate, source).map((v) => v.specifier)).toEqual([
+      '@ui-shell/AppShell.vue',
+    ])
+  })
+})

@@ -944,7 +944,7 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. Done: 16a, 16b, 16c, 16d. Not started: 16e to 16i.**
+re-opened. Done: 16a, 16b, 16c, 16d, 16e. Not started: 16f to 16i.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1636,7 +1636,7 @@ One gap, deliberately left to 16e: the command API on `20402` is still an absolu
 so the write side does not work from inside the shell. Reads do, because a WebSocket is not subject
 to CORS. F-3's answer is a same-origin proxy route, not a CORS widening on `cqrs/names.go`.
 
-**16e — Demo readiness, in both sources.** *Decision 7. Rule BR-AS79. Resolves F-1, F-3, F-5, R-1.*
+**16e — Demo readiness, in both sources.** *Decision 7. Rule BR-AS79. Resolves F-1, F-3, F-5, R-1.* **DONE 2026-09-24.**
 New: a **sibling, demo-owned metadata file** beside `manifest.json` carrying the optional readiness
 declaration and an optional local run command; `manifest.json` untouched. A **shell-owned demo
 catalogue**, generated from the same repository scan and consumed in **both** sources, associating a
@@ -1667,6 +1667,92 @@ under `plugin-source: build` and under `plugin-source: registry` and prove:
 
 Regression: `manifest.json` is byte-unchanged, so `registry` mode's drift check is unaffected —
 **prove it, do not assume it** (F-1); the registry contract is not extended.
+
+**Verified 2026-09-24.** The readiness declaration is `demos/04-jetstream-cqrs/frontend/public/demo.json`,
+a sibling of `manifest.json` — `manifest.json` itself is **byte-unchanged since 16d** (`git diff f224965`
+is empty; `sha256 e2be1e07…`), so `registry` mode's drift check is untouched and the registry contract is
+not extended. F-1 is proven, not assumed.
+
+One scan feeds everything (BR-AS81): `tools/buildCatalogue/scanDemos.js` now reads the sibling metadata as
+well as the manifest, and three consumers derive from it — the shell-owned demo catalogue
+(`/demo-catalogue.json`), the plugin asset prefix `/plugins/<id>/…`, and the readiness route
+`/demo-readiness/<demo>`. The last two are R-2's two mappings, deliberately separate: one is files, one is
+a call. In development the readiness route is a Vite proxy entry; in a hosted deployment it is a generated
+nginx snippet, `dist/deploy/demo-readiness.conf`, which the Dockerfile moves out of the served tree. No
+`CORS` was added to any demo backend — `cqrs/names.go` still grants only `http://localhost:20401`, and the
+new `/readyz` handler deliberately never calls `setCORS` (F-3).
+
+The shell pieces: `src/shell/demos/` (the store, the probe, the pre-mount gate), `src/shell/ui/DemoCards.vue`
+and the one shared presentation component `shared/ui-shell/DemoStatePanel.vue`, used by both the shell's
+pre-mount panel and the plugin's running-state errors. The store is created in `main.js` **outside** any
+source branch, which is how R-1 is held structurally rather than by matching two code paths.
+
+**The mode-switch check (R-1), run live, same files, same session, nothing edited between the two runs:**
+
+| Check | `plugin-source: build` | `plugin-source: registry` |
+|---|---|---|
+| plugin mounts at `/demo-04` | yes | yes |
+| menu card, with nobody opening the demo | Running | Running |
+| NATS down, `/readyz` 503 | "This demo is not ready." + `stream ODOMETER`, `kv odometer-write`, `kv odometer-read` | identical |
+| menu card in that state | Not ready | Not ready |
+| command API down, proxy 5xx | "Cannot reach demo services. / The check could not be delivered. The demo may be running, or it may be stopped — we could not tell." | identical |
+| menu card in that state | Unknown | Unknown |
+| "Check again" while down, then services back | mounts in place | mounts in place |
+| plugins · revision | 1 · `313c695e88df9f95` | 2 · rev `2` |
+
+A timeout or an unreachable proxy never reads as "the demo is stopped"; the word appears only inside the
+one sentence that says we could not tell. The menu card populates from the store's own refresh, separate
+from the pre-mount check — no card in the table above was produced by opening a demo.
+
+`registry` mode's protocol and lifecycle are unchanged: no new subject, no new grant, no change to announce,
+drift, withdrawal, health or revision handling. Demo 04 was curated into `demos/01-dictionary/registry.json`
+by copying its manifest **byte for byte** and adding only `enabled`, which a plugin may never state about
+itself (decision 79, BR-AS43). Because `Allowlist.Permits` admits a same-origin path (BR-AS72), the curated
+row keeps the manifest's relative `remote.url`, so **no** `REGISTRY_ALLOWED_ORIGINS` entry and **no** second
+build were needed — the strongest available form of BR-AS78. The service logged `seeded=2 skipped=0
+withheld=0` with its allowlist unchanged.
+
+**Readiness metadata admits nothing.** With `poc-mfe-registry-service-1` stopped, the shell reported
+`plugins 0`, an empty FEATURES nav, and `/demo-04` answered "Nothing here — no plugin claims /demo-04". The
+demo card was still drawn and still read "Running", but as a `generic` element with **no link**. The served
+`/demo-catalogue.json` carries no `remote` and no contributions at all, so a readiness file cannot supply or
+override a `remote.url`.
+
+**A registry plugin with no lab demo.** `demo-catalog` on 7112 mounted normally at `/demos` and rendered its
+own content. The Plugins screen listed it `available`, `0 rejected`, with no readiness panel and no fault —
+the gate is not applied at all when a plugin has no catalogued demo (`demoGate.spec.js`).
+
+**Both deployments, proven on the image rather than argued.** `lab-shell/Dockerfile` could not build at all
+since 16b — `vite.config.js` has imported `lab-shell/tools` since then and the Dockerfile never copied it.
+Fixed here, together with two consequences that only the image could reveal:
+
+- The build context now also carries the demos' **metadata and nothing else**
+  (`COPY --parents demos/*/frontend/public/{manifest,demo}.json`), derived by wildcard rather than a
+  hand-written list. No demo source and no demo `dist/` enters the context, so the Dockerfile's own claim —
+  the host never compiles a plugin — still holds.
+- `pluginAssets`'s "a catalogued demo with no built output fails the build" now applies only to a
+  `plugin-source: build` build. A registry-source shell resolves every remote from the registry and serves
+  no plugin assets of its own, so demanding a demo's `dist/` failed a build that had no use for it. The
+  readiness scan is **not** gated this way — that one is required in both sources.
+- The generated nginx snippet passes each upstream through a **variable with a resolver**. nginx resolves a
+  literal `proxy_pass` host once, at startup, and refuses to start when it cannot: `nginx -t` failed with
+  `host not found in upstream "demo04-cqrs"` simply because the demo was not running, which would have taken
+  the whole shell down to report one demo. Deferred to the request, an absent demo is a 502 the shell reads
+  as "cannot reach demo services".
+
+Measured on the built image on the lab network with demo 04 absent: `nginx -t` passes,
+`/demo-readiness/04-jetstream-cqrs` answers **502**, `/demo-readiness/99-nope` answers **404** (never the
+SPA), and `/demo-catalogue.json` is served with revision `ec8d38f85b1a6185` — the same revision the dev
+server produced, from the same scan.
+
+Suites: `lab-shell` 754 → 758 specs, demo 04's frontend 502 → 508, demo 04's Go package ok, eslint 0 errors,
+`frameOwnership` clean. `hostBundleFingerprint.mjs` was re-recorded — 17 host assets, digest
+`806a959514f744fc7b88e0f4a5762c7ffbb4c26edb499fe596f4719cdfa3746a` — because 16e changes the shell itself,
+which is the case BR-AS03 does not cover; the asset count is unchanged and `--verify` is stable.
+
+One thing left where it was: `nginx.conf` still names `accounts-service` in a literal `proxy_pass`, so the
+shell image still will not start without that service. That is a lab-service dependency, not a demo one, and
+it predates this task.
 
 **16f — Health presentation without a health plane.** *Decision 8. Rule BR-AS80. Resolves F-2.*
 New: in `build` mode the health plane is not constructed; the injected health object carries an

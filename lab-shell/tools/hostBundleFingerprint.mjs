@@ -57,11 +57,28 @@ const GENERATED_CATALOGUE = 'plugin-catalogue.json'
    hashed host chunk is still caught: that chunk is outside this prefix. */
 const PLUGIN_ASSET_DIR = 'plugins'
 
+/* The demo readiness artefacts (task 16e), excluded on the same argument as
+   the plugin catalogue above: both are GENERATED CONFIGURATION emitted beside
+   the bundle, never compiled into it.
+
+   `demo-catalogue.json` is the list of which demos exist and where their
+   readiness route is. `deploy/` holds the reverse-proxy rules that route
+   those checks, and it is removed from the served tree by the Dockerfile, so
+   it is a deployment's routing config rather than a page. Fingerprinting
+   either would make this check say that adding a DEMO must not change the
+   list of demos. BR-AS03's claim is about the host's own chunks, and those
+   are still fingerprinted and still scanned. */
+const GENERATED_DEMO_CATALOGUE = 'demo-catalogue.json'
+const DEPLOY_CONFIG_DIR = 'deploy'
+
 const isPluginArtefact = (file) => {
   const name = relative(distDir, file)
   return name === GENERATED_CATALOGUE
+    || name === GENERATED_DEMO_CATALOGUE
     || name === PLUGIN_ASSET_DIR
     || name.startsWith(`${PLUGIN_ASSET_DIR}/`)
+    || name === DEPLOY_CONFIG_DIR
+    || name.startsWith(`${DEPLOY_CONFIG_DIR}/`)
 }
 
 /*

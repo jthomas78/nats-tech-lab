@@ -20,6 +20,7 @@ import { createConnectionRegistry, SHELL_PLATFORM } from './shell/connections/co
 import { createNullConnection } from './shell/connections/nullConnection.js'
 import { createShellConnection } from './shell/connections/shellConnection.js'
 import { createShellDialer } from './shell/connections/shellDialer.js'
+import { createDemoStore } from './shell/demos/demoStore.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createPluginLoader } from './shell/loader/pluginLoader.js'
 import { pluginSource, PLUGIN_SOURCE_REGISTRY } from './shell/pluginSource.js'
@@ -72,6 +73,13 @@ export async function bootstrap() {
     },
   })
 
+  /* Demo readiness (BR-AS79), constructed BEFORE the router and in BOTH
+     plugin sources — the one thing R-1 rests on. It reads one static file
+     from the shell's own origin and never asks how a plugin was discovered,
+     so the panel, its three states, its retry and the menu-card status are
+     the same code in `build` and in `registry`. */
+  const demoStore = createDemoStore({ fetch: window.fetch.bind(window) })
+
   const router = createRouter({
     history: createWebHistory(),
     routes: [
@@ -85,6 +93,7 @@ export async function bootstrap() {
         loader,
         manifestFor: shell.manifestFor,
         errorComponent: PluginErrorView,
+        demoStore,
       }),
       { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
     ],
@@ -153,6 +162,7 @@ export async function bootstrap() {
         loader,
         manifestFor: shell.manifestFor,
         errorComponent: PluginErrorView,
+        demoStore,
         routes: addedRoutes,
       })
     },
@@ -177,7 +187,7 @@ export async function bootstrap() {
      plane itself were provided here and injected by nothing — a member no
      screen reads is a member every screen has to be checked against. What is
      left is what App.vue and the views actually resolve. */
-  app.provide(SHELL, withRuntime(shell, { loader, connection: connection.state, health }))
+  app.provide(SHELL, withRuntime(shell, { loader, connection: connection.state, health, demos: demoStore.state }))
   app.use(createPinia())
   app.use(router)
   app.use(PrimeVue, {
@@ -189,6 +199,11 @@ export async function bootstrap() {
   app.mount('#app')
   void session.start()
   healthPlane.start()
+  /* The menu-card refresh policy, separate from the pre-mount check by
+     design: a card must show a status WITHOUT anybody opening the demo, and
+     it is allowed to be a little old, because a card is a glance. Never
+     awaited — a demo that does not answer must not delay the shell. */
+  void demoStore.startMenuRefresh()
 
   /* Every connection epoch closes a possible Core NATS notification gap.
      This includes the first successful connection: the plane starts beside
@@ -213,6 +228,7 @@ export async function bootstrap() {
     clearInterval(healthAgeTimer)
     clearInterval(healthReconcileTimer)
     stopHealthEpoch()
+    demoStore.stop()
     healthPlane.stop()
     void session.stop()
   })

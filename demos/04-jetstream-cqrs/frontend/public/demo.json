@@ -1,5 +1,14 @@
 {
+  "//": "The demo's own metadata, beside manifest.json and never inside it. manifest.json is the registry contract and must stay byte-identical in both plugin sources (app-shell BR-AS78); nothing here means anything to a registry. The lab shell reads this file through its own scan and nothing in it can admit a plugin, contribute a route or supply a remote.url (BR-AS79).",
   "devServer": {
     "port": 20401
-  }
+  },
+  "readiness": {
+    "//": "Asserted, not assumed. /readyz asks NATS for the log and both KV buckets on every call, so a shim that is up before `docker compose up` reports not ready rather than ready.",
+    "path": "/readyz",
+    "devPort": 20402,
+    "hostedUpstream": "http://demo04-cqrs:20402",
+    "timeoutMs": 3000
+  },
+  "runCommand": "docker compose -f demos/04-jetstream-cqrs/deploy/compose.yaml up -d"
 }

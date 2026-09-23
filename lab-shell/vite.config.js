@@ -5,6 +5,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
 import { buildCatalogue } from './tools/buildCatalogue/vitePlugin.js'
+import { demoReadiness } from './tools/buildCatalogue/demoReadiness.js'
 import { pluginAssets } from './tools/buildCatalogue/pluginAssets.js'
 
 /* The federation plugin gives the host a shared-module scope so a remote's Vue
@@ -44,7 +45,12 @@ export default defineConfig({
   /* `pluginAssets` contributes `server.proxy` entries of its own through its
      `config` hook, derived from the same scan as the catalogue (BR-AS77).
      Vite merges them with the block below rather than replacing it. */
-  plugins: [vue(), buildCatalogue(), pluginAssets(), ...federationPlugin],
+  /* `demoReadiness` serves the shell-owned demo catalogue and the
+     `/demo-readiness/<demo>` route, from that same scan. It is unconditional
+     for a stronger reason than the other two: readiness must be available in
+     BOTH plugin sources, so a shell that reads its plugins from the registry
+     still answers these routes (BR-AS79, R-1). */
+  plugins: [vue(), buildCatalogue(), demoReadiness(), pluginAssets(), ...federationPlugin],
   resolve: {
     /* One Vue, one PrimeVue, whatever a nested workspace resolves for itself.
        An example plugin under `plugins/` installs its own copies, so a spec
@@ -73,7 +79,7 @@ export default defineConfig({
        for the plugins rather than shell source, but it is shell-shaped enough
        — it reads manifests and places contributions — to be worth covering,
        and this is the only vitest runner in the app shell's area. */
-    include: ['src/**/*.spec.js', '../shared/mfe-preview/**/*.spec.js'],
+    include: ['src/**/*.spec.js', 'tools/**/*.spec.js', '../shared/mfe-preview/**/*.spec.js'],
   },
   server: {
     // 7110 — the same port the shell's own container publishes, so a

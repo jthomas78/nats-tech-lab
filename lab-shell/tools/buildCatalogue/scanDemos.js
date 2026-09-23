@@ -26,7 +26,13 @@ import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { demoReadinessPath } from '../../src/shell/demos/demoCatalogueLocation.js'
 import { REGISTRY_SCHEMA_VERSION } from '../../src/shell/versions.js'
+
+/* The demo catalogue's own version. It is NOT the registry schema version:
+   this document is shell-owned, the registry never sees it, and tying the two
+   would make a change here look like a change to the registry contract. */
+export const DEMO_CATALOGUE_SCHEMA_VERSION = 1
 
 /** Where demos live, relative to the repository root. */
 export const DEMOS_DIR = 'demos'
@@ -45,7 +51,14 @@ export const MANIFEST_PATH = join('frontend', 'public', 'manifest.json')
 
    It is OPTIONAL. A demo without one is still a plugin; it simply gets no dev
    proxy entry, which is the right answer for a plugin whose assets are served
-   from the shell's own tree. */
+   from the shell's own tree.
+
+   Task 16e added two more facts to it, for the same reason and under the same
+   rule (BR-AS79): an optional `readiness` declaration and an optional
+   `runCommand`. Both are DECORATION ON A DEMO and carry no authority. Nothing
+   read here can admit a plugin, enable a disabled one, contribute a route or
+   supply a `remote.url` — discovery alone does that, and the readiness half of
+   this file is never shown to the registry at all. */
 export const DEMO_METADATA_PATH = join('frontend', 'public', 'demo.json')
 
 /** A demo frontend's built output, relative to a demo directory. */
@@ -61,6 +74,40 @@ export class ManifestUnreadable extends Error {
     this.name = 'ManifestUnreadable'
     this.file = file
     this.cause = cause
+  }
+}
+
+/* A port, or null. A port written as a string must not silently produce
+   `http://host:"20401"`, and a zero or a negative is not a port. */
+function port(value) {
+  const n = Number(value)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+/* The readiness declaration, normalised, or null.
+
+   Null when the demo declared nothing AND when it declared something
+   unusable. A half-written declaration must not become a probe against
+   port `NaN` that then reports the demo unreachable — "the demo is not
+   set up to be checked" and "the demo cannot be reached" are different
+   answers, and BR-AS79 rests on not confusing them. */
+function readinessOf(metadata) {
+  const declared = metadata?.readiness
+  if (!declared || typeof declared !== 'object') return null
+  const path = typeof declared.path === 'string' && declared.path.startsWith('/') ? declared.path : null
+  const devPort = port(declared.devPort)
+  const hostedUpstream = typeof declared.hostedUpstream === 'string' && declared.hostedUpstream !== ''
+    ? declared.hostedUpstream
+    : null
+  if (path === null) return null
+  if (devPort === null && hostedUpstream === null) return null
+  return {
+    path,
+    devPort,
+    hostedUpstream,
+    /* A ceiling the SHELL applies, not the demo's backend. A demo may ask
+       for longer than the default; it cannot ask for forever. */
+    timeoutMs: Math.min(Math.max(Number(declared.timeoutMs) || 3000, 250), 15000),
   }
 }
 
@@ -148,9 +195,17 @@ export function scanDemoManifests({ repoRoot, fs = { readdirSync, readFileSync, 
       dist: join(demosDir, demo, DEMO_DIST_PATH),
       /* Normalised to a number or null here rather than at each reader, so a
          port written as a string does not silently produce `http://host:"20401"`. */
-      devPort: Number.isInteger(Number(metadata?.devServer?.port))
-        && Number(metadata?.devServer?.port) > 0
-        ? Number(metadata.devServer.port)
+      devPort: port(metadata?.devServer?.port),
+      /* Normalised here rather than at each of the four readers (the
+         catalogue document, the dev proxy, the nginx snippet and the specs),
+         so a half-written declaration is one `null` instead of four
+         different guesses. */
+      readiness: readinessOf(metadata),
+      /* A local run command is information about the demo and is always
+         true. Whether a READER is shown it is a property of the shell
+         deployment, not of this file (F-5), so nothing is decided here. */
+      runCommand: typeof metadata?.runCommand === 'string' && metadata.runCommand.trim() !== ''
+        ? metadata.runCommand.trim()
         : null,
     })
   }
@@ -177,8 +232,56 @@ export function catalogueDocument(plugins) {
   }
 }
 
+/**
+ * Build the SHELL-OWNED demo catalogue from the same scan (BR-AS79, R-1).
+ *
+ * A second document, not a second scan. It carries what the browser needs in
+ * order to check a demo and to say something useful when the answer is no —
+ * and nothing else. In particular it carries no port and no upstream: those
+ * are facts about where a proxy forwards to, they differ between development
+ * and a hosted deployment, and a page that knew them could be made to call
+ * them directly, which is the cross-origin exception F-3 forbids.
+ *
+ * Two identifiers per entry, both stable, neither a plugin source:
+ * `demo` is the directory name and owns the readiness route; `pluginId` is
+ * the manifest's own id and is how a route being opened finds its demo. A
+ * plugin discovered by `registry` and the same plugin discovered by `build`
+ * match the same entry, which is the whole of R-1.
+ *
+ * An entry appears only when the demo declared readiness. A demo that
+ * declared none is absent, and absence is the normal case, never a fault.
+ */
+export function demoCatalogueDocument(entries) {
+  const demos = entries
+    .filter((entry) => entry.readiness !== null && entry.id !== null)
+    .map((entry) => ({
+      demo: entry.demo,
+      pluginId: entry.id,
+      name: entry.manifest?.name ?? entry.demo,
+      readiness: {
+        /* The SHELL's own path, never the demo's. The demo's `/readyz` is
+           reachable only through this route, on this origin. */
+        url: demoReadinessPath(entry.demo),
+        timeoutMs: entry.readiness.timeoutMs,
+      },
+      /* Always published; whether it is SHOWN is the deployment's decision
+         (F-5). A demo does not know who is reading. */
+      runCommand: entry.runCommand,
+    }))
+  return {
+    schemaVersion: DEMO_CATALOGUE_SCHEMA_VERSION,
+    revision: createHash('sha256').update(JSON.stringify(demos)).digest('hex').slice(0, 16),
+    demos,
+  }
+}
+
 /** Scan and render in one step — what both the dev server and the build call. */
 export function generateCatalogue({ repoRoot, fs } = {}) {
   const { plugins, entries, files } = scanDemoManifests({ repoRoot, fs })
-  return { document: catalogueDocument(plugins), entries, files }
+  return {
+    document: catalogueDocument(plugins),
+    demoCatalogue: demoCatalogueDocument(entries),
+    entries,
+    files,
+  }
 }

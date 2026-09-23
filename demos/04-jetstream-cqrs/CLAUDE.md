@@ -139,11 +139,20 @@ Port `20401` is unchanged, and `lab-shell` learns it from
 `public/demo.json` — never from `public/manifest.json`, which has to be
 byte-identical whichever source discovered the plugin.
 
-**Not done yet:** the command API on `20402` is still an absolute cross-origin
-URL, so the write side does not work from inside the shell. Reads do — a
-WebSocket is not subject to CORS. The fix is a same-origin proxy route, which is
-task 16e of the app shell plan. Do not widen `cqrs/names.go`'s CORS grant to
-close it.
+**Task 16e added `/readyz`, and only `/readyz`.** The shell asks this demo
+whether it is ready before it mounts it, and that question is same-origin: the
+shell proxies its own `/demo-readiness/04-jetstream-cqrs` to this demo's
+`/readyz`. `readyHandler` deliberately never calls `setCORS`, because nothing
+cross-origin ever reaches it. The demo declares the route, the port and the
+hosted upstream in `public/demo.json`; the shell generates both proxy rules
+from that.
+
+**Still not done:** the rest of the command API on `20402` is an absolute
+cross-origin URL, so the write side does not work from inside the shell. Reads
+do — a WebSocket is not subject to CORS. The fix is the same shape as the
+readiness route, a same-origin proxy, and it is not task 16e's — 16e proxies
+one readiness call, not a general tunnel to this service. Whoever does it must
+**not** widen `cqrs/names.go`'s CORS grant to close it.
 
 ## The shim's routes
 
@@ -153,6 +162,7 @@ browser watches NATS over the WebSocket on `20403`.
 
 | Route | Method | What it does |
 |---|---|---|
+| `/readyz` | GET | is the demo ready — the log and both KV buckets, asked each time |
 | `/rehydrate` | GET | rehydrates one vehicle, with and without a snapshot |
 | `/bench` | GET | the `ODOMETER_BENCH` fixture's size, in messages AND bytes |
 | `/bench/seed` | POST | fills the fixture — 10 000, 100 000 or 1 000 000 |

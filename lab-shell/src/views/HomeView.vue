@@ -9,6 +9,7 @@
 */
 import { computed, inject } from 'vue'
 
+import DemoCards from '../shell/ui/DemoCards.vue'
 import ExtensionRegion from '../shell/ui/ExtensionRegion.vue'
 import FirstBootNote from '../shell/ui/FirstBootNote.vue'
 import { SHELL } from '../shell/shellKey.js'
@@ -30,6 +31,11 @@ const enabled = computed(() => shell.inventory.filter((row) => row.status !== 'd
         below arrived from a plugin.
       </p>
     </header>
+
+    <!-- Shell-owned, populated by the demo catalogue and its own slow refresh
+         policy (BR-AS79). Present in both plugin sources, which is why it is
+         here rather than inside the demo-catalog plugin. -->
+    <DemoCards />
 
     <div class="home-region">
       <h2>

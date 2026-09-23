@@ -34,6 +34,7 @@
 import { cpSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { join, normalize, resolve, sep } from 'node:path'
 
+import { PLUGIN_SOURCE_BUILD, readPluginSource } from '../../src/shell/pluginSource.js'
 import { PLUGIN_ASSET_PREFIX, pluginAssetBase } from '../../src/shell/registry/pluginAssetPath.js'
 import { scanDemoManifests } from './scanDemos.js'
 
@@ -134,7 +135,14 @@ export function pluginAssets(options = {}) {
          server silently wrote a tree of plugin assets into the repository —
          which BR-AS76 forbids for the catalogue and is no more welcome here.
          Caught by stopping the dev server during the 16c verification pass. */
+      /* …and only when this build will actually SERVE the prefix. BR-AS77 is
+         a rule about `plugin-source: build`: a registry-source shell resolves
+         every remote from the curated registry and never answers
+         `/plugins/<id>/…` itself, so demanding a demo's built output would
+         fail a build that had no use for it. The readiness scan above is not
+         gated — that one IS required in both sources (BR-AS79). */
       building = config.command === 'build'
+        && readPluginSource(config.env ?? process.env) === PLUGIN_SOURCE_BUILD
     },
 
     configureServer(server) {

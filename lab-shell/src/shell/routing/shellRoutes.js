@@ -17,7 +17,14 @@
   The component is resolved through the loader, so a failed load is a status
   the shell can render (BR-AS04) rather than an unhandled rejection: the record
   falls back to the supplied error component and the plugin sits at `failed`.
+
+  Task 16e adds one wrapper around the resolved component: the demo readiness
+  gate (BR-AS79). It is applied HERE because this function is the single funnel
+  every plugin route passes through, so the check cannot be forgotten on a
+  route somebody adds later — the same argument as the permission note above.
+  It is optional: with no demo store the resolver behaves exactly as it did.
 */
+import { withDemoGate } from '../demos/demoGate.js'
 
 /**
  * @param {object} options
@@ -31,6 +38,10 @@ export function createShellRoutes({
   loader,
   manifestFor,
   errorComponent = null,
+  /* The demo readiness gate's state (BR-AS79). Optional: a shell built
+     without one mounts every plugin unchecked, which is what every phase
+     before 16e did. */
+  demoStore = null,
   /* Which route contributions to build. Boot passes them all; a live addition
      passes only the ones that read placed, because the router already holds
      the rest (BR-AS19, decision 26). */
@@ -48,7 +59,7 @@ export function createShellRoutes({
       title: route.title,
       contributionId: route.qualifiedId,
     },
-    component: () => resolveRouteComponent({ route, loader, manifestFor, errorComponent }),
+    component: () => resolveRouteComponent({ route, loader, manifestFor, errorComponent, demoStore }),
   }))
 }
 
@@ -68,7 +79,13 @@ export async function installShellRoutes({ router, ...options }) {
  * named. Never rejects: an unresolvable route renders the error component so
  * the shell frame survives (BR-AS04).
  */
-export async function resolveRouteComponent({ route, loader, manifestFor, errorComponent = null }) {
+export async function resolveRouteComponent({
+  route,
+  loader,
+  manifestFor,
+  errorComponent = null,
+  demoStore = null,
+}) {
   const plugin = manifestFor(route.pluginId)
   if (!plugin) return errorComponent
 
@@ -85,5 +102,11 @@ export async function resolveRouteComponent({ route, loader, manifestFor, errorC
   /* The manifest promised a component this module does not export. Same class
      of failure as a chunk that will not load: a broken plugin, reported, not a
      crashed shell. */
-  return module?.components?.[route.component] ?? errorComponent
+  const component = module?.components?.[route.component] ?? null
+  if (component === null) return errorComponent
+
+  /* The gate wraps a component that LOADED. A plugin that would not load is a
+     shell failure and is reported as one; asking whether its demo is running
+     would answer a question nobody asked. */
+  return withDemoGate({ component, pluginId: route.pluginId, demoStore })
 }

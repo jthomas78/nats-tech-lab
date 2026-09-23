@@ -25,6 +25,24 @@ export const SHELL_DIR = resolve(HERE, '../src/shell')
    module reaching for a DataTable is building a screen. */
 export const ALLOWED_PACKAGES = Object.freeze(['vue', 'vue-router', 'pinia'])
 
+/* The one named exception, keyed by the shell-relative file that gets it.
+
+   BR-AS79 asks for ONE presentation component drawn by BOTH the shell's
+   pre-mount readiness panel and a plugin's own running-state errors. The
+   shell's half of that is the gate, so the gate — and no other shell module —
+   may import that one component.
+
+   Named per file and per specifier on purpose. A wildcard would let the next
+   shell module reach for `@ui-shell/DataTable` and call it the same rule. */
+export const ALLOWED_FRAME_IMPORTS = Object.freeze({
+  'demos/demoGate.js': Object.freeze(['@ui-shell/DemoStatePanel.vue']),
+})
+
+function isNamedException(file, specifier) {
+  const key = relative(SHELL_DIR, file)
+  return (ALLOWED_FRAME_IMPORTS[key] ?? []).includes(specifier)
+}
+
 const IMPORT_PATTERN = /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+['"]([^'"]+)['"]/g
 /* Comments come out first: these modules explain themselves at length, and a
    prose "from 'somewhere'" in a block comment is not an import — the first
@@ -52,6 +70,7 @@ export function shellSourceFiles(dir = SHELL_DIR) {
 export function frameViolations(file, source) {
   const violations = []
   for (const specifier of importsOf(source)) {
+    if (isNamedException(file, specifier)) continue
     if (specifier.startsWith('.')) {
       const target = resolve(dirname(file), specifier)
       if (!target.startsWith(`${SHELL_DIR}/`)) {

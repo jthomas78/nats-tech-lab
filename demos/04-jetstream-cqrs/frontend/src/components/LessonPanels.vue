@@ -9,12 +9,43 @@
 
    One prop, the object `useDemoState()` returns. Passing the state rather than
    twenty props keeps the two entries from drifting apart field by field. */
+import { computed } from 'vue'
+
+import DemoStatePanel from '@ui-shell/DemoStatePanel.vue'
+
 import CommandBar from './CommandBar.vue'
 import PoolPanel from './PoolPanel.vue'
 import StreamCqrsPanel from './StreamCqrsPanel.vue'
 
-defineProps({
+const props = defineProps({
   state: { type: Object, required: true },
+})
+
+/* The demo's OWN running-state failure, drawn through the SAME component the
+   shell uses before it mounts this plugin (BR-AS79, task 16e). The shell's
+   check answered "available"; the connection dropped afterwards. That is the
+   plugin's half of the split, and a reader should not have to learn a second
+   layout to read it.
+
+   The wording is written HERE, by the plugin, about its own connection. The
+   shell writes its own in `demoReadinessText.js`. Only the presentation is
+   shared. The raw client error is a chip, never spliced into a sentence. */
+const BUSY = new Set(['connecting', 'reconnecting'])
+
+const outage = computed(() => {
+  const state = props.state
+  if (!state.error) return null
+  return {
+    tone: BUSY.has(state.status) ? 'warn' : 'off',
+    headline: BUSY.has(state.status)
+      ? 'Reconnecting to NATS.'
+      : 'Lost the connection to NATS.',
+    detail:
+      'The demo loaded, then the browser stopped receiving updates. What is on '
+      + 'screen is the last state we saw, so it may be out of date.',
+    items: [state.error],
+    busy: BUSY.has(state.status),
+  }
 })
 </script>
 
@@ -23,15 +54,21 @@ defineProps({
     <h1>{{ state.crumb.heading }}</h1>
   </header>
 
-  <template v-if="state.isLesson01">
-    <p
-      v-if="state.error"
-      class="panel err"
-      data-testid="connection-error"
-    >
-      {{ state.error }}
-    </p>
+  <!-- Demo-wide, not lesson-01's: a dropped connection stops both lessons
+       updating, so it is reported wherever the reader happens to be. -->
+  <DemoStatePanel
+    v-if="outage"
+    data-testid="connection-error"
+    :tone="outage.tone"
+    :headline="outage.headline"
+    :detail="outage.detail"
+    :items="outage.items"
+    :busy="outage.busy"
+    retry-label="Reconnect"
+    @retry="state.connect"
+  />
 
+  <template v-if="state.isLesson01">
     <StreamCqrsPanel
       :vehicles="state.vehicles"
       :writes="state.writes"
@@ -89,18 +126,7 @@ defineProps({
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
-.panel {
-  margin-top: 20px;
-  padding: 14px 16px;
-  border: 1px solid var(--lab-panel-border);
-  border-radius: 6px;
-  background: var(--lab-panel-bg);
-}
 
-.panel.err {
-  border-color: var(--err);
-  color: var(--err);
-}
 
 .wiring {
   display: flex;

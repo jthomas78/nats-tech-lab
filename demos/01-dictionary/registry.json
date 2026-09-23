@@ -53,6 +53,41 @@
       "approvedBackendServices": [
         "refdata-service"
       ]
+    },
+    {
+      "//": "Demo 04, curated (task 16e, R-1). Every field below is copied byte for byte from demos/04-jetstream-cqrs/frontend/public/manifest.json; the operator adds only `enabled`, which a plugin may never state about itself (decision 79, BR-AS43). `remote.url` stays the same-origin path the manifest declares, so the plugin is identical in both plugin sources (BR-AS78) and needs no REGISTRY_ALLOWED_ORIGINS entry (BR-AS72). In dev the shell's own asset proxy answers that path; in a hosted deployment the reverse proxy does.",
+      "id": "demo-04",
+      "name": "Odometer — JetStream CQRS",
+      "version": "0.1.0",
+      "description": "Rehydrating an aggregate: how much does a snapshot buy you? One NATS server, one log, two KV buckets.",
+      "schemaVersion": 1,
+      "shellApiVersion": 1,
+      "routePrefix": "demo-04",
+      "remote": {
+        "kind": "federated",
+        "url": "/plugins/demo-04/remoteEntry.js",
+        "name": "demo_04",
+        "module": "plugin"
+      },
+      "contributions": [
+        {
+          "kind": "route",
+          "id": "odometer",
+          "path": "/demo-04",
+          "title": "Odometer — JetStream CQRS",
+          "component": "odometer"
+        },
+        {
+          "kind": "navigation",
+          "id": "odometer-nav",
+          "label": "Odometer",
+          "route": "odometer",
+          "icon": "pi pi-gauge",
+          "order": 40
+        }
+      ],
+      "backendServices": [],
+      "enabled": true
     }
   ]
 }

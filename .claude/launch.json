@@ -4,7 +4,10 @@
     {
       "name": "refdata",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "demos/01-dictionary/frontend/refdata",
       "port": 7102
     },
@@ -25,7 +28,14 @@
       "//": "Added Phase 38d-i. Same purpose as refdata-vs-docker (dev server against the dockerized stack) but on 7107, because docker-compose then published every port from 7100 to 7106 and held them whenever the stack is up, colliding with the 7103 that refdata-vs-docker's own vite.docker.config.js pins with strictPort. 7103 was freed when the nats-ui/nui/nats-tower review containers were removed, so refdata-vs-docker works again and this entry is now a spare. The base vite.config already proxies /api/auth to accounts-service (7202) and /api to refdata-service (7201), both host ports of the running stack, so no config override is needed here.",
       "name": "refdata-dev-docker-7107",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "7107", "--strictPort"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "7107",
+        "--strictPort"
+      ],
       "cwd": "demos/01-dictionary/frontend/refdata",
       "port": 7107
     },
@@ -33,14 +43,24 @@
       "//": "Added Phase 50e. Same collision refdata-dev-docker-7107 documents: docker-compose publishes the built admin image on 7100, so `admin` (autoPort) lets vite bind localhost:7100 alongside it and every request to 127.0.0.1:7100 still reaches the container, not the dev server. --strictPort on a port docker does not hold is the only way to be sure which one you are looking at.",
       "name": "admin-dev-7108",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "7108", "--strictPort"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "7108",
+        "--strictPort"
+      ],
       "cwd": "demos/01-dictionary/frontend/admin",
       "port": 7108
     },
     {
       "name": "seafreight-app",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "demos/01-dictionary/frontend/seafreight-app",
       "port": 7101
     },
@@ -48,16 +68,22 @@
       "//": "Use admin-dev-7108 above when the docker stack is up. This entry's autoPort resolves the bind collision on 7100 but not the ambiguity it creates: docker-compose publishes the built admin image there, so requests to 127.0.0.1:7100 keep reaching the CONTAINER while vite serves your edits somewhere else. It is only safe with the stack down.",
       "name": "admin",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "demos/01-dictionary/frontend/admin",
       "port": 7100,
       "autoPort": true
     },
     {
-      "//": "The shell is containerised (lab-shell/Dockerfile) and published on 7110 by the compose stack; this entry runs the same app from source on the SAME port, so a registry entry curated for the stack stays correct either way and only one of the two can be up at a time. 7100-7106 are held by docker-compose whenever the stack is up and 7107/7108 are claimed above. No autoPort \u2014 the shell must be at a known port, since the example plugin (7111) is loaded by URL.",
+      "//": "The shell is containerised (lab-shell/Dockerfile) and published on 7110 by the compose stack; this entry runs the same app from source on the SAME port, so a registry entry curated for the stack stays correct either way and only one of the two can be up at a time. 7100-7106 are held by docker-compose whenever the stack is up and 7107/7108 are claimed above. No autoPort — the shell must be at a known port, since the example plugin (7111) is loaded by URL.",
       "name": "lab-shell",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "lab-shell",
       "port": 7110
     },
@@ -65,15 +91,21 @@
       "//": "Phase 16a. The same lab-shell app on the same 7110, but with VITE_PLUGIN_SOURCE=build, which Vite inlines at BUILD time — so the plugin source cannot be switched without restarting the server, and only one of this entry and `lab-shell` above can be up at a time. `build` discovers plugins by scanning demo folders and serves them under /plugins/<id>/; unset (the `lab-shell` entry) means `registry`, the recorded fingerprint baseline.",
       "name": "lab-shell-build-mode",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "VITE_PLUGIN_SOURCE=build npm run dev"],
+      "runtimeArgs": [
+        "-c",
+        "VITE_PLUGIN_SOURCE=build npm run dev"
+      ],
       "cwd": "lab-shell",
       "port": 7110
     },
     {
-      "//": "Phase 1b's example plugin. Its own toolchain, its own build, its own server \u2014 the shell never compiles it, which is what makes BR-AS03's no-host-rebuild claim testable rather than asserted (lab-shell/tools/hostBundleFingerprint.mjs). strictPort, because the shell reaches it by URL from the curated registry (demos/01-dictionary/registry.json) and a plugin that quietly moved would look like an unreachable remote rather than a moved one. Containerised too (its own Dockerfile), published on the same 7111 by the compose stack.",
+      "//": "Phase 1b's example plugin. Its own toolchain, its own build, its own server — the shell never compiles it, which is what makes BR-AS03's no-host-rebuild claim testable rather than asserted (lab-shell/tools/hostBundleFingerprint.mjs). strictPort, because the shell reaches it by URL from the curated registry (demos/01-dictionary/registry.json) and a plugin that quietly moved would look like an unreachable remote rather than a moved one. Containerised too (its own Dockerfile), published on the same 7111 by the compose stack.",
       "name": "example-plugin",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "lab-shell/plugins/example-plugin",
       "port": 7111
     },
@@ -81,21 +113,49 @@
       "//": "Contribution preview harness (shared/mfe-preview). Every plugin dev server answers /__preview with its contributions rendered outside the shell. These two entries exist because the compose stack publishes the plugins' own ports (7110-7115) whenever it is up, and each plugin's vite.config pins its port with strictPort — so a CLI --port override on a port docker does not hold is the only way to reach the dev server. 7150+ rather than the next free port, because scripts/new-plugin.sh hands the next sequential port to a NEW plugin and would collide. With the stack down, `example-plugin` / a plain `npm run dev` in the plugin serves /__preview on its normal port instead.",
       "name": "example-plugin-preview-7150",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "7150", "--strictPort"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "7150",
+        "--strictPort"
+      ],
       "cwd": "lab-shell/plugins/example-plugin",
       "port": 7150
     },
     {
+      "//": "The demo-catalog plugin on its own 7112 — the port demos/01-dictionary/registry.json curates and the port its container publishes. demo-catalog-preview-7151 below is for the /__preview harness when the compose stack holds 7112; this entry is for running the plugin itself with the stack's registry up but its frontend containers down.",
+      "name": "demo-catalog",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "lab-shell/plugins/demo-catalog",
+      "port": 7112
+    },
+    {
       "name": "demo-catalog-preview-7151",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "7151", "--strictPort"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "7151",
+        "--strictPort"
+      ],
       "cwd": "lab-shell/plugins/demo-catalog",
       "port": 7151
     },
     {
       "name": "docs",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "demos/01-dictionary/docs",
       "port": 7106
     },
@@ -103,7 +163,14 @@
       "//": "Same 7106 docker-compose collision the other -dev-* entries document. package.json's own dev script hardcodes --port 7106, so this bypasses it with npx vitepress directly. Use when the docs container is up; strictPort so the tab is unambiguously the dev server, not the container.",
       "name": "docs-dev-7109",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vitepress", "dev", ".", "--port", "7109", "--strictPort"],
+      "runtimeArgs": [
+        "vitepress",
+        "dev",
+        ".",
+        "--port",
+        "7109",
+        "--strictPort"
+      ],
       "cwd": "demos/01-dictionary/docs",
       "port": 7109
     },
@@ -111,7 +178,10 @@
       "//": "Demo 04's UI. Ports here follow 20<demo number><increment> and sit outside the 7100-7299 bands, which demo 01 has fully claimed: 20401 this dev server, 20402 the command API (`cqrs serve`), 20403 the NATS WebSocket. strictPort, because the command API's CORS allow-list names http://localhost:20401 exactly and a moved dev server would be refused rather than reported.",
       "name": "demo04-odometer",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "demos/04-jetstream-cqrs/frontend",
       "port": 20401
     }

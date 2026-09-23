@@ -196,9 +196,12 @@ describe('the dev middleware for a demo with no dev server', () => {
 })
 
 describe('the build-time collection', () => {
-  const built = (outRoot) => {
+  /* `plugin-source: build` throughout: BR-AS77 is a rule about the source
+     that SERVES `/plugins/<id>/…`. The registry-source case is its own spec at
+     the foot of this block. */
+  const built = (outRoot, env = { VITE_PLUGIN_SOURCE: 'build' }) => {
     const plugin = pluginAssets({ repoRoot })
-    plugin.configResolved({ root: outRoot, command: 'build', build: { outDir: 'dist' } })
+    plugin.configResolved({ root: outRoot, command: 'build', build: { outDir: 'dist' }, env })
     return plugin
   }
 
@@ -250,5 +253,25 @@ describe('the build-time collection', () => {
     const outRoot = join(repoRoot, 'lab-shell')
     expect(() => built(outRoot).closeBundle()).not.toThrow()
     expect(existsSync(join(outRoot, 'dist', 'plugins'))).toBe(false)
+  })
+
+  /* A registry-source build resolves every remote from the curated registry
+     and never answers `/plugins/<id>/…` itself. Demanding a demo's built
+     output there would fail a build that had no use for it — and it did: the
+     shell's own image could not be built until this gate existed. The
+     readiness scan is NOT gated this way; that one is required in both
+     sources (BR-AS79). */
+  it('collects nothing for a registry-source build, and does not fail it', () => {
+    const outRoot = join(repoRoot, 'lab-shell')
+    demo('04-jetstream-cqrs', { id: 'demo-04' })
+    const registrySource = built(outRoot, { VITE_PLUGIN_SOURCE: 'registry' })
+    expect(() => registrySource.closeBundle()).not.toThrow()
+    expect(existsSync(join(outRoot, 'dist', 'plugins'))).toBe(false)
+  })
+
+  it('treats an unset plugin source as registry, the same way the shell does', () => {
+    const outRoot = join(repoRoot, 'lab-shell')
+    demo('04-jetstream-cqrs', { id: 'demo-04' })
+    expect(() => built(outRoot, {}).closeBundle()).not.toThrow()
   })
 })

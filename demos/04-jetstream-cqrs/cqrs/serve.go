@@ -126,6 +126,24 @@ var errorNames = map[error]string{
 	ErrConflict:          "ErrConflict",
 }
 
+// readyCheck is one thing that had to be true, and whether it was.
+//
+// The shell shows a WORD, not this body: the codes below are a small closed
+// set it maps to its own sentences, so a message never arrives from here into
+// a page the shell is responsible for.
+type readyCheck struct {
+	Name string `json:"name"`
+	OK   bool   `json:"ok"`
+	// Code is "", "missing" or "unreachable". Nothing else.
+	Code string `json:"code,omitempty"`
+}
+
+// readinessChecker asserts that the demo's services are READY, not that a
+// port answered. A process that is up with no stream and no buckets serves
+// this endpoint perfectly and is not ready, which is the whole distinction
+// BR-AS79 asks for.
+type readinessChecker func(ctx context.Context) []readyCheck
+
 // apiDeps is everything the shim calls out to.
 //
 // A struct rather than a parameter list. The shim grew a seventh collaborator
@@ -141,6 +159,12 @@ type apiDeps struct {
 	seedPool     poolSeeder
 	dropPool     poolDropper
 	readPool     poolReader
+	// ready answers "are this demo's services ready", for the lab shell's
+	// pre-mount check (app-shell BR-AS79). It is nil in the specs that do
+	// not exercise it, and the handler answers "not ready" rather than
+	// panicking, because an unwired probe is a real deployment mistake and
+	// must not look like a healthy demo.
+	ready readinessChecker
 	// origins is an exact-match list -- the page is served from another
 	// port, so every real request is cross-origin, but a wildcard would let
 	// any page on the machine drive the demo.
@@ -153,6 +177,7 @@ func newCommandAPI(d apiDeps) http.Handler {
 	gate := &poolGate{}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/readyz", readyHandler(d.ready))
 	mux.HandleFunc("/rehydrate", rehydrateHandler(d.rehydrateOne, allowedOrigins))
 	mux.HandleFunc("/bench", benchStateHandler(d.readBench, allowedOrigins))
 	mux.HandleFunc("/bench/seed", benchSeedHandler(d.seedBench, allowedOrigins))
@@ -316,6 +341,42 @@ func setCORS(w http.ResponseWriter, r *http.Request, allowed []string) {
 	}
 }
 
+// readyHandler answers the lab shell's pre-mount check.
+//
+// It takes NO origin list and calls setCORS deliberately never. The shell
+// reaches this route through a proxy on its OWN origin (app-shell BR-AS79,
+// F-3), so the request is same-origin by the time it arrives and needs no
+// grant. Adding one here would be the cross-origin exception that rule
+// forbids, and it would be invisible until somebody audited this file.
+//
+// GET, because it reads. 200 when every check passed, 503 when one did not:
+// the status alone is enough for a caller that wants no body.
+func readyHandler(ready readinessChecker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, refusal{
+				Error: "MethodNotAllowed", Message: "readiness is read with GET",
+			})
+			return
+		}
+		checks := []readyCheck{{Name: "readiness", OK: false, Code: "unreachable"}}
+		if ready != nil {
+			checks = ready(r.Context())
+		}
+		all := true
+		for _, c := range checks {
+			if !c.OK {
+				all = false
+			}
+		}
+		status := http.StatusOK
+		if !all {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, map[string]any{"ready": all, "checks": checks})
+	}
+}
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -393,10 +454,35 @@ func runServe(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue
 	dropPoolLog := func(ctx context.Context) error { return dropPool(ctx, js) }
 	readPoolLog := func(ctx context.Context) (PoolState, error) { return poolState(ctx, js) }
 
+	// The readiness answer (app-shell BR-AS79). Three questions, asked of
+	// NATS each time rather than remembered: the log, the write-side
+	// snapshot bucket and the read model. A shim that started before
+	// `cqrs up` ran is up and NOT ready, and the difference is exactly what
+	// the lab shell needs in order to say so.
+	readyNow := func(ctx context.Context) []readyCheck {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		checks := []readyCheck{}
+		if _, err := js.Stream(ctx, StreamName); err != nil {
+			checks = append(checks, readyCheck{Name: "stream " + StreamName, Code: readyCode(err, jetstream.ErrStreamNotFound)})
+		} else {
+			checks = append(checks, readyCheck{Name: "stream " + StreamName, OK: true})
+		}
+		for _, bucket := range []string{WriteKV, ReadKV} {
+			if _, err := js.KeyValue(ctx, bucket); err != nil {
+				checks = append(checks, readyCheck{Name: "kv " + bucket, Code: readyCode(err, jetstream.ErrBucketNotFound)})
+				continue
+			}
+			checks = append(checks, readyCheck{Name: "kv " + bucket, OK: true})
+		}
+		return checks
+	}
+
 	srv := &http.Server{
 		Addr: addr,
 		Handler: newCommandAPI(apiDeps{
 			run:          run,
+			ready:        readyNow,
 			rehydrateOne: rehydrateOne,
 			seedBench:    seedFixture,
 			readBench:    readFixture,
@@ -420,6 +506,18 @@ func runServe(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue
 		return err
 	}
 	return nil
+}
+
+// readyCode separates "the thing is not there" from "we could not ask".
+//
+// Two codes, never more. A demo that has not been set up is a state a person
+// can fix with a command; a demo whose NATS is unreachable is not, and the
+// shell says something different about each.
+func readyCode(err error, notFound error) string {
+	if errors.Is(err, notFound) {
+		return "missing"
+	}
+	return "unreachable"
 }
 
 // sourceNamed turns the query parameter into a Source. An empty value is the

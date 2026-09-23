@@ -116,7 +116,11 @@ const publishedPorts = new Set(
   [...compose.matchAll(/-\s*"(\d{4}):\d+"/g)].map((m) => m[1]),
 )
 
-const originOf = (url) => new URL(url).origin
+/* A same-origin PATH has no origin of its own to check: it is served by
+   whatever origin the shell is, so BR-AS72 permits it with no allowlist entry
+   at all, and `Allowlist.Permits` says so in the service too. `null` here
+   means "nothing to compare", not "outside". */
+const originOf = (url) => (url.startsWith('/') && !url.startsWith('//') ? null : new URL(url).origin)
 const entry = (id) => registry.plugins.find((p) => p.id === id)
 /* Everything the lab can end up serving, whichever door it came in by. */
 const everyEntry = [...registry.plugins, ...announcedIds.map(announcedEntry)]
@@ -128,6 +132,7 @@ describe('the fixture agrees with the allowlist (BR-AS20)', () => {
     // announced manifest is refused the same way a curated row is — the tier
     // buys it nothing here.
     const stray = everyEntry
+      .filter((p) => originOf(p.remote.url) !== null)
       .filter((p) => !allowlist.includes(originOf(p.remote.url)))
       .map((p) => `${p.id} -> ${originOf(p.remote.url)}`)
     expect(stray).toEqual([])
@@ -142,11 +147,25 @@ describe('the fixture agrees with the allowlist (BR-AS20)', () => {
 })
 
 describe('BR-AS66 — a fresh lab serves only its preloaded plugin', () => {
-  it('curates demo-catalog and nothing else', () => {
-    // First boot against an empty database must serve the catalog alone. The
-    // five examples arrive announced and wait disabled for an operator, so
-    // any of them reappearing here would hand them an enable nobody granted.
-    expect(registry.plugins.map((p) => p.id)).toEqual(['demo-catalog'])
+  it('curates the lab\'s own plugins and nothing else', () => {
+    // First boot against an empty database must serve only what the lab
+    // itself ships. The five examples arrive announced and wait disabled for
+    // an operator, so any of them reappearing here would hand them an enable
+    // nobody granted.
+    //
+    // demo-04 joined the preload file in task 16e, to run the SAME demo under
+    // both plugin sources (R-1). Its row copies the demo's own
+    // `manifest.json` byte for byte and adds only `enabled`, which a plugin
+    // may never state about itself (decision 79, BR-AS43).
+    expect(registry.plugins.map((p) => p.id)).toEqual(['demo-catalog', 'demo-04'])
+  })
+
+  /* BR-AS78: a plugin is identical in both sources. demo-04's curated row
+     keeps the manifest's same-origin `remote.url`, so it needed no new
+     allowlisted origin and no second build — which is the strongest form of
+     that claim available. */
+  it('gives the curated demo the same remote url its own manifest declares', () => {
+    expect(entry('demo-04').remote.url).toBe('/plugins/demo-04/remoteEntry.js')
   })
 
   it('leaves every announced plugin out of the preload file', () => {
