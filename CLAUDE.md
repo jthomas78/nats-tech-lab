@@ -256,6 +256,23 @@ after any front matter change.
 Standard `go build ./...` / `go test ./...` / `npm run dev` / `docker compose up
 --build` work as expected. Non-standard:
 
+### Checking a findings deck against the lab
+
+`nats-clustering-findings-v*.html` quote counts, check IDs and a run timestamp
+that all come from `demos/03-multi-cluster-and-accounts/REPORT.md` — which is
+**generated**, so every `lab/run-all.sh` silently stales the deck. Before
+sharing or editing a deck, run:
+
+```bash
+python3 tools/check-deck-numbers.py nats-clustering-findings-v0.7.html
+```
+
+It changes nothing and exits non-zero when a number moved. It also lists the
+per-run observations the deck cites (`A10a`, `F6a`, `F7a`, …) — those timings
+differ on every run, so a deck must describe them in words, never quote a
+number. Add a row to `MARKERS` in the script when the deck grows a topology
+slide.
+
 ### Tests — Ginkgo is the preferred runner
 
 ```bash
