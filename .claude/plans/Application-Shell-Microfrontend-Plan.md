@@ -944,7 +944,7 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. Done: 16a, 16b, 16c, 16d, 16e. Not started: 16f to 16i.**
+re-opened. Done: 16a, 16b, 16c, 16d, 16e, 16f. Not started: 16g to 16i.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1754,7 +1754,7 @@ One thing left where it was: `nginx.conf` still names `accounts-service` in a li
 shell image still will not start without that service. That is a lab-service dependency, not a demo one, and
 it predates this task.
 
-**16f — Health presentation without a health plane.** *Decision 8. Rule BR-AS80. Resolves F-2.*
+**16f — Health presentation without a health plane. DONE 2026-09-24.** *Decision 8. Rule BR-AS80. Resolves F-2.*
 New: in `build` mode the health plane is not constructed; the injected health object carries an
 explicit "monitoring is not configured" flag beside its empty signals; the Plugins screen reads that
 flag and renders `not configured`, reusing the existing `HEALTH_STATE.NOT_CONFIGURED` constant.
@@ -1765,6 +1765,39 @@ never ages; no plugin rests at `unknown` in `build` mode; the nav is quiet witho
 are unchanged files; no new state, no new timer, no new freshness rule, and **no change to how
 health is calculated** — if any is needed, decision 9's display carve-out has been exceeded and a
 new decision is required. `HealthNotConfigured` stays backend-only on the registry service.
+
+**Verified 2026-09-24.** The substitution is one flag and one mapping, and nothing else moved.
+
+`main.js` resolves `monitored = source === PLUGIN_SOURCE_REGISTRY` once, puts it on the injected
+health object beside its empty `signals`, and gates FOUR things on it: `createHealthPlane` itself,
+the connection-epoch watch, the five-second ageing timer and the slow reconcile timer. In `build`
+mode none of them exist — so "`not configured` must not age" is true because there is no clock to
+age against, not merely because a label says so. `PluginsView.vue` reads the flag once for the page
+and maps it to the existing `HEALTH_STATE.NOT_CONFIGURED`, with the existing `healthTone`; the cell
+title says `no monitoring is configured for this deployment` rather than a time, because nothing was
+checked. No `HealthSignal` is constructed anywhere.
+
+Regression proven, not asserted: `git diff` is empty for `healthPlane.js` and `healthText.js`.
+`healthSourceIndependence.spec.js` holds that line from now on — neither measurement file may name
+`pluginSource`, `PLUGIN_SOURCE`, `VITE_PLUGIN_SOURCE` or `monitored`, and neither composition nor
+render site may write a `state:` or a `lastCheckAt`. `PluginsView.spec.js` is new and carries the
+acceptance words: in `build` mode both cells read `not configured` for every plugin, the word
+`unknown` is absent from the screen, `healthy`/`unavailable`/`stale` are absent, the tone is the
+shared quiet `off`, and `healthAttention(undefined)`/`healthAttention({})` both return null — which
+is why the nav needs no new code. Four more specs hold `registry` mode still: measured states are
+still said, a reading still names when it was taken, an unmeasured plugin still rests at `unknown`
+and not at `not configured`, and a health object with no flag at all is treated as monitored.
+
+Live in both modes on 7110, 1920x1080. `build`: 1 entry, `demo-04`, frontend `not configured`,
+backend `not configured`, and a DOM query found zero attention marks in the sidebar. `registry`
+(with `poc-postgres-1`, `poc-nats-1`, `poc-accounts-service-1`, `poc-mfe-registry-service-1` up):
+rev `2`, 2 entries, `demo-04` frontend `unknown` / backend `not applicable`, `demo-catalog`
+frontend `unknown` / backend `unavailable (no-responders)` — every one of them a measurement, and
+the words `not configured` nowhere on the page. Registry-mode health is visibly what it was.
+
+774 specs pass (66 files, up from 758). Lint 0 errors; `shell frame clean`. The host bundle moved
+because `main.js` did, and was re-recorded in the default (registry) mode: 17 assets, digest
+`aa366e8cfd9724359404c4ee05120102a1f7b8a75907641a739545b0ce881cf3`; `--verify` is stable after it.
 
 **16g — Legibility.** *Decision 11, closing questions. Rule BR-AS81.*
 New: a generated `demos/README.md` table written by the same scan as the catalogue; a page-level

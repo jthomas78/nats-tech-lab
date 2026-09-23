@@ -171,16 +171,31 @@ export async function bootstrap() {
      it (BR-AS65). A health read that hangs must not delay a single plugin:
      the catalogue is what the boot depends on, and health is decoration on
      top of whatever the boot produced. */
-  const health = reactive({ signals: {} })
+  /* BR-AS80, F-2. In `build` mode there is no health plane AT ALL: nothing is
+     subscribed, nothing is polled, nothing ages, and no `HealthSignal` is
+     synthesised to fill the gap. `monitored` is the whole substitution, and
+     it is a fact about the DEPLOYMENT — there is nothing set up to watch —
+     never an observation about a plugin. The render site reads the flag and
+     says `not configured`.
+
+     Said here, at the composition site, and nowhere lower down:
+     `healthPlane.js` owns `registry` mode's measurement semantics and must
+     not learn which source found a plugin, and `healthText.js` answers "how
+     is one signal said" — `monitored: false` is not a signal. Both files are
+     untouched, so `registry` mode's health is byte-for-byte what it was. */
+  const monitored = source === PLUGIN_SOURCE_REGISTRY
+  const health = reactive({ signals: {}, monitored })
   /* Copy every newer requested or pushed snapshot the plane installed. The
      value handed to Vue is always read back from the plane so its local
      freshness rule, rather than a transport payload, decides what is stale. */
-  const publishHealth = () => { health.signals = healthPlane.snapshot() }
-  const healthPlane = createHealthPlane({
-    transport: createHealthTransport({ request: connection.request }),
-    subscribe: (subject, handler) => connection.subscribe(subject, handler),
-    onChange: publishHealth,
-  })
+  const publishHealth = () => { health.signals = healthPlane?.snapshot() ?? {} }
+  const healthPlane = monitored
+    ? createHealthPlane({
+      transport: createHealthTransport({ request: connection.request }),
+      subscribe: (subject, handler) => connection.subscribe(subject, handler),
+      onChange: publishHealth,
+    })
+    : null
 
   const app = createApp(App)
   /* Deliberately narrow. The router, the connection registry and the health
@@ -198,7 +213,7 @@ export async function bootstrap() {
   })
   app.mount('#app')
   void session.start()
-  healthPlane.start()
+  healthPlane?.start()
   /* The menu-card refresh policy, separate from the pre-mount check by
      design: a card must show a status WITHOUT anybody opening the demo, and
      it is allowed to be a little old, because a card is a glance. Never
@@ -210,26 +225,34 @@ export async function bootstrap() {
      the session, so its boot read may legitimately run before the socket is
      ready. The epoch-triggered read repairs that race without a fast poll. */
   let healthEpoch = connection.state.epoch
-  const stopHealthEpoch = watch(() => connection.state.epoch, (epoch) => {
-    if (epoch <= healthEpoch) return
-    healthEpoch = epoch
-    void healthPlane.onReconnect().finally(publishHealth)
-  })
+  const stopHealthEpoch = monitored
+    ? watch(() => connection.state.epoch, (epoch) => {
+      if (epoch <= healthEpoch) return
+      healthEpoch = epoch
+      void healthPlane.onReconnect().finally(publishHealth)
+    })
+    : () => {}
 
   /* Ageing is a UI concern and makes no network request. A separate slow,
      per-shell jittered read reconciles a theoretically missed push while the
      connection looked continuous. Normal five-second updates are the one
-     central broadcast emitted by mfe-registry-service after its probe pass. */
-  const healthAgeTimer = setInterval(publishHealth, 5_000)
-  const healthReconcileTimer = setInterval(() => {
-    void healthPlane.refresh().finally(publishHealth)
-  }, healthReconcileInterval())
+     central broadcast emitted by mfe-registry-service after its probe pass.
+
+     Neither timer exists without a plane. That is BR-AS80's "`not configured`
+     must not age" said in the only place it can be true rather than merely
+     rendered: there is no clock to age against. */
+  const healthAgeTimer = monitored ? setInterval(publishHealth, 5_000) : null
+  const healthReconcileTimer = monitored
+    ? setInterval(() => {
+      void healthPlane.refresh().finally(publishHealth)
+    }, healthReconcileInterval())
+    : null
   if (import.meta.hot) import.meta.hot.dispose(() => {
-    clearInterval(healthAgeTimer)
-    clearInterval(healthReconcileTimer)
+    if (healthAgeTimer !== null) clearInterval(healthAgeTimer)
+    if (healthReconcileTimer !== null) clearInterval(healthReconcileTimer)
     stopHealthEpoch()
     demoStore.stop()
-    healthPlane.stop()
+    healthPlane?.stop()
     void session.stop()
   })
 }

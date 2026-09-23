@@ -11,6 +11,7 @@
 */
 import { computed, inject } from 'vue'
 
+import { HEALTH_STATE } from '../shell/registry/healthPlane.js'
 import { healthCheckedAt, healthLabel, healthTone } from '../shell/registry/healthText.js'
 import FirstBootNote from '../shell/ui/FirstBootNote.vue'
 import { describeContributions, statusDetail } from '../shell/registry/inventoryText.js'
@@ -33,6 +34,34 @@ const reload = () => window.location.reload()
    status beside it, because a plugin loaded correctly whether or not its
    backend is answering right now. */
 const signalsFor = (id) => shell.health?.signals?.[id] ?? {}
+
+/* BR-AS80 / F-2 — the whole `build`-mode health mapping, and it lives here
+   because it is a presentation answer, not a measurement.
+
+   `monitored: false` says there is nothing set up to watch. It is a fact
+   about the deployment, so it is answered once for the page rather than
+   per plugin, and no `HealthSignal` is invented to carry it. `not configured`
+   and `unknown` stay distinct: `unknown` means monitoring exists and has no
+   current reading, which is a different thing an operator acts on differently.
+
+   Nothing is said about WHEN, because nothing was checked — so `not
+   configured` cannot age, and the title says so rather than showing a time.
+   The constant and the tone are the shared ones, so the wording cannot drift
+   from the registry-mode cell beside it. */
+const monitored = computed(() => shell.health?.monitored !== false)
+const signalState = (id, side) => (
+  monitored.value ? healthLabel(signalsFor(id)[side]) : HEALTH_STATE.NOT_CONFIGURED
+)
+const signalToneFor = (id, side) => (
+  monitored.value
+    ? healthTone(signalsFor(id)[side]?.state)
+    : healthTone(HEALTH_STATE.NOT_CONFIGURED)
+)
+const signalTitle = (id, side) => {
+  if (!monitored.value) return 'no monitoring is configured for this deployment'
+  const at = healthCheckedAt(signalsFor(id)[side])
+  return at ? `last checked ${at}` : 'never checked'
+}
 
 const TONE = {
   active: 'ok',
@@ -153,11 +182,9 @@ const TOLERANCE = [
             >
               <span
                 class="pill"
-                :class="healthTone(signalsFor(row.id)[side]?.state)"
-                :title="healthCheckedAt(signalsFor(row.id)[side])
-                  ? `last checked ${healthCheckedAt(signalsFor(row.id)[side])}`
-                  : 'never checked'"
-              ><span class="pip" />{{ healthLabel(signalsFor(row.id)[side]) }}</span>
+                :class="signalToneFor(row.id, side)"
+                :title="signalTitle(row.id, side)"
+              ><span class="pip" />{{ signalState(row.id, side) }}</span>
             </td>
             <td :class="describeContributions(row.contributionKinds) ? 'lab-muted' : 'lab-dim'">
               {{ describeContributions(row.contributionKinds) || '— not indexed —' }}
