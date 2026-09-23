@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NATS Clustering — what the lab measured</title>
+<style>
+  :root{
+    --bg:#0d0f11; --bg2:#131416; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf;
+    --fam:var(--blue);
+  }
+  @page { size: A4 landscape; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px; font-feature-settings:"cv05","ss01";
+  }
+  .page{
+    width:297mm; height:210mm; overflow:hidden; padding:11mm 13mm 9mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(110% 90% at 82% -12%, #16202c 0%, var(--bg) 55%);
+  }
+  .page:last-child{page-break-after:auto}
+  .page.tight .body{gap:9px}
+  .page.tight h2{font-size:24px;line-height:30px}
+  .page.tight .lede{font-size:12px;line-height:18px}
+  .page.tight .titleblock{margin-top:11px;padding:12px 18px 13px}
+  .page.tight .panel{padding:10px 14px}
+  .page.tight td{padding:3.5px 10px 3.5px 0;font-size:11px;line-height:15px}
+  .page.tight li{font-size:11.1px;line-height:15.8px;margin-bottom:4px}
+  .page.tight .src li{font-size:9.7px;line-height:14px}
+  .page.tight .panel > .lbl{margin-bottom:7px}
+  .page.tight .body-p{font-size:11.5px;line-height:17px}
+  .page.tight .verdict{padding-top:10px}
+
+  /* ---------- cover ---------- */
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:52px;line-height:58px;letter-spacing:-.025em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 7px;margin-left:3px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:66%;margin-top:16px}
+  .cover-q{
+    margin-top:24px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:15px 20px;max-width:72%;
+  }
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:14.5px;line-height:23px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px 28px;margin-top:10px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:14px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  /* ---------- slide chrome ---------- */
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:9px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{
+    margin-top:13px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:13px 20px 15px;
+    display:grid;grid-template-columns:50px 1fr;gap:3px 14px;
+  }
+  .num{font-size:27px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:31px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:26px;line-height:32px;letter-spacing:-.015em;font-weight:700;margin:1px 0 5px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px;max-width:105ch}
+
+  .body{display:flex;flex-direction:column;gap:10px;margin-top:10px;flex:1;min-height:0}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .cols-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .cols-wide{display:grid;grid-template-columns:1.25fr 1fr;gap:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px 16px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:9px}
+  .panel.pro{border-left:2px solid var(--green)}
+  .panel.con{border-left:2px solid var(--red)}
+  .panel.pro > .lbl{color:var(--green)}
+  .panel.con > .lbl{color:var(--red)}
+  .panel.note{border-left:2px solid var(--amber)}
+  .panel.note > .lbl{color:var(--amber)}
+  .panel.accent{border-left:2px solid var(--fam)}
+  .panel.accent > .lbl{color:var(--fam)}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"\203A";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  p.body-p{color:var(--tx2);font-size:12px;line-height:18px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px;
+    font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0}
+  code.bad{color:var(--red);background:rgba(248,113,113,.08)}
+  .flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .step{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:6px 10px;
+    font-size:11px;color:var(--tx);line-height:15px}
+  .step.hi{border-color:var(--fam);color:var(--fam)}
+  .step.g{border-color:var(--green);color:var(--green)}
+  .arw{color:var(--stroke);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 10px 7px 0;font-weight:500}
+  td{padding:5px 10px 5px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .verdict{
+    margin-top:auto;padding-top:12px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;
+  }
+  .pill{border:1px solid var(--fam);color:var(--fam);border-radius:5px;padding:6px 11px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .verdict p{font-size:12.5px;line-height:19px;color:var(--tx)}
+  .verdict .side{font-size:10.5px;color:var(--tx3);letter-spacing:.06em;white-space:nowrap}
+  .src{font-size:10px;line-height:15px;color:var(--tx3);padding:11px 14px;break-inside:avoid}
+  .src li{font-size:10px;line-height:15px;margin-bottom:5px;color:var(--tx3)}
+  .src li b{color:var(--tx2)}
+  .src .lbl{margin-bottom:7px}
+
+  /* ---------- inline SVG figures ---------- */
+  .fig{display:block;width:100%;height:auto}
+  .fig .clu{fill:var(--bg2);stroke:var(--line2);stroke-width:1}
+  .fig .srv{fill:var(--panel2);stroke:var(--stroke);stroke-width:1}
+  .fig .srv.hi{stroke:var(--fam);fill:color-mix(in srgb,var(--fam) 12%,var(--panel2))}
+  .fig .srv.off{stroke:var(--red);fill:color-mix(in srgb,var(--red) 12%,var(--panel2))}
+  .fig .srv.ok{stroke:var(--green);fill:color-mix(in srgb,var(--green) 12%,var(--panel2))}
+  .fig .lbl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:var(--tx);font-variant-ligatures:none}
+  .fig .lbl.sm{font-size:9.5px;fill:var(--tx2)}
+  .fig .grp{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx3);letter-spacing:.07em}
+  .fig .edge{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx2)}
+  .fig .gwline{fill:none;stroke:var(--blue);stroke-width:1.6}
+  .fig .cut{fill:none;stroke:var(--red);stroke-width:1.8;stroke-dasharray:7 5}
+  .fig .xr{stroke:var(--red);stroke-width:1.8}
+  .fig .none{fill:none;stroke:var(--stroke);stroke-width:1.4;stroke-dasharray:3 4;stroke-opacity:.6}
+  .fig .leaf{fill:none;stroke:var(--purple);stroke-width:1.5;stroke-dasharray:5 3}
+  .fig .ring{fill:none;stroke:var(--amber);stroke-width:1.2;stroke-dasharray:4 4}
+  .fig .ring.g{stroke:var(--green)}
+  .fig .ring.r{stroke:var(--red)}
+  .fig .tOK{fill:var(--green)} .fig .tNO{fill:var(--red)} .fig .tF{fill:var(--fam)} .fig .tA{fill:var(--amber)}
+  .fig .barA{fill:color-mix(in srgb,var(--red) 55%,var(--panel2));stroke:var(--red);stroke-width:1}
+  .fig .barB{fill:color-mix(in srgb,var(--green) 55%,var(--panel2));stroke:var(--green);stroke-width:1}
+  .figcap{font-size:10px;line-height:15px;color:var(--tx3);margin-top:7px}
+</style>
+</head>
+<body>
+
+<!-- ========================= COVER ========================= -->
+<section class="page">
+  <div class="eyebrow-pill"><span class="dot"></span>NATS Tech Lab &nbsp;·&nbsp; Validation findings</div>
+
+  <h1 class="cover">NATS clustering:<br>how far do three<br>nodes actually<span class="hl">get you?</span></h1>
+
+  <p class="cover-sub">
+    Three demos in this lab were built to answer one growth question, and every claim
+    on the slides that follow is a measured number, not a design opinion.
+  </p>
+
+  <div class="cover-q">
+    <div class="lbl">The question</div>
+    <p>
+      We start on one three-instance cluster. When must we add a second cluster, a gateway,
+      an arbiter site or a leaf node — and what does JetStream cost us at each step?
+    </p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The evidence behind these slides</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>Demo 02 — multi-region · 6 servers, gateway, accounts</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>Demo 03 — 7 topologies · 73 checks, 0 failed</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>Demo 04 — JetStream + CQRS · rehydration cost</div>
+    </div>
+    <div class="cover-meta">
+      <span>Role: validation — a decision gets measured evidence</span>
+      <span>nats-server 2.14.3 / 2.14.6 · 10 minutes · 2026-09-20</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 01 ========================= -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">01 · The rig</span></div>
+
+  <div class="titleblock">
+    <div class="num">01</div>
+    <div class="fam-lbl">What was actually run</div>
+    <h2>Three demos, one growth question</h2>
+    <p class="lede">
+      Each demo holds everything still except one variable. Demo 02 varies the account model on a fixed
+      topology. Demo 03 varies the topology itself. Demo 04 drops to a single server and measures what
+      JetStream costs when you rebuild state from the log.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="cols-3">
+      <div class="panel accent" style="--fam:var(--blue)">
+        <div class="lbl">Demo 02 — multi-region</div>
+        <ul>
+          <li><b>6 servers</b>, two clusters of three, joined by one <b>gateway</b>.</li>
+          <li>Variable: the <b>account model</b>. One shared account, or one per region.</li>
+          <li>Answers: does a tenant wall hold across a gateway? What does <code>Replicas: 1</code> cost? Where does the data physically live?</li>
+        </ul>
+      </div>
+      <div class="panel accent" style="--fam:var(--amber)">
+        <div class="lbl">Demo 03 — topology as the variable</div>
+        <ul>
+          <li><b>7 runnable shapes</b> needing 6, 7 or 9 servers.</li>
+          <li>Every shape built from nothing by a script, measured, then torn down.</li>
+          <li><b>73 checks passed, 0 failed</b>, plus 19 recorded observations. A check has an expected answer and passes only on an exact match.</li>
+        </ul>
+      </div>
+      <div class="panel accent" style="--fam:var(--green)">
+        <div class="lbl">Demo 04 — JetStream + CQRS</div>
+        <ul>
+          <li><b>1 server</b>. No cluster, no gateway, no domain.</li>
+          <li>Variable: rebuild an aggregate <b>with</b> a snapshot, or <b>without</b> one.</li>
+          <li>Answers: what does replay cost, and how fast does that cost grow?</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="cols-wide">
+      <div class="panel flat">
+        <div class="lbl">The five words that keep getting confused</div>
+        <table>
+          <tr><td style="width:34%"><b>Region</b></td><td><b>Where</b> does it run?</td></tr>
+          <tr><td><b>Tenant</b></td><td><b>Whose</b> is it?</td></tr>
+          <tr><td><b>Account</b></td><td><b>What</b> may it touch?</td></tr>
+          <tr><td><b>Cell</b></td><td><b>What ships together?</b></td></tr>
+          <tr><td><b>JetStream domain</b></td><td><b>Which storage pool holds the log?</b></td></tr>
+        </table>
+      </div>
+      <div class="panel note">
+        <div class="lbl">Why this slide exists</div>
+        <p class="body-p">
+          These five are <b>independent axes</b>. No two of them may be defined as permanently equal.
+          One architecture drawing in the V3 set used the word <b>&ldquo;domain&rdquo; 26 times</b> on a single page,
+          carrying at least three unrelated meanings.
+        </p>
+        <p class="body-p" style="margin-top:8px">
+          Only one of the five is enforced by a machine: <b>NATS itself enforces the account wall</b>.
+          The rest are conventions we have to hold ourselves.
+        </p>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">Ground rule</span>
+      <p>Every number on the slides that follow names the day it was measured and the machine it ran on. The last slide lists them all.</p>
+      <span class="side">ADR-056 · demo 03 REPORT.md</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 02 ========================= -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">02 · Start with three</span></div>
+
+  <div class="titleblock">
+    <div class="num">02</div>
+    <div class="fam-lbl">The three-instance cluster</div>
+    <h2>Three servers is not three copies</h2>
+    <p class="lede">
+      A cluster is three instances because RAFT needs a majority to elect a leader, and the majority of
+      three is two — so one instance can be lost. That protects the <i>cluster</i>. It does not protect
+      your <i>stream</i>. Replication is a separate, per-stream choice, and its default is <b>one</b>.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="panel flat" style="padding-bottom:6px">
+      <svg class="fig" viewBox="0 0 900 178" xmlns="http://www.w3.org/2000/svg">
+        <!-- LEFT: replicas 1 -->
+        <text class="grp" x="10" y="12">REPLICAS: 1  —  DEFAULT</text>
+        <rect class="srv off" x="10"  y="30" width="110" height="60" rx="6"/>
+        <rect class="srv"     x="140" y="30" width="110" height="60" rx="6"/>
+        <rect class="srv"     x="270" y="30" width="110" height="60" rx="6"/>
+        <text class="lbl" x="45"  y="50">za-1</text>
+        <text class="lbl" x="175" y="50">za-2</text>
+        <text class="lbl" x="305" y="50">za-3</text>
+        <rect x="22" y="58" width="86" height="20" rx="4" fill="color-mix(in srgb,#3b8bff 18%,#15181c)" stroke="#3b8bff" stroke-opacity=".7"/>
+        <text class="lbl sm" x="30" y="72" style="fill:#3b8bff">ODOMETER</text>
+        <text class="lbl sm" x="152" y="72">— empty —</text>
+        <text class="lbl sm" x="282" y="72">— empty —</text>
+        <line class="xr" x1="16" y1="36" x2="114" y2="84"/>
+        <line class="xr" x1="114" y1="36" x2="16" y2="84"/>
+        <text class="edge" x="10" y="115">stop the one server holding it</text>
+        <text class="lbl tNO" x="10" y="136">stream is offline (10118)</text>
+        <text class="grp" x="10" y="158">DATA STUCK UNTIL THAT SERVER RETURNS</text>
+
+        <line x1="440" y1="0" x2="440" y2="178" stroke="#2a3038" stroke-width="1"/>
+
+        <!-- RIGHT: replicas 3 -->
+        <text class="grp" x="480" y="12">REPLICAS: 3  —  ASKED FOR, PER STREAM</text>
+        <rect class="srv off" x="480" y="30" width="110" height="60" rx="6"/>
+        <rect class="srv ok"  x="610" y="30" width="110" height="60" rx="6"/>
+        <rect class="srv ok"  x="740" y="30" width="110" height="60" rx="6"/>
+        <text class="lbl" x="515" y="50">za-1</text>
+        <text class="lbl" x="645" y="50">za-2</text>
+        <text class="lbl" x="775" y="50">za-3</text>
+        <rect x="492" y="58" width="86" height="20" rx="4" fill="color-mix(in srgb,#34d399 16%,#15181c)" stroke="#34d399" stroke-opacity=".7"/>
+        <rect x="622" y="58" width="86" height="20" rx="4" fill="color-mix(in srgb,#34d399 16%,#15181c)" stroke="#34d399" stroke-opacity=".7"/>
+        <rect x="752" y="58" width="86" height="20" rx="4" fill="color-mix(in srgb,#34d399 16%,#15181c)" stroke="#34d399" stroke-opacity=".7"/>
+        <text class="lbl sm" x="500" y="72" style="fill:#34d399">ODOMETER</text>
+        <text class="lbl sm" x="630" y="72" style="fill:#34d399">ODOMETER</text>
+        <text class="lbl sm" x="760" y="72" style="fill:#34d399">ODOMETER</text>
+        <line class="xr" x1="486" y1="36" x2="584" y2="84"/>
+        <line class="xr" x1="584" y1="36" x2="486" y2="84"/>
+        <text class="edge" x="480" y="115">stop the leader</text>
+        <text class="lbl tOK" x="480" y="136">new leader in about one second</text>
+        <text class="grp" x="480" y="158">NOTHING LOST · EVERY WRITE NOW COSTS THREE SERVERS</text>
+      </svg>
+    </div>
+
+    <div class="cols-wide">
+      <div class="panel flat">
+        <div class="lbl">Measured — demo 02, question 2</div>
+        <table>
+          <tr><th>Stream</th><th>Replicas</th><th>Stop the server holding it</th><th>Result</th></tr>
+          <tr><td><code>ODOMETER</code></td><td><b>1</b></td><td>yes</td><td class="bad">stream is offline (10118) — data stuck</td></tr>
+          <tr><td><code>ODOMETER</code></td><td><b>3</b></td><td>yes</td><td class="good">new leader in about a second — data fine</td></tr>
+        </table>
+      </div>
+      <div class="panel con">
+        <div class="lbl">The trap</div>
+        <ul>
+          <li>The default is <b>1</b>, and nothing warns you. A three-server cluster with an R1 stream survives nothing.</li>
+          <li><b>Replicas never cross a region.</b> <code>--replicas 3</code> means three copies in <code>za</code> — not one in each region.</li>
+          <li>R3 is slower and uses three times the disk. Choose it <b>on purpose, per stream</b>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">Recommendation</span>
+      <p>Start at three instances, one cluster. Set <b>Replicas: 3</b> explicitly on every stream and KV bucket that matters. Make it a reviewed default, not a habit.</p>
+      <span class="side">demo 02 · lab/02-replicas.sh</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 03 ========================= -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">03 · Scaling up</span></div>
+
+  <div class="titleblock">
+    <div class="num">03</div>
+    <div class="fam-lbl">Four ways to add a second region</div>
+    <h2>Every shape is majority arithmetic</h2>
+    <p class="lede">
+      Demo 03 built seven shapes from nothing and measured each one. The single question that separates
+      them is: <b>how many servers are in the JetStream meta group, and who still holds a majority when a
+      region goes dark?</b> Everything else follows from that one number.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="panel flat" style="padding-bottom:8px">
+      <svg class="fig" viewBox="0 0 1000 158" xmlns="http://www.w3.org/2000/svg">
+        <!-- T1 islands -->
+        <g>
+          <rect class="clu" x="72" y="16" width="86" height="34" rx="5"/>
+          <rect class="srv" x="80" y="24" width="18" height="18" rx="3"/><rect class="srv" x="106" y="24" width="18" height="18" rx="3"/><rect class="srv" x="132" y="24" width="18" height="18" rx="3"/>
+          <rect class="clu" x="72" y="80" width="86" height="34" rx="5"/>
+          <rect class="srv" x="80" y="88" width="18" height="18" rx="3"/><rect class="srv" x="106" y="88" width="18" height="18" rx="3"/><rect class="srv" x="132" y="88" width="18" height="18" rx="3"/>
+          <text class="grp" x="30" y="30">za</text><text class="grp" x="30" y="94">au</text>
+          <path class="none" d="M115 50 L115 80"/>
+          <text class="lbl" x="58" y="136">T1 · islands</text>
+          <text class="grp" x="42" y="150">6 SRV · 2 META GROUPS</text>
+        </g>
+        <!-- T2 gateway -->
+        <g transform="translate(250,0)">
+          <rect class="clu" x="72" y="16" width="86" height="34" rx="5"/>
+          <rect class="srv" x="80" y="24" width="18" height="18" rx="3"/><rect class="srv" x="106" y="24" width="18" height="18" rx="3"/><rect class="srv" x="132" y="24" width="18" height="18" rx="3"/>
+          <rect class="clu" x="72" y="80" width="86" height="34" rx="5"/>
+          <rect class="srv" x="80" y="88" width="18" height="18" rx="3"/><rect class="srv" x="106" y="88" width="18" height="18" rx="3"/><rect class="srv" x="132" y="88" width="18" height="18" rx="3"/>
+          <path class="gwline" d="M115 50 L115 80"/>
+          <text class="edge" x="122" y="69">gateway</text>
+          <rect class="ring r" x="62" y="8" width="106" height="114" rx="9"/>
+          <text class="lbl" x="52" y="136">T2 · gateway</text>
+          <text class="grp" x="40" y="150">6 SRV · 1 META GROUP</text>
+        </g>
+        <!-- T3 arbiter -->
+        <g transform="translate(500,0)">
+          <rect class="clu" x="30" y="16" width="86" height="34" rx="5"/>
+          <rect class="srv" x="38" y="24" width="18" height="18" rx="3"/><rect class="srv" x="64" y="24" width="18" height="18" rx="3"/><rect class="srv" x="90" y="24" width="18" height="18" rx="3"/>
+          <rect class="clu" x="30" y="80" width="86" height="34" rx="5"/>
+          <rect class="srv" x="38" y="88" width="18" height="18" rx="3"/><rect class="srv" x="64" y="88" width="18" height="18" rx="3"/><rect class="srv" x="90" y="88" width="18" height="18" rx="3"/>
+          <rect class="clu" x="160" y="48" width="40" height="34" rx="5"/>
+          <rect class="srv hi" x="171" y="56" width="18" height="18" rx="3" style="--fam:#f5b13d"/>
+          <path class="gwline" d="M116 33 L160 60"/>
+          <path class="gwline" d="M116 97 L160 72"/>
+          <path class="gwline" d="M73 50 L73 80"/>
+          <text class="edge" x="152" y="100">arbiter</text>
+          <rect class="ring g" x="20" y="8" width="190" height="114" rx="9"/>
+          <text class="lbl" x="30" y="136">T3 · + 1 arbiter</text>
+          <text class="grp" x="30" y="150">7 SRV · 1 META GROUP</text>
+        </g>
+        <!-- T5 hub and leaf -->
+        <g transform="translate(750,0)">
+          <rect class="clu" x="72" y="8" width="86" height="34" rx="5"/>
+          <rect class="srv" x="80" y="16" width="18" height="18" rx="3"/><rect class="srv" x="106" y="16" width="18" height="18" rx="3"/><rect class="srv" x="132" y="16" width="18" height="18" rx="3"/>
+          <rect class="ring" x="66" y="2" width="98" height="46" rx="8"/>
+          <rect class="clu" x="8" y="80" width="86" height="34" rx="5"/>
+          <rect class="srv" x="16" y="88" width="18" height="18" rx="3"/><rect class="srv" x="42" y="88" width="18" height="18" rx="3"/><rect class="srv" x="68" y="88" width="18" height="18" rx="3"/>
+          <rect class="ring" x="2" y="74" width="98" height="46" rx="8"/>
+          <rect class="clu" x="136" y="80" width="86" height="34" rx="5"/>
+          <rect class="srv" x="144" y="88" width="18" height="18" rx="3"/><rect class="srv" x="170" y="88" width="18" height="18" rx="3"/><rect class="srv" x="196" y="88" width="18" height="18" rx="3"/>
+          <rect class="ring" x="130" y="74" width="98" height="46" rx="8"/>
+          <path class="leaf" d="M100 48 L60 74"/>
+          <path class="leaf" d="M130 48 L170 74"/>
+          <text class="edge" x="40" y="62">leaf</text><text class="edge" x="168" y="62">leaf</text>
+          <text class="lbl" x="48" y="136">T5 · hub + leaf</text>
+          <text class="grp" x="34" y="150">9 SRV · 3 META GROUPS</text>
+        </g>
+      </svg>
+      <div class="figcap">
+        Red ring = one shared fate. Green ring = one shared fate that still has a majority when a region is lost.
+        Amber rings = separate JetStream systems, each with its own vote.
+      </div>
+    </div>
+
+    <div class="panel flat">
+      <table>
+        <tr><th style="width:15%">Shape</th><th style="width:9%">Servers</th><th style="width:19%">Meta group</th><th style="width:25%">A whole region goes dark</th><th>What you pay for it</th></tr>
+        <tr><td><b>T1</b> islands</td><td>6</td><td>3 + 3, majority 2 each</td><td class="good">both sides keep writing</td><td>nothing is shared at all — two real, unrelated streams of the same name</td></tr>
+        <tr><td><b>T2</b> gateway</td><td>6</td><td><b>6 shared</b>, majority 4</td><td class="bad">both sides freeze — 3 of 6 is not a majority</td><td>shared fate, in exchange for one namespace and no duplicates</td></tr>
+        <tr><td><b>T3</b> + arbiter</td><td>7</td><td>7 shared, majority 4</td><td class="good">survives — 4 of 7</td><td><b>zero slack</b>: one more node after that freezes it</td></tr>
+        <tr><td><b>T4</b> + 3 arbiters</td><td>9</td><td>9 shared, majority 5</td><td class="good">survives a region <b>plus one more node</b></td><td>a third site to run, and no further slack than that</td></tr>
+        <tr><td><b>T5</b> hub + leaf</td><td>9</td><td><b>3 + 3 + 3</b></td><td class="good">survives the hub vanishing entirely</td><td><b>double capture</b> — one publish genuinely stored twice, silently</td></tr>
+      </table>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">Read it this way</span>
+      <p>A gateway buys one namespace and costs you shared availability. A leaf link buys independence and costs you duplicate data. There is no shape that gives both.</p>
+      <span class="side">demo 03 · D03-R1, R6 · A2, C1, D1, F1</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 04 ========================= -->
+<section class="page" style="--fam:var(--red)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">04 · The gateway trap</span></div>
+
+  <div class="titleblock">
+    <div class="num">04</div>
+    <div class="fam-lbl">The most expensive thing on these slides</div>
+    <h2>A gateway makes one JetStream, not two</h2>
+    <p class="lede">
+      This is the finding that changes a design. A gateway does not join two JetStream systems — it fuses
+      them into one supercluster with <b>one meta group</b> and <b>one leader election</b>. The account wall
+      still holds for data. It does not hold for availability.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="cols-wide">
+      <div class="panel flat" style="padding-bottom:6px">
+        <svg class="fig" viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg">
+          <text class="grp tNO" x="8" y="10">ONE META GROUP &#183; SIZE 6 &#183; MAJORITY 4</text>
+          <rect class="ring r" x="8" y="18" width="544" height="104" rx="11"/>
+
+          <text class="grp" x="20" y="38">CLUSTER ZA &#8212; 3</text>
+          <rect class="clu" x="20" y="46" width="180" height="62" rx="7"/>
+          <rect class="srv" x="32"  y="60" width="46" height="34" rx="4"/>
+          <rect class="srv" x="90"  y="60" width="46" height="34" rx="4"/>
+          <rect class="srv" x="148" y="60" width="46" height="34" rx="4"/>
+
+          <text class="grp" x="360" y="38">CLUSTER AU &#8212; 3</text>
+          <rect class="clu" x="360" y="46" width="180" height="62" rx="7"/>
+          <rect class="srv" x="372" y="60" width="46" height="34" rx="4"/>
+          <rect class="srv" x="430" y="60" width="46" height="34" rx="4"/>
+          <rect class="srv" x="488" y="60" width="46" height="34" rx="4"/>
+
+          <path class="gwline" d="M200 77 L360 77"/>
+          <text class="edge" x="248" y="70">gateway 7222</text>
+
+          <path class="cut" d="M280 6 L280 136"/>
+          <text class="lbl tNO" x="252" y="152">WAN cut</text>
+
+          <text class="lbl tNO" x="20"  y="176">leader: NONE</text>
+          <text class="lbl tNO" x="360" y="176">leader: NONE</text>
+          <text class="grp" x="20"  y="194">3 OF 6 &#8212; NOT A MAJORITY</text>
+          <text class="grp" x="360" y="194">3 OF 6 &#8212; NOT A MAJORITY</text>
+        </svg>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="panel con">
+          <div class="lbl">What a 3/3 split freezes</div>
+          <ul>
+            <li><code>stream add</code> / <code>rm</code> / <code>edit</code> &rarr; <code class="bad">10008 JetStream system temporarily unavailable</code></li>
+            <li>Every account at the same moment. Measured with 3 JetStream accounts live: <b>1 meta group</b>, not three.</li>
+          </ul>
+        </div>
+        <div class="panel pro">
+          <div class="lbl">What keeps working</div>
+          <ul>
+            <li>Core NATS publish and subscribe.</li>
+            <li>Reads from a stream that already exists.</li>
+            <li><b>Writes into a stream that already exists</b> — measured 10 &rarr; 15 messages, all acked.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="cols-3">
+      <div class="panel flat">
+        <div class="lbl">One namespace means one name</div>
+        <ul>
+          <li>AU asks for a stream ZA already owns &rarr; <code class="bad">10058 stream name already in use</code></li>
+          <li>Overlapping subjects &rarr; <code class="bad">10065 subjects overlap</code></li>
+          <li>So inside one account a single publish can <b>never</b> be stored twice.</li>
+        </ul>
+      </div>
+      <div class="panel flat">
+        <div class="lbl">…and one copy, in one place</div>
+        <ul>
+          <li>AU's client keeps working, because a stream is reachable from either side of a gateway.</li>
+          <li>But <code>stream info</code> from AU reports cluster <b>za</b>. AU holds nothing.</li>
+          <li>AU pays the WAN on every read and goes dark for that stream when ZA is lost.</li>
+        </ul>
+      </div>
+      <div class="panel note">
+        <div class="lbl">Uneven regions behave differently</div>
+        <ul>
+          <li>A <b>3 / 3</b> split freezes both sides.</li>
+          <li>A <b>3 / 2</b> split does not — the side holding 3 of 5 keeps its leader.</li>
+          <li>Which side survives is arithmetic, so design the count deliberately.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">The decision</span>
+      <p>If both regions must accept a JetStream <b>change</b> while the other is dark, a plain two-region gateway cannot do it. Add a vote outside both regions, or stop sharing a meta group.</p>
+      <span class="side">demo 03 · A2, A4, A10, A11a, A12 · demo 02 CLAUDE.md</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 05 ========================= -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">05 · jetstream.domain</span></div>
+
+  <div class="titleblock">
+    <div class="num">05</div>
+    <div class="fam-lbl">The setting everybody reaches for first</div>
+    <h2>A domain is a leaf tool. A gateway is not a leaf link.</h2>
+    <p class="lede">
+      <code>jetstream.domain</code> looks like the fix for the previous slide. It is not. We set it over a
+      gateway, measured it, and it made things quietly worse. Over a <b>leaf</b> link the same setting is
+      real and does exactly what the name promises.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="panel flat" style="padding-bottom:6px">
+      <svg class="fig" viewBox="0 0 960 190" xmlns="http://www.w3.org/2000/svg">
+        <!-- LEFT: domain over a gateway -->
+        <text class="grp tNO" x="10" y="12">A &#183; DOMAIN OVER A GATEWAY &#8212; DOES NOT WORK</text>
+        <text class="grp" x="20" y="32">ZA &#183; domain "za"</text>
+        <text class="grp" x="250" y="32">AU &#183; domain "au"</text>
+        <rect class="ring r" x="10" y="38" width="400" height="74" rx="9"/>
+        <rect class="clu" x="20" y="50" width="150" height="52" rx="6"/>
+        <rect class="srv" x="30"  y="62" width="40" height="28" rx="4"/>
+        <rect class="srv" x="76"  y="62" width="40" height="28" rx="4"/>
+        <rect class="srv" x="122" y="62" width="40" height="28" rx="4"/>
+        <rect class="clu" x="250" y="50" width="150" height="52" rx="6"/>
+        <rect class="srv" x="260" y="62" width="40" height="28" rx="4"/>
+        <rect class="srv" x="306" y="62" width="40" height="28" rx="4"/>
+        <rect class="srv" x="352" y="62" width="40" height="28" rx="4"/>
+        <path class="gwline" d="M170 76 L250 76"/>
+        <text class="edge" x="182" y="70">gateway</text>
+        <text class="lbl tNO" x="20" y="134">meta group size still 6 &#8212; domains did NOT split it</text>
+        <text class="lbl tNO" x="20" y="152">one side never elects &#183; placement &#8594; 10005 no suitable peers</text>
+        <text class="grp" x="20" y="176">AND WHICH SIDE GOES BLIND IS A COIN TOSS &#8212; MEASURED BOTH WAYS</text>
+
+        <line x1="470" y1="0" x2="470" y2="190" stroke="#2a3038" stroke-width="1"/>
+
+        <!-- RIGHT: domain over a leaf -->
+        <text class="grp tOK" x="500" y="12">B &#183; DOMAIN OVER A LEAF LINK &#8212; REAL</text>
+        <text class="grp tA" x="682" y="30">HUB &#183; $JS.hub</text>
+        <rect class="ring" x="682" y="36" width="166" height="48" rx="8"/>
+        <rect class="clu" x="690" y="44" width="150" height="32" rx="6"/>
+        <rect class="srv" x="700" y="50" width="40" height="20" rx="4"/>
+        <rect class="srv" x="746" y="50" width="40" height="20" rx="4"/>
+        <rect class="srv" x="792" y="50" width="40" height="20" rx="4"/>
+
+        <rect class="ring" x="502" y="112" width="166" height="48" rx="8"/>
+        <rect class="clu" x="510" y="120" width="150" height="32" rx="6"/>
+        <rect class="srv" x="520" y="126" width="40" height="20" rx="4"/>
+        <rect class="srv" x="566" y="126" width="40" height="20" rx="4"/>
+        <rect class="srv" x="612" y="126" width="40" height="20" rx="4"/>
+        <text class="grp tA" x="502" y="176">ZA &#183; $JS.za &#183; OWN VOTE</text>
+
+        <rect class="ring" x="772" y="112" width="166" height="48" rx="8"/>
+        <rect class="clu" x="780" y="120" width="150" height="32" rx="6"/>
+        <rect class="srv" x="790" y="126" width="40" height="20" rx="4"/>
+        <rect class="srv" x="836" y="126" width="40" height="20" rx="4"/>
+        <rect class="srv" x="882" y="126" width="40" height="20" rx="4"/>
+        <text class="grp tA" x="772" y="176">AU &#183; $JS.au &#183; OWN VOTE</text>
+
+        <path class="leaf" d="M700 84 L640 112"/>
+        <path class="leaf" d="M830 84 L858 112"/>
+        <text class="edge" x="644" y="104">leaf</text>
+        <text class="edge" x="846" y="104">leaf</text>
+      </svg>
+    </div>
+
+    <div class="cols-3">
+      <div class="panel con">
+        <div class="lbl">Over a gateway — measured</div>
+        <ul>
+          <li>Meta group size <b>still 6</b>. A domain name cannot split a supercluster.</li>
+          <li>One cluster elects, the other reports <code>leader: null</code> forever.</li>
+          <li>Placing a stream on the blind cluster &rarr; <code class="bad">10005 no suitable peers for placement</code></li>
+          <li>The verdict in the report is blunt: <b>does not work</b>.</li>
+        </ul>
+      </div>
+      <div class="panel pro">
+        <div class="lbl">Over a leaf link — measured</div>
+        <ul>
+          <li><b>3 distinct meta groups</b>, sizes 3 / 3 / 3. Hub, ZA and AU each own their JetStream.</li>
+          <li>The whole hub can be stopped and both regions still elect, still create R3 streams, still store writes.</li>
+          <li>This is the only shape in the lab that survives the centre disappearing.</li>
+        </ul>
+      </div>
+      <div class="panel note">
+        <div class="lbl">The price nobody mentions</div>
+        <ul>
+          <li><b>Double capture is real here.</b> One publish in ZA was stored <b>1 and 1</b> — twice, in two systems, with no warning.</li>
+          <li><b>Nothing replicates by itself.</b> Every cross-region copy is hand-written.</li>
+          <li>A mirror over a leaf needs <code>mirror.external.api</code> &rarr; <code>$JS.au.API</code>. Without it: <b>0 messages copied</b>, and the stream reports healthy.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">The rule</span>
+      <p><b>A JetStream domain is a leaf-link tool.</b> Setting it over a gateway is not a smaller version of the same thing — it is a misconfiguration that reports success.</p>
+      <span class="side">demo 03 · D03-R3 · B3, B4, B6, D1, D2, D7, D8, D10–D15</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 06 ========================= -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">06 · JetStream itself</span></div>
+
+  <div class="titleblock">
+    <div class="num">06</div>
+    <div class="fam-lbl">Streams, consumers, KV and the cost of replay</div>
+    <h2>A KV bucket is a stream, and a consumer lives where its stream lives</h2>
+    <p class="lede">
+      Placement is not a separate subject from clustering — it is the same subject seen from inside one
+      cluster. And once state is rebuilt from a log, the length of that log becomes a latency number you
+      have to manage.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="cols-wide">
+      <div class="panel accent">
+        <div class="lbl">The CQRS shape measured in demo 04</div>
+        <div class="flow" style="margin-bottom:9px">
+          <span class="step">command</span><span class="arw">&rarr;</span>
+          <span class="step hi">rehydrate the aggregate</span><span class="arw">&rarr;</span>
+          <span class="step">check the rule</span><span class="arw">&rarr;</span>
+          <span class="step g">append</span>
+        </div>
+        <div class="flow">
+          <span class="step g">stream ODOMETER</span><span class="arw">&rarr;</span>
+          <span class="step">write consumer</span><span class="arw">&rarr;</span>
+          <span class="step hi">KV odometer-write &mdash; snapshot</span>
+        </div>
+        <div class="flow" style="margin-top:6px">
+          <span class="step g">stream ODOMETER</span><span class="arw">&rarr;</span>
+          <span class="step">read consumer</span><span class="arw">&rarr;</span>
+          <span class="step hi">KV odometer-read &mdash; read model</span>
+        </div>
+        <p class="body-p" style="margin-top:9px">
+          The log is the only source of truth. Delete both KV buckets and everything comes back.
+          Delete the stream and nothing does.
+        </p>
+      </div>
+
+      <div class="panel flat">
+        <div class="lbl">Rehydration — 10 001 events on one vehicle</div>
+        <svg class="fig" viewBox="0 0 520 114" xmlns="http://www.w3.org/2000/svg">
+          <text class="lbl sm" x="0" y="22">from seq 1</text>
+          <text class="grp" x="0" y="36">NO SNAPSHOT</text>
+          <rect class="barA" x="132" y="8" width="320" height="22" rx="3"/>
+          <text class="lbl tNO" x="462" y="24">25 ms</text>
+
+          <text class="lbl sm" x="0" y="68">snapshot</text>
+          <text class="grp" x="0" y="82">+ THE TAIL</text>
+          <rect class="barB" x="132" y="54" width="15" height="22" rx="3"/>
+          <text class="lbl tOK" x="158" y="70">1.1 ms</text>
+
+          <text class="grp tOK" x="0" y="106">ABOUT 23 TIMES FASTER &#8212; AND THE GAP GROWS WITH THE LOG</text>
+        </svg>
+        <p class="body-p" style="margin-top:8px">
+          Replay is <b>linear</b> in the length of the log. The snapshot read is one KV get and does not care
+          how long the log is. Take the log to 100k events and the left-hand bar grows tenfold while the
+          right-hand one does not move.
+        </p>
+      </div>
+    </div>
+
+    <div class="cols-3">
+      <div class="panel flat">
+        <div class="lbl">Placement — the rules we measured</div>
+        <ul>
+          <li>Everything lands <b>where the account's first request landed</b>, unless you name a cluster with <code>--cluster</code>.</li>
+          <li>A <b>KV bucket follows the same rule, because a bucket is a stream</b>.</li>
+          <li>A durable pull consumer created from AU for a ZA-held stream reported cluster <b>za</b>. AU held no part of it and paid the WAN on every pull.</li>
+        </ul>
+      </div>
+      <div class="panel note">
+        <div class="lbl">Two settings that fail silently</div>
+        <ul>
+          <li><b>LimitsPolicy, not InterestPolicy</b>, on any stream you intend to replay. InterestPolicy discards a message once every consumer has acked it, and the replay then returns nothing — with no error.</li>
+          <li><b>The snapshot is always stale.</b> Rehydration must read the snapshot <i>and then replay the tail</i>. Measured mid-catch-up: 2 900 events of tail in 12 ms.</li>
+        </ul>
+      </div>
+      <div class="panel con">
+        <div class="lbl">Storage — the standing rule</div>
+        <ul>
+          <li><b>A count is never shown without its bytes.</b> 100 000 000 events sounds reasonable right up to the moment you learn it is <b>7.6 GB</b>.</li>
+          <li>R3 triples that figure, per stream, per region.</li>
+          <li>Seeding one million events into the bench fixture takes about <b>2.2 seconds</b> — the log grows faster than anyone plans for.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">Recommendation</span>
+      <p>Treat snapshotting as a <b>requirement</b>, not an optimisation, on any aggregate that will take more than a few thousand events. And state a retention policy on day one, in bytes.</p>
+      <span class="side">demo 04 · README "The finding" · demo 03 CLAUDE.md</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 07 ========================= -->
+<section class="page" style="--fam:var(--red)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">07 · What will bite you</span></div>
+
+  <div class="titleblock">
+    <div class="num">07</div>
+    <div class="fam-lbl">Findings this lab added</div>
+    <h2>Five failures that report success</h2>
+    <p class="lede">
+      These are not in the documentation. Each one was found by a script that expected a specific answer
+      and got a different one. Every one of them looks healthy from the outside — which is exactly why
+      they are on a slide.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="cols">
+      <div class="panel con">
+        <div class="lbl">01 · The monitoring endpoint lies while it is stale</div>
+        <p class="body-p">
+          After the majority of a supercluster was frozen, <code>/jsz</code> kept naming a meta leader for
+          <b>roughly a minute</b>. Read it too early and a dead supercluster looks perfectly healthy.
+        </p>
+        <p class="body-p" style="margin-top:7px">
+          In that window the client does not get a clean refusal either — <b>it hangs and times out</b>.
+          The clean <code class="bad">10008</code> only appears once the old leader has aged out.
+        </p>
+      </div>
+      <div class="panel con">
+        <div class="lbl">02 · A new leader is named before it can take a change</div>
+        <p class="body-p">
+          After an election, <code>/jsz</code> names the new leader <b>seconds before</b> that leader will
+          accept a create. Ask immediately and the call is refused — on a supercluster that is in fact healthy.
+        </p>
+        <p class="body-p" style="margin-top:7px">
+          So <b>neither edge of a failover can be trusted from a single reading</b>. Health checks must
+          retry and record how long they waited, not sleep a magic number.
+        </p>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div class="panel con">
+        <div class="lbl">03 · A name-only mirror can copy the WRONG stream</div>
+        <p class="body-p">
+          A mirror with no <code>external.api</code> does not fail when the name it wants only exists in the
+          other region — <b>it just sits at zero</b>. Worse: if a stream of the same name also exists locally,
+          the mirror copies <i>that</i> one, reports healthy, and looks like it is working.
+        </p>
+        <p class="body-p" style="margin-top:7px">
+          Proved by giving the two streams different message counts. No error, no warning, wrong data.
+        </p>
+      </div>
+      <div class="panel con">
+        <div class="lbl">04 · Which region goes blind is a coin toss</div>
+        <p class="body-p">
+          Two runs of the same configuration, minutes apart, nothing changed — and the blind side swapped.
+        </p>
+        <p class="body-p" style="margin-top:7px">
+          <b>A team that tests this shape once will write down the wrong region's name.</b> Our check
+          deliberately refuses to name a side.
+        </p>
+      </div>
+    </div>
+
+    <div class="cols-wide">
+      <div class="panel note">
+        <div class="lbl">05 · A test that does not test reads exactly like a result</div>
+        <p class="body-p">
+          Not a NATS fact — a rig fact, and the most important one. An early version of the harness recorded
+          the wrong process id, so <code>kill -STOP</code> hit nothing and the &ldquo;frozen&rdquo; region stayed fully
+          alive. <b>The lab reported healthy behaviour and it looked like a finding.</b>
+          Every freeze in these scripts now proves itself first, by checking the monitor port has really gone dark.
+        </p>
+      </div>
+      <div class="panel flat">
+        <div class="lbl">Two numbers we retracted</div>
+        <ul>
+          <li>A cross-region &ldquo;double capture&rdquo; of <b>50 km</b> was a replay bug — a durable consumer was being deleted on every run.</li>
+          <li>A rehydration speed-up of <b>600&times;</b> was <b>99% consumer bookkeeping</b>, not log reading. The real figure is 23&times;.</li>
+          <li><b>A lab whose numbers only ever improve is not measuring.</b></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">Operational consequence</span>
+      <p>Do not build alerting, failover automation or a runbook on a single read of <code>/jsz</code>. Every one of these failures passes a naive health check.</p>
+      <span class="side">demo 03 REPORT.md · "Findings this rig added"</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 08 ========================= -->
+<section class="page tight" style="--fam:var(--blue)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">08 · The recommendation</span></div>
+
+  <div class="titleblock">
+    <div class="num">08</div>
+    <div class="fam-lbl">What this lets somebody decide</div>
+    <h2>Pick the shape from the requirement, not the diagram</h2>
+    <p class="lede">
+      Every row below is a requirement somebody will actually state, and the shape the measurements say it
+      selects. The mistakes happen when a shape is chosen first and a requirement is fitted to it afterwards.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="panel flat">
+      <table>
+        <tr><th style="width:31%">If the requirement is…</th><th style="width:22%">…the shape is</th><th>…and this is what it costs</th></tr>
+        <tr><td>One tenant must not see another tenant's data</td><td><b>An account.</b> Not a cluster, not a domain.</td><td>Nothing. It is the one wall NATS enforces itself, and it holds across a gateway.</td></tr>
+        <tr><td>One name, one copy, no duplicates possible</td><td><b>Gateway</b> (T2)</td><td class="mid">Shared availability. A 3/3 split freezes every account at once.</td></tr>
+        <tr><td>Both regions must accept a JetStream change while the other is dark</td><td><b>A vote outside both regions</b> — T3 (7) or T4 (9)</td><td class="mid">A third site. T3 has <b>zero</b> slack afterwards; T4 has exactly one node.</td></tr>
+        <tr><td>A region must keep running when the centre is gone</td><td><b>Leaf links + a domain per region</b> (T5)</td><td class="bad">Double capture, and every cross-region copy hand-written as a mirror.</td></tr>
+        <tr><td>Two accounts must share one subject on purpose</td><td><b>Export / import</b></td><td>One-directional, read-only, renamed on arrival. The only safe sharing measured.</td></tr>
+        <tr><td>Data must stay in-country (residency)</td><td><b>A regional cell</b>, gateway-joined, under the one global operator</td><td>Placement discipline: the tenant is pinned, no stream mirrors or sources leave the cell.</td></tr>
+        <tr><td>Access and control must stay in-country (sovereignty)</td><td><b>A sovereign cell</b> — own operator, own resolver, <b>no gateway</b></td><td class="mid">A second provisioning act, a second key chain to rotate, a second resolver to run.</td></tr>
+        <tr><td>A depot or yard must survive losing its link</td><td><b>A leaf node</b></td><td class="bad">It is <b>never</b> the answer to a cross-border requirement — it puts the trust root outside the border.</td></tr>
+      </table>
+    </div>
+
+    <div class="cols-3">
+      <div class="panel pro">
+        <div class="lbl">Where to start — and stay</div>
+        <ul>
+          <li><b>One cluster of three.</b> It survives one loss, and it is the whole of what most of the platform needs.</li>
+          <li><b>Replicas: 3</b> set explicitly on every stream and KV bucket that matters.</li>
+          <li>Accounts as the tenant wall from day one. Retrofitting that boundary later is the expensive move.</li>
+        </ul>
+      </div>
+      <div class="panel note">
+        <div class="lbl">What we have not measured yet</div>
+        <ul>
+          <li>The <b>latency</b> cost of a cross-region read. Placement is measured; latency is not.</li>
+          <li><b>Mirror lag and bandwidth</b> in either shape.</li>
+          <li>A hub that holds data of its own, rather than only relaying.</li>
+          <li>Leaf reconnect with more than two regions.</li>
+        </ul>
+      </div>
+      <div class="panel accent">
+        <div class="lbl">The next question</div>
+        <p class="body-p">
+          Every shape here is available today and we can pick one on the evidence. What we cannot yet price
+          is <b>the wire</b>: what a cross-border byte costs in latency and in bandwidth.
+        </p>
+        <p class="body-p" style="margin-top:8px">
+          That is the next demo, and it is the one that decides whether a gateway between regions is
+          affordable at all.
+        </p>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">In one line</span>
+      <p>Three nodes get you further than anyone expects. The moment a second region appears, the choice is <b>shared namespace</b> or <b>independent availability</b> — and you cannot have both.</p>
+      <span class="side">ADR-054 · ADR-056 · demo 03 D03-R1…R9</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= 09 ========================= -->
+<section class="page tight" style="--fam:var(--tx3)">
+  <div class="chead"><span>NATS clustering — what the lab measured</span><span class="r">09 · Provenance</span></div>
+
+  <div class="titleblock">
+    <div class="num">09</div>
+    <div class="fam-lbl">Where every number came from</div>
+    <h2>A figure with no provenance becomes a stale constant</h2>
+    <p class="lede">
+      Each number on these slides, the day it was measured, and what it ran on. Nothing here was taken
+      from documentation or from memory.
+    </p>
+  </div>
+
+  <div class="body">
+    <div class="panel flat">
+      <div class="lbl">The runs</div>
+      <table>
+        <tr><th style="width:26%">Source</th><th style="width:20%">Measured</th><th style="width:26%">On</th><th>What it produced</th></tr>
+        <tr><td><b>Demo 03</b> — <code>lab/run-all.sh</code></td><td>2026-09-17 20:28 SAST</td><td>nats-server 2.14.6 · Darwin 25.4.0 arm64</td><td>73 checks passed, 0 failed, 19 notes, across 7 topologies. Meta group sizes, 10008 / 10058 / 10005 refusals, mirror behaviour, all five findings.</td></tr>
+        <tr><td><b>Demo 02</b> — multi-region lab scripts</td><td>2026-09-09 &amp; 2026-09-11</td><td>nats-server 2.14 in Docker, one host</td><td>Replicas 1 vs 3, the account wall across a gateway, WAN cut = change freeze only (10 &rarr; 15 messages acked), subject overlap 10065.</td></tr>
+        <tr><td><b>Demo 04</b> — <code>cqrs rehydrate</code></td><td>2026-09-16</td><td>nats-server 2.14.3 in Docker, on a laptop</td><td>10 001 events on one vehicle, best of three runs each way: 25 ms without a snapshot, 1.1 ms with one.</td></tr>
+        <tr><td><b>ADR-054 / ADR-056</b></td><td>Accepted 2026-09-07 / 2026-09-18</td><td>V3 platform architecture record</td><td>The five axes, the tenant-wall rule, and the three cross-border shapes (leaf node, regional cell, sovereign cell).</td></tr>
+      </table>
+    </div>
+
+    <div class="cols">
+      <div class="panel note">
+        <div class="lbl">Retractions — both corrections are on the record</div>
+        <ul>
+          <li><b>&ldquo;25 / 25 / 50 km cross-region double capture&rdquo; is withdrawn.</b> The 25 came from a durable pull consumer being deleted on every projector run, so each run replayed the whole stream. Four runs over a stream holding <b>one</b> message read 12.5, 25, 37.5, 50. The 50 came from adding one region's number to the other while both read the same bucket. Behind a gateway there is nothing to capture twice — <b>double capture is real in the hub-and-leaf shape instead</b>.</li>
+          <li><b>&ldquo;8.2 s, about 600&times;&rdquo; is withdrawn.</b> The replay used an ordered consumer's <code>Next()</code>, which resets the consumer on every call — the demo was creating one consumer per event. About 99% of that time was consumer bookkeeping. The corrected figure is <b>25 ms vs 1.1 ms, about 23&times;</b>. The lesson survived the correction; the number now measures the lesson instead of a bug.</li>
+        </ul>
+      </div>
+      <div class="panel flat src">
+        <div class="lbl">How to reproduce any of it</div>
+        <ul>
+          <li><b>Demo 03, all seven topologies:</b> <code>demos/03-multi-cluster-and-accounts/lab/run-all.sh</code> — builds every shape from nothing and regenerates <code>REPORT.md</code> and <code>REPORT.html</code>. Both are generated; neither is hand-edited.</li>
+          <li><b>Demo 02, replicas and the account wall:</b> <code>demos/02-multi-region/lab/01-the-wall.sh</code>, <code>02-replicas.sh</code>, <code>03-odometer.sh</code>.</li>
+          <li><b>Demo 04, rehydration:</b> <code>cqrs seed -vehicle V1 -n 10000</code>, then <code>cqrs rehydrate -snapshot=false</code>; wait about 20 seconds for the asynchronous snapshotter, then <code>cqrs rehydrate -snapshot=true</code>.</li>
+          <li><b>A caution that applies to all three:</b> never fake a WAN cut with <code>docker network disconnect</code> — it drops published host ports, and an early run wrongly reported that both regions had died.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <span class="pill">Standing rule</span>
+      <p>If a number on a slide cannot name its day and its machine, it does not go on the slide.</p>
+      <span class="side">nats-tech-lab · 2026-09-20</span>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
