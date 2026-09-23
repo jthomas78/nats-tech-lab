@@ -23,6 +23,7 @@ import { createShellDialer } from './shell/connections/shellDialer.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createPluginLoader } from './shell/loader/pluginLoader.js'
 import { pluginSource, PLUGIN_SOURCE_REGISTRY } from './shell/pluginSource.js'
+import { createBuildCatalogueClient } from './shell/registry/buildCatalogueClient.js'
 import { createHealthPlane, createHealthTransport, healthReconcileInterval } from './shell/registry/healthPlane.js'
 import { createRegistryTransport } from './shell/registry/registryTransport.js'
 import { createRegistrySession } from './shell/registry/registrySession.js'
@@ -120,12 +121,11 @@ export async function bootstrap() {
     client = createRegistryTransport({ request: connection.request })
   } else {
     connection = createNullConnection()
-    /* TODO(16b) — the build catalogue client. 16a wires the source and the
-       connection only; until the generator exists there is no document to
-       read, and a FAILED read with a code is the honest report of that. It is
-       deliberately not an empty success: BR-AS76 requires a missing catalogue
-       and an empty one to render differently, and this is the missing case. */
-    client = { fetchRegistry: async () => ({ ok: false, code: 'build-catalogue-unavailable' }) }
+    /* The generated document is the authority here — no broker, no signature,
+       no publisher table. It is read over plain HTTP from the shell's own
+       origin, and it returns the transport's exact result shape, so every
+       stage after this line is the same code in both modes (BR-AS76). */
+    client = createBuildCatalogueClient({ fetch: window.fetch.bind(window) })
   }
 
   const session = createRegistrySession({

@@ -36,6 +36,18 @@ const shellRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const distDir = join(shellRoot, 'dist')
 const fingerprintFile = join(shellRoot, 'tools', '.host-bundle-fingerprint.json')
 
+/* The generated `build`-mode catalogue (task 16b). It is emitted beside the
+   bundle, not into it, and it is CONFIGURATION rather than host code — the
+   list of which plugins exist. Fingerprinting it would assert the opposite of
+   BR-AS03: that adding a plugin must not change the list of plugins. So it is
+   excluded from the digest and from the name scan, and the claim the tool
+   makes is the exact one BR-AS03 makes — adding a plugin leaves every host
+   chunk untouched. If a plugin's code or URL ever reached a hashed host chunk,
+   this exclusion would not hide it; the chunk is still fingerprinted and still
+   scanned. */
+const GENERATED_CATALOGUE = 'plugin-catalogue.json'
+const isGeneratedCatalogue = (file) => relative(distDir, file) === GENERATED_CATALOGUE
+
 /*
   Two tiers, because BR-AS03 and BR-AS66 both hold and they touch the same
   words. Narrowed 2026-09-23 after this check had been red since 2026-09-01
@@ -112,7 +124,7 @@ function build() {
 }
 
 function fingerprint() {
-  const files = walk(distDir)
+  const files = walk(distDir).filter((file) => !isGeneratedCatalogue(file))
   const entries = files.map((file) => ({
     path: relative(distDir, file),
     sha256: createHash('sha256').update(readFileSync(file)).digest('hex'),
@@ -127,6 +139,7 @@ function assertNoPluginNames() {
   let proseSeen = false
   for (const file of walk(distDir)) {
     if (!/\.(js|css|html|json)$/.test(file)) continue
+    if (isGeneratedCatalogue(file)) continue
     const text = readFileSync(file, 'utf8')
     const name = relative(distDir, file)
     const proseAllowed = text.includes(PROSE_ANCHOR)

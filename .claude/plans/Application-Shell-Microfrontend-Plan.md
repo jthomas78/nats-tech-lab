@@ -944,7 +944,7 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. In progress: 16a. Not started: 16b to 16h.**
+re-opened. Done: 16a, 16b. Not started: 16c to 16i.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1573,7 +1573,7 @@ Acceptance: the source resolves once and cannot vary per plugin; `build` mode bo
 no credential mint and no call to `accounts-service`; `registrySession.js` and `readPolicy.js` are
 unchanged files. Regression: `registry` mode's boot order, subjects and grants unchanged.
 
-**16b — The catalogue generator and the build client.** *Decisions 4, 5. Rules BR-AS76, BR-AS81.*
+**16b — The catalogue generator and the build client. DONE 2026-09-23.** *Decisions 4, 5. Rules BR-AS76, BR-AS81.*
 New: a Vite plugin scanning `demos/*/frontend/public/manifest.json`, serving from memory in dev with
 a re-scan when a manifest changes, and emitting a static document into `dist/` on build; a build
 catalogue client returning the transport's exact shape
