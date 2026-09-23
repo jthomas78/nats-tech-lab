@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JetStream RAFT groups</title>
+  <style>
+    :root { --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87; --bg:#14171b; --panel:#1a1e23; --border:#2c3138; --accent:#006fff; --nested:#171c29; --sync:#4d94ff; --store:#2dd4bf; --evtl:#f0b429; --bad:#f87171; --hop:#8b93a1; --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace; --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); font-size:13px; line-height:20px; -webkit-font-smoothing:antialiased; }
+    .wrap { max-width:1080px; margin:0 auto; padding:24px 18px 64px; display:flex; flex-direction:column; gap:26px; }
+    .head,.sec { display:flex; flex-direction:column; gap:5px; }
+    .eyebrow,.grp { font-family:var(--mono); font-size:9.5px; letter-spacing:.07em; color:var(--dim); }
+    .grp { fill:var(--dim); }
+    h1 { margin:0; font-size:20px; line-height:26px; font-weight:600; letter-spacing:-.01em; }
+    h2 { margin:0; font-size:15px; line-height:21px; font-weight:600; }
+    .sub { margin:0; color:var(--muted); max-width:76ch; }
+    figure { margin:0; background:var(--panel); border:1px solid var(--border); border-radius:4px; overflow:hidden; }
+    .fig-body { padding:14px 14px 4px; overflow-x:auto; }
+    svg { display:block; width:100%; max-width:100%; height:auto; color:var(--muted); }
+    figcaption { padding:9px 14px 11px; border-top:1px solid var(--border); color:var(--muted); font-size:12px; line-height:18px; }
+    figcaption b, li b { color:var(--text); font-weight:600; }
+    ul { margin:0; padding-left:18px; color:var(--muted); display:flex; flex-direction:column; gap:5px; max-width:78ch; }
+    .n { fill:none; stroke:currentColor; stroke-width:1; }
+    .nb { fill:none; stroke:currentColor; stroke-width:1; stroke-dasharray:4 3; stroke-opacity:.5; }
+    .lbl { font-family:var(--mono); font-size:11px; fill:var(--text); }
+    .lbl2,.edge { font-family:var(--mono); font-size:9.5px; fill:var(--dim); }
+    .flow { fill:none; stroke:var(--sync); stroke-width:1.4; }
+    .rep { fill:none; stroke:var(--evtl); stroke-width:1.4; stroke-dasharray:5 4; }
+    .state { fill:none; stroke:var(--store); stroke-width:1.4; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <span class="eyebrow">JetStream clustering · RAFT replication model</span>
+      <h1>Three RAFT group types, each with a different scope</h1>
+      <p class="sub">RAFT is not one cluster-wide log for all JetStream data. A JetStream cluster has one metadata group, then separate groups for every stream and consumer that needs replicated state.</p>
+    </header>
+
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1000 500" role="img" aria-label="A three-node JetStream cluster containing three RAFT group types. The single meta group holds cluster-wide JetStream configuration and placement. The ORDERS stream group replicates stream messages and stream state between three replicas. The ORDERS_DISPATCH consumer group replicates delivery, acknowledgement, and pending-message state between three replicas. Each group elects its own leader independently.">
+          <defs>
+            <marker id="main-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+            <marker id="main-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+            <marker id="main-state" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          </defs>
+
+          <rect class="nb" x="14" y="28" width="972" height="448" rx="4"/>
+          <text class="grp" x="28" y="48">JETSTREAM CLUSTER — THREE NATS SERVERS</text>
+
+          <rect class="n" x="44" y="70" width="168" height="54" rx="3"/>
+          <text class="lbl" x="128" y="92" text-anchor="middle">js-1</text><text class="lbl2" x="128" y="108" text-anchor="middle">NATS Server + JetStream</text>
+          <rect class="n" x="416" y="70" width="168" height="54" rx="3"/>
+          <text class="lbl" x="500" y="92" text-anchor="middle">js-2</text><text class="lbl2" x="500" y="108" text-anchor="middle">NATS Server + JetStream</text>
+          <rect class="n" x="788" y="70" width="168" height="54" rx="3"/>
+          <text class="lbl" x="872" y="92" text-anchor="middle">js-3</text><text class="lbl2" x="872" y="108" text-anchor="middle">NATS Server + JetStream</text>
+
+          <text class="grp" x="160" y="145">1 · META GROUP — ONE PER JETSTREAM CLUSTER</text>
+          <rect class="n" x="44" y="174" width="912" height="48" rx="3"/>
+          <text class="lbl" x="500" y="195" text-anchor="middle">JetStream metadata: streams, consumers, accounts, placement</text>
+          <text class="lbl2" x="500" y="210" text-anchor="middle">cluster-level control plane — does not carry retained stream messages</text>
+          <path class="flow" marker-end="url(#main-sync)" d="M128 124 L128 172"/>
+          <path class="flow" marker-end="url(#main-sync)" d="M500 124 L500 172"/>
+          <path class="flow" marker-end="url(#main-sync)" d="M872 124 L872 172"/>
+          <text class="edge" x="635" y="160">one elected leader</text>
+
+          <text class="grp" x="28" y="258">2 · STREAM GROUP — ONE PER STREAM (EXAMPLE: ORDERS, REPLICAS = 3)</text>
+          <path class="n" d="M44 278 L44 324 A84 8 0 0 0 212 324 L212 278"/><ellipse class="n" cx="128" cy="278" rx="84" ry="8"/>
+          <text class="lbl" x="128" y="300" text-anchor="middle">ORDERS · leader</text><text class="lbl2" x="128" y="314" text-anchor="middle">messages + stream state</text>
+          <path class="n" d="M416 278 L416 324 A84 8 0 0 0 584 324 L584 278"/><ellipse class="n" cx="500" cy="278" rx="84" ry="8"/>
+          <text class="lbl" x="500" y="300" text-anchor="middle">ORDERS · follower</text><text class="lbl2" x="500" y="314" text-anchor="middle">replica</text>
+          <path class="n" d="M788 278 L788 324 A84 8 0 0 0 956 324 L956 278"/><ellipse class="n" cx="872" cy="278" rx="84" ry="8"/>
+          <text class="lbl" x="872" y="300" text-anchor="middle">ORDERS · follower</text><text class="lbl2" x="872" y="314" text-anchor="middle">replica</text>
+          <path class="rep" marker-end="url(#main-rep)" d="M214 300 L404 300"/><path class="rep" marker-end="url(#main-rep)" d="M586 300 L776 300"/>
+          <text class="edge" x="312" y="291" text-anchor="middle">R=3: RAFT log replication</text>
+
+          <text class="grp" x="220" y="410">3 · CONSUMER GROUP — PER CONSUMER, R=3 IN THIS EXAMPLE</text>
+          <path class="state" marker-end="url(#main-state)" d="M128 332 L128 430 L500 430 L500 442"/>
+          <rect class="n" x="374" y="442" width="252" height="44" rx="3"/>
+          <text class="lbl" x="500" y="461" text-anchor="middle">ORDERS_DISPATCH consumer</text><text class="lbl2" x="500" y="475" text-anchor="middle">ack floor · pending · delivery state</text>
+          <text class="edge" x="312" y="424" text-anchor="middle">consumer reads stream; its state is separate</text>
+        </svg>
+      </div>
+      <figcaption><b>Independent quorums.</b> Each group has its own membership and leader election. A failure or leader change in the <code>ORDERS</code> stream group does not itself elect a new meta-group leader, and a consumer’s acknowledgement state is not stored in the stream’s RAFT log.</figcaption>
+    </figure>
+
+    <section class="sec">
+      <h2>What differs in practice</h2>
+      <ul>
+        <li><b>Meta group:</b> one per JetStream cluster; records the cluster’s JetStream configuration and placement decisions. It is the control plane.</li>
+        <li><b>Stream group:</b> one per stream; replicates retained messages and stream state according to that stream’s replica count. It is the data log.</li>
+        <li><b>Consumer group:</b> one per consumer; replicates consumer progress such as acknowledgements, pending messages, and delivery attempts when the consumer is replicated. It is delivery state, not another copy of the stream.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
