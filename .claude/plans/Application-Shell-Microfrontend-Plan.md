@@ -940,10 +940,11 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 ---
 
-### Phase 16 — NOT OPENED (proposed 2026-09-23; design gate PASSED 2026-09-23) — `plugin-source: build`: one shell, two catalogue sources, and the demos as plugins
+### Phase 16 — APPROVED (design gate passed 2026-09-23) — `plugin-source: build`: one shell, two catalogue sources, and the demos as plugins
 
-**Status: PROPOSED. Nothing is built. Design decisions below are unapproved; this phase gains a task
-checklist only after its own gate, per this file's required sequence.**
+**Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
+APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
+re-opened. In progress: 16a. Not started: 16b to 16h.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1563,7 +1564,7 @@ Every task names the decisions it implements and the rules it must satisfy. **Ne
 behaviour** is work that did not exist before. **Registry regression** is coverage that proves
 `registry` mode did not move; it adds no feature and no rule.
 
-**16a — Source selection and the null connection.** *Decisions 2, 3. Rule BR-AS75.*
+**16a — Source selection and the null connection. DONE 2026-09-23.** *Decisions 2, 3. Rule BR-AS75.*
 New: `pluginSource.js` resolving `build` or `registry` from an explicit environment variable, once,
 before any catalogue read; a null connection exposing the real surface (`state.epoch`, `subscribe`,
 `request`, `start`, `flush`, `close`) so `createRegistrySession` runs unmodified; `main.js` rewired
@@ -1659,6 +1660,18 @@ as a property of this shell; demos 02 and 03 carry **no health indicator and no 
 the `announced` / `preload` labels are untouched and not displayed alongside `plugin-source`. The
 demo menu and the Plugins screen are allowed to differ.
 
+**16i — Publish the rules and their coverage rows.** *All eleven decisions. Rules BR-AS75 to BR-AS81.*
+No behaviour. The seven rules are **written in full in this phase, above**, and are the wording of
+record until they are published. Deliverable: add BR-AS75 to BR-AS81 to
+`demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` under a Phase 16 section, **verbatim** from this
+file, each with its coverage row naming the spec or gate that proves it. Deliberately last: a rule
+published before its task is built has no coverage row to carry, and a row written against work that
+has not landed is a claim rather than a proof.
+Acceptance: all seven appear, byte-identical to the wording above; every one carries a coverage row
+pointing at a spec or gate that actually runs; no existing BR-AS rule is amended in the process — if
+one has to be, the split was cut in the wrong place (decision 9). Until this task is done, the rules
+live only here, and that is deliberate, not an omission.
+
 **16h — Registry regression gate.** *Decision 9.*
 No new behaviour. The Phase 15 acceptance gate runs unchanged. Add focused coverage for the display
 distinctions only, and update wording assertions **without weakening any existing behavioural
@@ -1667,7 +1680,8 @@ changes meaning. If either moves, the split was cut in the wrong place.
 
 **Phase exit conditions.** 16c verified on demo 04 — the whole-plugin prefix and HMR, not the entry
 alone. F-1 to F-5 are resolved (2026-09-23) and no task is blocked. BR-AS75 to BR-AS81 approved and
-added to `BUSINESS_RULES-APP-SHELL.md` with their coverage rows. Phase 15's gate green and
+added to `BUSINESS_RULES-APP-SHELL.md` with their coverage rows — **task 16i**, which is what
+tracks it; the rules stay in this file, in full, until 16i runs. Phase 15's gate green and
 unmodified. `manifest.json` byte-unchanged across the phase, proven against `registry` mode's drift
 check. 16e's mode-switch check green: the same demo keeps its readiness panel under both sources
 with no file change and no registry protocol or lifecycle change.

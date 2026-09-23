@@ -16,6 +16,12 @@
   having been rebuilt zero times. That is the whole argument, and it is a
   scripted check rather than a paragraph.
 
+  One footgun: `VITE_PLUGIN_SOURCE` is inlined by Vite at BUILD time, so
+  `build` mode and `registry` mode emit different bundles and therefore
+  different digests. `--record` and `--verify` must run in the SAME mode. The
+  bare `vite build` below leaves the variable unset, which resolves to
+  `registry` (see src/shell/pluginSource.js) — that is the recorded baseline.
+
   The second assertion is the reason the first one holds: the host bundle
   contains no plugin's name, container or URL anywhere. If it did, the
   fingerprint would only be stable because nobody had added a plugin yet.
@@ -30,15 +36,66 @@ const shellRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const distDir = join(shellRoot, 'dist')
 const fingerprintFile = join(shellRoot, 'tools', '.host-bundle-fingerprint.json')
 
-/* Strings that must never appear in the host bundle. A plugin's identity is
-   registry data at runtime; if the compiler saw it, the deployment story is
-   already broken. */
-const FORBIDDEN = [
+/*
+  Two tiers, because BR-AS03 and BR-AS66 both hold and they touch the same
+  words. Narrowed 2026-09-23 after this check had been red since 2026-09-01
+  with nothing wrong: `FirstBootNote.vue` landed the day after the fingerprint
+  was recorded, and BR-AS66 REQUIRES it — "the lab-shell intro copy must state
+  this", naming the preloaded plugin and the announced fixtures separately, as
+  FirstBootNote.spec.js asserts. A red check that is right to be red is a
+  check nobody reads, so the ban is now the one BR-AS03 actually makes.
+
+  What BR-AS03 claims is that the compiler never saw a plugin's identity **as
+  data** — a remote origin, a federation container, a module specifier. It
+  does not claim the shell may never SAY a plugin's name to a human. The first
+  is a deployment coupling; the second is documentation, and the host bundle
+  changing because the copy changed is a copy edit, not a plugin deployment.
+*/
+
+/* Tier 1 — never, in any position. A remote origin and a federation container
+   name have no prose reading: if either is in the bundle, the host was
+   compiled against a specific plugin. */
+const FORBIDDEN_ALWAYS = [
   ...[7111, 7112, 7113, 7114, 7115].map((port) => `localhost:${port}`),
-  'example_plugin', 'example-plugin', 'demo_catalog', 'demo-catalog',
+  'example_plugin', 'demo_catalog',
   // The README belongs to the catalog build, never the host.
   'Dictionary POC', 'Admin UI layout — data flow top to bottom',
 ]
+
+/* Tier 2 — the human-readable plugin ids. Banned as data, allowed as prose,
+   because BR-AS66 puts them on the screen on purpose. */
+const FORBIDDEN_AS_DATA = ['example-plugin', 'demo-catalog']
+
+/* An id is being used as data when it sits near a URL, a path or a dynamic
+   import. Deliberately generous — a false FAIL here is cheap to read and a
+   false PASS is the thing this file exists to prevent. Note that tier 1
+   already catches every real case seen so far: a remote URL carries its
+   port and a container carries its underscore form, so tier 2 is the
+   backstop, not the primary guard. */
+const DATA_MARKERS = ['://', 'localhost', 'remoteEntry', '/assets/', 'import(', '.js"', ".js'"]
+const DATA_WINDOW = 60
+
+/* The exemption is tied to the note that earns it. If BR-AS66's copy is ever
+   removed from the bundle, tier 2 goes back to an outright ban with no edit
+   here. */
+const PROSE_ANCHOR = 'A fresh lab serves only its preloaded plugin'
+
+function usedAsData(text, index, needle) {
+  const window = text.slice(Math.max(0, index - DATA_WINDOW), index + needle.length + DATA_WINDOW)
+  return DATA_MARKERS.some((marker) => window.includes(marker))
+}
+
+function offencesFor(text, needles, { proseAllowed }) {
+  const hits = []
+  for (const needle of needles) {
+    let at = text.indexOf(needle)
+    while (at !== -1) {
+      if (!proseAllowed || usedAsData(text, at, needle)) hits.push(needle)
+      at = text.indexOf(needle, at + needle.length)
+    }
+  }
+  return [...new Set(hits)]
+}
 
 function walk(dir) {
   const out = []
@@ -67,11 +124,18 @@ function fingerprint() {
 
 function assertNoPluginNames() {
   const offenders = []
+  let proseSeen = false
   for (const file of walk(distDir)) {
     if (!/\.(js|css|html|json)$/.test(file)) continue
     const text = readFileSync(file, 'utf8')
-    for (const needle of FORBIDDEN) {
-      if (text.includes(needle)) offenders.push(`${relative(distDir, file)} contains ${needle}`)
+    const name = relative(distDir, file)
+    const proseAllowed = text.includes(PROSE_ANCHOR)
+    if (proseAllowed) proseSeen = true
+    for (const hit of offencesFor(text, FORBIDDEN_ALWAYS, { proseAllowed: false })) {
+      offenders.push(`${name} contains ${hit}`)
+    }
+    for (const hit of offencesFor(text, FORBIDDEN_AS_DATA, { proseAllowed })) {
+      offenders.push(`${name} uses ${hit} as data, not prose`)
     }
   }
   if (offenders.length) {
@@ -79,7 +143,10 @@ function assertNoPluginNames() {
     for (const line of offenders) console.error(`  ${line}`)
     process.exit(1)
   }
-  console.log('ok — the host bundle names no plugin, container or remote URL')
+  console.log('ok — the host bundle names no plugin container, remote URL or module path')
+  if (proseSeen) {
+    console.log('   (BR-AS66 first-boot copy found; its plugin ids are read as prose)')
+  }
 }
 
 const mode = process.argv[2] ?? '--record'

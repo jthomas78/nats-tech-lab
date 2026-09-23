@@ -17,10 +17,12 @@ import { createPermissionEvaluator } from './shell/auth/permissions.js'
 import { createAfterPaint } from './shell/afterPaint.js'
 import { bootShell, withRuntime } from './shell/bootShell.js'
 import { createConnectionRegistry, SHELL_PLATFORM } from './shell/connections/connectionRegistry.js'
+import { createNullConnection } from './shell/connections/nullConnection.js'
 import { createShellConnection } from './shell/connections/shellConnection.js'
 import { createShellDialer } from './shell/connections/shellDialer.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createPluginLoader } from './shell/loader/pluginLoader.js'
+import { pluginSource, PLUGIN_SOURCE_REGISTRY } from './shell/pluginSource.js'
 import { createHealthPlane, createHealthTransport, healthReconcileInterval } from './shell/registry/healthPlane.js'
 import { createRegistryTransport } from './shell/registry/registryTransport.js'
 import { createRegistrySession } from './shell/registry/registrySession.js'
@@ -45,6 +47,15 @@ const waitForPaint = createAfterPaint()
 /* Wrapped rather than top-level `await`: TLA constrains the build target, and
    the shell has to boot the same way in every browser the demos are shown in. */
 export async function bootstrap() {
+  /* BR-AS75 — the catalogue has exactly one source and it is chosen HERE,
+     first, before ANY catalogue read. `bootShell` takes an optional
+     `registryClient` and would read through it, so resolving after that call
+     would make the rule true only because this file happens not to pass one.
+     Resolved ahead of it instead, the ordering is a property rather than a
+     coincidence — and a misspelt variable fails the boot before a frame is
+     built rather than after. */
+  const source = pluginSource()
+
   const shell = await bootShell({
     permissions,
   })
@@ -83,18 +94,43 @@ export async function bootstrap() {
      is then a change to a set rather than to the route table. */
   installWithdrawalGuard({ router, contributions: shell.contributions })
 
-  const dial = createShellDialer({ fetch: window.fetch.bind(window), location: window.location, dial: wsconnect, authenticate: jwtAuthenticator, resolveWsUrl })
-  /* One profile, because one credential can be minted today. A migrating app
-     adds its own entry here when its credential arrives; the registry rejects
-     a profile nobody declared, so there is no second guard to keep in step. */
-  const connections = createConnectionRegistry({
-    profiles: { [SHELL_PLATFORM]: {} },
-    connect: async () => createShellConnection({ connect: dial }),
-  })
-  const connection = await connections.acquire(SHELL_PLATFORM)
+  /* The one branch in the file. Every stage after the catalogue read is the
+     same code in both modes.
+
+     The connection used to be acquired unconditionally, ahead of the
+     catalogue read. That made demo 01's accounts-service and
+     mfe-registry-service a hard requirement of the lab's own demo menu — a
+     dependency that is correct for the micro-frontend host and backwards for
+     the menu. In `build` mode nothing is dialled, no credential is minted and
+     accounts-service is never called; the null connection satisfies the
+     session's surface instead (decision 3), so `registrySession.js` needs no
+     change and `registry` mode's boot order is byte-for-byte what it was. */
+  let connection
+  let client
+  if (source === PLUGIN_SOURCE_REGISTRY) {
+    const dial = createShellDialer({ fetch: window.fetch.bind(window), location: window.location, dial: wsconnect, authenticate: jwtAuthenticator, resolveWsUrl })
+    /* One profile, because one credential can be minted today. A migrating app
+       adds its own entry here when its credential arrives; the registry rejects
+       a profile nobody declared, so there is no second guard to keep in step. */
+    const connections = createConnectionRegistry({
+      profiles: { [SHELL_PLATFORM]: {} },
+      connect: async () => createShellConnection({ connect: dial }),
+    })
+    connection = await connections.acquire(SHELL_PLATFORM)
+    client = createRegistryTransport({ request: connection.request })
+  } else {
+    connection = createNullConnection()
+    /* TODO(16b) — the build catalogue client. 16a wires the source and the
+       connection only; until the generator exists there is no document to
+       read, and a FAILED read with a code is the honest report of that. It is
+       deliberately not an empty success: BR-AS76 requires a missing catalogue
+       and an empty one to render differently, and this is the missing case. */
+    client = { fetchRegistry: async () => ({ ok: false, code: 'build-catalogue-unavailable' }) }
+  }
+
   const session = createRegistrySession({
     connection,
-    client: createRegistryTransport({ request: connection.request }),
+    client,
     shell,
     // A double animation frame yields a browser paint before credential
     // minting starts; nextTick alone only waits for the DOM patch. The
