@@ -203,6 +203,14 @@ func (h *harness) check(desc string, ok bool, detail string) error {
 	return fmt.Errorf("%s (%s)", desc, detail)
 }
 
+// Where the registry's schema actually lives, since ADR-055 (2026-09-08): one
+// Compose service shared by the whole cell, holding one database per service.
+const (
+	registryDBService = "postgres"
+	registryDBUser    = "mfe_registry"
+	registryDBName    = "mfe_registry"
+)
+
 // ------------------------------------------------------------ compose control
 
 func (h *harness) compose(args ...string) (string, error) {
@@ -302,8 +310,15 @@ func (h *harness) cleanup() {
 
 func (h *harness) reset() error {
 	fmt.Println("resetting the registry (schema drop, re-seed, sidecar restart) — the plugin registry only")
-	if _, err := h.compose("exec", "-T", "mfe-registry-postgres",
-		"psql", "-U", "mfe_registry", "-d", "mfe_registry", "-c", "DROP SCHEMA IF EXISTS registry CASCADE"); err != nil {
+	// The cell's shared Postgres, not a database of the registry's own. ADR-055
+	// folded the registry's schema into it on 2026-09-08, and this call still
+	// named the retired `mfe-registry-postgres` service until 2026-09-24 — so
+	// --reset died on its first command and the gate was only re-runnable by
+	// hand. The role and database are the ones in the registry service's own
+	// DATABASE_URL (deploy/cell/compose.runtime.yaml), which is where to look
+	// if this breaks again.
+	if _, err := h.compose("exec", "-T", registryDBService,
+		"psql", "-U", registryDBUser, "-d", registryDBName, "-c", "DROP SCHEMA IF EXISTS registry CASCADE"); err != nil {
 		return err
 	}
 	if _, err := h.compose("restart", "mfe-registry-service"); err != nil {

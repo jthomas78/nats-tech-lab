@@ -1901,12 +1901,20 @@ should.` No file under `cmd/registry-acceptance/` was touched in this phase, or 
 registered and untouched, which is the phase's own addition passing the phase's own regression
 check.
 
-*One thing the gate cannot do, recorded rather than fixed.* `--reset` fails: it runs
+*One thing the gate could not do, found here and repaired after.* `--reset` failed: it ran
 `compose exec -T mfe-registry-postgres …`, and no such service exists any more — ADR-055
 (2026-09-08) folded the registry database into the cell's shared `postgres` service, and the
-harness's reset path was never followed across. This is older than Phase 16 and is not Phase 16's
-to repair: this task's first sentence is "the Phase 15 acceptance gate runs unchanged", so it was
-run without `--reset` and left alone. It needs its own task.
+harness's reset path was never followed across. It had been dead for sixteen days and nothing said
+so, because the gate passes without the flag.
+
+It was not repaired *inside* 16h: this task's first sentence is "the Phase 15 acceptance gate runs
+unchanged", so 16h ran it without `--reset` and touched nothing. The repair is its own commit,
+made straight afterwards on the user's instruction. It points the reset at `postgres` and lifts the
+service, role and database into named constants beside the compose helper, so the next reader is
+told where the real source is (`deploy/cell/compose.runtime.yaml`'s `DATABASE_URL`) instead of
+finding three bare strings. No assertion the gate makes was touched. Proved by running
+`--reset` twice back to back against one live lab: `PASSED` both times, which is the property the
+flag exists to provide and the property that had been missing.
 
 *Exit condition 1 — no `registry`-mode rule amended.*
 `git diff --numstat f9db851..HEAD -- demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` gives
