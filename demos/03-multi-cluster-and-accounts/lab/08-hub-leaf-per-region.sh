@@ -35,6 +35,20 @@ hub_listen() {                # $1 name  $2 leaf listen port
 # remote binds exactly one account, so a second account needs a second entry.
 # The user in each URL is the account's own user, because that is what tells
 # the hub which side of the link it is.
+#
+# "Exactly one" is the parser's rule, not a style choice. `account` takes a
+# string; docs.nats.io/reference/config/leafnodes/remotes calls it "the local
+# account to bind to this remote server". Hand it a list and the config check
+# refuses the file before any server starts (nats-server 2.14.6):
+#
+#     { urls: [ "nats-leaf://lb:lb@127.0.0.1:7560" ], account: [ LB, LB_ZA ] }
+#
+#     $ nats-server -c t-acctlist.conf -t
+#     nats-server: t-acctlist.conf:5:53: interface conversion:
+#                  interface {} is []interface {}, not string
+#
+# `urls` IS a list, but it is a list of addresses for ONE link -- failover, not
+# fan-out. That is why both entries below repeat the same three hub ports.
 leaf_remotes_2() {            # $1 name  $2 region account  $3 its user
   {
     printf 'leafnodes {\n  remotes: [\n'

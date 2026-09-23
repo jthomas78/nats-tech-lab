@@ -394,7 +394,17 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   (Figure D / T5) instead — two separate JetStream systems, neither able to see
   the other's subjects, so neither can refuse the overlap.
 - **A leaf remote binds exactly ONE account** (measured 2026-09-22,
-  `lab/04-hub-and-leaf.sh`, T5 / D, `D16`-`D22`). `LB_ZA` and `LB_AU` are
+  `lab/04-hub-and-leaf.sh`, T5 / D, `D16`-`D22`). This is the parser's rule.
+  `account` takes a string, not a list --
+  [docs.nats.io/reference/config/leafnodes/remotes](https://docs.nats.io/reference/config/leafnodes/remotes)
+  calls it "the local account to bind to this remote server". Hand it a list
+  and `nats-server -c <file> -t` refuses the file before any server starts
+  (2.14.6, checked 2026-09-23): `interface conversion: interface {} is
+  []interface {}, not string`, with the line and column of the `account:`
+  value. `urls` **is** a list, but it lists addresses for ONE link --
+  failover, not fan-out. So two accounts need two `remotes` entries, each
+  dialling with its own account's user; see `leaf_remotes_2` in
+  `lab/08-hub-leaf-per-region.sh`. `LB_ZA` and `LB_AU` are
   switched on with JetStream on all nine servers, but the remotes bind only
   `LB`. So those two accounts cross no link at all: they are **six islands**,
   one per account per site. Each region creates its own `ODOMETER`, one publish
