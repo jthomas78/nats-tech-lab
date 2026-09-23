@@ -80,15 +80,31 @@ prose | grep -qE '2026-09-2[0-9]' \
 
 # The retraction stays. A lab whose numbers only ever improve is not measuring.
 has "keeps the retraction card"           "A lab whose numbers only ever improve is not measuring"
-has "keeps the corrected write rule"      "A core"
+has "keeps the corrected write rule"      "core publish"
 has "keeps the freeze that did not freeze" "kill -STOP"
 
 # Every drawing must be readable by something that cannot see it.
 figs=$(grep -c 'role="img"' "$HTML")
-[ "$figs" -ge 3 ] && ok "draws the shapes, and labels the drawings ($figs figures)" \
-  || bad "only $figs labelled figures"
+[ "$figs" -gt "${#TITLES[@]}" ] && ok "one drawing per card, plus the key ($figs figures)" \
+  || bad "only $figs figures for ${#TITLES[@]} cards -- every card gets its own drawing"
 labels=$(grep -c 'aria-label=' "$HTML")
 want "every figure has an aria-label" "$labels" "$figs"
+
+# The drawings follow REPORT.html's convention, so a boundary means the same
+# thing in both. The colours ARE the argument of cards 01-03: if the account box
+# and the domain box ever become the same thing, the deck stops making its point.
+for cls in 'nb dom' 'nb acct' 'nb clu' 'nb clu dead'; do
+  grep -qF "class=\"$cls\"" "$HTML" \
+    && ok "draws the report's boundary: $cls" \
+    || bad "no $cls box in any figure -- the report convention has been dropped"
+done
+grep -qE '\.fig \.nb\.acct *\{[^}]*--warn' "$HTML" \
+  && ok "the account box keeps the report's colour" \
+  || bad "the account box no longer uses --warn"
+grep -qE '\.fig \.nb\.dom *\{[^}]*--dom' "$HTML" \
+  && ok "the domain box keeps the report's colour" \
+  || bad "the domain box no longer uses --dom"
+has "explains how to read a figure before the first card" "How to read a figure"
 
 echo
 if [ "$fail" -eq 0 ]; then
