@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>NATS Multi-Cluster &amp; Accounts — Pattern Cards</title>
+<style>
+  :root{
+    --bg:#0d0f11; --bg2:#131416; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b; --dim:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px; font-feature-settings:"cv05","ss01";
+  }
+  .page{
+    width:210mm; height:297mm; overflow:hidden; padding:15mm 13mm 11mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);
+  }
+  .page:last-child{page-break-after:auto}
+
+  /* ---------- cover ---------- */
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:47px;line-height:54px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:80%;margin-top:16px}
+  .cover-q{
+    margin-top:24px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:16px 20px;max-width:94%;
+  }
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:14px;line-height:23px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 30px;margin-top:10px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:16px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  /* ---------- card chrome ---------- */
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{
+    margin-top:16px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:16px 20px 18px;
+    display:grid;grid-template-columns:56px 1fr;gap:4px 14px;
+  }
+  .num{font-size:30px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:34px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:25px;line-height:31px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+  .decision{
+    margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    padding:14px 18px;display:grid;grid-template-columns:78px 1fr;gap:14px;align-items:start;
+  }
+  .decision .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fam);padding-top:3px}
+  .decision p{font-size:14px;line-height:22px}
+  .decision b{color:var(--tx)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:13px 16px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:10px}
+  .panel.pro{border-left:2px solid var(--green)}
+  .panel.con{border-left:2px solid var(--red)}
+  .panel.pro > .lbl{color:var(--green)}
+  .panel.con > .lbl{color:var(--red)}
+  .panel.note{border-left:2px solid var(--amber)}
+  .panel.note > .lbl{color:var(--amber)}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"\203A";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 8px 0;font-weight:500}
+  td{padding:5px 8px 5px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .verdict{
+    margin-top:auto;padding-top:14px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;
+  }
+  .pill{border:1px solid var(--fam);color:var(--fam);border-radius:5px;padding:6px 11px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .verdict p{font-size:12.5px;line-height:19px}
+  .verdict .side{font-size:10.5px;color:var(--tx3);letter-spacing:.06em;white-space:nowrap}
+  /* Some cards carry more material than the others; step their body type down a
+     notch rather than cutting content, so every card still fits exactly one page. */
+  .page.tight li{font-size:11.1px;line-height:16px;margin-bottom:5px}
+  .page.tight .lede{font-size:12px;line-height:18px}
+  .page.tight .panel{padding:11px 15px}
+  .page.tight td{font-size:11px}
+  /* The provenance page carries more rows than any card. It steps down once
+     more, so the whole method still lands on one page. */
+  .page.prov li{font-size:10.4px;line-height:14.5px;margin-bottom:4px}
+  .page.prov td{font-size:10.2px;padding:4px 8px 4px 0;line-height:14px}
+  .page.prov th{padding:0 8px 6px 0}
+  .page.prov .panel{padding:10px 14px}
+  .page.prov .panel > .lbl{margin-bottom:7px}
+  .page.prov .titleblock{padding:13px 18px 14px}
+  .page.prov .lede{font-size:11.5px;line-height:17px}
+  .src{font-size:10px;line-height:15px;color:var(--tx3);padding:11px 13px;break-inside:avoid}
+  .src li{font-size:10px;line-height:15px;margin-bottom:5px}
+
+  /* ---------- inline SVG figures ----------
+     Same primitives as lab/figures.html, re-pointed at the card palette, so a
+     figure on a card and the same figure in REPORT.html read as one drawing. */
+  .fig{display:block;width:100%;height:auto;margin:2px 0 0}
+  .fig .clu{fill:var(--bg2);stroke:var(--line2);stroke-width:1}
+  .fig .srv{fill:var(--panel2);stroke:var(--stroke);stroke-width:1}
+  .fig .srv.hi{stroke:var(--fam);fill:color-mix(in srgb,var(--fam) 10%,var(--panel2))}
+  .fig .srv.off{stroke:var(--red);fill:color-mix(in srgb,var(--red) 10%,var(--panel2))}
+  .fig .lbl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:var(--tx)}
+  .fig .grp{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx3);letter-spacing:.07em}
+  .fig .edge{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx2)}
+  .fig .gwline{fill:none;stroke:var(--blue);stroke-width:1.6}
+  .fig .cut{fill:none;stroke:var(--red);stroke-width:1.6}
+  .fig .leaf{fill:none;stroke:var(--fam);stroke-width:1.4;stroke-dasharray:5 3}
+  .fig .dom{fill:none;stroke:var(--amber);stroke-width:1;stroke-dasharray:4 3;stroke-opacity:.75}
+  .fig .chipOK{fill:color-mix(in srgb,var(--green) 14%,var(--panel2));stroke:var(--green);stroke-width:1;stroke-opacity:.7}
+  .fig .chipNO{fill:color-mix(in srgb,var(--red) 12%,var(--panel2));stroke:var(--red);stroke-width:1;stroke-opacity:.7}
+  .fig .chipT{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;fill:var(--tx)}
+  .fig .chipT.ok{fill:var(--green)} .fig .chipT.no{fill:var(--red)}
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Multi-cluster reference &middot; demos/03-multi-cluster-and-accounts</span></div>
+  <h1 class="cover">One Namespace,<br>or One <span class="hl">Vote</span><br>Each</h1>
+  <p class="cover-sub">Nine patterns measured on six topologies in nine runnable shapes. Every card states
+    the mechanism, what it buys, what it costs, and the check ID that proves it. One whole card is
+    things this lab got wrong and corrected.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The question every card serves</div>
+    <p>Two regions, one platform. <b>Do you want one global stream name, or do you want each region to
+      keep working when the other goes dark?</b> No shape in this lab gives you both.</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:14px">
+    <div class="lbl" style="color:var(--amber)">The rule that orders the deck</div>
+    <p>A <b>gateway</b> fuses two regions into one JetStream system. A <b>leaf link</b> gives each one its
+      own. An <b>account</b> is the only real wall. A <b>domain</b> is a namespace, not a wall. Every card
+      is a consequence of those four sentences.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">Card families</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>Links &mdash; gateway, leaf node</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>Boundaries &mdash; account, domain</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>Quorum &mdash; arbiters, and what a write is</div>
+      <div class="fam"><span class="sw" style="background:var(--teal)"></span>Copying &mdash; mirrors, export / import</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>Traps &mdash; both links at once</div>
+      <div class="fam"><span class="sw" style="background:var(--red)"></span>Retractions &mdash; what we got wrong</div>
+    </div>
+    <div class="cover-meta">
+      <span>NATS-SERVER 2.14.6 &middot; 175 CHECKS PASSED &middot; 0 FAILED &middot; 51 OBSERVATIONS</span>
+      <span>MEASURED 2026-09-23</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 01 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Links &middot; Card 01 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">01</div><div class="fam-lbl">Links</div>
+    <h2>A gateway buys one name and sells your survival</h2>
+    <p class="lede">Two clusters of three, joined by a gateway, are <b>one JetStream system</b> with one meta
+      group of six. A stream name is unique across both regions. You cannot opt out of that, and the price
+      is a shared fate.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Do both regions share one JetStream namespace? With a gateway, <b>yes, always</b> &mdash; and a
+      three-three split leaves nobody with a majority.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <svg class="fig" viewBox="0 0 900 150" role="img" aria-label="Two clusters of three servers joined by a gateway form one meta group of six. When one cluster is frozen, three of six remain, which is not a majority, so no stream can be created.">
+      <rect class="dom" x="18" y="12" width="622" height="122" rx="6"/>
+      <text class="grp" x="30" y="28">ONE JETSTREAM DOMAIN &middot; ONE META GROUP OF SIX &middot; MAJORITY 4</text>
+      <rect class="clu" x="34" y="40" width="250" height="78" rx="4"/>
+      <text class="grp" x="46" y="58">CLUSTER ZA</text>
+      <rect class="srv hi" x="46"  y="68" width="68" height="28" rx="3"/>
+      <rect class="srv hi" x="122" y="68" width="68" height="28" rx="3"/>
+      <rect class="srv hi" x="198" y="68" width="68" height="28" rx="3"/>
+      <path class="gwline" d="M290 82 H370"/>
+      <text class="edge" x="330" y="74" text-anchor="middle">gateway</text>
+      <rect class="clu" x="376" y="40" width="250" height="78" rx="4"/>
+      <text class="grp" x="388" y="58">CLUSTER AU &mdash; FROZEN</text>
+      <rect class="srv off" x="388" y="68" width="68" height="28" rx="3"/>
+      <rect class="srv off" x="464" y="68" width="68" height="28" rx="3"/>
+      <rect class="srv off" x="540" y="68" width="68" height="28" rx="3"/>
+      <rect class="chipNO" x="660" y="40" width="222" height="34" rx="3"/>
+      <text class="chipT no" x="771" y="61" text-anchor="middle">3 of 6 &mdash; no majority</text>
+      <rect class="chipNO" x="660" y="84" width="222" height="34" rx="3"/>
+      <text class="chipT no" x="771" y="105" text-anchor="middle">every create: 10008</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li><b>A stream name is unique across the whole supercluster, not per cluster.</b> ZA creates
+        <code>ODOMETER</code>; AU asking for the same name in the same account is refused with
+        <code>10058</code> &mdash; <code>A3</code>, <code>A4</code>, <code>A5</code>.</li>
+      <li><b>A per-cluster <code>jetstream.domain</code> does not rescue it.</b> It is illegal over a
+        gateway: the supercluster stays one meta group and one of the two regions stops electing a leader
+        altogether &mdash; <code>B1</code>, <code>B2</code>, <code>B7</code>.</li>
+      <li>Measured 2026-09-23: freeze AU and every create from ZA is refused with
+        <code>10008 JetStream system temporarily unavailable</code> &mdash; <code>A11</code>. A read of
+        AU's stream fails too &mdash; <code>A21</code>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>One name, one copy, no duplicates possible.</b> The shape cannot produce a split-brain of
+        two same-named streams.</li>
+      <li><b>A mirror needs no <code>external.api</code>.</b> One namespace, so a cross-region mirror just
+        works and keeps up &mdash; <code>A15</code>&ndash;<code>A17</code>.</li>
+      <li><b>Placement is predictable.</b> Everything lands where the account first asked, unless you name
+        a cluster &mdash; <code>A9</code>, <code>A18</code>, <code>A19</code>.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Shared fate.</b> One meta group across the WAN, so a cut is a change freeze for everybody.</li>
+      <li><b>Three plus three is the worst possible split.</b> Neither side can elect. Both regions freeze
+        at once, not one.</li>
+      <li><b>The dark region's data is unreachable</b>, not just unwritable &mdash; <code>A21</code>.</li>
+      <li><b>No domain escape hatch.</b> The one thing that looks like a fix half-blinds a region instead.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Pick a gateway when <b>one global name</b> matters more than regional survival &mdash; and then add
+      votes outside both regions (card 04), because the gateway on its own has no answer for a WAN cut.</p>
+    <span class="side">Card 01 &middot; Links</span></div>
+</section>
+
+<!-- ============ 02 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Links &middot; Card 02 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">02</div><div class="fam-lbl">Links</div>
+    <h2>A leaf link buys a vote each and sells you a double copy</h2>
+    <p class="lede">A hub with a leaf link to each region makes <b>three</b> JetStream systems, not one.
+      Each region elects its own leader and owns its own names. Nothing crosses between them unless a
+      person writes it down.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Should each region be its own JetStream system? With a leaf link, <b>yes</b> &mdash; and the same
+      stream name may then exist in all three at once, holding different data.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <svg class="fig" viewBox="0 0 900 158" role="img" aria-label="A hub cluster links to a ZA cluster and an AU cluster by leaf links. Each of the three is its own JetStream domain with its own meta group. Freezing AU leaves ZA able to create a stream and store a message.">
+      <rect class="clu" x="330" y="14" width="230" height="46" rx="4"/>
+      <text class="grp" x="342" y="32">HUB &mdash; DOMAIN hub</text>
+      <rect class="srv hi" x="342" y="38" width="58" height="16" rx="3"/>
+      <rect class="srv hi" x="408" y="38" width="58" height="16" rx="3"/>
+      <rect class="srv hi" x="474" y="38" width="58" height="16" rx="3"/>
+      <path class="leaf" d="M352 66 L214 100"/>
+      <path class="leaf" d="M538 66 L676 100"/>
+      <text class="edge" x="300" y="84" text-anchor="end">leafnode link</text>
+      <text class="edge" x="590" y="84">leafnode link</text>
+      <rect class="clu" x="18" y="104" width="250" height="44" rx="4"/>
+      <text class="grp" x="30" y="122">ZA &mdash; DOMAIN za &middot; MAJORITY 2</text>
+      <rect class="srv hi" x="30"  y="128" width="68" height="14" rx="3"/>
+      <rect class="srv hi" x="106" y="128" width="68" height="14" rx="3"/>
+      <rect class="srv hi" x="182" y="128" width="68" height="14" rx="3"/>
+      <rect class="clu" x="622" y="104" width="250" height="44" rx="4"/>
+      <text class="grp" x="634" y="122">AU &mdash; DOMAIN au &middot; FROZEN</text>
+      <rect class="srv off" x="634" y="128" width="68" height="14" rx="3"/>
+      <rect class="srv off" x="710" y="128" width="68" height="14" rx="3"/>
+      <rect class="srv off" x="786" y="128" width="68" height="14" rx="3"/>
+      <rect class="chipOK" x="292" y="112" width="306" height="30" rx="3"/>
+      <text class="chipT ok" x="445" y="131" text-anchor="middle">ZA still creates, and the message lands</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li>Measured 2026-09-23: freeze AU and ZA still keeps a meta leader (<code>D24</code>), still creates
+        a new three-replica stream (<code>D25</code>), and the message <b>really lands</b> &mdash;
+        <code>D26</code> counts it, it does not just publish it.</li>
+      <li><b>Killing the hub outright changes nothing.</b> A region keeps its own JetStream and keeps
+        storing &mdash; <code>D14</code>, <code>D23</code>.</li>
+      <li><b>A bare stream name resolves in the local domain only.</b> The hub asking for ZA's
+        <code>ODOMETER</code> by name simply fails, and may then make a third one of its own &mdash;
+        <code>D21</code>, <code>D22</code>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>A vote each.</b> One region dark is one region dark, not a platform freeze.</li>
+      <li><b>Survives the hub disappearing entirely.</b> The hub is a joiner, not a dependency.</li>
+      <li><b>The same name in three places</b>, each owning its own data.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>The double capture.</b> One publish on a shared subject is genuinely stored <b>twice</b>, once
+        per region, and nothing warns you &mdash; <code>D5</code>, <code>D18</code>.</li>
+      <li><b>Nothing copies itself.</b> Every cross-region copy is a mirror somebody has to write (card 06).</li>
+      <li><b>A name is not global any more.</b> Anything that assumed one name, one stream must change.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Pick a leaf link when <b>regional survival</b> beats one global name. Then decide, in writing, which
+      subjects may be captured in both regions &mdash; the shape will not decide it for you.</p>
+    <span class="side">Card 02 &middot; Links</span></div>
+</section>
+
+<!-- ============ 03 ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Boundaries &middot; Card 03 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">03</div><div class="fam-lbl">Boundaries</div>
+    <h2>The account is the wall. The domain is only a namespace.</h2>
+    <p class="lede">Three things look like isolation: the <b>account</b>, the <b>cluster</b> and the
+      <b>JetStream domain</b>. Only one of them is a wall. The other two decide <i>where</i> a thing lands
+      and <i>what name</i> it answers to.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Which boundary lets a region own its own stream? <b>The account.</b> Give each region its own
+      account and the same name is two separate streams, over a gateway or a leaf link alike.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <ul>
+      <li><b>An account is a wall on purpose.</b> Two accounts cannot see each other's subjects, streams or
+        consumers &mdash; not by name, not by accident &mdash; <code>A6</code>, <code>A7</code>,
+        <code>A8</code>, <code>H3</code>, <code>H9</code>.</li>
+      <li><b>A cluster is placement, not ownership.</b> A stream lands where the account's first request
+        landed, unless you name a cluster with <code>--cluster</code>. A KV bucket follows the same rule,
+        because a bucket <i>is</i> a stream &mdash; <code>A9</code>, <code>A18</code>, <code>A19</code>.</li>
+      <li><b>A domain is a namespace with its own management group.</b> A bare stream name resolves only
+        inside the asking domain. That is why the shared <code>LB</code> account under a leaf link ends up
+        holding two streams of one name &mdash; neither side can refuse the other's overlap.</li>
+      <li><b>And a domain is not a wall.</b> Name the other domain's API and data crosses it, which is
+        exactly what the mirrors in <code>D8</code> and <code>H11</code> do. An account has no such door.</li>
+      <li><b>Where a domain was measured:</b> four shapes only &mdash; <code>T2 / B</code>,
+        <code>T5 / D</code>, <code>T5 / H</code>, <code>T6 / G</code>. T1, T3 and T4 carry no
+        <code>jetstream.domain</code> at all, so nothing here claims a domain result on those three.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What an account buys</div><ul>
+      <li><b>Real ownership.</b> Each region's streams are invisible to the other, so a name collision is
+        impossible rather than merely unlikely.</li>
+      <li><b>It works under every link type in this lab</b> &mdash; gateway (<code>A6</code>&ndash;<code>A8</code>),
+        arbiter (<code>C14</code>, <code>F14</code>), leaf (<code>H3</code>).</li>
+      <li><b>Sharing becomes deliberate</b>, through export / import only (card 07).</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Nothing is shared by default.</b> Every cross-region read is a hole you design and maintain.</li>
+      <li><b>Two accounts is two sets of credentials, limits and monitoring</b>, for ever.</li>
+      <li><b>A domain over a gateway is a trap</b>, not a milder version of this &mdash; it changes nothing
+        useful and blinds one region (card 01).</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Use an <b>account per region</b> whenever a region must own its data. Use a <b>domain</b> only with
+      a leaf link, and treat it as a naming decision. Never reach for a domain to get isolation.</p>
+    <span class="side">Card 03 &middot; Boundaries</span></div>
+</section>
+
+<!-- ============ 04 ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Quorum &middot; Card 04 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">04</div><div class="fam-lbl">Quorum</div>
+    <h2>An arbiter site buys the vote back</h2>
+    <p class="lede">The gateway's problem is arithmetic: three and three has no majority. Put votes in a
+      <b>third place</b> and the arithmetic changes. One arbiter node makes seven, majority four. Three
+      arbiter nodes make nine, majority five.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>How many arbiter nodes? <b>Three, not one.</b> With one, the arbiter itself is a single machine
+      standing between you and a frozen platform.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <svg class="fig" viewBox="0 0 900 132" role="img" aria-label="Three servers in ZA, three in AU and three in an arbiter site make a meta group of nine with a majority of five. With AU frozen, ZA plus the arbiter is six, which still elects and still creates streams.">
+      <rect class="clu" x="18" y="22" width="232" height="86" rx="4"/>
+      <text class="grp" x="30" y="40">CLUSTER ZA &mdash; ALIVE</text>
+      <rect class="srv hi" x="30"  y="52" width="62" height="26" rx="3"/>
+      <rect class="srv hi" x="100" y="52" width="62" height="26" rx="3"/>
+      <rect class="srv hi" x="170" y="52" width="62" height="26" rx="3"/>
+      <rect class="clu" x="286" y="22" width="232" height="86" rx="4"/>
+      <text class="grp" x="298" y="40">ARBITER SITE &mdash; ALIVE</text>
+      <rect class="srv hi" x="298" y="52" width="62" height="26" rx="3"/>
+      <rect class="srv hi" x="368" y="52" width="62" height="26" rx="3"/>
+      <rect class="srv hi" x="438" y="52" width="62" height="26" rx="3"/>
+      <rect class="clu" x="554" y="22" width="232" height="86" rx="4"/>
+      <text class="grp" x="566" y="40">CLUSTER AU &mdash; FROZEN</text>
+      <rect class="srv off" x="566" y="52" width="62" height="26" rx="3"/>
+      <rect class="srv off" x="636" y="52" width="62" height="26" rx="3"/>
+      <rect class="srv off" x="706" y="52" width="62" height="26" rx="3"/>
+      <path class="gwline" d="M256 66 H280"/>
+      <path class="cut" d="M524 66 H548"/>
+      <rect class="chipOK" x="800" y="22" width="84" height="86" rx="3"/>
+      <text class="chipT ok" x="842" y="60" text-anchor="middle">6 of 9</text>
+      <text class="chipT ok" x="842" y="78" text-anchor="middle">elects</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li><b>Both directions are measured, not one.</b> Lose AU and ZA creates a three-replica stream
+        (<code>F3</code>, <code>F4</code>). Lose ZA and AU does (<code>F22</code>&ndash;<code>F24</code>).
+        The second direction was assumed for a long time; it is now a check.</li>
+      <li><b>Five of nine is exactly the majority and still elects</b> &mdash; <code>F5</code>. Four of nine
+        does not: no leader, and every create fails &mdash; <code>F7</code>, <code>F8</code>.</li>
+      <li><b>A publish into a stream that already exists keeps working at four of nine</b>, and really
+        stores &mdash; <code>F9</code>, <code>F21</code>. Both recoveries return the group to nine
+        &mdash; <code>F10</code>, <code>F25</code>.</li>
+      <li><b>The seven-server version works too</b> &mdash; <code>C4</code>, <code>C6</code>. It is the
+        blast radius, not the behaviour, that differs.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>The gateway's one name, without the shared freeze.</b> This is the only shape in the lab that
+        keeps both.</li>
+      <li><b>Symmetric survival.</b> Either region alone, measured both ways.</li>
+      <li><b>Clean recovery.</b> The meta group comes back to full size on its own.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>A third site.</b> Real money, real latency, real operations &mdash; for servers that hold no
+        business data.</li>
+      <li><b>The arbiter is not fenced.</b> Unplaced streams never chose it, but a stream <i>asked</i> to go
+        there goes there, and a client dialling its port directly creates there &mdash;
+        <code>C7</code>&ndash;<code>C11</code>, <code>F17</code>.</li>
+      <li><b>Losing two of three regions still freezes you.</b> Four of nine is not a majority.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>If you must have a gateway, <b>run a three-node arbiter</b> in a third site and fence it yourself
+      with placement rules. A one-node arbiter is a demo, not a design.</p>
+    <span class="side">Card 04 &middot; Quorum</span></div>
+</section>
+
+<!-- ============ 05 ============ -->
+<section class="page tight" style="--fam:var(--purple)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Quorum &middot; Card 05 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">05</div><div class="fam-lbl">Quorum</div>
+    <h2>&ldquo;Can we still write?&rdquo; is three questions</h2>
+    <p class="lede">Most availability arguments about NATS go wrong here. <b>Creating</b> a stream needs the
+      meta group. <b>Publishing</b> into a stream that already exists does not. <b>Reading the dark
+      region's</b> stream is a third question again. They do not have the same answer.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Which one does your service actually do during an outage? <b>Answer that first.</b> A platform that
+      only publishes survives shapes that a platform which creates streams cannot.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured, cell by cell &mdash; a blank cell is not a claim</div>
+    <table>
+      <thead><tr><th>Shape</th><th>Create a stream</th><th>Publish into an existing local stream</th><th>Read the dark region's stream</th></tr></thead>
+      <tbody>
+        <tr><td><b>T1</b> no link</td><td class="good">yes, ZA dark <code>T1h</code></td><td>not measured</td><td>impossible &mdash; no link</td></tr>
+        <tr><td><b>T2</b> gateway</td><td class="bad">no, <code>10008</code> <code>A11</code></td><td class="good">yes <code>A12</code></td><td class="bad">no <code>A21</code></td></tr>
+        <tr><td><b>T3</b> 1-node arbiter</td><td class="good">both ways <code>C4</code> <code>C6</code></td><td>not measured</td><td>not measured</td></tr>
+        <tr><td><b>T4</b> 3-node arbiter</td><td class="good">both ways <code>F4</code> <code>F23</code></td><td class="good">yes <code>F21</code> <code>F24</code></td><td>not measured</td></tr>
+        <tr><td><b>T5</b> hub and leaf</td><td class="good">yes, AU dark <code>D25</code></td><td class="good">yes, AU dark <code>D26</code></td><td>not measured</td></tr>
+        <tr><td><b>T5 / H</b> + account per region</td><td class="mid">hub loss only <code>H13</code></td><td class="mid">hub loss only <code>H16</code></td><td>not measured</td></tr>
+        <tr><td><b>T6</b> gateway AND leaf</td><td class="bad">no, <code>10008</code> <code>G11</code></td><td class="good">yes <code>G12</code></td><td>not measured</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:11px">
+      <li><b>Losing quorum is a change freeze, not a write freeze.</b> The client sees
+        <code>10008</code> on any <i>change</i>, but only once the old leader has aged out &mdash; before
+        that it simply hangs and times out.</li>
+      <li><b>One condition on that.</b> A publish keeps working while <i>that stream's own replicas</i> keep
+        their own majority. Every cut here darkens a whole region, so the survivor's streams keep all three
+        replicas in one live cluster. <b>Losing a single stream's own replicas is not measured here.</b></li>
+      <li><b>A core <code>nats pub</code> proves nothing about storage.</b> It asks for no JetStream ack, so
+        it exits zero even when the message was never stored. Any claim that a write landed must
+        <i>count</i> it &mdash; <code>A12</code>, <code>F21</code>, <code>D23</code>, <code>G12</code>,
+        <code>H16</code> all do.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What the split buys you</div><ul>
+      <li><b>An honest availability target.</b> Three numbers, not one.</li>
+      <li><b>Cheaper shapes become viable.</b> A publish-only service survives a plain gateway.</li>
+      <li><b>It names the real fix.</b> If you must create streams during an outage, you need votes outside
+        both regions, or a domain each.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>You must know your own write path.</b> Auto-created streams and KV buckets are creates, and
+        they will freeze.</li>
+      <li><b>A stale monitor hides the freeze</b> for about a minute (card 09).</li>
+      <li><b>Reading the dark side is unsolved in every shape here.</b> Only a mirror answers it (card 06).</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Write the three questions into the requirement separately. <b>Never accept &ldquo;writes keep
+      working&rdquo; as one fact</b> &mdash; ask which of the three, and on which shape it was measured.</p>
+    <span class="side">Card 05 &middot; Quorum</span></div>
+</section>
+
+<!-- ============ 06 ============ -->
+<section class="page" style="--fam:var(--teal)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Copying &middot; Card 06 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">06</div><div class="fam-lbl">Copying</div>
+    <h2>A mirror is the second copy &mdash; and it can copy the wrong stream</h2>
+    <p class="lede">Nothing crosses a leaf link on its own. A <b>mirror</b> is how a region gets a readable
+      copy of the other region's data. Over a leaf link it needs
+      <code>mirror.external.api</code>. Leave that out and you get the worst outcome in the whole report.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>How does region B read region A's data? <b>A mirror, always named explicitly.</b> A mirror with no
+      <code>external.api</code> does not fail &mdash; it reports healthy and quietly copies nothing, or the
+      wrong thing.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <ul>
+      <li><b>Over a gateway it just works.</b> A supercluster is one namespace, so the mirror needs no
+        <code>external.api</code> at all, and it keeps up &mdash; <code>A15</code>&ndash;<code>A17</code>.</li>
+      <li><b>Over a leaf link it must name the other domain's API</b>
+        &mdash; <code>mirror.external.api = $JS.au.API</code>. With it, the messages copy:
+        <code>D8</code> and <code>H11</code> both count <b>2 of 2</b>.</li>
+      <li><b>Without it there is no error and no warning.</b> The stream reports healthy and sits at zero
+        &mdash; <code>D7</code>.</li>
+      <li><b>Worse: if a stream of the same name exists locally, the mirror copies that one instead</b> and
+        still looks correct. This run proved it by giving the two streams different message counts, so the
+        number alone says which was copied &mdash; <code>D9</code>, <code>D9a</code>.</li>
+      <li><b>The same trap catches export / import.</b> A mirror name resolves inside the <i>asking</i>
+        account, so an imported subject does not make the other side's stream mirrorable by name &mdash;
+        <code>E17</code>, <code>E18</code>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>A readable local copy</b> of the other region, which is the only answer in this lab to
+        &ldquo;read the dark region's stream&rdquo;.</li>
+      <li><b>It works in both link shapes</b>, with one config line of difference.</li>
+      <li><b>It is explicit.</b> A mirror is a decision somebody made, and it is in the config where a
+        reviewer can see it.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Silence on failure.</b> Health is not evidence. Only the message count is.</li>
+      <li><b>Hand-written, per stream.</b> There is no &ldquo;mirror everything&rdquo;.</li>
+      <li><b>Lag and bandwidth are not measured here.</b> Both shapes prove a mirror copies; neither says
+        how fast or at what cost on the wire.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Always write <code>external.api</code> explicitly, even where it is optional. Then
+      <b>alert on the mirror's message count, never on its health</b> &mdash; a wrong mirror is a healthy
+      mirror.</p>
+    <span class="side">Card 06 &middot; Copying</span></div>
+</section>
+
+<!-- ============ 07 ============ -->
+<section class="page" style="--fam:var(--teal)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Copying &middot; Card 07 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">07</div><div class="fam-lbl">Copying</div>
+    <h2>Export / import is the only sharing that is safe by design</h2>
+    <p class="lede">Two accounts cannot see each other. <b>Export / import</b> is the one deliberate hole:
+      the owner opens it, in one direction, for named subjects only &mdash; and the receiver renames
+      whatever comes through.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>How do two regions share a subject on purpose? <b>An export from the owner and an import with a
+      prefix.</b> The copy can then never be mistaken for the importer's own data.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <ul>
+      <li><b>One hole, one direction.</b> The exporting account names the subjects. Nothing else crosses,
+        and the reverse direction is not implied &mdash; <code>E1</code>&ndash;<code>E5</code>.</li>
+      <li><b>The importer renames on arrival.</b> An imported subject arrives under the importer's own
+        prefix, so local data and borrowed data are never the same name.</li>
+      <li><b>It is a subject hole, not a stream hole.</b> The importer still cannot read, name or delete a
+        stream the exporter owns, and may reuse that stream name for something entirely different
+        &mdash; <code>E9</code>.</li>
+      <li><b>Which is exactly why a mirror by name still fails across it</b> &mdash; <code>E17</code>,
+        <code>E18</code>. Subjects moved; names did not.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>Sharing you can review.</b> The hole is in the config, named, and one way.</li>
+      <li><b>No accidental collision.</b> The rename makes a borrowed subject visibly borrowed.</li>
+      <li><b>The deliberate opposite of the double capture.</b> Card 02's trap is silent; this is loud.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Subjects only.</b> If you need the other region's <i>stream</i>, you need a mirror (card 06),
+        and a mirror needs the domain named too.</li>
+      <li><b>Per-subject work.</b> Every share is another pair of config entries to maintain and to audit.</li>
+      <li><b>Two config files must agree.</b> An export with no matching import is silent, like every other
+        silence in this lab.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Use export / import for <b>subjects a region genuinely needs from another</b>, and keep the list
+      short. If the list grows long, the account split is in the wrong place.</p>
+    <span class="side">Card 07 &middot; Copying</span></div>
+</section>
+
+<!-- ============ 08 ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Traps &middot; Card 08 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">08</div><div class="fam-lbl">Traps</div>
+    <h2>Both links at once is not both shapes at once</h2>
+    <p class="lede">The obvious idea: wire a gateway <b>and</b> a hub leaf link on the same servers, keep the
+      gateway's single namespace, and get the leaf link's independent vote. It does not work. The
+      <b>gateway wins, completely</b>.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Can you combine the two link types to get both benefits? <b>No.</b> You get two JetStream systems,
+      not three, and you pay for both links.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <svg class="fig" viewBox="0 0 900 140" role="img" aria-label="A hub is joined by leaf links to two clusters that are also joined to each other by a gateway. The result is two JetStream systems: the hub alone, and the two regions still fused by the gateway.">
+      <rect class="clu" x="330" y="12" width="240" height="40" rx="4"/>
+      <text class="grp" x="342" y="30">HUB &mdash; ITS OWN SYSTEM</text>
+      <rect class="srv hi" x="342" y="36" width="62" height="10" rx="2"/>
+      <rect class="srv hi" x="412" y="36" width="62" height="10" rx="2"/>
+      <rect class="srv hi" x="482" y="36" width="62" height="10" rx="2"/>
+      <path class="leaf" d="M348 58 L273 79"/>
+      <path class="leaf" d="M552 58 L627 79"/>
+      <text class="edge" x="300" y="68" text-anchor="end">leaf</text>
+      <text class="edge" x="600" y="68">leaf</text>
+      <rect class="dom" x="18" y="82" width="600" height="50" rx="5"/>
+      <text class="grp" x="30" y="98">STILL ONE DOMAIN &mdash; THE GATEWAY DECIDES</text>
+      <rect class="clu" x="34" y="104" width="230" height="22" rx="3"/>
+      <text class="lbl" x="46" y="120">CLUSTER ZA</text>
+      <rect class="clu" x="372" y="104" width="230" height="22" rx="3"/>
+      <text class="lbl" x="384" y="120">CLUSTER AU</text>
+      <path class="gwline" d="M270 115 H366"/>
+      <text class="edge" x="318" y="108" text-anchor="middle">gateway</text>
+      <rect class="chipNO" x="640" y="82" width="244" height="50" rx="3"/>
+      <text class="chipT no" x="762" y="103" text-anchor="middle">two systems, not three</text>
+      <text class="chipT no" x="762" y="121" text-anchor="middle">a dark region still freezes</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li><b>The duplicate stream name is refused again</b> &mdash; <code>G4</code>. The leaf link's best
+        property for the two regions is gone.</li>
+      <li><b>The double capture collapses to a single stored copy</b> &mdash; <code>G6</code>. So does its
+        worst property, which is small comfort.</li>
+      <li><b>A dark region still freezes every create</b> with <code>10008</code>, while the hub sits
+        beside it perfectly healthy and unable to lend a vote &mdash; <code>G11</code>.</li>
+      <li><b>Deleting the hub entirely changes nothing</b> for the regions &mdash; <code>G13</code>. A
+        per-site domain is still illegal here, exactly as with no hub at all.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>The hub does keep a working JetStream system of its own.</b> It holds its own leader while a
+        region is dark, and a client on the hub still creates a stream.</li>
+      <li><b>Killing the hub leaves the regions untouched.</b> The hub is never a dependency.</li>
+      <li><b>It settles the question once.</b> Nobody on the team has to wonder again.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Two links, two sets of failure modes, one benefit.</b> The first shape in the lab that costs
+        real money and buys the two regions no quorum they did not already have.</li>
+      <li><b>It reads as safer than it is.</b> The topology diagram looks redundant; the vote arithmetic is
+        unchanged.</li>
+      <li><b>More servers to run, patch and monitor</b>, for a hub the regions do not need.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p><b>Pick one link type.</b> If you want regional votes, use a leaf link and drop the gateway. If you
+      want one namespace, use a gateway and add an arbiter (card 04).</p>
+    <span class="side">Card 08 &middot; Traps</span></div>
+</section>
+
+<!-- ============ 09 ============ -->
+<section class="page tight" style="--fam:var(--red)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Retractions &middot; Card 09 / 09</span></div>
+  <div class="titleblock">
+    <div class="num">09</div><div class="fam-lbl">Retractions</div>
+    <h2>What this lab got wrong, and corrected</h2>
+    <p class="lede">A lab whose numbers only ever improve is not measuring. These are the results this rig
+      published and later had to withdraw. Each one is kept beside the thing it damaged, because the
+      <b>failure mode</b> is the transferable part.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>How much of a multi-region result should you trust on one reading? <b>Less than you think.</b> Four
+      of the five entries below looked like healthy green results at the time.</p></div>
+
+  <div class="panel note" style="margin-top:12px">
+    <div class="lbl">Retracted &mdash; and what replaced it</div>
+    <ul>
+      <li><b>A freeze that did not freeze.</b> An early harness recorded the wrong process id, so
+        <code>kill -STOP</code> hit nothing and the &ldquo;frozen&rdquo; region stayed fully alive. The lab
+        reported healthy behaviour and it looked like a finding. <b>Now:</b> every freeze proves itself
+        first by checking the monitor port has really gone dark &mdash; <code>A10</code>, <code>A11</code>.</li>
+      <li><b>A core publish read as a stored write.</b> Three checks called <code>nats pub</code> and read
+        only its exit code. A core publish asks for no JetStream ack, so it exits zero even when nothing
+        was stored. <b>Now:</b> every write claim counts the message &mdash; <code>A12</code>,
+        <code>F21</code>, <code>D23</code>, <code>G12</code>, <code>H16</code>. Corrected 2026-09-23.</li>
+      <li><b>The availability matrix cited healthy-state checks for an outage.</b> Two cells claimed a
+        dark-region read had been measured, citing checks that ran with every server alive.
+        <b>Now:</b> those cells read <i>not measured</i>. No T5 shape ever read a dark region &mdash;
+        corrected 2026-09-23.</li>
+      <li><b>&ldquo;T4 was never built.&rdquo;</b> Three documents said so for two days after
+        <code>lab/06-arbiter3.sh</code> was measuring it. <b>Now:</b> card 04 is that rig, 23 checks, both
+        directions of region loss.</li>
+      <li><b>&ldquo;A leaf link on a gateway buys nothing.&rdquo;</b> Too wide. The hub does keep a working
+        JetStream system of its own. <b>Now:</b> it buys the <i>two regions</i> no quorum &mdash; card 08.</li>
+    </ul>
+  </div>
+
+  <div class="panel flat" style="margin-top:10px">
+    <div class="lbl">The two readings that lie, at both edges of a failover</div>
+    <ul>
+      <li><b>The old leader lingers.</b> After the majority of a supercluster was frozen,
+        <code>/jsz</code> kept naming a leader for roughly a minute. Read it too early and a dead
+        supercluster looks perfectly healthy &mdash; <code>A10a</code>, <code>A11a</code>.</li>
+      <li><b>The new leader is announced before it is ready.</b> After an election the endpoint names the
+        new leader some seconds before it will accept a create &mdash; <code>F6a</code>,
+        <code>F7a</code>. The rig retries and records how long it waited, instead of sleeping a magic
+        number.</li>
+      <li><b>Which region goes blind is a coin toss.</b> A domain per cluster over a gateway blinds one of
+        the two regions &mdash; and <i>which</i> one is not fixed. Two runs minutes apart, nothing changed,
+        and the blind side swapped &mdash; <code>B1</code>, <code>B1a</code>, <code>B2</code>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What the corrections bought</div><ul>
+      <li><b>Cell-level honesty.</b> The report now says <i>not measured</i> in a cell rather than letting
+        prose imply a result.</li>
+      <li><b>A rig that fails loudly.</b> A recorded <code>FAIL</code> now fails the whole run, which it
+        did not before.</li>
+      <li><b>Reusable failure modes.</b> Stale monitors, silent mirrors and unacked publishes are the
+        transferable lessons, not the counts.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What they cost</div><ul>
+      <li><b>Some claims got smaller.</b> Several confident sentences are now scoped, and a few cells are
+        blank.</li>
+      <li><b>Re-running is the only proof.</b> Any figure not produced by <code>./run-all.sh</code> is
+        hearsay, including the good 2026-09-11 hand-run results.</li>
+      <li><b>Green is not evidence.</b> Four of these five were green when published.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Trust a multi-region result only when the rig <b>proved its own outage</b> and <b>counted its own
+      write</b>. Everything else is a reading taken at the wrong moment.</p>
+    <span class="side">Card 09 &middot; Retractions</span></div>
+</section>
+
+<!-- ============ SELECTION GUIDE ============ -->
+<section class="page tight" style="--fam:var(--blue)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Guide</span></div>
+  <div class="titleblock">
+    <div class="num">&rarr;</div><div class="fam-lbl">Guide</div>
+    <h2>Which card answers your question</h2>
+    <p class="lede">The deck is ordered by mechanism. Most people arrive with a requirement instead. This
+      page maps one to the other.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Start here</div>
+    <table>
+      <thead><tr><th>If you are asking</th><th>Read</th><th>The short answer</th></tr></thead>
+      <tbody>
+        <tr><td>&ldquo;Can both regions keep working when the WAN cuts?&rdquo;</td><td><b>05</b>, then <b>04</b> or <b>02</b></td><td>Split it into three questions first. Then buy votes or buy domains.</td></tr>
+        <tr><td>&ldquo;Do we want one global stream name?&rdquo;</td><td><b>01</b> vs <b>02</b></td><td>Gateway gives it. Leaf link takes it away and gives survival back.</td></tr>
+        <tr><td>&ldquo;How do we stop regions colliding?&rdquo;</td><td><b>03</b></td><td>An account per region. Not a domain.</td></tr>
+        <tr><td>&ldquo;We have a gateway and cannot lose it.&rdquo;</td><td><b>04</b></td><td>Three arbiter nodes in a third site, fenced by placement rules.</td></tr>
+        <tr><td>&ldquo;How does one region read the other's data?&rdquo;</td><td><b>06</b>, then <b>07</b></td><td>A mirror with the domain named. Subjects only? Export / import.</td></tr>
+        <tr><td>&ldquo;Can we run a gateway and a leaf link together?&rdquo;</td><td><b>08</b></td><td>No. The gateway decides, completely.</td></tr>
+        <tr><td>&ldquo;How much of this should we trust?&rdquo;</td><td><b>09</b></td><td>Only what the rig re-runs. Green is not evidence.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel note" style="margin-top:10px">
+    <div class="lbl">Still open &mdash; do not read these as answered</div>
+    <ul>
+      <li><b>The cost of a cross-region read in milliseconds.</b> Stream, consumer and KV placement are all
+        measured. Latency is not.</li>
+      <li><b>A real WAN partition.</b> Every region loss here is <code>kill -STOP</code> &mdash; a clean,
+        total stop. Both sides alive and unable to reach each other is a different rig, and it is the one
+        that shows reconnect and split-brain behaviour.</li>
+      <li><b>Mirror lag and bandwidth.</b> Both shapes prove a mirror copies. Neither says how fast.</li>
+      <li><b>The hub as a real store under load</b>, and what losing it costs then.</li>
+      <li><b>Leaf reconnect with many regions.</b> Two were tested. Nothing tested five.</li>
+    </ul>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Two regions, one platform: <b>an account per region over a leaf link</b> if survival wins, <b>a
+      gateway plus a three-node arbiter</b> if one global name wins. Nothing in this lab gives both.</p>
+    <span class="side">Guide</span></div>
+</section>
+
+<!-- ============ PROVENANCE ============ -->
+<section class="page tight prov" style="--fam:var(--dim)">
+  <div class="chead"><span>Multi-cluster &amp; accounts &middot; nats-tech-lab</span><span class="r">Provenance</span></div>
+  <div class="titleblock">
+    <div class="num">&sect;</div><div class="fam-lbl">Method</div>
+    <h2>Where every number came from</h2>
+    <p class="lede">A figure with no date and no machine becomes a constant, and a constant goes stale
+      quietly. Every number in this deck is listed here with the day it was taken and the thing it ran on.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">The machine</div>
+    <ul>
+      <li><b><code>nats-server v2.14.6</code></b>, bare processes on <code>127.0.0.1</code>. No Docker, no
+        <code>nsc</code> trust chain, no <code>nats</code> contexts. Client <code>nats</code> CLI
+        <code>0.4.0</code>. Host: Darwin 25.4.0 arm64.</li>
+      <li><b>Four accounts, held still in every topology</b> &mdash; <code>LB</code> (shared),
+        <code>LB_ZA</code>, <code>LB_AU</code>, <code>$SYS</code>. Plain user / password pairs, lab-only.
+        The account is never the variable; <b>the topology is</b>.</li>
+      <li><b>A region is cut with <code>kill -STOP</code></b> on that region's processes, and restored with
+        <code>kill -CONT</code>. Every freeze proves itself dark before the rig asks anything.</li>
+      <li><b>Every answer is read from <code>curl "localhost:8231/jsz?meta=1"</code></b>, never from the
+        server logs.</li>
+    </ul>
+  </div>
+
+  <div class="panel flat" style="margin-top:10px">
+    <div class="lbl">The numbers</div>
+    <table>
+      <thead><tr><th>Card</th><th>Figure</th><th>Taken</th><th>On what</th></tr></thead>
+      <tbody>
+        <tr><td>all</td><td><b>175 checks passed, 0 failed, 51 observations</b></td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/run-all.sh</code>, all nine shapes from nothing</td></tr>
+        <tr><td>01</td><td>3 of 6 is no majority; every create <code>10008</code></td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/01-gateway.sh</code>, 26 checks</td></tr>
+        <tr><td>01</td><td>A domain per cluster blinds one region, side not fixed</td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/02-domain-over-gateway.sh</code>, 15 checks, two runs</td></tr>
+        <tr><td>02</td><td>AU dark: ZA creates, and 1 message really lands</td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/04-hub-and-leaf.sh</code>, 26 checks</td></tr>
+        <tr><td>03</td><td>Mirror copies 2 of 2 across a domain, with <code>external.api</code></td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/04-hub-and-leaf.sh</code> <code>D8</code>, <code>lab/08-hub-leaf-per-region.sh</code> <code>H11</code></td></tr>
+        <tr><td>04</td><td>7 servers, majority 4 &mdash; both regions survive alone</td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/03-arbiter.sh</code>, 18 checks</td></tr>
+        <tr><td>04</td><td>9 servers, majority 5; 5 of 9 elects, 4 of 9 does not</td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/06-arbiter3.sh</code>, 23 checks, both directions</td></tr>
+        <tr><td>05</td><td>The three-question matrix, cell by cell</td><td style="white-space:nowrap">2026-09-23</td><td>all nine shapes; a blank cell was not run</td></tr>
+        <tr><td>07</td><td>Export / import moves subjects, never stream names</td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/05-export-import.sh</code>, 17 checks</td></tr>
+        <tr><td>08</td><td>Two systems, not three; hub loss changes nothing</td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/07-gateway-and-hub.sh</code>, 23 checks</td></tr>
+        <tr><td>09</td><td>The stale leader lingers about a minute</td><td style="white-space:nowrap">2026-09-23</td><td><code>lab/01-gateway.sh</code> <code>A10a</code>, <code>A11a</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel note" style="margin-top:10px">
+    <div class="lbl">How to read them</div>
+    <ul>
+      <li><b>Read the shape, not the value.</b> Nine servers on one laptop is not your production estate.
+        &ldquo;Five of nine elects, four does not&rdquo; transfers. Timings would not, which is one reason
+        this deck carries none.</li>
+      <li><b>A check has an expected answer and passes only on an exact match.</b> An observation with no
+        expected answer is recorded as a <i>note</i> and can never pass or fail. The deck quotes checks.</li>
+      <li><b>A check ID is permanent.</b> IDs are never reused and never renumbered, because they are cited
+        outside this repo.</li>
+      <li><b>Earlier results exist and are not quoted here.</b> The 2026-09-11 findings were real, but they
+        were produced by hand in a terminal and are not re-runnable. Card 09 says why that matters.</li>
+      <li><b>Reproduce all of it:</b> <code>cd demos/03-multi-cluster-and-accounts/lab</code> then
+        <code>./run-all.sh</code>. It builds all nine shapes from nothing, tears them down, and rewrites
+        <code>REPORT.md</code> and <code>REPORT.html</code>.</li>
+    </ul>
+  </div>
+
+  <div class="src">
+    <b>Sources in the repo:</b> <code>demos/03-multi-cluster-and-accounts/REPORT.md</code> &middot;
+    <code>REPORT.html</code> &middot; <code>lab/run/results.tsv</code> &middot;
+    <code>diagrams/combination-matrix.html</code> &middot;
+    <code>diagrams/meta-quorum-options.html</code> &middot; <code>CLAUDE.md</code>
+  </div>
+</section>
+
+</body>
+</html>
