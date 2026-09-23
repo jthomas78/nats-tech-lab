@@ -944,7 +944,7 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. Done: 16a, 16b, 16c. Not started: 16d to 16i.**
+re-opened. Done: 16a, 16b, 16c, 16d. Not started: 16e to 16i.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1603,7 +1603,7 @@ request escaped to port 20401. The build copied the demo's built output into
 `build`-mode cross-origin exception was already struck from decision 2 at the gate and had no code
 to remove; `RemoteAllowlist` and BR-AS45 are unchanged files.
 
-**16d — Demo 04 becomes a plugin.** *Decisions 1, 10. Rule BR-AS78. Resolves F-4.*
+**16d — Demo 04 becomes a plugin.** *Decisions 1, 10. Rule BR-AS78. Resolves F-4.* **DONE 2026-09-23.**
 New: a **single** `route` contribution whose component is demo 04's existing panel container, with
 its current panel/tab interaction unchanged; the plugin entry must not render `@ui-shell/AppShell`,
 because `lab-shell` supplies the outer chrome when embedded (BR-AS09); `public/manifest.json` added.
@@ -1615,6 +1615,26 @@ separate route, and no menu, breadcrumb or tab is redesigned; the phase demonstr
 build-source catalogue generation, asset routing, lifecycle and failure handling on it. **Demo 04
 keeps its own declared role; this task does not redefine it, and no comparative performance claim is
 made.** Port 20401 is left as it is and is visible only to the dev proxy.
+
+**Verified 2026-09-23.** Demo 04's frontend now builds `index.html` and `remoteEntry.js` from one
+`vite build`, with `base: '/plugins/demo-04/'` and a `demo_04` federation container exposing
+`./plugin`. The body both entries render was lifted into `components/LessonPanels.vue` and
+`view/useDemoState.js`; `App.vue` kept its own `AppShell` and its slots, and the new
+`plugin/OdometerRoute.vue` renders none. No panel became a route, no tab or menu changed, and demo
+04's own suite went 491 → 502 specs with the new `src/plugin.spec.js` and no existing spec relaxed.
+
+Through the shell at `http://localhost:7110/demo-04` in `plugin-source: build`: the catalogue
+generated one entry from the repository scan, 100 requests answered under `/plugins/demo-04/…`
+(entry, source modules, lazy chunks, CSS, a `png`, `.md` and `.vue` files), **none escaped to port
+20401**, and both lessons and their tabs behaved as they do standalone. `hostBundleFingerprint.mjs
+--verify` still reports `e8bf0d98…` unchanged — the strongest form of BR-AS03's claim, now that a
+real plugin exists rather than a placeholder. The production build collected the demo's output into
+`dist/plugins/demo-04/`. Standalone still runs: `http://localhost:20401/` redirects to
+`/plugins/demo-04/` and renders its own chrome.
+
+One gap, deliberately left to 16e: the command API on `20402` is still an absolute cross-origin URL,
+so the write side does not work from inside the shell. Reads do, because a WebSocket is not subject
+to CORS. F-3's answer is a same-origin proxy route, not a CORS widening on `cqrs/names.go`.
 
 **16e — Demo readiness, in both sources.** *Decision 7. Rule BR-AS79. Resolves F-1, F-3, F-5, R-1.*
 New: a **sibling, demo-owned metadata file** beside `manifest.json` carrying the optional readiness

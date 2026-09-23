@@ -95,6 +95,56 @@ scheme and stay.
 demo 02 owns `lab2-*`, in the same store (`~/.config/nats/context/`). An
 unprefixed name here would silently overwrite one of theirs.
 
+## One build, two entries
+
+Added 2026-09-23 by task 16d of the app shell plan. `frontend/` is built once
+and answers in two places:
+
+| Entry | Built file | Chrome |
+|---|---|---|
+| Standalone | `index.html` → `src/main.js` → `App.vue` | its own `@ui-shell/AppShell` |
+| Embedded | `remoteEntry.js` → `src/plugin.js` | supplied by `lab-shell` |
+
+Neither entry is built separately and neither file is edited to switch between
+them. The rules that hold this together:
+
+- **The plugin entry must never render `@ui-shell/AppShell`.** `lab-shell`
+  supplies the topbar, the rail and the theme toggle when the demo is embedded,
+  and a second frame inside the first nests two chromes. `src/plugin.spec.js`
+  fails if `AppShell` is even named in `src/plugin.js` or
+  `src/plugin/OdometerRoute.vue`.
+- **The body is one component, not two.** `src/components/LessonPanels.vue`
+  holds the pagehead, both lesson panels and the wiring footer, and both entries
+  render it. `src/view/useDemoState.js` holds the state both entries need — one
+  call, one NATS connection. Everything else in `src/components/` is untouched:
+  no panel became a route, and no menu, breadcrumb or tab was redesigned.
+- **Where the rail sits is the only difference.** Standalone it goes in
+  `AppShell`'s sidebar slot; embedded it goes in the route's own left column,
+  because the shell declares no extension point for its own sidebar. Same
+  `NavList`, same two lessons, same behaviour.
+- **One route contribution.** `public/manifest.json` declares a single `route`
+  (`/demo-04`) and one `navigation` entry. Splitting the lessons into two routes
+  would change how the demo is navigated, and was rejected.
+
+### The public path prefix
+
+`vite.config.js` sets `base: '/plugins/demo-04/'`. The shell serves every one of
+this plugin's assets under that one prefix — the entry, the lazy chunks, the
+CSS, the fonts and the images, not the entry alone. The dev server follows the
+same layout, so `http://localhost:20401/` now redirects to
+`http://localhost:20401/plugins/demo-04/`. The proxied URL and the direct URL
+are then the same path, and a relative asset URL is correct in both.
+
+Port `20401` is unchanged, and `lab-shell` learns it from
+`public/demo.json` — never from `public/manifest.json`, which has to be
+byte-identical whichever source discovered the plugin.
+
+**Not done yet:** the command API on `20402` is still an absolute cross-origin
+URL, so the write side does not work from inside the shell. Reads do — a
+WebSocket is not subject to CORS. The fix is a same-origin proxy route, which is
+task 16e of the app shell plan. Do not widen `cqrs/names.go`'s CORS grant to
+close it.
+
 ## The shim's routes
 
 `cqrs serve` (port `20402`) is the only HTTP surface. It holds no rules — it
@@ -198,7 +248,7 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 491 specs, 33 files
+npx vitest run                      # 502 specs, 34 files
 npx eslint src --ext .js,.vue       # 0 errors; 3 warnings are the baseline
 npm run build
 ```
