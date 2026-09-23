@@ -66,4 +66,11 @@ awk -F'\t' '$7=="PASS"{p++} $7=="FAIL"{f++} $7=="NOTE"{n++}
 echo "  report: demos/03-multi-cluster-and-accounts/REPORT.md"
 echo "          demos/03-multi-cluster-and-accounts/REPORT.html"
 echo "=========================================================="
-[ "$failed" -eq 0 ]
+
+# check() records a FAIL row and still returns 0, so a script can finish
+# cleanly with failed checks in it. Count the rows, not just the exit codes.
+failed_checks=$(awk -F'\t' '$7=="FAIL"{n++} END{print n+0}' "$RESULTS")
+if [ "$failed_checks" -ne 0 ]; then
+  echo "  !!! $failed_checks check(s) FAILED -- see $RESULTS" >&2
+fi
+[ "$failed" -eq 0 ] && [ "$failed_checks" -eq 0 ]

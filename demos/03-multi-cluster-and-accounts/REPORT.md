@@ -63,12 +63,12 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 | Topology | Create a stream | Publish into an existing local stream | Read the dark region's stream |
 |---|---|---|---|
-| T1 -- no link | yes `T1h` | not measured | impossible by design -- no link |
+| T1 -- no link | yes, ZA dark `T1h` | not measured | impossible by design -- no link |
 | T2 / A -- gateway | **no**, `10008` `A11` | yes `A12` | **no** `A21` |
 | T3 / C -- gateway + 1-node arbiter | yes, both ways `C4` `C6` | not measured | not measured |
 | T4 / F -- gateway + 3-node arbiter | yes, both ways `F4` `F23` | yes `F21` `F24` | not measured |
-| T5 / D -- hub and leaf | yes `D25` | yes `D26` | **no** -- separate domains `D17` `D18` |
-| T5 / H -- + an account per region | hub loss only `H13` | hub loss only `H16` | **no** `H7` |
+| T5 / D -- hub and leaf | yes, AU dark `D25` | yes, AU dark `D26` | not measured |
+| T5 / H -- + an account per region | hub loss only `H13` | hub loss only `H16` | not measured |
 | T6 / G -- gateway AND leaf | **no**, `10008` `G11` | yes `G12` | not measured |
 
 *A cell with no check ID was not run on that rig. It is not a claim.*
@@ -79,7 +79,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** Is it the **account**, the **cluster**, or the **domain** that lets a region own its own stream?
 
-**This run says:** The **account**. A cluster only decides *where* a stream is placed, and over a gateway a domain changes nothing at all. Two accounts is the only thing in this demo that gave two regions two real, separately-owned streams of the same name over one link. **One thing that looks like the same answer and is not:** under T5 the *shared* account `LB` also ends up holding two separate streams of one name, one per region. That is not account isolation -- it is two JetStream domains that cannot see each other, so neither can refuse the overlap. Accounts wall data off on purpose; a domain split does it by accident.
+**This run says:** The **account**. A cluster only decides *where* a stream is placed, and over a gateway a domain changes nothing at all. Two accounts is the only thing in this demo that gave two regions two real, separately-owned streams of the same name over one link. **One thing that looks like the same answer and is not:** under T5 the *shared* account `LB` also ends up holding two separate streams of one name, one per region. That is not account isolation. It is two JetStream **domains** -- two separate namespaces, each with its own management group -- so a bare stream name resolves only inside the asking domain, and neither side can refuse the other's overlap. A domain is not a wall: name the other domain's API explicitly and data crosses it, which is exactly what the mirrors in `D8` and `H11` do. An **account** is the wall, and it is one on purpose.
 
 *Evidence:* `T1d`, `T1e`, `A3`, `A4`, `A5`, `A26`, `A6`, `A7`, `A8`, `B11`, `B12`, `C13`, `C13a`, `C14`, `D16`, `D17`, `E6`, `E7`, `E8`, `F13`, `F13a`, `F14`, `G4`, `G5`, `H3`, `H9`, `H9a`
 
@@ -103,7 +103,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** What does losing a **region**, a **cluster** or a **single instance** do to quorum, and what error code does the client see?
 
-**This run says:** It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees `10008 JetStream system temporarily unavailable` on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, because a stream's replicas all sit inside one cluster. That is the same fact `D03-R1` splits three ways: losing quorum is a **change** freeze, not a **write** freeze.
+**This run says:** It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees `10008 JetStream system temporarily unavailable` on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, on **one condition**: that stream's own replicas must still hold their own majority. Every measurement here darkens a whole region, so the surviving region's streams keep all three replicas inside one live cluster (`F9`/`F21`). Losing the **meta** group is a **change** freeze, not a **write** freeze -- that is the same fact `D03-R1` splits three ways. Losing a single stream's **own** replicas is a different question, and it is **not measured here**.
 
 *Evidence:* `T1a`, `T1b`, `T1c`, `T1i`, `T1j`, `T1k`, `T1l`, `T1m`, `A1`, `A2`, `A10a`, `A10`, `A13`, `A14`, `A22`, `A23`, `A24`, `A24a`, `A25`, `B9`, `B10`, `B10a`, `C1`, `C2`, `C15`, `C16`, `C16a`, `C20`, `C12`, `D2`, `D19`, `D20`, `E15`, `E16`, `F1`, `F2`, `F5`, `F5a`, `F6a`, `F7a`, `F7`, `F10`, `F25`, `F15`, `F16`, `F16a`, `F20`, `F11`, `G10a`, `G15`, `H2`, `H4`, `H5`
 
@@ -165,7 +165,7 @@ The stale-leader trap has a twin, and it points the other way. After an election
 
 ### Two links at once is not two shapes at once -- the gateway wins
 
-A gateway and a hub leaf link were wired onto the same nine servers, to see whether a system could keep the gateway's single namespace and still get the leaf link's independent vote. It cannot. The result is two JetStream systems, not three: the hub in its own group, and both regions still fused into one by the gateway. Every property the leaf link has on its own is gone -- the duplicate stream name is refused again, the double capture collapses to a single stored copy, and a dark region freezes every create while the hub sits alongside it perfectly healthy and unable to help. The hub can be killed outright with no effect on either region. This is the first shape in the lab that costs real money and buys nothing.
+A gateway and a hub leaf link were wired onto the same nine servers, to see whether a system could keep the gateway's single namespace and still get the leaf link's independent vote. It cannot. The result is two JetStream systems, not three: the hub in its own group, and both regions still fused into one by the gateway. Every property the leaf link gave the two regions on its own is gone -- the duplicate stream name is refused again, the double capture collapses to a single stored copy, and a dark region freezes every create while the hub sits alongside it perfectly healthy and unable to lend a vote. The hub does keep a working JetStream system of its own, and it can be killed outright with no effect on either region. This is the first shape in the lab that costs real money and buys the two regions no quorum they did not already have.
 
 *Evidence:* `G1`, `G4`, `G6`, `G13`
 

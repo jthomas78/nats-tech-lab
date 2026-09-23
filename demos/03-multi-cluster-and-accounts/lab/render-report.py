@@ -82,9 +82,13 @@ REQS = {
    "streams of the same name over one link. **One thing that looks like the "
    "same answer and is not:** under T5 the *shared* account `LB` also ends "
    "up holding two separate streams of one name, one per region. That is "
-   "not account isolation -- it is two JetStream domains that cannot see "
-   "each other, so neither can refuse the overlap. Accounts wall data off on "
-   "purpose; a domain split does it by accident."),
+   "not account isolation. It is two JetStream **domains** -- two separate "
+   "namespaces, each with its own management group -- so a bare stream name "
+   "resolves only inside the asking domain, and neither side can refuse the "
+   "other's overlap. A domain is not a wall: name the other domain's API "
+   "explicitly and data crosses it, which is exactly what the mirrors in "
+   "`D8` and `H11` do. An **account** is the wall, and it is one on "
+   "purpose."),
  "D03-R3": (
    "What does `jetstream.domain` actually change, and where was that "
    "measured?",
@@ -116,9 +120,13 @@ REQS = {
    "`10008 JetStream system temporarily unavailable` on any *change* -- but "
    "only once the old leader has aged out. Before that the client just hangs "
    "and times out. Writes into a stream that already exists keep working "
-   "throughout, because a stream's replicas all sit inside one cluster. "
-   "That is the same fact `D03-R1` splits three ways: losing quorum is a "
-   "**change** freeze, not a **write** freeze."),
+   "throughout, on **one condition**: that stream's own replicas must still "
+   "hold their own majority. Every measurement here darkens a whole region, "
+   "so the surviving region's streams keep all three replicas inside one "
+   "live cluster (`F9`/`F21`). Losing the **meta** group is a **change** "
+   "freeze, not a **write** freeze -- that is the same fact `D03-R1` splits "
+   "three ways. Losing a single stream's **own** replicas is a different "
+   "question, and it is **not measured here**."),
  "D03-R6": (
    "**Gateway or leaf node** for two regions -- what does each one buy, and "
    "what does each one cost?",
@@ -190,7 +198,7 @@ REQS = {
 #  read the dark region's stream)
 R1_MATRIX = [
  ("T1 -- no link",
-  "yes `T1h`", "not measured", "impossible by design -- no link"),
+  "yes, ZA dark `T1h`", "not measured", "impossible by design -- no link"),
  ("T2 / A -- gateway",
   "**no**, `10008` `A11`", "yes `A12`", "**no** `A21`"),
  ("T3 / C -- gateway + 1-node arbiter",
@@ -198,9 +206,9 @@ R1_MATRIX = [
  ("T4 / F -- gateway + 3-node arbiter",
   "yes, both ways `F4` `F23`", "yes `F21` `F24`", "not measured"),
  ("T5 / D -- hub and leaf",
-  "yes `D25`", "yes `D26`", "**no** -- separate domains `D17` `D18`"),
+  "yes, AU dark `D25`", "yes, AU dark `D26`", "not measured"),
  ("T5 / H -- + an account per region",
-  "hub loss only `H13`", "hub loss only `H16`", "**no** `H7`"),
+  "hub loss only `H13`", "hub loss only `H16`", "not measured"),
  ("T6 / G -- gateway AND leaf",
   "**no**, `10008` `G11`", "yes `G12`", "not measured"),
 ]
@@ -232,13 +240,14 @@ NEW = [
   "see whether a system could keep the gateway's single namespace and still "
   "get the leaf link's independent vote. It cannot. The result is two "
   "JetStream systems, not three: the hub in its own group, and both regions "
-  "still fused into one by the gateway. Every property the leaf link has on "
-  "its own is gone -- the duplicate stream name is refused again, the double "
-  "capture collapses to a single stored copy, and a dark region freezes every "
-  "create while the hub sits alongside it perfectly healthy and unable to "
-  "help. The hub can be killed outright with no effect on either region. "
-  "This is the first shape in the lab that costs real money and buys "
-  "nothing."),
+  "still fused into one by the gateway. Every property the leaf link gave "
+  "the two regions on its own is gone -- the duplicate stream name is refused "
+  "again, the double capture collapses to a single stored copy, and a dark "
+  "region freezes every create while the hub sits alongside it perfectly "
+  "healthy and unable to lend a vote. The hub does keep a working JetStream "
+  "system of its own, and it can be killed outright with no effect on either "
+  "region. This is the first shape in the lab that costs real money and buys "
+  "the two regions no quorum they did not already have."),
  ("A name-only mirror can silently copy the WRONG stream",
   "D9, D9a",
   "A mirror with no `external.api` does not fail when the name it wants only "
