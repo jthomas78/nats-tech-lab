@@ -650,11 +650,16 @@ pre .hi  { color: var(--text); }
             namespace.</td>
           <td><span class="badge b-good">no</span></td>
           <td><b>WAN</b></td>
-          <td><span class="badge b-bad">10008</span></td>
+          <td><span class="badge b-base">not measured</span> &mdash; it fails, because AU owns nothing and
+            ZA is dark, but it is <b>not</b> <code>10008</code>: 4 of 7 is still the majority, so JetStream
+            is alive (<code>C4</code>/<code>C6</code>)</td>
           <td>1 group of <b>7</b>, majority 4. Lose a region &rarr; 4 left, <b>survives</b> &mdash; but with
             <b>zero slack</b>: one more node down and it freezes. Lose the arbiter alone &rarr; 6, fine.</td>
-          <td><span class="badge b-good">measured</span> quorum: demo 03 Figure C &middot;
-            <span class="badge b-bad">inferred</span> stream result, from P3</td>
+          <td><span class="badge b-good">measured</span> quorum &mdash;
+            <code>lab/03-arbiter.sh</code> <code>C1</code> <code>C3</code>&ndash;<code>C6</code>
+            <code>C12</code> &middot;
+            <span class="badge b-bad">inferred</span> stream result, from P3 &mdash; no
+            <code>10058</code> check was run on T3</td>
         </tr>
         <tr>
           <td><b>P6</b></td><td>2 regions + arbiter, arbiter = <b>1 instance</b></td><td><b>gateway</b></td>
@@ -664,8 +669,10 @@ pre .hi  { color: var(--text); }
           <td><b>local</b></td>
           <td><span class="badge b-good">works</span></td>
           <td>as P5 &mdash; 1 group of 7, majority 4, no slack after a region is lost</td>
-          <td><span class="badge b-good">measured</span> quorum &middot;
-            <span class="badge b-bad">inferred</span> stream result, from P4</td>
+          <td><span class="badge b-good">measured</span> <code>lab/03-arbiter.sh</code> &mdash;
+            <code>C14</code> both accounts land in their own region, <code>C15</code>&ndash;<code>C17</code>
+            three peers, leader and copies all local, <code>C18</code> KV local, <code>C19</code> consumer
+            local; quorum <code>C1</code> <code>C3</code>&ndash;<code>C6</code></td>
         </tr>
 
         <tr>
@@ -674,11 +681,18 @@ pre .hi  { color: var(--text); }
           <td><span class="badge b-bad">NO</span> &mdash; <code>10058</code></td>
           <td><span class="badge b-good">no</span></td>
           <td><b>WAN</b></td>
-          <td><span class="badge b-bad">10008</span></td>
+          <td><span class="badge b-base">not measured</span> &mdash; it fails, because AU owns nothing and
+            ZA is dark, but it is <b>not</b> <code>10008</code>: 6 of 9 is still the majority, so JetStream
+            is alive (<code>F4</code>/<code>F23</code>)</td>
           <td>1 group of <b>9</b>, majority 5. Lose a region &rarr; 6 left, survives <b>with one node of
             slack</b>. Lose the whole arbiter site &rarr; 6, fine. That slack is the only thing the extra
             two instances buy.</td>
-          <td><span class="badge b-bad">inferred</span> arbiter of 3 was never built; only 3+3+1 was</td>
+          <td><span class="badge b-good">measured</span> quorum &mdash;
+            <code>lab/06-arbiter3.sh</code> <code>F1</code> <code>F3</code>&ndash;<code>F11</code>
+            <code>F22</code>&ndash;<code>F25</code>: both regions survive alone, 5 of 9 still elects,
+            4 of 9 does not &middot;
+            <span class="badge b-bad">inferred</span> stream result, from P3 &mdash; no
+            <code>10058</code> check was run on T4</td>
         </tr>
         <tr>
           <td><b>P8</b></td><td>2 regions + arbiter, arbiter = <b>3 instances</b></td><td><b>gateway</b></td>
@@ -688,7 +702,11 @@ pre .hi  { color: var(--text); }
           <td><b>local</b></td>
           <td><span class="badge b-good">works</span></td>
           <td>as P7 &mdash; 1 group of 9, majority 5, one node of slack after a region is lost</td>
-          <td><span class="badge b-bad">inferred</span></td>
+          <td><span class="badge b-good">measured</span> <code>lab/06-arbiter3.sh</code> &mdash;
+            <code>F14</code> both accounts land in their own region,
+            <code>F15</code>&ndash;<code>F17</code> three peers, leader and copies all local,
+            <code>F18</code> KV local, <code>F19</code> consumer local; quorum <code>F1</code>
+            <code>F3</code>&ndash;<code>F11</code> <code>F22</code>&ndash;<code>F25</code></td>
         </tr>
 
         <tr>
@@ -710,7 +728,10 @@ pre .hi  { color: var(--text); }
           <td>local</td>
           <td><span class="badge b-base">not measured</span></td>
           <td>3 groups of 3, quorum 2 each</td>
-          <td><span class="badge b-bad">inferred</span> from P9 plus the measured account wall</td>
+          <td><span class="badge b-good">measured</span> <code>lab/04-hub-and-leaf.sh</code>
+            <code>D17</code> LB_AU's own <code>ODOMETER</code> lands in AU, <code>D18</code> one publish in
+            LB_ZA reads <code>1 / 0</code> &mdash; no double capture &middot;
+            <code>lab/08-hub-leaf-per-region.sh</code> the whole T5 / H run</td>
         </tr>
 
         </tbody>
