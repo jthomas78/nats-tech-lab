@@ -128,7 +128,7 @@ check E7 D03-R2 "LB_AU creates its OWN stream named ODOMETER -- no 10058" \
       "ok" "$(fails_or_ok 4241 au stream add ODOMETER --subjects "evt.dup.v1" \
               --storage file --replicas 3 --cluster au --defaults)"
 check E8 D03-R2 "and they are two real streams, in" \
-      "za / au" "$(stream_cluster 4231 za ODOMETER) / $(stream_cluster 4241 au ODOMETER)"
+      "za / au" "$(stream_cluster 4231 za ODOMETER) / $(stream_cluster 4241 au ODOMETER)" T1e
 
 # --- THE SAME QUESTIONS T2 / B ASKED, ASKED AGAIN HERE ----------------------
 # T2 / B is the warning next door: one small block in the config file left a

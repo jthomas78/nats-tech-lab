@@ -76,7 +76,7 @@ wait_meta_leader 8231 || true
 sleep 5
 
 # --- Seven peers, one group -------------------------------------------------
-check C1 D03-R5 "meta group size (majority is 4)" "7" "$(meta_size 8231)"
+check C1 D03-R5 "meta group size (majority is 4)" "7" "$(meta_size 8231)" A2
 check C2 D03-R5 "distinct JetStream meta groups across all three sites" \
       "1" "$(meta_group_count "${ALL_HTTP[@]}")"
 
@@ -104,7 +104,7 @@ check C5 D03-R1 "ZA dark: a leader is elected among the survivors" \
 note  C5a D03-R1 "ZA dark: which server took the lead" "$LEADER_2"
 check C6 D03-R1 "ZA dark: AU creates a NEW 3-replica stream" \
       "ok" "$(fails_or_ok 4241 au stream add T_AFTER_ZA --subjects "evt.b.v1" \
-              --storage file --replicas 3 --cluster au --defaults)"
+              --storage file --replicas 3 --cluster au --defaults)" T1h
 
 thaw za-1 za-2 za-3
 wait_meta_leader 8231 || true

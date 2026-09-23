@@ -93,7 +93,7 @@ check D3 D03-R3 "shared account LB: AU also asks for ODOMETER (no 10058 here)" \
       "ok" "$(fails_or_ok 4241 lb stream add ODOMETER --subjects "$SUBJECT" \
               --storage file --replicas 3 --defaults)"
 check D4 D03-R3 "and they are two real streams, in" \
-      "za / au" "$(stream_cluster 4231 lb ODOMETER) / $(stream_cluster 4241 lb ODOMETER)"
+      "za / au" "$(stream_cluster 4231 lb ODOMETER) / $(stream_cluster 4241 lb ODOMETER)" T1e
 
 # --- THE REAL DOUBLE CAPTURE -----------------------------------------------
 # One publish. Both filters match it. Neither system can see the other, so
@@ -211,6 +211,27 @@ check D22 D03-R3 "so the HUB's LB_ZA may create a THIRD ODOMETER, in" \
 note  D22a D03-R3 "so the leaf link binds ONE account" \
       "LB reaches the hub; LB_ZA and LB_AU are six separate islands, one per site"
 
+# --- LOSE A WHOLE REGION ----------------------------------------------------
+# The hub kill below is a different question. This one is T2's question, asked
+# on T5: with AU dark, can ZA still change JetStream? T5's answer should be
+# yes where T2's was no, because each region is its own meta group of 3 and
+# nothing outside it holds a vote.
+freeze au-1 au-2 au-3
+wait_dark 8241 8242 8243
+check D24 D03-R1 "AU dark: ZA still has a meta leader (3 of 3, quorum 2)" \
+      "yes" "$([ "$(meta_leader 8231)" = "NONE" ] && echo no || echo yes)" F3
+check D25 D03-R1 "AU dark: ZA creates a NEW 3-replica stream" \
+      "ok" "$(fails_or_ok 4231 lb stream add T_ZA_DARK --subjects "evt.zd.v1" \
+              --storage file --replicas 3 --defaults)" A11
+nats_as 4231 lb pub "evt.zd.v1" '{"km":3}' >/dev/null 2>&1
+sleep 2
+check D26 D03-R1 "AU dark: and ZA's message really landed -- messages in T_ZA_DARK" \
+      "1" "$(stream_msgs 4231 lb T_ZA_DARK)" A12
+thaw au-1 au-2 au-3
+sleep 5
+check D27 D03-R1 "after recovery: meta group sizes hub / ZA / AU" \
+      "3 / 3 / 3" "$(meta_size 8551) / $(meta_size 8231) / $(meta_size 8241)" D2
+
 # --- Kill the ENTIRE hub ----------------------------------------------------
 # Not one node. All three. Both regions must keep full JetStream.
 kill_server hub-1 hub-2 hub-3
@@ -225,8 +246,14 @@ check D12 D03-R1 "whole hub gone: ZA creates a NEW 3-replica stream" \
 check D13 D03-R1 "whole hub gone: AU creates a NEW 3-replica stream" \
       "ok" "$(fails_or_ok 4241 lb stream add T_AU_NEW --subjects "evt.an.v1" \
               --storage file --replicas 3 --defaults)"
-check D14 D03-R1 "whole hub gone: AU still stores its own publishes" \
-      "ok" "$(fails_or_ok 4241 lb pub "$SUBJECT" '{"km":9}')"
+check D14 D03-R1 "whole hub gone: a core publish from AU is accepted" \
+      "ok" "$(fails_or_ok 4241 lb pub "evt.an.v1" '{"km":9}')"
+# D14 only proves the client did not error. `nats pub` is a core publish and
+# asks for no JetStream ack, so it exits 0 even if nothing was stored. This is
+# the check D14's old name implied.
+sleep 2
+check D23 D03-R1 "whole hub gone: and it really landed -- messages in AU's T_AU_NEW" \
+      "1" "$(stream_msgs 4241 lb T_AU_NEW)" A12
 
 note D15 D03-R6 "the cost" \
      "nothing replicates by itself -- every cross-region copy is hand-written"

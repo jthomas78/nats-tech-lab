@@ -109,7 +109,7 @@ sleep 8
 # --- How many JetStream systems are there? ---------------------------------
 # T2 answered 1. T5 answered 3. Both links at once answers this.
 check G1 D03-R10 "distinct JetStream meta groups across hub, ZA and AU" \
-      "2" "$(meta_group_count "${HUB_HTTP[@]}" "${ZA_HTTP[@]}" "${AU_HTTP[@]}")"
+      "2" "$(meta_group_count "${HUB_HTTP[@]}" "${ZA_HTTP[@]}" "${AU_HTTP[@]}")" D1
 check G2 D03-R10 "meta group sizes: hub / seen from ZA / seen from AU" \
       "3 / 6 / 6" "$(meta_size 8551) / $(meta_size 8231) / $(meta_size 8241)"
 # The single number that says the gateway won: both regions name ONE leader.
@@ -125,7 +125,7 @@ check G4 D03-R2 "shared account LB: AU asks for ODOMETER on its own cluster" \
       "10058" "$(err_code 4241 lb stream add ODOMETER --subjects "$SUBJECT" \
                  --storage file --replicas 3 --cluster au --defaults)"
 check G5 D03-R2 "shared account LB: AU's 'stream info ODOMETER' reports cluster" \
-      "za" "$(stream_cluster 4241 lb ODOMETER)"
+      "za" "$(stream_cluster 4241 lb ODOMETER)" A5
 
 # --- Did the T5 double capture survive? ------------------------------------
 # T5's D4 read `za / au` -- two real streams. If this reads `za / za` there is
@@ -192,10 +192,10 @@ check G16 D03-R10 "whole hub gone: meta group size seen from ZA" \
       "6" "$(meta_size 8231)"
 check G17 D03-R10 "whole hub gone: ZA creates a NEW 3-replica stream" \
       "ok" "$(fails_or_ok 4231 lb stream add T_NOHUB_ZA --subjects "evt.nz.v1" \
-              --storage file --replicas 3 --cluster za --defaults)"
+              --storage file --replicas 3 --cluster za --defaults)" D12
 check G18 D03-R10 "whole hub gone: AU creates a NEW 3-replica stream" \
       "ok" "$(fails_or_ok 4241 lb stream add T_NOHUB_AU --subjects "evt.na.v1" \
-              --storage file --replicas 3 --cluster au --defaults)"
+              --storage file --replicas 3 --cluster au --defaults)" D13
 
 # ===========================================================================
 # PHASE 2 -- the SAME wiring, plus a domain per site
@@ -235,12 +235,12 @@ check G19 D03-R3 "a domain per site, nothing stopped: sides that elect a meta le
 note  G19a D03-R3 "which side won the race this run -- still a coin toss" \
       "$live_side won; $blind_side is blind"
 check G20 D03-R3 "the losing side has a meta leader" \
-      "no" "$([ "$(meta_leader "$blind_mon")" = "NONE" ] && echo no || echo yes)"
+      "no" "$([ "$(meta_leader "$blind_mon")" = "NONE" ] && echo no || echo yes)" B2
 check G21 D03-R3 "meta group size seen from the live side -- domains did NOT split it" \
-      "6" "$(meta_size "$live_mon")"
+      "6" "$(meta_size "$live_mon")" B3
 check G22 D03-R3 "placing a stream on the BLIND cluster, from a live client" \
       "10005" "$(err_code "$live_cli" lb stream add ODOMETER_X --subjects "evt.x.v1" \
-                 --storage file --replicas 3 --cluster "$blind_side" --defaults)"
+                 --storage file --replicas 3 --cluster "$blind_side" --defaults)" B4
 check G23 D03-R3 "the hub, which IS across a leaf link, still elects its own leader" \
       "yes" "$([ "$(meta_leader 8551)" = "NONE" ] && echo no || echo yes)"
 note  G24 D03-R10 "verdict" \

@@ -188,8 +188,13 @@ check H12 D03-R1 "whole hub gone: ZA still has a meta leader" \
 check H13 D03-R1 "whole hub gone: LB_ZA creates a NEW 3-replica stream" \
       "ok" "$(fails_or_ok 4231 za stream add T_ZA_NEW --subjects "evt.zn.v1" \
               --storage file --replicas 3 --defaults)" D12
-check H14 D03-R1 "whole hub gone: LB_ZA still stores its own publishes" \
-      "ok" "$(fails_or_ok 4231 za pub "$SUBJECT" '{"km":9}')" D14
+check H14 D03-R1 "whole hub gone: a core publish from LB_ZA is accepted" \
+      "ok" "$(fails_or_ok 4231 za pub "evt.zn.v1" '{"km":9}')" D14
+# H14 only proves the client did not error. This is the check its old name
+# implied -- the message counted where it was supposed to land.
+sleep 2
+check H16 D03-R1 "whole hub gone: and it really landed -- messages in T_ZA_NEW" \
+      "1" "$(stream_msgs 4231 za T_ZA_NEW)" D23
 note  H14a D03-R1 "so the hub is a READER, not a dependency" \
       "a region keeps full JetStream for its own account with all three hub nodes dead"
 

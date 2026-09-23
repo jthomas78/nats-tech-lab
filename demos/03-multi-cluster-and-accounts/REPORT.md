@@ -15,11 +15,11 @@ cd demos/03-multi-cluster-and-accounts/lab
 
 | | |
 |---|---|
-| When | 2026-09-22 18:56 SAST |
+| When | 2026-09-23 09:24 SAST |
 | Server | `nats-server v2.14.6` |
 | Client | `0.4.0` |
 | Machine | Darwin 25.4.0 arm64 |
-| Checks | **164 passed, 0 failed** |
+| Checks | **175 passed, 0 failed** |
 | Recorded observations | 51 |
 
 A **check** has an expected answer and passes only on an exact match. A **note** has no expected answer — it records what the machine did so the number is on the record. Notes cannot pass or fail.
@@ -48,9 +48,9 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 | T2 / B -- gateway + per-cluster domain | 15 | 15 | 0 | 8 |
 | T2 / E -- export / import between accounts | 17 | 17 | 0 | 3 |
 | T3 / C -- gateway + arbiter | 18 | 18 | 0 | 7 |
-| T4 / F -- gateway + 3-node arbiter | 18 | 18 | 0 | 8 |
-| T5 / D -- hub and leaf | 21 | 21 | 0 | 6 |
-| T5 / H -- hub and leaf, account per region | 14 | 14 | 0 | 7 |
+| T4 / F -- gateway + 3-node arbiter | 23 | 23 | 0 | 8 |
+| T5 / D -- hub and leaf | 26 | 26 | 0 | 6 |
+| T5 / H -- hub and leaf, account per region | 15 | 15 | 0 | 7 |
 | T6 / G -- gateway AND hub leaf | 23 | 23 | 0 | 6 |
 
 ## The answers, requirement by requirement
@@ -61,7 +61,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **This run says:** Three of the five do: **T1** (no link at all), **T3** (gateway plus an arbiter site) and **T5** (hub and leaf). **T2**, the plain gateway, does not -- the six servers are one meta group, so a 3/3 split leaves nobody with a majority and both sides freeze. T3 fixes that with a seventh vote that sits outside both regions. T5 fixes it a different way: each region is its own JetStream system, so there is no shared vote to lose.
 
-*Evidence:* `T1g`, `T1h`, `A11`, `A11a`, `A12`, `A20`, `A21`, `A21a`, `C3`, `C3a`, `C4`, `C5`, `C5a`, `C6`, `D10`, `D11`, `D12`, `D13`, `D14`, `F3`, `F4`, `F6`, `F8`, `F9`, `F12`, `G11`, `G11a`, `G12`, `H12`, `H13`, `H14`, `H14a`
+*Evidence:* `T1g`, `T1h`, `A11`, `A11a`, `A12`, `A20`, `A21`, `A21a`, `C3`, `C3a`, `C4`, `C5`, `C5a`, `C6`, `D24`, `D25`, `D26`, `D27`, `D10`, `D11`, `D12`, `D13`, `D14`, `D23`, `F3`, `F4`, `F6`, `F8`, `F9`, `F21`, `F22`, `F23`, `F24`, `F12`, `G11`, `G11a`, `G12`, `H12`, `H13`, `H14`, `H16`, `H14a`
 
 ### D03-R2
 
@@ -93,7 +93,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **This run says:** It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees `10008 JetStream system temporarily unavailable` on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, because a stream's replicas all sit inside one cluster.
 
-*Evidence:* `T1a`, `T1b`, `T1c`, `T1i`, `T1j`, `T1k`, `T1l`, `T1m`, `A1`, `A2`, `A10a`, `A10`, `A13`, `A14`, `A22`, `A23`, `A24`, `A24a`, `A25`, `B9`, `B10`, `B10a`, `C1`, `C2`, `C15`, `C16`, `C16a`, `C20`, `C12`, `D2`, `D19`, `D20`, `E15`, `E16`, `F1`, `F2`, `F5`, `F5a`, `F6a`, `F7a`, `F7`, `F10`, `F15`, `F16`, `F16a`, `F20`, `F11`, `G10a`, `G15`, `H2`, `H4`, `H5`
+*Evidence:* `T1a`, `T1b`, `T1c`, `T1i`, `T1j`, `T1k`, `T1l`, `T1m`, `A1`, `A2`, `A10a`, `A10`, `A13`, `A14`, `A22`, `A23`, `A24`, `A24a`, `A25`, `B9`, `B10`, `B10a`, `C1`, `C2`, `C15`, `C16`, `C16a`, `C20`, `C12`, `D2`, `D19`, `D20`, `E15`, `E16`, `F1`, `F2`, `F5`, `F5a`, `F6a`, `F7a`, `F7`, `F10`, `F25`, `F15`, `F16`, `F16a`, `F20`, `F11`, `G10a`, `G15`, `H2`, `H4`, `H5`
 
 ### D03-R6
 
@@ -228,7 +228,7 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `A7` | LB_AU ODOMETER lands in | D03-R2 | — | au | **au** | — |
 | ✅ `A8` | one publish in region ZA: messages in LB_ZA / LB_AU | D03-R2 | — | 1 / 0 | **1 / 0** | — |
 | ✅ `A9` | KV t7-vehicles created from AU, no placement flag, lands in | D03-R4 | — | au | **au** | — |
-| 📋 `A10a` | seconds /jsz still named a meta leader after ZA stopped answering | D03-R5 | — | — | **11s** | — |
+| 📋 `A10a` | seconds /jsz still named a meta leader after ZA stopped answering | D03-R5 | — | — | **8s** | — |
 | ✅ `A10` | ZA dark: meta leader seen from AU (3 of 6 is below 4) | D03-R5 | — | NONE | **NONE** | — |
 | ✅ `A11` | ZA dark: AU tries to create a NEW stream | D03-R1 | — | fails | **fails** | — |
 | 📋 `A11a` | how the refusal arrived | D03-R1 | — | — | **10008** | JetStream system temporarily unavailable |
@@ -267,7 +267,7 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | 📋 `B8a` | the same 'stream info' question asked of the BLIND side (au) | D03-R3 | `A5` | — | **za** | — |
 | ✅ `B9` | the stream that was placed: replicas asked for / peers built | D03-R5 | `A22` | 3 / 3 | **3 / 3** | — |
 | ✅ `B10` | that stream's leader sits in the LIVE region | D03-R5 | `A24` | yes | **yes** | — |
-| 📋 `B10a` | which server won that stream election this run | D03-R5 | `A24a` | — | **t-za-1** | — |
+| 📋 `B10a` | which server won that stream election this run | D03-R5 | `A24a` | — | **t-za-3** | — |
 | ✅ `B11` | per-region account on the LIVE side: its own ODOMETER lands in the live region | D03-R2 | `A6` | yes | **yes** | — |
 | ✅ `B12` | per-region account on the BLIND side, placed from a live client | D03-R2 | `A7` | 10005 | **10005** | no suitable peers for placement |
 | ✅ `B13` | KV t7-vehicles made from the LIVE side, no placement flag, lands in the live region | D03-R4 | `A9` | yes | **yes** | — |
@@ -290,7 +290,7 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `E5` | and LB_AU's own raw stream took that one | D03-R8 | — | 1 | **1** | — |
 | ✅ `E6` | LB_AU asks for stream info on ZA's ODOMETER | D03-R2 | — | fails | **fails** | — |
 | ✅ `E7` | LB_AU creates its OWN stream named ODOMETER -- no 10058 | D03-R2 | — | ok | **ok** | — |
-| ✅ `E8` | and they are two real streams, in | D03-R2 | — | za / au | **za / au** | — |
+| ✅ `E8` | and they are two real streams, in | D03-R2 | `T1e` | za / au | **za / au** | — |
 | ✅ `E10` | sides that can name a meta leader, with NOTHING stopped (of 2) | D03-R3 | `B1` | 2 | **2** | — |
 | ✅ `E11` | and both sides name the SAME meta leader | D03-R3 | `B2` | yes | **yes** | — |
 | ✅ `E12` | meta group size seen from ZA / from AU | D03-R3 | `B3` | 6 / 6 | **6 / 6** | — |
@@ -307,14 +307,14 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 
 | | Check | Req | From | Expected | Measured | Extra info |
 |---|---|---|---|---|---|---|
-| ✅ `C1` | meta group size (majority is 4) | D03-R5 | — | 7 | **7** | — |
+| ✅ `C1` | meta group size (majority is 4) | D03-R5 | `A2` | 7 | **7** | — |
 | ✅ `C2` | distinct JetStream meta groups across all three sites | D03-R5 | — | 1 | **1** | — |
 | ✅ `C3` | AU dark: a leader is elected among the survivors | D03-R1 | — | yes | **yes** | — |
 | 📋 `C3a` | AU dark: which server took the lead | D03-R1 | — | — | **t-za-2** | — |
 | ✅ `C4` | AU dark: ZA creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
 | ✅ `C5` | ZA dark: a leader is elected among the survivors | D03-R1 | — | yes | **yes** | — |
-| 📋 `C5a` | ZA dark: which server took the lead | D03-R1 | — | — | **t-au-1** | — |
-| ✅ `C6` | ZA dark: AU creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
+| 📋 `C5a` | ZA dark: which server took the lead | D03-R1 | — | — | **t-au-2** | — |
+| ✅ `C6` | ZA dark: AU creates a NEW 3-replica stream | D03-R1 | `T1h` | ok | **ok** | — |
 | ✅ `C7` | 8 unplaced R1 streams from a ZA client that landed on the arbiter | D03-R9 | — | 0 | **0** | — |
 | ✅ `C8` | an explicit --cluster arb R1 stream lands in | D03-R9 | — | arb | **arb** | — |
 | ✅ `C9` | an explicit --cluster arb R3 stream -- one node cannot hold 3 | D03-R9 | — | 10005 | **10005** | no suitable peers for placement |
@@ -325,7 +325,7 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `C14` | per-region accounts: LB_ZA / LB_AU ODOMETER land in | D03-R2 | `A6` | za / au | **za / au** | — |
 | ✅ `C15` | LB_ZA ODOMETER: replicas asked for / peers built | D03-R5 | `A22` | 3 / 3 | **3 / 3** | — |
 | ✅ `C16` | LB_ZA / LB_AU ODOMETER: region holding the stream leader | D03-R5 | `A24` | za / au | **za / au** | — |
-| 📋 `C16a` | which server won the ZA stream election this run | D03-R5 | `A24a` | — | **t-za-3** | — |
+| 📋 `C16a` | which server won the ZA stream election this run | D03-R5 | `A24a` | — | **t-za-2** | — |
 | ✅ `C17` | sites actually carrying LB_ZA ODOMETER's three copies | D03-R9 | — | za | **za** | — |
 | ✅ `C18` | KV t7-vehicles created from AU, no placement flag, lands in | D03-R4 | `A9` | au | **au** | — |
 | ✅ `C19` | LB_AU's consumer, made from AU on AU's stream, lives in cluster | D03-R4 | `A18` | au | **au** | — |
@@ -338,18 +338,23 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | | Check | Req | From | Expected | Measured | Extra info |
 |---|---|---|---|---|---|---|
 | ✅ `F1` | meta group size (majority is 5) | D03-R5 | — | 9 | **9** | — |
-| ✅ `F2` | distinct JetStream meta groups across all three sites | D03-R5 | — | 1 | **1** | — |
+| ✅ `F2` | distinct JetStream meta groups across all three sites | D03-R5 | `C2` | 1 | **1** | — |
 | ✅ `F3` | AU dark (6 of 9 left): a leader is elected among the survivors | D03-R1 | — | yes | **yes** | — |
-| ✅ `F4` | AU dark: ZA creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
+| ✅ `F4` | AU dark: ZA creates a NEW 3-replica stream | D03-R1 | `C4` | ok | **ok** | — |
 | ✅ `F5` | AU dark AND one arbiter node dark (5 of 9 -- exactly the majority) | D03-R5 | — | yes | **yes** | — |
-| 📋 `F5a` | which server held the lead on the last surviving majority | D03-R5 | — | — | **t-za-2** | — |
+| 📋 `F5a` | which server held the lead on the last surviving majority | D03-R5 | — | — | **t-arb-2** | — |
 | ✅ `F6` | 5 of 9: ZA still creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
-| 📋 `F6a` | seconds after the new leader was named before it accepted a change | D03-R5 | — | — | **2s** | — |
-| 📋 `F7a` | seconds /jsz still named a meta leader after the majority went | D03-R5 | — | — | **28s** | — |
+| 📋 `F6a` | seconds after the new leader was named before it accepted a change | D03-R5 | — | — | **21s** | — |
+| 📋 `F7a` | seconds /jsz still named a meta leader after the majority went | D03-R5 | — | — | **14s** | — |
 | ✅ `F7` | 4 of 9 left: meta leader seen from ZA | D03-R5 | — | NONE | **NONE** | — |
 | ✅ `F8` | 4 of 9 left: ZA tries to create a NEW stream | D03-R1 | — | fails | **fails** | — |
-| ✅ `F9` | 4 of 9 left: publishing into an EXISTING stream still works | D03-R1 | — | ok | **ok** | — |
-| ✅ `F10` | after recovery: meta group size | D03-R5 | — | 9 | **9** | — |
+| ✅ `F9` | 4 of 9 left: a core publish into an EXISTING stream is accepted | D03-R1 | — | ok | **ok** | — |
+| ✅ `F21` | 4 of 9 left: and the message really landed -- messages in T_AFTER_AU | D03-R1 | `A12` | 1 | **1** | — |
+| ✅ `F10` | after recovery: meta group size | D03-R5 | `A13` | 9 | **9** | — |
+| ✅ `F22` | ZA dark (6 of 9 left): a leader is elected among the survivors | D03-R1 | `F3` | yes | **yes** | — |
+| ✅ `F23` | ZA dark: AU creates a NEW 3-replica stream | D03-R1 | `F4` | ok | **ok** | — |
+| ✅ `F24` | ZA dark: and AU's message really landed -- messages in T_AFTER_ZA | D03-R1 | `F21` | 1 | **1** | — |
+| ✅ `F25` | after the second recovery: meta group size | D03-R5 | `F10` | 9 | **9** | — |
 | ✅ `F13` | one publish in region ZA, shared account LB: messages seen from region ZA / region AU | D03-R2 | `A26` | 1 / 1 | **1 / 1** | — |
 | 📋 `F13a` | why that reads 1 / 1 and not 1 / 0 | D03-R2 | `A26` | — | **ONE stream in za, read over the WAN from au -- a 3-node arbiter did not change it** | — |
 | ✅ `F14` | per-region accounts: LB_ZA / LB_AU ODOMETER land in | D03-R2 | `A6` | za / au | **za / au** | — |
@@ -371,7 +376,7 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `D1` | distinct JetStream meta groups across hub, ZA and AU | D03-R3 | — | 3 | **3** | — |
 | ✅ `D2` | meta group sizes: hub / ZA / AU (quorum 2 each) | D03-R5 | — | 3 / 3 / 3 | **3 / 3 / 3** | — |
 | ✅ `D3` | shared account LB: AU also asks for ODOMETER (no 10058 here) | D03-R3 | — | ok | **ok** | — |
-| ✅ `D4` | and they are two real streams, in | D03-R3 | — | za / au | **za / au** | — |
+| ✅ `D4` | and they are two real streams, in | D03-R3 | `T1e` | za / au | **za / au** | — |
 | ✅ `D5` | one publish in region ZA, shared account LB: messages STORED in region ZA / region AU | D03-R6 | — | 1 / 1 | **1 / 1** | — |
 | 📋 `D5a` | the same 1 / 1 as A26, C13 and F13 -- and the opposite meaning | D03-R6 | — | — | **over a gateway 1 / 1 is ONE stored copy read twice; here it is TWO stored copies of one send** | — |
 | ✅ `D6` | two same-named SHADOW streams live at once: ZA has / AU has | D03-R3 | — | 1 / 2 | **1 / 2** | — |
@@ -389,11 +394,16 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `D21` | the HUB's own LB_ZA asks for stream info on ZA's ODOMETER | D03-R3 | — | fails | **fails** | — |
 | ✅ `D22` | so the HUB's LB_ZA may create a THIRD ODOMETER, in | D03-R3 | — | hub | **hub** | — |
 | 📋 `D22a` | so the leaf link binds ONE account | D03-R3 | — | — | **LB reaches the hub; LB_ZA and LB_AU are six separate islands, one per site** | — |
+| ✅ `D24` | AU dark: ZA still has a meta leader (3 of 3, quorum 2) | D03-R1 | `F3` | yes | **yes** | — |
+| ✅ `D25` | AU dark: ZA creates a NEW 3-replica stream | D03-R1 | `A11` | ok | **ok** | — |
+| ✅ `D26` | AU dark: and ZA's message really landed -- messages in T_ZA_DARK | D03-R1 | `A12` | 1 | **1** | — |
+| ✅ `D27` | after recovery: meta group sizes hub / ZA / AU | D03-R1 | `D2` | 3 / 3 / 3 | **3 / 3 / 3** | — |
 | ✅ `D10` | whole hub gone: ZA still has a meta leader | D03-R1 | — | yes | **yes** | — |
 | ✅ `D11` | whole hub gone: AU still has a meta leader | D03-R1 | — | yes | **yes** | — |
 | ✅ `D12` | whole hub gone: ZA creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
 | ✅ `D13` | whole hub gone: AU creates a NEW 3-replica stream | D03-R1 | — | ok | **ok** | — |
-| ✅ `D14` | whole hub gone: AU still stores its own publishes | D03-R1 | — | ok | **ok** | — |
+| ✅ `D14` | whole hub gone: a core publish from AU is accepted | D03-R1 | — | ok | **ok** | — |
+| ✅ `D23` | whole hub gone: and it really landed -- messages in AU's T_AU_NEW | D03-R1 | `A12` | 1 | **1** | — |
 | 📋 `D15` | the cost | D03-R6 | — | — | **nothing replicates by itself -- every cross-region copy is hand-written** | — |
 
 ### T5 / H -- hub and leaf, account per region
@@ -418,7 +428,8 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | 📋 `H11a` | so binding the account per region changed nothing here | D03-R7 | — | — | **external.api names a DOMAIN -- the account it runs in was never the problem** | — |
 | ✅ `H12` | whole hub gone: ZA still has a meta leader | D03-R1 | `D10` | yes | **yes** | — |
 | ✅ `H13` | whole hub gone: LB_ZA creates a NEW 3-replica stream | D03-R1 | `D12` | ok | **ok** | — |
-| ✅ `H14` | whole hub gone: LB_ZA still stores its own publishes | D03-R1 | `D14` | ok | **ok** | — |
+| ✅ `H14` | whole hub gone: a core publish from LB_ZA is accepted | D03-R1 | `D14` | ok | **ok** | — |
+| ✅ `H16` | whole hub gone: and it really landed -- messages in T_ZA_NEW | D03-R1 | `D23` | 1 | **1** | — |
 | 📋 `H14a` | so the hub is a READER, not a dependency | D03-R1 | — | — | **a region keeps full JetStream for its own account with all three hub nodes dead** | — |
 | 📋 `H15` | the verdict | D03-R3 | — | — | **an account per region on the leaf link buys the hub a live SUBJECT feed and nothing more** | — |
 
@@ -426,11 +437,11 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 
 | | Check | Req | From | Expected | Measured | Extra info |
 |---|---|---|---|---|---|---|
-| ✅ `G1` | distinct JetStream meta groups across hub, ZA and AU | D03-R10 | — | 2 | **2** | — |
+| ✅ `G1` | distinct JetStream meta groups across hub, ZA and AU | D03-R10 | `D1` | 2 | **2** | — |
 | ✅ `G2` | meta group sizes: hub / seen from ZA / seen from AU | D03-R10 | — | 3 / 6 / 6 | **3 / 6 / 6** | — |
 | ✅ `G3` | ZA and AU name the SAME meta leader | D03-R10 | — | yes | **yes** | — |
 | ✅ `G4` | shared account LB: AU asks for ODOMETER on its own cluster | D03-R2 | — | 10058 | **10058** | stream name already in use |
-| ✅ `G5` | shared account LB: AU's 'stream info ODOMETER' reports cluster | D03-R2 | — | za | **za** | — |
+| ✅ `G5` | shared account LB: AU's 'stream info ODOMETER' reports cluster | D03-R2 | `A5` | za | **za** | — |
 | ✅ `G6` | Placement Cluster of the handle ZA holds / the handle AU holds | D03-R6 | — | za / za | **za / za** | — |
 | ✅ `G7` | ONE publish in ZA: messages counted from ZA / from AU | D03-R6 | — | 1 / 1 | **1 / 1** | — |
 | 📋 `G7a` | so 1 / 1 here means the OPPOSITE of T5's D5 | D03-R6 | — | — | **one stored copy read through two handles, not two stored copies** | — |
@@ -446,13 +457,13 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | 📋 `G14a` | what G13 and G14 cost ZA | D03-R10 | — | — | **nothing -- a healthy hub cannot lend a vote across a gateway** | — |
 | ✅ `G15` | after recovery: meta group size seen from ZA | D03-R5 | — | 6 | **6** | — |
 | ✅ `G16` | whole hub gone: meta group size seen from ZA | D03-R10 | — | 6 | **6** | — |
-| ✅ `G17` | whole hub gone: ZA creates a NEW 3-replica stream | D03-R10 | — | ok | **ok** | — |
-| ✅ `G18` | whole hub gone: AU creates a NEW 3-replica stream | D03-R10 | — | ok | **ok** | — |
+| ✅ `G17` | whole hub gone: ZA creates a NEW 3-replica stream | D03-R10 | `D12` | ok | **ok** | — |
+| ✅ `G18` | whole hub gone: AU creates a NEW 3-replica stream | D03-R10 | `D13` | ok | **ok** | — |
 | ✅ `G19` | a domain per site, nothing stopped: sides that elect a meta leader (of 2) | D03-R3 | — | 1 | **1** | — |
-| 📋 `G19a` | which side won the race this run -- still a coin toss | D03-R3 | — | — | **au won; za is blind** | — |
-| ✅ `G20` | the losing side has a meta leader | D03-R3 | — | no | **no** | — |
-| ✅ `G21` | meta group size seen from the live side -- domains did NOT split it | D03-R3 | — | 6 | **6** | — |
-| ✅ `G22` | placing a stream on the BLIND cluster, from a live client | D03-R3 | — | 10005 | **10005** | no suitable peers for placement |
+| 📋 `G19a` | which side won the race this run -- still a coin toss | D03-R3 | — | — | **za won; au is blind** | — |
+| ✅ `G20` | the losing side has a meta leader | D03-R3 | `B2` | no | **no** | — |
+| ✅ `G21` | meta group size seen from the live side -- domains did NOT split it | D03-R3 | `B3` | 6 | **6** | — |
+| ✅ `G22` | placing a stream on the BLIND cluster, from a live client | D03-R3 | `B4` | 10005 | **10005** | no suitable peers for placement |
 | ✅ `G23` | the hub, which IS across a leaf link, still elects its own leader | D03-R3 | — | yes | **yes** | — |
 | 📋 `G24` | verdict | D03-R10 | — | — | **the gateway decides -- adding a hub leaf link changes nothing it does** | — |
 

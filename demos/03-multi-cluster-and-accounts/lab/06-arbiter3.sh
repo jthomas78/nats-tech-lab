@@ -71,7 +71,7 @@ sleep 5
 # --- Nine peers, one group --------------------------------------------------
 check F1 D03-R5 "meta group size (majority is 5)" "9" "$(meta_size 8231)"
 check F2 D03-R5 "distinct JetStream meta groups across all three sites" \
-      "1" "$(meta_group_count "${ALL_HTTP[@]}")"
+      "1" "$(meta_group_count "${ALL_HTTP[@]}")" C2
 
 # --- Step 1: lose a whole region. 6 of 9 survive. ---------------------------
 freeze au-1 au-2 au-3
@@ -81,7 +81,7 @@ check F3 D03-R1 "AU dark (6 of 9 left): a leader is elected among the survivors"
       "yes" "$([ "$LEADER_1" = "NONE" ] && echo no || echo yes)"
 check F4 D03-R1 "AU dark: ZA creates a NEW 3-replica stream" \
       "ok" "$(fails_or_ok 4231 za stream add T_AFTER_AU --subjects "evt.a.v1" \
-              --storage file --replicas 3 --cluster za --defaults)"
+              --storage file --replicas 3 --cluster za --defaults)" C4
 
 # --- Step 2: THE SLACK. Take one arbiter node too. 5 of 9 -- still a majority.
 # T3 has nothing left at this point. T4 does. This is the only reason to pay
@@ -120,14 +120,41 @@ check F7 D03-R5 "4 of 9 left: meta leader seen from ZA" \
 check F8 D03-R1 "4 of 9 left: ZA tries to create a NEW stream" \
       "fails" "$(fails_or_ok 4231 za stream add T_TOOFAR --subjects "evt.t.v1" \
                  --storage file --replicas 3 --cluster za --defaults)"
-check F9 D03-R1 "4 of 9 left: publishing into an EXISTING stream still works" \
+check F9 D03-R1 "4 of 9 left: a core publish into an EXISTING stream is accepted" \
       "ok" "$(fails_or_ok 4231 za pub "evt.a.v1" '{"km":1}')"
+# F9 only proves the client did not error. A core publish asks for no
+# JetStream ack, so it exits 0 even if nothing was stored. This is the check
+# F9's old name implied -- the same proof A12 and G12 already used.
+sleep 2
+check F21 D03-R1 "4 of 9 left: and the message really landed -- messages in T_AFTER_AU" \
+      "1" "$(stream_msgs 4231 za T_AFTER_AU)" A12
 
 # --- Recovery ---------------------------------------------------------------
 thaw arb-1 arb-2 au-1 au-2 au-3
 wait_meta_leader 8231 || true
 sleep 8
-check F10 D03-R5 "after recovery: meta group size" "9" "$(meta_size 8231)"
+check F10 D03-R5 "after recovery: meta group size" "9" "$(meta_size 8231)" A13
+
+# --- Step 4: THE OTHER DIRECTION. Lose ZA instead of AU. --------------------
+# F3/F4 lost AU and asked ZA. The mirror image was never asked here, so the
+# claim "either region survives" was half measured and half assumed.
+freeze za-1 za-2 za-3
+wait_dark 8231 8232 8233
+LEADER_3="$(wait_live_leader 8241 '^t-(au|arb)')"
+check F22 D03-R1 "ZA dark (6 of 9 left): a leader is elected among the survivors" \
+      "yes" "$([ "$LEADER_3" = "NONE" ] && echo no || echo yes)" F3
+check F23 D03-R1 "ZA dark: AU creates a NEW 3-replica stream" \
+      "ok" "$(fails_or_ok 4241 au stream add T_AFTER_ZA --subjects "evt.z.v1" \
+              --storage file --replicas 3 --cluster au --defaults)" F4
+nats_as 4241 au pub "evt.z.v1" '{"km":2}' >/dev/null 2>&1
+sleep 2
+check F24 D03-R1 "ZA dark: and AU's message really landed -- messages in T_AFTER_ZA" \
+      "1" "$(stream_msgs 4241 au T_AFTER_ZA)" F21
+thaw za-1 za-2 za-3
+wait_meta_leader 8231 || true
+sleep 8
+check F25 D03-R5 "after the second recovery: meta group size" \
+      "9" "$(meta_size 8231)" F10
 
 # --- THE SHARED ACCOUNT, ASKED FROM BOTH REGIONS ---------------------------
 # A26 on six peers, C13 on seven, this on nine. The arbiter cluster changes the
