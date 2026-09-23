@@ -11,6 +11,7 @@
 */
 import { computed, inject } from 'vue'
 
+import { PLUGIN_SOURCE_BUILD, pluginSource } from '../shell/pluginSource.js'
 import { HEALTH_STATE } from '../shell/registry/healthPlane.js'
 import { healthCheckedAt, healthLabel, healthTone } from '../shell/registry/healthText.js'
 import FirstBootNote from '../shell/ui/FirstBootNote.vue'
@@ -63,6 +64,29 @@ const signalTitle = (id, side) => {
   return at ? `last checked ${at}` : 'never checked'
 }
 
+/* BR-AS81 — the active `plugin-source`, said ONCE and said here.
+
+   Once, because the shell selects one source for the whole catalogue: the
+   same value repeated in every row would be decoration, and a per-plugin
+   column would quietly claim that mixed sources are a thing the shell
+   supports. They are not, and making them one is a separate decision.
+
+   Here, because this is the operator's screen. A demo card answers what a
+   demo does and whether it is ready; how the shell found the plugin is not
+   that question, so the statement stays off the cards.
+
+   And worded as a property of THIS SHELL, right now. The same plugin can be
+   discovered through either source, so "Catalogue source: Build" is a fact
+   about the running configuration and never a permanent label on a demo.
+   The registry's own `announced` / `preload` provenance answers a different
+   question again — who asked for this entry — and is deliberately not shown
+   beside this line. */
+const source = pluginSource()
+const sourceLabel = source === PLUGIN_SOURCE_BUILD ? 'Build' : 'Registry'
+const sourceDetail = source === PLUGIN_SOURCE_BUILD
+  ? 'this shell is configured to read its catalogue from the generated build document'
+  : 'this shell is configured to read its catalogue from the curated registry service'
+
 const TONE = {
   active: 'ok',
   available: 'off',
@@ -91,6 +115,12 @@ const TOLERANCE = [
     <header class="page-head">
       <div>
         <h1>Plugins</h1>
+        <p
+          class="source"
+          :title="sourceDetail"
+        >
+          Catalogue source: <b>{{ sourceLabel }}</b>
+        </p>
         <p
           v-if="shell.registryError"
           class="degraded"
@@ -250,6 +280,7 @@ const TOLERANCE = [
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; }
 .page-head p { margin: 2px 0 0; font-size: 12px; color: var(--p-text-muted-color); }
+.source b { color: var(--p-text-color); font-weight: 600; }
 .degraded { color: var(--warn); }
 .btn {
   display: inline-flex; align-items: center; height: 28px; padding: 0 12px;

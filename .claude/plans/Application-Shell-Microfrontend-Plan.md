@@ -944,7 +944,7 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. Done: 16a, 16b, 16c, 16d, 16e, 16f. Not started: 16g to 16i.**
+re-opened. Done: 16a, 16b, 16c, 16d, 16e, 16f, 16g. Not started: 16i.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1799,7 +1799,7 @@ the words `not configured` nowhere on the page. Registry-mode health is visibly 
 because `main.js` did, and was re-recorded in the default (registry) mode: 17 assets, digest
 `aa366e8cfd9724359404c4ee05120102a1f7b8a75907641a739545b0ce881cf3`; `--verify` is stable after it.
 
-**16g — Legibility.** *Decision 11, closing questions. Rule BR-AS81.*
+**16g — Legibility. DONE 2026-09-24.** *Decision 11, closing questions. Rule BR-AS81.*
 New: a generated `demos/README.md` table written by the same scan as the catalogue; a page-level
 "Catalogue source: Build" / "Catalogue source: Registry" statement on the Plugins screen; demos 02
 and 03 listed on the menu as shell-owned intro pages with run instructions and links to findings.
@@ -1807,6 +1807,43 @@ Acceptance: the source statement appears once, not per row, and not on any demo 
 as a property of this shell; demos 02 and 03 carry **no health indicator and no readiness check**;
 the `announced` / `preload` labels are untouched and not displayed alongside `plugin-source`. The
 demo menu and the Plugins screen are allowed to differ.
+
+**Verified 2026-09-24.** Three pieces, each answering one half of BR-AS81.
+
+The **page-level statement** is on the Plugins screen and nowhere else:
+`Catalogue source: Build` under `build`, `Catalogue source: Registry` under
+`registry`, one node per page (`.source`, inside `.page-head`), absent from
+`tbody`, absent from the demo cards, and worded as a property of this shell —
+its title reads `this shell is configured to read its catalogue from …`. The
+registry's `announced` / `preload` labels are untouched and appear nowhere
+beside it. Five specs in `PluginsView.spec.js` drive both values through
+`resetPluginSourceForTests()` and read the rendered page rather than the
+module.
+
+The **generated `demos/README.md`** is written by a scan of the demo folders,
+not by hand: a `frontend/public/manifest.json` makes a frontend build-sourced,
+and a `dockerfile: demos/<demo>/frontend/<app>/Dockerfile` line in a demo's
+compose band makes it registry-sourced, with its host port read from the same
+service block. Six rows today. It is a standalone command
+(`npm --prefix lab-shell run demos:readme`, `--check` to test), deliberately
+not a Vite hook — both catalogue plugins already guard `closeBundle` against
+repo writes, and a file committed to the repository must be written by a
+command somebody ran on purpose. `demosReadme.spec.js` regenerates from the
+working tree and fails when the committed page is stale.
+
+**Demos 02 and 03 are on the menu** as shell-owned intro pages at
+`/lab-demos/:demo` — not `/demos`, which the demo-catalog plugin already
+contributes. Each page carries the demo's question, its exact run commands and
+the paths to its findings; every one of those nine paths is asserted to exist
+on disk. They carry no health indicator, no readiness check and no
+`plugin-source`, and they are drawn as a separate group so a reader can see
+which half of the menu a status applies to. Verified live at 1920x1080 in both
+modes: the probed demo keeps its status dot, the two lab demos have none.
+
+809 specs pass, lint reports 0 errors, `shell frame clean`. Host bundle
+re-recorded in the default mode after the `main.js` and `PluginsView.vue`
+changes — 17 assets, digest `517422a525e6c7b21f2bd586644fbd06aa5fe961e1d128667df719f692cc0d7e`
+— and `--verify` is stable against it.
 
 **16i — Publish the rules and their coverage rows.** *All eleven decisions. Rules BR-AS75 to BR-AS81.*
 No behaviour. The seven rules are **written in full in this phase, above**, and are the wording of

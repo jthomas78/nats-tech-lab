@@ -8,6 +8,7 @@ import catalog from '../../../plugins/demo-catalog/public/manifest.json'
 import * as catalogModule from '../../../plugins/demo-catalog/src/plugin.js'
 import ExtensionRegion from '../../../plugins/demo-catalog/src/ExtensionRegion.js'
 import { bootShell, withRuntime } from '../bootShell.js'
+import { LAB_DEMO_ROUTE } from '../demos/labDemos.js'
 import { createPluginLoader } from '../loader/pluginLoader.js'
 import { createShellRoutes } from '../routing/shellRoutes.js'
 import { SHELL } from '../shellKey.js'
@@ -15,6 +16,7 @@ import App from '../../App.vue'
 import HomeView from '../../views/HomeView.vue'
 import PluginsView from '../../views/PluginsView.vue'
 import NotFoundView from '../../views/NotFoundView.vue'
+import LabDemoView from '../../views/LabDemoView.vue'
 
 const permissions = { can: () => true }
 const point = 'demo-catalog/details-sidebar/v1'
@@ -68,6 +70,9 @@ describe('BR-AS44 — the native frame survives without any plugin', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [
       { path: '/', component: HomeView, meta: { title: 'Home' } },
       { path: '/plugins', component: PluginsView, meta: { title: 'Plugins' } },
+      /* The home screen links the frontend-less demos by route NAME (16g),
+         so this stand-in router has to carry the name too. */
+      { path: '/lab-demos/:demo', name: LAB_DEMO_ROUTE, component: LabDemoView },
       { path: '/:pathMatch(.*)*', component: NotFoundView },
     ] })
     await router.push('/')

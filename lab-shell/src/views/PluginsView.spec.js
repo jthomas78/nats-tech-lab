@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { PLUGIN_SOURCE_VAR, resetPluginSourceForTests } from '../shell/pluginSource.js'
 import { HEALTH_STATE } from '../shell/registry/healthPlane.js'
 import { healthAttention } from '../shell/registry/healthText.js'
 import { SHELL } from '../shell/shellKey.js'
@@ -127,5 +128,56 @@ describe('BR-AS80 — health in `registry` mode is unchanged', () => {
        keep the measured semantics rather than silently going quiet. */
     const [catalogue] = cells(mountView({ signals }))
     expect(catalogue[0].text).toBe(HEALTH_STATE.HEALTHY)
+  })
+})
+
+/*
+  BR-AS81 — the active `plugin-source` is stated ONCE, at page level.
+
+  These read the rendered page, not the module, because "once" and "not per
+  row" are facts about what an operator sees. The two-row fixture above makes
+  the per-row failure visible: a column or a badge would give two matches
+  where the rule allows one.
+*/
+describe('the catalogue source statement', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetPluginSourceForTests()
+  })
+
+  const withSource = (value) => {
+    vi.stubEnv(PLUGIN_SOURCE_VAR, value)
+    resetPluginSourceForTests()
+    return mountView({ signals: {}, monitored: value !== 'build' })
+  }
+
+  it('names the build source once, at page level', () => {
+    const wrapper = withSource('build')
+    const said = wrapper.findAll('.source')
+    expect(said).toHaveLength(1)
+    expect(said[0].text()).toBe('Catalogue source: Build')
+    expect(wrapper.find('.page-head').element.contains(said[0].element)).toBe(true)
+  })
+
+  it('names the registry source once, in the same place', () => {
+    const wrapper = withSource('registry')
+    expect(wrapper.findAll('.source')).toHaveLength(1)
+    expect(wrapper.find('.source').text()).toBe('Catalogue source: Registry')
+  })
+
+  it('never repeats the source in a row', () => {
+    const body = withSource('build').find('tbody').text()
+    expect(body).not.toMatch(/Catalogue source/u)
+    expect(body.toLowerCase()).not.toMatch(/\bbuild\b/u)
+  })
+
+  it('words it as a property of this shell, not of a demo', () => {
+    const detail = withSource('build').find('.source').attributes('title')
+    expect(detail).toMatch(/this shell is configured/u)
+  })
+
+  it('does not show the registry\'s own announced / preload labels beside it', () => {
+    const head = withSource('registry').find('.page-head').text()
+    expect(head).not.toMatch(/announced|preload/u)
   })
 })

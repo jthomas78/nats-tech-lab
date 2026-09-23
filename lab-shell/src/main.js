@@ -21,6 +21,7 @@ import { createNullConnection } from './shell/connections/nullConnection.js'
 import { createShellConnection } from './shell/connections/shellConnection.js'
 import { createShellDialer } from './shell/connections/shellDialer.js'
 import { createDemoStore } from './shell/demos/demoStore.js'
+import { LAB_DEMO_ROUTE } from './shell/demos/labDemos.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createPluginLoader } from './shell/loader/pluginLoader.js'
 import { pluginSource, PLUGIN_SOURCE_REGISTRY } from './shell/pluginSource.js'
@@ -32,6 +33,7 @@ import { createShellRoutes, installShellRoutes } from './shell/routing/shellRout
 import { installWithdrawalGuard } from './shell/routing/withdrawnRoutes.js'
 import { SHELL } from './shell/shellKey.js'
 import HomeView from './views/HomeView.vue'
+import LabDemoView from './views/LabDemoView.vue'
 import NotFoundView from './views/NotFoundView.vue'
 import PluginErrorView from './views/PluginErrorView.vue'
 import PluginsView from './views/PluginsView.vue'
@@ -88,6 +90,15 @@ export async function bootstrap() {
          and its regions, which is exactly what BR-AS09 says the shell owns. */
       { path: '/', name: 'shell/home', component: HomeView, meta: { title: 'Home' } },
       { path: '/plugins', name: 'shell/plugins', component: PluginsView, meta: { title: 'Plugins' } },
+      /* The lab's frontend-less demos (02, 03). Shell-owned and static: they
+         contribute nothing, so they are registered here beside the shell's
+         own screens rather than through `createShellRoutes`, and no demo gate
+         is applied — there is no mount to hold back and nothing to check.
+
+         `/lab-demos`, not `/demos`: the demo-catalog PLUGIN already
+         contributes `/demos` and `/demos/:id`, and a shell route that shadowed
+         a plugin's would decide a collision silently in the shell's favour. */
+      { path: '/lab-demos/:demo', name: LAB_DEMO_ROUTE, component: LabDemoView, meta: { title: 'Demo' } },
       ...createShellRoutes({
         contributions: shell.contributions,
         loader,
