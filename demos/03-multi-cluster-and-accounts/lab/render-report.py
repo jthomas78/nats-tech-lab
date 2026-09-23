@@ -60,36 +60,54 @@ REQS = {
  "D03-R1": (
    "Which topology lets **both** regions accept a JetStream write while the "
    "other is dark?",
-   "Three of the five do: **T1** (no link at all), **T3** (gateway plus an "
-   "arbiter site) and **T5** (hub and leaf). **T2**, the plain gateway, does "
-   "not -- the six servers are one meta group, so a 3/3 split leaves nobody "
-   "with a majority and both sides freeze. T3 fixes that with a seventh vote "
-   "that sits outside both regions. T5 fixes it a different way: each region "
-   "is its own JetStream system, so there is no shared vote to lose."),
+   "**'A write' is three different questions, and they do not have the "
+   "same answer.** Creating a stream needs the meta group. Publishing into a "
+   "stream that already exists does not, because that stream's replicas all "
+   "sit inside one cluster. Reading the dark region's stream is a third "
+   "question again. Split that way: **T1**, **T3**, **T4** and **T5** let "
+   "the surviving region create a stream; **T2** and **T6** do not, because "
+   "in both the six servers are one meta group and a 3/3 split leaves nobody "
+   "with a majority. But **every** topology measured kept accepting "
+   "publishes into an existing local stream, including T2 and T6. T3 and T4 "
+   "buy the create back with votes that sit outside both regions; T5 buys it "
+   "back by giving each region its own JetStream system, so there is no "
+   "shared vote to lose. The matrix below says which cells were measured, "
+   "and on which check."),
  "D03-R2": (
    "Is it the **account**, the **cluster**, or the **domain** that lets a "
    "region own its own stream?",
    "The **account**. A cluster only decides *where* a stream is placed, and "
    "over a gateway a domain changes nothing at all. Two accounts is the only "
    "thing in this demo that gave two regions two real, separately-owned "
-   "streams of the same name over one link."),
+   "streams of the same name over one link. **One thing that looks like the "
+   "same answer and is not:** under T5 the *shared* account `LB` also ends "
+   "up holding two separate streams of one name, one per region. That is "
+   "not account isolation -- it is two JetStream domains that cannot see "
+   "each other, so neither can refuse the overlap. Accounts wall data off on "
+   "purpose; a domain split does it by accident."),
  "D03-R3": (
-   "What does `jetstream.domain` actually change, in each of the five "
-   "topologies?",
+   "What does `jetstream.domain` actually change, and where was that "
+   "measured?",
    "Over a **gateway** it changes nothing useful and quietly makes things "
    "worse -- the supercluster stays one meta group and one of the two regions "
    "stops electing a leader. Over a **leaf link** it is real: the hub, ZA and "
    "AU each become a separate JetStream system with its own vote, and the "
    "same stream name can live in all three at once. A domain is a leaf-link "
-   "tool. A gateway is not a leaf link."),
+   "tool. A gateway is not a leaf link. **Where this was measured:** a "
+   "domain is configured in four shapes only -- T2 / B, T5 / D, T5 / H and "
+   "T6 / G. T1, T3 and T4 carry no `jetstream.domain` at all, so any "
+   "statement about a domain in those three is inferred from the gateway "
+   "result, not measured on that rig."),
  "D03-R4": (
    "Where do a stream, its **consumer** and its **KV bucket** physically "
    "land, and what does a read from the other region cost?",
    "Everything lands where the account's first request landed, unless you "
    "name a cluster with `--cluster`. A KV bucket follows exactly the same "
-   "rule, because a bucket *is* a stream. **Partly answered:** this rig "
-   "measured placement, not latency. Consumer placement and the cost in "
-   "milliseconds of a cross-WAN read are still not measured here."),
+   "rule, because a bucket *is* a stream. Consumer placement **is** "
+   "measured, in four topologies: a consumer always lives where its stream "
+   "lives, even when the client that made it is in the other region. "
+   "**Partly answered:** this rig measured placement, not latency. The cost "
+   "in milliseconds of a cross-WAN read is still not measured here."),
  "D03-R5": (
    "What does losing a **region**, a **cluster** or a **single instance** do "
    "to quorum, and what error code does the client see?",
@@ -98,13 +116,21 @@ REQS = {
    "`10008 JetStream system temporarily unavailable` on any *change* -- but "
    "only once the old leader has aged out. Before that the client just hangs "
    "and times out. Writes into a stream that already exists keep working "
-   "throughout, because a stream's replicas all sit inside one cluster."),
+   "throughout, because a stream's replicas all sit inside one cluster. "
+   "That is the same fact `D03-R1` splits three ways: losing quorum is a "
+   "**change** freeze, not a **write** freeze."),
  "D03-R6": (
    "**Gateway or leaf node** for two regions -- what does each one buy, and "
    "what does each one cost?",
    "A **gateway** buys you one namespace: one name, one copy, no duplicates "
    "possible. It costs you a shared fate -- one meta group, so a WAN cut is a "
-   "change freeze for everybody. A **leaf** link buys you real independence "
+   "change freeze for everybody. **How the cut was made:** every 'dark "
+   "region' in this report is `kill -STOP` on that region's server "
+   "processes. That is a clean, total stop, not a severed link. A real WAN "
+   "partition leaves both sides running and unable to reach each other, and "
+   "it needs a packet filter to reproduce. Quorum arithmetic is the same "
+   "either way; reconnect and split-brain behaviour is **not** measured "
+   "here. A **leaf** link buys you real independence "
    "and survives the hub disappearing entirely. It costs you the double "
    "capture: one publish is genuinely stored twice, and nothing warns you. "
    "Nothing copies itself across a leaf link either -- every cross-region "
@@ -143,7 +169,11 @@ REQS = {
    "sits beside it, healthy, unable to lend a vote. Deleting the hub entirely "
    "changes nothing. A per-site domain is still illegal here and still "
    "half-blinds one region, exactly as it does with no hub at all. **A leaf "
-   "link added to a gateway buys nothing.**"),
+   "link added to a gateway buys no regional quorum.** Be exact about that "
+   "scope: the hub does keep a working JetStream system of its own -- it "
+   "holds its own leader while a region is dark, a client on the hub still "
+   "creates a stream, and killing the hub leaves the regions untouched. What "
+   "the leaf link cannot do is lend a vote to the region that lost one."),
  "D03-R9": (
    "If we add an arbiter site, can real data land on it **by accident**?",
    "Not by accident -- but it is not fenced off either. Unplaced streams "
@@ -152,6 +182,28 @@ REQS = {
    "its stream there. So the arbiter is safe by habit, not by rule. If you "
    "want it fenced, fence it yourself."),
 }
+
+# D03-R1 is three questions, not one. This says which cell each topology was
+# actually measured on, and which check proves it. A cell with no check ID was
+# not run on that rig -- say so, rather than let the prose imply it.
+# (topology, create a stream, publish into an existing local stream,
+#  read the dark region's stream)
+R1_MATRIX = [
+ ("T1 -- no link",
+  "yes `T1h`", "not measured", "impossible by design -- no link"),
+ ("T2 / A -- gateway",
+  "**no**, `10008` `A11`", "yes `A12`", "**no** `A21`"),
+ ("T3 / C -- gateway + 1-node arbiter",
+  "yes, both ways `C4` `C6`", "not measured", "not measured"),
+ ("T4 / F -- gateway + 3-node arbiter",
+  "yes, both ways `F4` `F23`", "yes `F21` `F24`", "not measured"),
+ ("T5 / D -- hub and leaf",
+  "yes `D25`", "yes `D26`", "**no** -- separate domains `D17` `D18`"),
+ ("T5 / H -- + an account per region",
+  "hub loss only `H13`", "hub loss only `H16`", "**no** `H7`"),
+ ("T6 / G -- gateway AND leaf",
+  "**no**, `10008` `G11`", "yes `G12`", "not measured"),
+]
 
 # Findings this run produced that are NOT in the demo's existing evidence pages.
 NEW = [
@@ -215,13 +267,19 @@ NEW = [
 
 OPEN = [
  ("`D03-R4` -- the cost of a cross-region read",
-  "Placement is measured. Latency is not. No consumer placement test either."),
+  "Stream, consumer and KV placement are all measured. Latency is not. "
+  "Nothing here says what a cross-WAN read costs in milliseconds."),
+ ("A real WAN partition, not a process stop",
+  "Every region loss here is `kill -STOP` on the processes. Both sides "
+  "running but unable to reach each other is a different rig, and it is the "
+  "one that would show reconnect and split-brain behaviour."),
  ("Mirror lag and bandwidth",
   "Both shapes now prove a mirror copies. Neither says how fast, or at what "
   "cost on the wire."),
- ("The hub as a real store",
-  "In T5 the hub only relays. Nothing measured what happens when it holds "
-  "data of its own."),
+ ("The hub as a real store under load",
+  "The hub does hold streams of its own -- it captures a live subject and "
+  "it serves a mirror. What is unmeasured is the hub as the primary store "
+  "for both regions, and what its loss costs then."),
  ("Leaf reconnect with many regions",
   "Two regions were tested. Nothing tested five."),
 ]
@@ -231,7 +289,7 @@ OPEN = [
 # HTML mode.
 #
 # Same numbers, same prose, same rule: nothing here states a number. The
-# difference is the five hand-drawn topology figures, which live in
+# difference is the nine hand-drawn topology figures, which live in
 # figures.html and are spliced in by key. Each figure carries the check IDs
 # measured on that topology, so a reader can look at the picture and see
 # which check proves each claim.
@@ -470,7 +528,8 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     o('<div class="eyebrow">Demo 03 &middot; stage 03 Validate &middot; '
       'generated by lab/run-all.sh</div>')
     o("<h1>Multi-cluster and accounts &mdash; validation report</h1>")
-    o('<p class="sub">Five topologies, built from nothing and measured by '
+    o('<p class="sub">Six topologies in nine runnable shapes, built from '
+      'nothing and measured by '
       'script. Every number on this page comes from one run of '
       '<code>lab/run-all.sh</code>. The words never state a number &mdash; '
       'they point at a check ID, and the number sits in the table beside '
@@ -563,7 +622,7 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
 
     # --- one section per topology: the picture, then its checks ------------
     o('<section class="sec">')
-    o("<h2>The five topologies</h2>")
+    o("<h2>The nine shapes</h2>")
     o("<p>Each diagram carries the IDs of the checks measured on it. Look at "
       "the picture, find the claim, then find the same ID in the table under "
       "it.</p>")
@@ -639,6 +698,17 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
         o(f"<h3>{esc(rid)}</h3>")
         o(f"<p><strong>Asks:</strong> {md(q)}</p>")
         o(f"<p><strong>This run says:</strong> {md(a)}</p>")
+        if rid == "D03-R1":
+            o("<table><thead><tr><th>Topology</th><th>Create a stream</th>"
+              "<th>Publish into an existing local stream</th>"
+              "<th>Read the dark region&rsquo;s stream</th></tr></thead>"
+              "<tbody>")
+            for topo, c1, c2, c3 in R1_MATRIX:
+                o(f"<tr><td>{md(topo)}</td><td>{md(c1)}</td>"
+                  f"<td>{md(c2)}</td><td>{md(c3)}</td></tr>")
+            o("</tbody></table>")
+            o("<p><em>A cell with no check ID was not run on that rig. It is "
+              "not a claim.</em></p>")
         if ids:
             o("<p><em>Evidence:</em> "
               + ", ".join("<code>%s</code>" % esc(i) for i in ids) + "</p>")
@@ -651,8 +721,8 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     # --- findings ----------------------------------------------------------
     o('<section class="sec">')
     o("<h2>Findings this rig added</h2>")
-    o("<p>Five things came out of building the scripts that are <strong>not"
-      "</strong> in the demo&rsquo;s existing evidence pages. Four are NATS "
+    o("<p>Six things came out of building the scripts that are <strong>not"
+      "</strong> in the demo&rsquo;s existing evidence pages. Five are NATS "
       "behaviour. One is about measuring.</p>")
     for title, ids, body in NEW:
         o('<div class="card">')
@@ -698,7 +768,10 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
                     ("06-arbiter3.sh",
                      "T4 / F &mdash; gateway plus a 3-node arbiter", 9),
                     ("07-gateway-and-hub.sh",
-                     "T6 / G &mdash; a gateway AND a hub leaf link", 9)):
+                     "T6 / G &mdash; a gateway AND a hub leaf link", 9),
+                    ("08-hub-leaf-per-region.sh",
+                     "T5 / H &mdash; hub and leaf, an account per region",
+                     9)):
         o(f"<tr><td><code>{s}</code></td><td>{t}</td>"
           f"<td class='num'>{n}</td></tr>")
     o("</tbody></table></div>")
@@ -869,6 +942,16 @@ def main():
         o("")
         o(f"**This run says:** {a}")
         o("")
+        if rid == "D03-R1":
+            o("| Topology | Create a stream | Publish into an existing local "
+              "stream | Read the dark region's stream |")
+            o("|---|---|---|---|")
+            for topo, c1, c2, c3 in R1_MATRIX:
+                o(f"| {topo} | {c1} | {c2} | {c3} |")
+            o("")
+            o("*A cell with no check ID was not run on that rig. It is not a "
+              "claim.*")
+            o("")
         if ids:
             o(f"*Evidence:* {', '.join('`%s`' % i for i in ids)}")
         else:
@@ -877,7 +960,7 @@ def main():
 
     o("## Findings this rig added")
     o("")
-    o("Five things came out of building the scripts that are **not** in the "
+    o("Six things came out of building the scripts that are **not** in the "
       "demo's existing evidence pages. Four are NATS behaviour. One is about "
       "measuring.")
     o("")
@@ -946,6 +1029,7 @@ def main():
     o("| `05-export-import.sh` | E — export / import between two accounts | 6 |")
     o("| `06-arbiter3.sh` | T4 / F — gateway plus a 3-node arbiter | 9 |")
     o("| `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |")
+    o("| `08-hub-leaf-per-region.sh` | T5 / H — hub and leaf, an account per region | 9 |")
     o("")
     o("Run one on its own the same way: `./01-gateway.sh`.")
 

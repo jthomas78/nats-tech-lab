@@ -59,7 +59,19 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** Which topology lets **both** regions accept a JetStream write while the other is dark?
 
-**This run says:** Three of the five do: **T1** (no link at all), **T3** (gateway plus an arbiter site) and **T5** (hub and leaf). **T2**, the plain gateway, does not -- the six servers are one meta group, so a 3/3 split leaves nobody with a majority and both sides freeze. T3 fixes that with a seventh vote that sits outside both regions. T5 fixes it a different way: each region is its own JetStream system, so there is no shared vote to lose.
+**This run says:** **'A write' is three different questions, and they do not have the same answer.** Creating a stream needs the meta group. Publishing into a stream that already exists does not, because that stream's replicas all sit inside one cluster. Reading the dark region's stream is a third question again. Split that way: **T1**, **T3**, **T4** and **T5** let the surviving region create a stream; **T2** and **T6** do not, because in both the six servers are one meta group and a 3/3 split leaves nobody with a majority. But **every** topology measured kept accepting publishes into an existing local stream, including T2 and T6. T3 and T4 buy the create back with votes that sit outside both regions; T5 buys it back by giving each region its own JetStream system, so there is no shared vote to lose. The matrix below says which cells were measured, and on which check.
+
+| Topology | Create a stream | Publish into an existing local stream | Read the dark region's stream |
+|---|---|---|---|
+| T1 -- no link | yes `T1h` | not measured | impossible by design -- no link |
+| T2 / A -- gateway | **no**, `10008` `A11` | yes `A12` | **no** `A21` |
+| T3 / C -- gateway + 1-node arbiter | yes, both ways `C4` `C6` | not measured | not measured |
+| T4 / F -- gateway + 3-node arbiter | yes, both ways `F4` `F23` | yes `F21` `F24` | not measured |
+| T5 / D -- hub and leaf | yes `D25` | yes `D26` | **no** -- separate domains `D17` `D18` |
+| T5 / H -- + an account per region | hub loss only `H13` | hub loss only `H16` | **no** `H7` |
+| T6 / G -- gateway AND leaf | **no**, `10008` `G11` | yes `G12` | not measured |
+
+*A cell with no check ID was not run on that rig. It is not a claim.*
 
 *Evidence:* `T1g`, `T1h`, `A11`, `A11a`, `A12`, `A20`, `A21`, `A21a`, `C3`, `C3a`, `C4`, `C5`, `C5a`, `C6`, `D24`, `D25`, `D26`, `D27`, `D10`, `D11`, `D12`, `D13`, `D14`, `D23`, `F3`, `F4`, `F6`, `F8`, `F9`, `F21`, `F22`, `F23`, `F24`, `F12`, `G11`, `G11a`, `G12`, `H12`, `H13`, `H14`, `H16`, `H14a`
 
@@ -67,15 +79,15 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** Is it the **account**, the **cluster**, or the **domain** that lets a region own its own stream?
 
-**This run says:** The **account**. A cluster only decides *where* a stream is placed, and over a gateway a domain changes nothing at all. Two accounts is the only thing in this demo that gave two regions two real, separately-owned streams of the same name over one link.
+**This run says:** The **account**. A cluster only decides *where* a stream is placed, and over a gateway a domain changes nothing at all. Two accounts is the only thing in this demo that gave two regions two real, separately-owned streams of the same name over one link. **One thing that looks like the same answer and is not:** under T5 the *shared* account `LB` also ends up holding two separate streams of one name, one per region. That is not account isolation -- it is two JetStream domains that cannot see each other, so neither can refuse the overlap. Accounts wall data off on purpose; a domain split does it by accident.
 
 *Evidence:* `T1d`, `T1e`, `A3`, `A4`, `A5`, `A26`, `A6`, `A7`, `A8`, `B11`, `B12`, `C13`, `C13a`, `C14`, `D16`, `D17`, `E6`, `E7`, `E8`, `F13`, `F13a`, `F14`, `G4`, `G5`, `H3`, `H9`, `H9a`
 
 ### D03-R3
 
-**Asks:** What does `jetstream.domain` actually change, in each of the five topologies?
+**Asks:** What does `jetstream.domain` actually change, and where was that measured?
 
-**This run says:** Over a **gateway** it changes nothing useful and quietly makes things worse -- the supercluster stays one meta group and one of the two regions stops electing a leader. Over a **leaf link** it is real: the hub, ZA and AU each become a separate JetStream system with its own vote, and the same stream name can live in all three at once. A domain is a leaf-link tool. A gateway is not a leaf link.
+**This run says:** Over a **gateway** it changes nothing useful and quietly makes things worse -- the supercluster stays one meta group and one of the two regions stops electing a leader. Over a **leaf link** it is real: the hub, ZA and AU each become a separate JetStream system with its own vote, and the same stream name can live in all three at once. A domain is a leaf-link tool. A gateway is not a leaf link. **Where this was measured:** a domain is configured in four shapes only -- T2 / B, T5 / D, T5 / H and T6 / G. T1, T3 and T4 carry no `jetstream.domain` at all, so any statement about a domain in those three is inferred from the gateway result, not measured on that rig.
 
 *Evidence:* `B1`, `B1a`, `B2`, `B3`, `B4`, `B5`, `B7`, `B7a`, `B8`, `B8b`, `B8a`, `B6`, `D1`, `D3`, `D4`, `D6`, `D21`, `D22`, `D22a`, `E10`, `E11`, `E12`, `E13`, `E14`, `G19`, `G19a`, `G20`, `G21`, `G22`, `G23`, `H1`, `H7`, `H7a`, `H15`
 
@@ -83,7 +95,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** Where do a stream, its **consumer** and its **KV bucket** physically land, and what does a read from the other region cost?
 
-**This run says:** Everything lands where the account's first request landed, unless you name a cluster with `--cluster`. A KV bucket follows exactly the same rule, because a bucket *is* a stream. **Partly answered:** this rig measured placement, not latency. Consumer placement and the cost in milliseconds of a cross-WAN read are still not measured here.
+**This run says:** Everything lands where the account's first request landed, unless you name a cluster with `--cluster`. A KV bucket follows exactly the same rule, because a bucket *is* a stream. Consumer placement **is** measured, in four topologies: a consumer always lives where its stream lives, even when the client that made it is in the other region. **Partly answered:** this rig measured placement, not latency. The cost in milliseconds of a cross-WAN read is still not measured here.
 
 *Evidence:* `A9`, `A18`, `A19`, `B13`, `B14`, `B14a`, `C18`, `C19`, `F18`, `F19`
 
@@ -91,7 +103,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** What does losing a **region**, a **cluster** or a **single instance** do to quorum, and what error code does the client see?
 
-**This run says:** It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees `10008 JetStream system temporarily unavailable` on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, because a stream's replicas all sit inside one cluster.
+**This run says:** It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees `10008 JetStream system temporarily unavailable` on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, because a stream's replicas all sit inside one cluster. That is the same fact `D03-R1` splits three ways: losing quorum is a **change** freeze, not a **write** freeze.
 
 *Evidence:* `T1a`, `T1b`, `T1c`, `T1i`, `T1j`, `T1k`, `T1l`, `T1m`, `A1`, `A2`, `A10a`, `A10`, `A13`, `A14`, `A22`, `A23`, `A24`, `A24a`, `A25`, `B9`, `B10`, `B10a`, `C1`, `C2`, `C15`, `C16`, `C16a`, `C20`, `C12`, `D2`, `D19`, `D20`, `E15`, `E16`, `F1`, `F2`, `F5`, `F5a`, `F6a`, `F7a`, `F7`, `F10`, `F25`, `F15`, `F16`, `F16a`, `F20`, `F11`, `G10a`, `G15`, `H2`, `H4`, `H5`
 
@@ -99,7 +111,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** **Gateway or leaf node** for two regions -- what does each one buy, and what does each one cost?
 
-**This run says:** A **gateway** buys you one namespace: one name, one copy, no duplicates possible. It costs you a shared fate -- one meta group, so a WAN cut is a change freeze for everybody. A **leaf** link buys you real independence and survives the hub disappearing entirely. It costs you the double capture: one publish is genuinely stored twice, and nothing warns you. Nothing copies itself across a leaf link either -- every cross-region copy is something a person has to write down.
+**This run says:** A **gateway** buys you one namespace: one name, one copy, no duplicates possible. It costs you a shared fate -- one meta group, so a WAN cut is a change freeze for everybody. **How the cut was made:** every 'dark region' in this report is `kill -STOP` on that region's server processes. That is a clean, total stop, not a severed link. A real WAN partition leaves both sides running and unable to reach each other, and it needs a packet filter to reproduce. Quorum arithmetic is the same either way; reconnect and split-brain behaviour is **not** measured here. A **leaf** link buys you real independence and survives the hub disappearing entirely. It costs you the double capture: one publish is genuinely stored twice, and nothing warns you. Nothing copies itself across a leaf link either -- every cross-region copy is something a person has to write down.
 
 *Evidence:* `T1f`, `D5`, `D5a`, `D18`, `D18a`, `D15`, `G6`, `G7`, `G7a`, `H6`, `H6a`, `H8`, `H8a`
 
@@ -131,13 +143,13 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** If a system has a **gateway and a leaf link at the same time**, which one decides the JetStream shape?
 
-**This run says:** The **gateway**, completely. Wiring both links on the same servers gives **two** JetStream systems, not three: the hub keeps its own group, and the gateway still fuses the two regions into one. Every benefit the leaf link has on its own then disappears -- the second stream of the same name in a shared account is refused again, the double capture collapses to one stored copy, and a dark region still freezes every create while the hub sits beside it, healthy, unable to lend a vote. Deleting the hub entirely changes nothing. A per-site domain is still illegal here and still half-blinds one region, exactly as it does with no hub at all. **A leaf link added to a gateway buys nothing.**
+**This run says:** The **gateway**, completely. Wiring both links on the same servers gives **two** JetStream systems, not three: the hub keeps its own group, and the gateway still fuses the two regions into one. Every benefit the leaf link has on its own then disappears -- the second stream of the same name in a shared account is refused again, the double capture collapses to one stored copy, and a dark region still freezes every create while the hub sits beside it, healthy, unable to lend a vote. Deleting the hub entirely changes nothing. A per-site domain is still illegal here and still half-blinds one region, exactly as it does with no hub at all. **A leaf link added to a gateway buys no regional quorum.** Be exact about that scope: the hub does keep a working JetStream system of its own -- it holds its own leader while a region is dark, a client on the hub still creates a stream, and killing the hub leaves the regions untouched. What the leaf link cannot do is lend a vote to the region that lost one.
 
 *Evidence:* `G1`, `G2`, `G3`, `G8`, `G9`, `G10`, `G13`, `G14`, `G14a`, `G16`, `G17`, `G18`, `G24`
 
 ## Findings this rig added
 
-Five things came out of building the scripts that are **not** in the demo's existing evidence pages. Four are NATS behaviour. One is about measuring.
+Six things came out of building the scripts that are **not** in the demo's existing evidence pages. Four are NATS behaviour. One is about measuring.
 
 ### The `/jsz` leader field goes stale, and it lies while it does
 
@@ -179,9 +191,10 @@ Not a NATS fact -- a rig fact, and worth keeping. An early version of this harne
 
 | What | Why it is still open |
 |---|---|
-| `D03-R4` -- the cost of a cross-region read | Placement is measured. Latency is not. No consumer placement test either. |
+| `D03-R4` -- the cost of a cross-region read | Stream, consumer and KV placement are all measured. Latency is not. Nothing here says what a cross-WAN read costs in milliseconds. |
+| A real WAN partition, not a process stop | Every region loss here is `kill -STOP` on the processes. Both sides running but unable to reach each other is a different rig, and it is the one that would show reconnect and split-brain behaviour. |
 | Mirror lag and bandwidth | Both shapes now prove a mirror copies. Neither says how fast, or at what cost on the wire. |
-| The hub as a real store | In T5 the hub only relays. Nothing measured what happens when it holds data of its own. |
+| The hub as a real store under load | The hub does hold streams of its own -- it captures a live subject and it serves a mirror. What is unmeasured is the hub as the primary store for both regions, and what its loss costs then. |
 | Leaf reconnect with many regions | Two regions were tested. Nothing tested five. |
 
 ## Every result
@@ -481,5 +494,6 @@ Every script starts its own servers from nothing, measures, and stops them. Noth
 | `05-export-import.sh` | E — export / import between two accounts | 6 |
 | `06-arbiter3.sh` | T4 / F — gateway plus a 3-node arbiter | 9 |
 | `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |
+| `08-hub-leaf-per-region.sh` | T5 / H — hub and leaf, an account per region | 9 |
 
 Run one on its own the same way: `./01-gateway.sh`.
