@@ -341,3 +341,37 @@ describe('8f — one service per plugin (decisions 87, 93, 94)', () => {
     expect(allowlist).toContain('http://localhost:7112')
   })
 })
+
+/*
+  16h — the one exemption Phase 16 added, given an edge of its own.
+
+  The allowlist check above skips a path-form `remote.url`, because such a URL
+  has no origin to compare. That exemption is correct — `Allowlist.Permits`
+  grants the same thing in the service — but an exemption with no edge is a
+  hole: `//evil.example/x` and `/../../x` both start with a slash.
+
+  So the shape is asserted here instead of the origin. A path under
+  `/plugins/<id>/` is served by the shell itself (BR-AS77), cannot carry a
+  scheme or a host, and names the plugin whose row it sits in. Nothing about
+  `registry` mode changes; this only closes the gate the skip opened.
+*/
+describe('16h — a path-form remote url is still checked, on its own terms', () => {
+  const pathEntries = everyEntry.filter((p) => originOf(p.remote.url) === null)
+
+  it('is a real case, so these assertions are not vacuous', () => {
+    expect(pathEntries.map((p) => p.id)).toEqual(['demo-04'])
+  })
+
+  it.each(pathEntries.map((p) => p.id))('%s stays on this origin, under its own plugin prefix', (id) => {
+    const url = everyEntry.find((p) => p.id === id).remote.url
+    expect(url).toMatch(new RegExp(`^/plugins/${id}/[A-Za-z0-9._-]+$`))
+  })
+
+  it.each(pathEntries.map((p) => p.id))('%s can carry no scheme, host or traversal', (id) => {
+    const url = everyEntry.find((p) => p.id === id).remote.url
+    expect(url.startsWith('//')).toBe(false)
+    expect(url).not.toContain('..')
+    // Resolved against any origin at all, it must land on that origin.
+    expect(new URL(url, 'https://elsewhere.example').origin).toBe('https://elsewhere.example')
+  })
+})

@@ -181,3 +181,43 @@ describe('the catalogue source statement', () => {
     expect(head).not.toMatch(/announced|preload/u)
   })
 })
+
+/*
+  16h — the display distinction, checked from the other side.
+
+  Decision 9 lets shared UI tell "nothing is tracked" apart from "no reading
+  yet", using existing health data only. The `build`-mode half of that is
+  asserted above. This is the half that could rot quietly: `registry` mode can
+  itself report `not configured`, for a plugin whose backend is not mapped,
+  and the substitution above must neither swallow that nor manufacture it.
+*/
+describe('16h — `not configured` from the plane, not from the mapping', () => {
+  const signals = {
+    'demo-catalog': {
+      frontend: { state: HEALTH_STATE.HEALTHY, lastCheckAt: '2026-09-24T10:00:00Z' },
+      backend: { state: HEALTH_STATE.NOT_CONFIGURED },
+    },
+  }
+
+  it('relays it, and does not round it down to `unknown`', () => {
+    const [catalogue] = cells(mountView({ signals, monitored: true }))
+    expect(catalogue[1].text).toBe(HEALTH_STATE.NOT_CONFIGURED)
+  })
+
+  it('says it with the same word and the same quiet tone as `build` mode', () => {
+    /* One constant, one tone table. If these ever differ, an operator is
+       reading two vocabularies and does not know it. */
+    const [catalogue] = cells(mountView({ signals, monitored: true }))
+    const [built] = cells(mountView({ signals: {}, monitored: false }))
+    expect(catalogue[1].text).toBe(built[1].text)
+    expect(catalogue[1].tone).toEqual(built[1].tone)
+  })
+
+  it('still keeps the measured side measured beside it', () => {
+    /* The two cells are independent (BR-AS60). A backend nobody watches must
+       not quiet the frontend reading in the same row. */
+    const [catalogue] = cells(mountView({ signals, monitored: true }))
+    expect(catalogue[0].text).toBe(HEALTH_STATE.HEALTHY)
+    expect(catalogue[0].title).toMatch(/^last checked /)
+  })
+})

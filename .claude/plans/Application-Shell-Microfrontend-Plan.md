@@ -944,7 +944,7 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. Done: 16a to 16g, and 16i. Not started: 16h.**
+re-opened. Done: 16a to 16i — the phase is CLOSED 2026-09-24.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1885,11 +1885,72 @@ the coverage row says so.
 The `BUSINESS_RULES.md` index was corrected in the same commit: it still read
 `BR-AS01–BR-AS73`, which was already stale by one rule before this phase.
 
-**16h — Registry regression gate.** *Decision 9.*
+**16h — Registry regression gate. DONE 2026-09-24.** *Decision 9.*
 No new behaviour. The Phase 15 acceptance gate runs unchanged. Add focused coverage for the display
 distinctions only, and update wording assertions **without weakening any existing behavioural
 check**. Exit condition: no BR-AS rule owned by `registry` mode is amended, and no existing spec
 changes meaning. If either moves, the split was cut in the wrong place.
+
+**Verified 2026-09-24.**
+
+*The gate, unmodified.* `go run ./backend/mfe-registry-service/cmd/registry-acceptance` from
+`demos/01-dictionary/`, against the lab brought up from `deploy/cell/` with the dedicated band
+included. All eleven steps green: `PASSED — the publisher lifecycle behaved as the rules say it
+should.` No file under `cmd/registry-acceptance/` was touched in this phase, or in this task. Step
+10 ("nothing else in the registry moved") now lists demo-04 among the entries it finds still
+registered and untouched, which is the phase's own addition passing the phase's own regression
+check.
+
+*One thing the gate cannot do, recorded rather than fixed.* `--reset` fails: it runs
+`compose exec -T mfe-registry-postgres …`, and no such service exists any more — ADR-055
+(2026-09-08) folded the registry database into the cell's shared `postgres` service, and the
+harness's reset path was never followed across. This is older than Phase 16 and is not Phase 16's
+to repair: this task's first sentence is "the Phase 15 acceptance gate runs unchanged", so it was
+run without `--reset` and left alone. It needs its own task.
+
+*Exit condition 1 — no `registry`-mode rule amended.*
+`git diff --numstat f9db851..HEAD -- demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` gives
+`151  0`. One hundred and fifty-one lines added, none removed. Every pre-existing BR-AS rule is
+byte-identical to where the phase started.
+
+*Exit condition 2 — no existing spec changed meaning.*
+`git diff --numstat f9db851..HEAD -- '*.spec.js' '*_test.go'`, filtered to files with a non-zero
+deletion count, returns exactly one file: `lab-shell/src/shell/registry/preloadFixture.spec.js`
+(+25 / -6). Every other spec file in the repo is either new or purely additive. That one file was
+read line by line. Its change is an *exemption*: `originOf` now answers `null` for a path-form
+`remote.url`, and the stray-origin filter skips nulls, because such a URL has no origin of its own
+to compare against the allowlist. The service agrees — `Allowlist.Permits`
+(`registry/internal/domain/registry.go:434`) grants `sameOriginPath` before it consults the
+allowlist at all — so BR-AS20 and BR-AS72 were not weakened. The BR-AS66 assertion widened from
+`['demo-catalog']` to `['demo-catalog', 'demo-04']`, which records the new curated row rather than
+relaxing the check.
+
+*The one place the split was thin, now closed.* The JS exemption was looser than the Go rule it
+mirrors: it tested only `startsWith('/') && !startsWith('//')`, so `/../../x` would have passed
+unexamined. 16h adds `16h — a path-form remote url is still checked, on its own terms` to that same
+spec file — three specs, touching no existing assertion — asserting that such a URL matches
+`^/plugins/<id>/…`, carries no traversal, and resolves onto whatever origin it is joined to. The
+first of the three asserts the case is real (`['demo-04']`), so the other two cannot pass
+vacuously.
+
+*Focused display coverage, and nothing else.* Decision 9's carve-out is the `build`-mode frontend
+mapping. Its `build` half was already asserted in `PluginsView.spec.js` at 16d. 16h adds the half
+that could rot quietly — `16h — not configured from the plane, not from the mapping`: `registry`
+mode can itself report `not configured` for a plugin with no backend mapped, and the substitution
+must neither swallow it into `unknown` nor say it in different words from `build` mode. Three
+specs, same file, additive. No health calculation, timer, expiry or poll was added; the carve-out
+was not left.
+
+*The rest, green.* 815 specs pass (809 before this task, +6 — the six added here). `npm --prefix
+lab-shell run lint` gives 0 errors and `shell frame clean`. `hostBundleFingerprint.mjs --verify`
+matches 16g's baseline byte for byte
+(`517422a525e6c7b21f2bd586644fbd06aa5fe961e1d128667df719f692cc0d7e`), because this task added spec
+files only.
+
+*Phase exit condition — `manifest.json` byte-unchanged.*
+`git log --oneline f9db851..HEAD -- demos/04-jetstream-cqrs/frontend/public/manifest.json` returns
+one commit, `f224965` (16d), which created it. It has not been amended since, and both sources read
+those same bytes.
 
 **Phase exit conditions.** 16c verified on demo 04 — the whole-plugin prefix and HMR, not the entry
 alone. F-1 to F-5 are resolved (2026-09-23) and no task is blocked. BR-AS75 to BR-AS81 approved and
