@@ -5,6 +5,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
 import { buildCatalogue } from './tools/buildCatalogue/vitePlugin.js'
+import { pluginAssets } from './tools/buildCatalogue/pluginAssets.js'
 
 /* The federation plugin gives the host a shared-module scope so a remote's Vue
    resolves to the shell's instance rather than a second copy (two Vues in one
@@ -40,7 +41,10 @@ export default defineConfig({
      unconditional because the document is a separate static asset that costs
      the host bundle nothing, and a registry-mode shell simply never reads it
      (BR-AS76). */
-  plugins: [vue(), buildCatalogue(), ...federationPlugin],
+  /* `pluginAssets` contributes `server.proxy` entries of its own through its
+     `config` hook, derived from the same scan as the catalogue (BR-AS77).
+     Vite merges them with the block below rather than replacing it. */
+  plugins: [vue(), buildCatalogue(), pluginAssets(), ...federationPlugin],
   resolve: {
     /* One Vue, one PrimeVue, whatever a nested workspace resolves for itself.
        An example plugin under `plugins/` installs its own copies, so a spec

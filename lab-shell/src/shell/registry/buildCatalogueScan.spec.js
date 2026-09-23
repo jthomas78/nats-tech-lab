@@ -131,3 +131,65 @@ describe('generateCatalogue', () => {
     expect(files).toHaveLength(1)
   })
 })
+
+describe('the sibling demo metadata file', () => {
+  const metadata = (name, body) => {
+    writeFileSync(
+      join(repoRoot, 'demos', name, 'frontend', 'public', 'demo.json'),
+      typeof body === 'string' ? body : JSON.stringify(body),
+    )
+  }
+
+  it('is optional — a demo without one is still a plugin', () => {
+    demo('04-jetstream-cqrs', { manifest: manifestFor('a') })
+    const { entries } = scanDemoManifests({ repoRoot })
+    expect(entries).toHaveLength(1)
+    expect(entries[0].devPort).toBeNull()
+    expect(entries[0].metadataFile).toBeNull()
+  })
+
+  it('carries the dev-server port the proxy needs', () => {
+    demo('04-jetstream-cqrs', { manifest: manifestFor('a') })
+    metadata('04-jetstream-cqrs', { devServer: { port: 20401 } })
+    expect(scanDemoManifests({ repoRoot }).entries[0].devPort).toBe(20401)
+  })
+
+  it('leaves manifest.json untouched, so BR-AS78 still holds', () => {
+    /* The port is the one fact a manifest must never carry: the same file has
+       to be byte-identical whether the plugin is found by `build` or by
+       `registry`, and a dev port means nothing to a registry plugin. */
+    demo('04-jetstream-cqrs', { manifest: manifestFor('a') })
+    metadata('04-jetstream-cqrs', { devServer: { port: 20401 } })
+    const { plugins } = scanDemoManifests({ repoRoot })
+    expect(plugins[0]).toEqual(manifestFor('a'))
+    expect(JSON.stringify(plugins[0])).not.toContain('20401')
+  })
+
+  it('is watched as well, so editing it is an ordinary file change', () => {
+    demo('04-jetstream-cqrs', { manifest: manifestFor('a') })
+    metadata('04-jetstream-cqrs', { devServer: { port: 20401 } })
+    const { files } = scanDemoManifests({ repoRoot })
+    expect(files.some((f) => f.endsWith('demo.json'))).toBe(true)
+  })
+
+  it('is read only for a demo that already opted in', () => {
+    demo('05-nothing')
+    mkdirSync(join(repoRoot, 'demos', '05-nothing', 'frontend', 'public'), { recursive: true })
+    metadata('05-nothing', { devServer: { port: 20501 } })
+    expect(scanDemoManifests({ repoRoot }).entries).toEqual([])
+  })
+
+  it('refuses to parse silently — a broken one is fatal, like a manifest', () => {
+    demo('04-jetstream-cqrs', { manifest: manifestFor('a') })
+    metadata('04-jetstream-cqrs', '{ "devServer": }')
+    expect(() => scanDemoManifests({ repoRoot })).toThrow(ManifestUnreadable)
+  })
+
+  it('reports the demo directory and its built output', () => {
+    demo('04-jetstream-cqrs', { manifest: manifestFor('a') })
+    const [entry] = scanDemoManifests({ repoRoot }).entries
+    expect(entry.demo).toBe('04-jetstream-cqrs')
+    expect(entry.id).toBe('a')
+    expect(entry.dist).toBe(join(repoRoot, 'demos', '04-jetstream-cqrs', 'frontend', 'dist'))
+  })
+})

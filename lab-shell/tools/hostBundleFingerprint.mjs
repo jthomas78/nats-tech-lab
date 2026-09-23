@@ -46,7 +46,23 @@ const fingerprintFile = join(shellRoot, 'tools', '.host-bundle-fingerprint.json'
    this exclusion would not hide it; the chunk is still fingerprinted and still
    scanned. */
 const GENERATED_CATALOGUE = 'plugin-catalogue.json'
-const isGeneratedCatalogue = (file) => relative(distDir, file) === GENERATED_CATALOGUE
+
+/* The same argument again, for the assets themselves (task 16c). The build
+   copies each opted-in demo's built output into `dist/plugins/<id>/` so the
+   shell serves BR-AS77's one public path layout. Those bytes are the PLUGIN's
+   bytes — compiled by the plugin's own build, from the plugin's own sources —
+   and counting them would make the check say that deploying a plugin must not
+   change the plugin. What BR-AS03 claims is that the HOST is untouched, so the
+   host's own chunks are what is fingerprinted. A plugin's code reaching a
+   hashed host chunk is still caught: that chunk is outside this prefix. */
+const PLUGIN_ASSET_DIR = 'plugins'
+
+const isPluginArtefact = (file) => {
+  const name = relative(distDir, file)
+  return name === GENERATED_CATALOGUE
+    || name === PLUGIN_ASSET_DIR
+    || name.startsWith(`${PLUGIN_ASSET_DIR}/`)
+}
 
 /*
   Two tiers, because BR-AS03 and BR-AS66 both hold and they touch the same
@@ -124,7 +140,7 @@ function build() {
 }
 
 function fingerprint() {
-  const files = walk(distDir).filter((file) => !isGeneratedCatalogue(file))
+  const files = walk(distDir).filter((file) => !isPluginArtefact(file))
   const entries = files.map((file) => ({
     path: relative(distDir, file),
     sha256: createHash('sha256').update(readFileSync(file)).digest('hex'),
@@ -139,7 +155,7 @@ function assertNoPluginNames() {
   let proseSeen = false
   for (const file of walk(distDir)) {
     if (!/\.(js|css|html|json)$/.test(file)) continue
-    if (isGeneratedCatalogue(file)) continue
+    if (isPluginArtefact(file)) continue
     const text = readFileSync(file, 'utf8')
     const name = relative(distDir, file)
     const proseAllowed = text.includes(PROSE_ANCHOR)

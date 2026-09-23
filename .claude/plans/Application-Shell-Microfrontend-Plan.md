@@ -944,7 +944,7 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. Done: 16a, 16b. Not started: 16c to 16i.**
+re-opened. Done: 16a, 16b, 16c. Not started: 16d to 16i.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1583,7 +1583,7 @@ Acceptance: zero entries is `ok: true, plugins: []`; a missing or unparseable ca
 `ok: false` with a code, and the two render differently; nothing is written back into the
 repository; `tools/hostBundleFingerprint.mjs` still proves no plugin code in the shell bundle.
 
-**16c — One public path layout, and the assets to fill it.** *Decision 6. Rule BR-AS77.*
+**16c — One public path layout, and the assets to fill it. DONE 2026-09-23.** *Decision 6. Rule BR-AS77.*
 New: `/plugins/<id>/…` as the single public layout for static plugin assets; a dev proxy derived
 from the same discovery data as the catalogue; collection of each plugin's build output into the
 shell's served tree. **Readiness routes are built in 16e and are deliberately not under this
@@ -1593,6 +1593,15 @@ fonts and images all load through the prefix; HMR works through the proxy; no re
 plugin's own port; no readiness route appears under `/plugins/<id>/…`. Regression:
 `RemoteAllowlist` unchanged; BR-AS45's manifest-fetch allowlist unchanged; same-origin validation
 still enforced, only the `build`-mode cross-origin exception removed.
+
+**Verified 2026-09-23 on demo 04**, under a temporary `public/manifest.json` and a temporary
+`base: '/plugins/demo-04/'`, both removed afterwards; 16d makes them permanent. Through the shell's
+own origin at `/plugins/demo-04/…`: the entry, source modules, lazy chunks, scoped CSS, a `woff2`
+font and a `png` all answered 200, `[vite] connected` confirmed HMR through the prefix, and no
+request escaped to port 20401. The build copied the demo's built output into
+`dist/plugins/demo-04/`, and an opted-in demo with no built output failed the build. The
+`build`-mode cross-origin exception was already struck from decision 2 at the gate and had no code
+to remove; `RemoteAllowlist` and BR-AS45 are unchanged files.
 
 **16d — Demo 04 becomes a plugin.** *Decisions 1, 10. Rule BR-AS78. Resolves F-4.*
 New: a **single** `route` contribution whose component is demo 04's existing panel container, with
