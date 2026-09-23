@@ -237,8 +237,9 @@ Split by domain so a rule add/edit only requires reading its own file:
 
 - **[BUSINESS_RULES-APP-SHELL.md](BUSINESS_RULES-APP-SHELL.md)** — the
   extensible application shell and its micro-frontend plugins
-  (BR-AS01–BR-AS73; BR-AS01–BR-AS15 approved 2026-08-28, later phases
-  appended through 2026-09-02). The one rules file whose subject is
+  (BR-AS01–BR-AS81; BR-AS01–BR-AS15 approved 2026-08-28, later phases
+  appended through 2026-09-24 — Phase 16 adds BR-AS75–BR-AS81, the two
+  catalogue sources). The one rules file whose subject is
   a **frontend, not a Go service**: the code lives in `lab-shell/`, not under
   `backend/`. Covers curated registry discovery and contract-version
   rejection before remote code executes (BR-AS01, BR-AS13), the

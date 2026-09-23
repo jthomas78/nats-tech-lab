@@ -1645,3 +1645,154 @@ every spec green (fixed by `bootstrap-operator.sh --force` + `docker compose dow
 announce-only variables before reading `HEALTH_ONLY`, making `Validate()`'s curated exemption
 unreachable from a deployment. `HEALTH_ONLY` is now read first; two specs under BR-AS61 in
 `shared/mferegistry/announcer/health_test.go` hold it there.
+
+## Phase 16 — `plugin-source: build`: one shell, two catalogue sources
+
+**Status: APPROVED at the design gate (2026-09-23), built and verified 16a–16g
+(2026-09-24).** Seven rules, BR-AS75 to BR-AS81, copied here **verbatim** from
+`Application-Shell-Microfrontend-Plan.md`, which held the wording of record
+until this task (16i) ran. No earlier BR-AS rule is amended by this phase: the
+split was cut so that `registry` mode keeps every rule it owns, unchanged.
+
+Read them as one answer to one question — **the shell has two ways to find its
+plugins, and a plugin cannot tell which one found it.** BR-AS75 picks the
+source; BR-AS76 says what the `build` source is made of; BR-AS77 says where its
+files are served; BR-AS78 is the promise that makes the pair safe; BR-AS79 and
+BR-AS80 keep readiness and health honest across both; BR-AS81 says where the
+choice may be spoken aloud.
+
+- **BR-AS75 — The catalogue has exactly one source, chosen once, and `build` mode replaces runtime
+  trust with build-time trust.** The shell **must** resolve `plugin-source` to exactly one of
+  `build` or `registry` from an explicit environment variable, once, before any catalogue read, and
+  **must not** vary it per plugin. `build` mode **must not** be conditioned on a development build:
+  it is a legitimate deployment. In `build` mode the catalogue **must** be produced by the same
+  build that produced the shell, from this repository; it **must not** be fetched from any service
+  and **must not** be editable after deployment, so no runtime admission path exists. Every
+  `remote.url` **must** resolve same-origin with the shell. `registry` mode's own origin handling —
+  `RemoteAllowlist` and BR-AS45's manifest-fetch allowlist — **must** be unchanged.
+
+- **BR-AS76 — The `build` catalogue is generated and served, never bundled, and never committed.**
+  The catalogue **must** be produced by scanning the repository for demo frontends carrying
+  `public/manifest.json`, served from memory in development and emitted into `dist/` as a separate
+  static asset by the production build. No plugin's code **may** enter the shell's bundle, so
+  BR-AS03 holds unchanged in both sources and remains provable by
+  `tools/hostBundleFingerprint.mjs`. A generated catalogue **must not** be written back into the
+  repository, because a committed copy is a second source of truth that will disagree with the
+  folder. A catalogue that generated correctly and holds zero entries **must** be a successful empty
+  read; a catalogue that is missing or will not parse **must** be a failed read carrying a code.
+  These two **must not** render alike.
+
+- **BR-AS77 — Build-mode plugins are served under one public path layout, and the prefix covers the
+  whole plugin.** Build-mode plugins **must** load under `/plugins/<id>/…` on the shell's origin.
+  Development proxies and hosted asset placement **must** implement that same public path layout,
+  and the catalogue and the development proxy mappings — plural: static assets and the readiness
+  routes of BR-AS79 — **must** all derive from the same discovery data.
+  The prefix **must** cover the entry module, lazy chunks, CSS, fonts and images — not the entry
+  alone — and development hot module replacement **must** work through it. The generator **must**
+  emit relative URLs and **must not** stamp any origin. A hosted deployment **must** ship each
+  plugin's built assets at those paths; emitting the catalogue alone is not sufficient. Dynamic
+  demo routes — readiness under BR-AS79 — **must** be served from routes distinct from this asset
+  prefix and **must not** be placed under `/plugins/<id>/…`, because a file and a call to a demo's
+  backend are not the same kind of thing and **must not** share a namespace.
+
+- **BR-AS78 — A plugin is identical across both sources.** A plugin's built output, its
+  `manifest.json` and its contributions **must** be byte-identical whether it is discovered by
+  `build` or by `registry`. Moving a plugin between sources **must** therefore be a deployment
+  change only, and **must not** require a rebuild, a manifest edit, a code change or a move within
+  the repository. No path, folder name or identifier **may** encode which source discovered a
+  plugin.
+
+- **BR-AS79 — Demo availability is a three-state shell concern before mount, and a plugin concern
+  after it.** Where a demo declares a readiness check, the shell **must** run it before mounting
+  that demo and **must** render the unavailable state itself rather than letting the plugin mount
+  and fail. The check **must** assert that the demo's services are *ready*, not merely that a port
+  answers. Three states **must** be distinguished: available; unavailable; and unknown, where a
+  timeout or a blocked request **must** read as "cannot reach demo services" and **must not** claim
+  the demo is stopped. The shell **must** re-check when the demo is opened, **must** offer a retry
+  in the unavailable panel, and **must** give the menu card its own refresh policy, because a check
+  that runs only before mount never populates the card. After mount, the **plugin** owns connection loss and operation
+  errors; a successful check guarantees nothing about the time after it. Both sides **must** use one
+  shared presentation component so the messages read as one system.
+
+  The readiness declaration **must** live in a sibling, demo-owned metadata file beside
+  `manifest.json`. `manifest.json` **must** be unchanged by this rule, and the registry contract
+  **must not** be extended: a manifest carrying an unfamiliar top-level field fails `registry`
+  mode's drift check by design.
+
+  **Readiness is independent of `plugin-source`.** The shell **must** consume that metadata through
+  its own shell-owned demo catalogue, generated from the same repository scan, in **both** sources,
+  and **must** associate a demo with a plugin by a **stable demo identifier** — never by which
+  source discovered the plugin. Readiness routes and audience configuration **must** be available in
+  both deployments.
+
+  **Readiness metadata is decoration on a demo and carries no authority.** It **must not** admit a
+  plugin, enable a disabled one, contribute a route, or supply or override any `remote.url`.
+  Discovery — `registry` or `build` — alone decides which plugins exist and where they load from. A
+  registry plugin with no associated lab demo **must** need no readiness metadata, and its absence
+  **must not** be reported as a fault.
+
+  The readiness request **must** be same-origin with the shell, served through an explicit
+  demo-specific proxy route in both development and hosted deployments. No cross-origin exception
+  **may** be introduced and no demo backend **may** be given CORS for this purpose.
+
+  Audience **must** be declared, never inferred: the development, preview or production nature of a
+  build **must not** decide it. A deployment **must** default to treating its reader as a visitor,
+  and **may** declare itself an operator shell, in which case a local run command carried by the
+  demo's metadata **may** be shown as a recovery step. A shell that has declared nothing **must not**
+  show run instructions.
+
+  This rule is **scoped to demo availability**: the readiness declaration is optional, and
+  `registry` mode neither requires nor reads it.
+
+- **BR-AS80 — Health is reported as measured, or reported as absent; it is never assumed.** The
+  shell **must not** display a health state it did not receive a measurement for. `not configured`
+  (nothing is set up to watch) and `unknown` (watching exists, no current reading) **must** remain
+  distinct, and `not configured` **must not** age, because a configuration answer is not an
+  observation. In `build` mode the health plane **must not** be constructed, and every plugin's
+  frontend and backend signals **must** read as `not configured`, never as `unknown`, `healthy` or
+  `stale`. That mapping **must** be made at the presentation layer, from an explicit
+  "monitoring is not configured" flag on the injected health object. No `HealthSignal` **may** be
+  synthesised to produce it, `healthPlane.js` **must not** become source-aware, and `registry`
+  mode's health semantics **must not** change. A health label **must** describe what was actually measured and **must not** imply the
+  plugin's code works. Demo readiness under BR-AS79 and plugin health under this rule **must** stay
+  separate: neither establishes the other, and neither **may** be rendered using the other's
+  control.
+
+- **BR-AS81 — `plugin-source` is a fact about the running shell, stated once, and derived from
+  files.** The active `plugin-source` **must** be stated once at page level on the Plugins screen
+  and **must not** be repeated per row while one source serves the whole catalogue. It **must not**
+  appear on demo cards, which answer what a demo does and whether it is ready. It **must** be
+  worded as a property of the current shell configuration, never as a permanent property of a demo.
+  Where a demo's source is listed outside the shell it **must** be derived by the same scan the
+  catalogue generator performs, never restated by hand. The registry entry provenance labels
+  `announced` and `preload` answer a different question and **must not** be merged with, renamed
+  after, or displayed alongside `plugin-source`.
+
+### How Phase 16's rules are checked
+
+Every row names a check that runs today. The Vitest suite is
+`npm --prefix lab-shell test` (809 specs, green 2026-09-24); the two
+command-line gates are `npm --prefix lab-shell run lint` (ESLint **and**
+`tools/frameOwnership.js`) and `node lab-shell/tools/hostBundleFingerprint.mjs`.
+The fingerprint tool has no npm script on purpose — it is a two-step
+record/verify ritual, and both steps must run in the **same** `plugin-source`
+mode, because Vite inlines the variable at build time.
+
+| Rule | Specced by |
+| --- | --- |
+| BR-AS75 | `lab-shell/src/shell/pluginSource.spec.js` — the source is read from one explicit variable (`VITE_PLUGIN_SOURCE` yields `build` or `registry`; unset resolves to `registry`; an unknown value **fails boot** rather than falling back; and the resolution is *not* conditioned on a development build, which is what makes `build` a legitimate deployment). Second block: it resolves **once** — the value is memoised so a later environment change is ignored, and the reader takes no plugin argument, so it cannot vary per plugin. Same-origin `remote.url` is held by `pluginAssets.spec.js`'s public-path block and by `buildCatalogueScan.spec.js`, which proves the generator emits relative URLs and stamps no origin. `registry` mode's own origin handling is proven untouched by `preloadFixture.spec.js`'s BR-AS20 block, which still runs unchanged. |
+| BR-AS76 | `lab-shell/src/shell/registry/buildCatalogueScan.spec.js` — `manifest.json` is the opt-in; the scan reports every file it read so the dev server can watch them; manifests pass through untouched; an unparseable one is fatal. `the catalogue document` asserts the generated document passes the shell's **own** registry validator, is valid with zero plugins, and is never `degraded`. `buildCatalogueClient.spec.js` holds the distinction the rule demands: a correctly generated **empty** catalogue is a successful empty read, while missing, unparseable, wrong-shape and unreachable each carry their own failure code and render differently through `decideRead`. The no-repo-write clause is asserted in `pluginAssets.spec.js` (`writes nothing on dev-server shutdown`) and in `demoReadinessGeneration.spec.js`. BR-AS03 is proven unchanged in both sources by `node lab-shell/tools/hostBundleFingerprint.mjs --record` / `--verify`, which also asserts the host bundle names no plugin container, remote URL or module path; the baseline after 16g is 17 host assets, digest `517422a525e6c7b21f2bd586644fbd06aa5fe961e1d128667df719f692cc0d7e`. |
+| BR-AS77 | `lab-shell/src/shell/registry/pluginAssets.spec.js` — the public path layout (`/plugins/<id>/`, relative to whatever origin serves the shell); the development proxy, derived from the **same scan** as the catalogue, upgrading WebSockets so HMR works through the prefix and rewriting no paths; the dev middleware for a demo with no dev server, which serves the **whole** built plugin at its public path, 404s a missing asset instead of returning the SPA page, and refuses path traversal; and the build-time collection, which copies each opted-in demo into the served tree and **fails the build** when a catalogued demo has no `dist/` — emitting the catalogue alone is not sufficient. The separation of readiness routes from the asset prefix is in `demoReadinessGeneration.spec.js` (`never under the plugin asset prefix`, plus `the prefix closed with 404 so nothing falls through to the SPA`). Verified live on demo 04 in 16c, entry and lazy chunks both. |
+| BR-AS78 | `lab-shell/src/shell/registry/buildCatalogueScan.spec.js` — `leaves manifest.json untouched, so BR-AS78 still holds`: the sibling `demo.json`'s dev port must not leak into the manifest, asserted by deep equality against the original and by the serialised manifest not containing the port. `demoReadinessGeneration.spec.js` — `leaves manifest.json byte-unchanged`: the scanned plugin re-serialises to the identical bytes, and the result still validates as a registry document, which is what keeps `registry` mode's drift check green. `demos/04-jetstream-cqrs/frontend/src/plugin.spec.js` — `the plugin's identity, written in three files`: the same federation container in the manifest and the build config, every asset built under the manifest's public path, and the dev-server port kept out of the manifest. `preloadFixture.spec.js` carries demo 04's curated registry row built from that same unmodified manifest. **Known limit, recorded rather than claimed:** no spec diffs the manifest file's bytes across a `build` run and a `registry` run; the guarantee is asserted structurally on the scan output and by the registry's existing drift check. |
+| BR-AS79 | `lab-shell/src/shell/demos/demoGate.spec.js` — the gate mounts a ready demo, draws the **shell's** own panel when unready rather than letting the plugin mount and fail, never says "stopped" for an unreachable demo, checks once on open, retries in place and mounts on a changed answer, steps aside once mounted, and is not applied at all when there is no demo store. `demoReadiness.spec.js` — the three states end to end: `available` only on an explicit demo assertion, while a bare 200, no verdict, a refused connection and a timeout all read `unknown`, and a 404 is a missing route rather than a stopped demo; the menu card's own refresh policy (`populates every card without opening a demo`, one in-flight request shared, no duplicate timer); the declared audience (F-5), which defaults to `visitor`, fails boot on an unknown value and is **never inferred from build mode**; and `the readiness layer and the plugin source`, which proves the same route is built whichever source found the plugin and that no plugin source is named anywhere in the layer. `demoReadinessGeneration.spec.js` — the declaration lives in a sibling demo-owned file, is optional, is normalised once, cannot admit a plugin or supply a `remote.url`, and leaves `manifest.json` byte-unchanged; plus the dev proxy and the hosted nginx snippet, one exact-match route per demo, not widenable by suffix. The same-origin, no-CORS clause is held from the demo's side by `demos/04-jetstream-cqrs/cqrs/ready_api_test.go` — `sets no CORS header for any origin`. One shared presentation component is enforced by `lab-shell/tools/frameOwnership.js`, whose single named exception lets `demos/demoGate.js` — and only it — import `@ui-shell/DemoStatePanel.vue`; `frameOwnership.spec.js` asserts both halves of that exception. |
+| BR-AS80 | `lab-shell/src/views/PluginsView.spec.js` — `build` mode reads `not configured` on both sides for every plugin, never rests at `unknown`, invents no `healthy` or other measured state, **does not age**, and uses the shared quiet tone; `registry` mode is asserted unchanged in the same file, still saying what was measured, still ageing, still resting unmeasured plugins at `unknown`, and treating a flagless health object as monitored. `healthSourceIndependence.spec.js` is the structural half: `healthPlane.js` and `healthText.js` contain no `pluginSource`, `PLUGIN_SOURCE` or `VITE_PLUGIN_SOURCE` and never read the `monitored` flag, so the measurement layer cannot become source-aware; and `main.js` gates the plane, the epoch watch and both timers on `monitored` while putting **nothing** into the signal map, so no `HealthSignal` is synthesised. That readiness and health stay separate is held by `demoReadiness.spec.js`'s vocabulary block and by the `frameOwnership.js` exception being scoped to one file and one specifier. Verified live in both modes at 1920×1080 on 2026-09-24. |
+| BR-AS81 | `lab-shell/src/views/PluginsView.spec.js` — `the catalogue source statement`: the source is named **once** at page level (one `.source` node, inside `.page-head`), never repeated in a row, worded as a property of this shell (`this shell is configured to read its catalogue from …`), and not shown alongside the registry's `announced` / `preload` labels. `labDemos.spec.js` holds the other half of "not on the cards": the demo menu's entries carry no health, no readiness and no `plugin-source` field. `demosReadme.spec.js` — the generated `demos/README.md` states source as a property of the shell rather than of a demo, gives a frontend-less demo nothing to source, and its last spec regenerates from the working tree and **fails when the committed page is stale**, which is what stops a hand-restated source creeping back in. The generator itself is `npm --prefix lab-shell run demos:readme` (`--check` to test without writing). |
+
+**Where the two inventories differ, and why that is correct.** The demo menu
+lists the lab's demos; the Plugins screen lists the active catalogue's plugins.
+Demos 02 and 03 have no frontend, so they have no plugin, so they appear on the
+menu and in no catalogue — as shell-owned intro pages at `/lab-demos/:demo`,
+carrying their run commands and the paths to their findings, and carrying **no
+health indicator and no readiness check**, because nothing measures them and
+BR-AS80 forbids drawing a mark nobody took. Nothing in this phase makes either
+inventory derive from the other.

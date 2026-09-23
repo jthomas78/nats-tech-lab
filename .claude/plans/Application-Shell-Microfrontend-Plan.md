@@ -944,7 +944,7 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. Done: 16a, 16b, 16c, 16d, 16e, 16f, 16g. Not started: 16i.**
+re-opened. Done: 16a to 16g, and 16i. Not started: 16h.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1845,7 +1845,7 @@ re-recorded in the default mode after the `main.js` and `PluginsView.vue`
 changes — 17 assets, digest `517422a525e6c7b21f2bd586644fbd06aa5fe961e1d128667df719f692cc0d7e`
 — and `--verify` is stable against it.
 
-**16i — Publish the rules and their coverage rows.** *All eleven decisions. Rules BR-AS75 to BR-AS81.*
+**16i — Publish the rules and their coverage rows. DONE 2026-09-24.** *All eleven decisions. Rules BR-AS75 to BR-AS81.*
 No behaviour. The seven rules are **written in full in this phase, above**, and are the wording of
 record until they are published. Deliverable: add BR-AS75 to BR-AS81 to
 `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` under a Phase 16 section, **verbatim** from this
@@ -1856,6 +1856,34 @@ Acceptance: all seven appear, byte-identical to the wording above; every one car
 pointing at a spec or gate that actually runs; no existing BR-AS rule is amended in the process — if
 one has to be, the split was cut in the wrong place (decision 9). Until this task is done, the rules
 live only here, and that is deliberate, not an omission.
+
+**Verified 2026-09-24.** All seven rules are in
+`demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` under a new Phase 16 section,
+copied **verbatim** from the wording above — asserted by extracting the block
+from this file and finding it as an exact substring of the published one, not
+by reading them side by side. The diff is 151 insertions and 0 deletions, so
+no existing BR-AS rule was amended and decision 9's split held.
+
+Each rule carries a coverage row naming checks that run today: BR-AS75 →
+`pluginSource.spec.js`; BR-AS76 → `buildCatalogueScan.spec.js`,
+`buildCatalogueClient.spec.js` and the `hostBundleFingerprint.mjs`
+record/verify gate; BR-AS77 → `pluginAssets.spec.js`; BR-AS78 →
+`buildCatalogueScan.spec.js`, `demoReadinessGeneration.spec.js` and demo 04's
+own `plugin.spec.js`; BR-AS79 → `demoGate.spec.js`, `demoReadiness.spec.js`,
+`demoReadinessGeneration.spec.js`, `frameOwnership.spec.js` and Go's
+`ready_api_test.go`; BR-AS80 → `PluginsView.spec.js` and
+`healthSourceIndependence.spec.js`; BR-AS81 → `PluginsView.spec.js`,
+`labDemos.spec.js` and `demosReadme.spec.js`.
+
+**One gap is recorded rather than claimed.** No spec diffs demo 04's
+`manifest.json` bytes across a `build` run and a `registry` run. BR-AS78's
+guarantee is asserted structurally — the scan re-serialises to identical bytes,
+the dev port never leaks in, and `registry` mode's existing drift check hashes
+the same file — but the cross-source file comparison itself does not exist, and
+the coverage row says so.
+
+The `BUSINESS_RULES.md` index was corrected in the same commit: it still read
+`BR-AS01–BR-AS73`, which was already stale by one rule before this phase.
 
 **16h — Registry regression gate.** *Decision 9.*
 No new behaviour. The Phase 15 acceptance gate runs unchanged. Add focused coverage for the display
