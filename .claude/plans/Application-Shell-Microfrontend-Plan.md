@@ -2942,11 +2942,42 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   which is A7's ordering kept — the contract went first and the frontend followed it.
   13 new specs (10 record shape, 3 against a real router); lab-shell Vitest **1022 green**,
   lint 0 errors.
-- **17h — Demo 04 splits, in ONE commit (A3).** Two routes, two nav entries, one shared lesson
-  component driven by the route, the embedded rail deleted, the standalone rail untouched, the
-  `odometer` / `odometer-nav` ids and `OdometerRoute.vue` renamed, `registry.json` updated with the
-  same bytes, and `demos/04-jetstream-cqrs/CLAUDE.md` amended — it records the one-route choice as
-  rejected.
+- **17h — Demo 04 splits, in ONE commit (A3). DONE.** `public/manifest.json` now declares
+  `/demo-04/lesson-01` and `/demo-04/lesson-02` with one `navigation` entry each, both in the
+  `jetstream` group, and lesson 01 carries `default: true` so 17g's redirect keeps `/demo-04`
+  working. `demos/01-dictionary/registry.json` carries the same bytes — compared as parsed JSON,
+  not by eye. `plugin/OdometerRoute.vue` is `plugin/LessonRoute.vue`, the component key is
+  `lesson`, and the double navbar is gone: the embedded rail is deleted and `App.vue`'s standalone
+  rail is untouched.
+  **The shell needed one generic change, and it is the interesting part.** Both routes render the
+  same component, and that component cannot ask a router which of the two it is: `vue-router` is
+  the shell's own dependency and is NOT a shared federated module, so a remote that imported one
+  would load a second router with no history of its own. The record already knows, so the record
+  says so — `routeRecord` swaps `props: true` for `props: (to) => ({ ...to.params, routeId:
+  route.id })` and every plugin route gets the prop, whether it reads it or not. The LOCAL id is
+  handed over, because that is the word the manifest author wrote. **BR-AS91** is the rule. One
+  line of shell code, no demo named, and A4's question answered where it belongs.
+  `useDemoState` takes an optional `lesson` getter: omitted, the standalone rail writes `view`
+  through `v-model` exactly as before; supplied, `view` is a computed that follows the route.
+  `lessonFor` already fell back to the first lesson, so an unknown or missing id renders lesson 01
+  rather than a blank page.
+  **The acceptance question is closed: `route-prefix-conflict` does not fire.** `placementPolicy.js`
+  computes `prefixTaken` once per plugin, outside the contribution loop, as `owner !== undefined &&
+  owner !== plugin.id`. The rule was written for CROSS-plugin conflict and one plugin may claim as
+  many routes under its own prefix as it likes. Re-read before it was relied on, as D17-1 required.
+  **A4's coverage, all specs, all green.** A cold link to lesson 02 opens lesson 02; a cold link to
+  lesson 01 opens lesson 01; browser back and forward follow between the two; the value survives
+  `withDemoGate`, which renders the plugin component by hand with `inheritAttrs: false`; and
+  readiness is probed **once per plugin**, never once per lesson — the gate is keyed by `pluginId`
+  and the demo declares one readiness entry, so BR-AS79 is unchanged.
+  **One consequence, written down rather than hidden.** Two route records mean the component
+  unmounts and remounts when the reader switches lesson embedded, so `useDemoState` runs again and
+  the NATS WebSocket reconnects. Standalone keeps its single connection. That is what navigating
+  away and back already did, it is accepted, and `demos/04-jetstream-cqrs/CLAUDE.md` says so
+  beside the rejected one-route shape.
+  Demo 04 Vitest **519 green / 35 files** (was 502 / 34); lab-shell Vitest **1031 green** (was
+  1022); lab-shell lint 0 errors / 30 warnings; demo 04 lint 0 errors / 3 warnings; demo 04
+  `npm run build` clean; registry service `go test ./...` green.
 - **17i — The acceptance checks as specs.** Anything not already covered by 17a-17h, cold
   lesson-02 links and back/forward included.
 

@@ -5,9 +5,11 @@
      { components: { [name]: Component }, activate?(): void|Promise<void> }
 
    `components` is keyed by the `component` name each contribution declares in
-   `public/manifest.json`. There is exactly ONE key, because demo 04 makes
-   exactly one `route` contribution: its existing panel container, with its
-   panel and tab interaction unchanged.
+   `public/manifest.json`. There is exactly ONE key, and demo 04 makes TWO
+   `route` contributions — one per lesson. Both name the same component, which
+   is the point: task 17h split the ROUTES, not the UI. The shell tells the
+   component which of the two it is showing (BR-AS91), and the panels and tabs
+   below it are unchanged.
 
    Nothing here imports a shell module, and the entry never renders
    `@ui-shell/AppShell` — `lab-shell` owns the outer chrome when the demo is
@@ -21,10 +23,10 @@
 import './styles/sides.css'
 
 import { EMBEDDED_COMMAND_API, setCommandApi } from './config.js'
-import OdometerRoute from './plugin/OdometerRoute.vue'
+import LessonRoute from './plugin/LessonRoute.vue'
 
 export const components = {
-  odometer: OdometerRoute,
+  lesson: LessonRoute,
 }
 
 /* Called at most once per plugin, by the loader, after the chunk arrives and

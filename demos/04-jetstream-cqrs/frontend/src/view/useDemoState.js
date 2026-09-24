@@ -4,10 +4,12 @@
    plan): standalone on port 20401, where `App.vue` supplies its own
    `@ui-shell/AppShell`, and embedded in `lab-shell`, where the shell supplies
    the outer chrome and a plugin entry must NOT render `AppShell` itself
-   (BR-AS09). The two differ only in where the rail, the breadcrumb and the
-   connection tag are placed. Everything else — the NATS watch, the command
-   runner, the lesson selection, the panels — is this function, called once by
-   whichever entry is rendering.
+   (BR-AS09). They differ in two things and no more: where the breadcrumb and
+   the connection tag are placed, and WHO CHOOSES THE LESSON. Standalone owns a
+   rail and writes the choice; embedded has no rail of its own since task 17h —
+   the shell draws one — and the route carries the choice instead. Everything
+   else — the NATS watch, the command runner, the panels — is this function,
+   called once by whichever entry is rendering.
 
    It is a composable, not a store: one call, one NATS connection. Calling it
    twice in one page would open a second watch, which is why neither panel
@@ -32,7 +34,7 @@ import {
 } from '../config.js'
 import { useCommands } from '../commands/useCommands.js'
 import { useOdometer } from '../nats/useOdometer.js'
-import { crumbFor, railSections } from './lessons.js'
+import { crumbFor, lessonFor, railSections } from './lessons.js'
 
 /* One label and one colour per connection state. A reconnect is reported, not
    hidden: nats-core retries on its own and the screen should say so. */
@@ -45,7 +47,16 @@ const STATES = {
   error: { label: 'Not connected', severity: 'danger' },
 }
 
-export function useDemoState() {
+/**
+ * @param {object} [options]
+ * @param {(() => string|null)|null} [options.lesson] Where the lesson comes
+ *   from when the caller does not own the choice. Embedded, the ROUTE decides
+ *   (amendment A4): the shell hands the route component its own contribution
+ *   id, and a cold link to `/demo-04/lesson-02` must open lesson 02 rather
+ *   than the default. Omitted — the standalone entry — the rail writes `view`
+ *   itself, exactly as it always has.
+ */
+export function useDemoState({ lesson = null } = {}) {
   const odometer = useOdometer()
   const { status, error, pool, poolWorkers, poolTruth, connect, disconnect } = odometer
 
@@ -56,7 +67,13 @@ export function useDemoState() {
 
   const connection = computed(() => STATES[status.value] ?? STATES.idle)
 
-  const view = ref('lesson-01')
+  /* Two owners, one name. Standalone the rail writes this ref through
+     `v-model`; embedded it is read-only and follows the route. `lessonFor`
+     falls back to the first lesson, so an unknown or missing id renders a
+     lesson rather than a blank page. */
+  const view = lesson === null
+    ? ref('lesson-01')
+    : computed(() => lessonFor(lesson()).key)
   const isLesson01 = computed(() => view.value === 'lesson-01')
   const isLesson02 = computed(() => view.value === 'lesson-02')
 

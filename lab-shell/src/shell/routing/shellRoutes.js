@@ -69,7 +69,18 @@ function routeRecord(route, { loader, manifestFor, errorComponent, demoStore }) 
        route name too — a nav entry resolves to a name, never to a hand-built
        path string. */
     name: route.qualifiedId,
-    props: true,
+    /* Route params, plus one thing the params cannot carry: WHICH of the
+       plugin's own routes this is, in the plugin's own words (BR-AS91).
+
+       One component may sit behind several of a plugin's routes — demo 04's
+       two lessons are the first — and it cannot ask a router which one it is
+       showing. `vue-router` is the shell's own dependency and is NOT a shared
+       federated module, so a remote that imported it would load a second
+       router with no history of its own. The record already knows, so the
+       record says so, and every plugin route gets the same prop whether it
+       needs it or not. The LOCAL id is handed over, not the qualified one:
+       the local id is the word the manifest author wrote. */
+    props: (to) => ({ ...to.params, routeId: route.id }),
     meta: {
       pluginId: route.pluginId,
       title: route.title,

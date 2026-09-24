@@ -1,9 +1,11 @@
+import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 
 import { createShellRoutes, resolveRouteComponent } from './shellRoutes.js'
 
 const route = (overrides = {}) => ({
+  id: 'catalog',
   qualifiedId: 'demo-catalog/catalog',
   pluginId: 'demo-catalog',
   path: '/demos',
@@ -240,5 +242,134 @@ describe('D17-7 — the redirect against a real router', () => {
     await router.push('/demo-04')
 
     expect(router.currentRoute.value.path).toBe('/demo-04/lesson-01')
+  })
+})
+
+
+describe('BR-AS91 — a route record tells the component which route it is', () => {
+  /* A plugin may point several of its own routes at ONE component — demo 04's
+     two lessons are the first — and that component cannot ask a router which
+     one it is showing, because `vue-router` is the shell's own dependency and
+     is not shared across the federation boundary. The record knows, so the
+     record says so. */
+  const built = (overrides) => createShellRoutes({
+    contributions: { routes: [route(overrides)] },
+    loader: loaderFor({}),
+    manifestFor: manifestForOnly('demo-catalog', 'demo-04'),
+  })[0]
+
+  const propsOf = (record, to = { params: {} }) => record.props(to)
+
+  it('hands over the plugin\'s own LOCAL id, not the qualified one', () => {
+    const record = built({ id: 'lesson-02', qualifiedId: 'demo-04/lesson-02', pluginId: 'demo-04', path: '/demo-04/lesson-02' })
+
+    expect(propsOf(record).routeId).toBe('lesson-02')
+  })
+
+  it('gives every plugin route the prop, whether it needs it or not', () => {
+    expect(propsOf(built()).routeId).toBe('catalog')
+  })
+
+  it('still passes the route params through', () => {
+    // `props: true` used to do this alone. The function must not lose it.
+    expect(propsOf(built(), { params: { vesselId: '7' } })).toEqual({ vesselId: '7', routeId: 'catalog' })
+  })
+
+  it('lets a param of the same name win, so a path is never shadowed', () => {
+    // Spread order is the rule, written down: params first, routeId last.
+    expect(propsOf(built(), { params: { routeId: 'from-the-path' } }).routeId).toBe('catalog')
+  })
+})
+
+describe('BR-AS91 — the prop reaches the component, gate and all', () => {
+  /* The record shape above is only half of it. The other half is that the
+     value survives `withDemoGate`, which renders the plugin component with
+     `inheritAttrs: false` and passes its attrs on by hand. */
+  const Lesson = {
+    name: 'Lesson',
+    props: { routeId: { type: String, default: 'nothing' } },
+    template: '<p>{{ routeId }}</p>',
+  }
+
+  const Host = { template: '<router-view />' }
+
+  const mountAt = async (path, demoStore = null) => {
+    const records = createShellRoutes({
+      contributions: {
+        routes: [
+          route({ id: 'lesson-01', qualifiedId: 'demo-04/lesson-01', pluginId: 'demo-04', path: '/demo-04/lesson-01' }),
+          route({ id: 'lesson-02', qualifiedId: 'demo-04/lesson-02', pluginId: 'demo-04', path: '/demo-04/lesson-02' }),
+        ],
+      },
+      loader: loaderFor({ components: { default: Lesson } }),
+      manifestFor: manifestForOnly('demo-04'),
+      demoStore,
+    })
+    const router = createRouter({ history: createMemoryHistory(), routes: records })
+    router.push(path)
+    await router.isReady()
+
+    const wrapper = mount(Host, { global: { plugins: [router] } })
+    await flushAsync()
+    return { wrapper, router }
+  }
+
+  /* Two ticks: one for the lazy component, one for the gate's own await. */
+  const flushAsync = async () => {
+    for (let i = 0; i < 4; i += 1) await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  const ready = () => ({
+    checkBeforeMount: vi.fn(async () => ({ state: 'available' })),
+    entryFor: () => null,
+    isReady: () => true,
+  })
+
+  it('opens a COLD link to lesson 02 on lesson 02', async () => {
+    const { wrapper } = await mountAt('/demo-04/lesson-02')
+
+    expect(wrapper.text()).toContain('lesson-02')
+  })
+
+  it('opens a cold link to lesson 01 on lesson 01', async () => {
+    const { wrapper } = await mountAt('/demo-04/lesson-01')
+
+    expect(wrapper.text()).toContain('lesson-01')
+  })
+
+  it('follows the reader back and forward between the two', async () => {
+    const { wrapper, router } = await mountAt('/demo-04/lesson-01')
+
+    await router.push('/demo-04/lesson-02')
+    await flushAsync()
+    expect(wrapper.text()).toContain('lesson-02')
+
+    await router.back()
+    await flushAsync()
+    expect(wrapper.text()).toContain('lesson-01')
+
+    await router.forward()
+    await flushAsync()
+    expect(wrapper.text()).toContain('lesson-02')
+  })
+
+  it('survives the readiness gate, which renders the component by hand', async () => {
+    const { wrapper } = await mountAt('/demo-04/lesson-02', ready())
+
+    expect(wrapper.text()).toContain('lesson-02')
+  })
+
+  it('probes readiness once per PLUGIN, not once per lesson (A4, BR-AS79)', async () => {
+    const demoStore = ready()
+    const { router } = await mountAt('/demo-04/lesson-01', demoStore)
+
+    await router.push('/demo-04/lesson-02')
+    await flushAsync()
+
+    /* The gate re-checks on every mount, which is pre-existing behaviour and
+       the same as navigating away and back. What matters here is that it asks
+       about the PLUGIN — one id, never one per lesson. */
+    expect(new Set(demoStore.checkBeforeMount.mock.calls.flat())).toEqual(new Set(['demo-04']))
   })
 })

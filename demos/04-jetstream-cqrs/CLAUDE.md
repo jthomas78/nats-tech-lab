@@ -182,19 +182,36 @@ them. The rules that hold this together:
   supplies the topbar, the rail and the theme toggle when the demo is embedded,
   and a second frame inside the first nests two chromes. `src/plugin.spec.js`
   fails if `AppShell` is even named in `src/plugin.js` or
-  `src/plugin/OdometerRoute.vue`.
+  `src/plugin/LessonRoute.vue`.
 - **The body is one component, not two.** `src/components/LessonPanels.vue`
   holds the pagehead, both lesson panels and the wiring footer, and both entries
   render it. `src/view/useDemoState.js` holds the state both entries need — one
   call, one NATS connection. Everything else in `src/components/` is untouched:
   no panel became a route, and no menu, breadcrumb or tab was redesigned.
-- **Where the rail sits is the only difference.** Standalone it goes in
-  `AppShell`'s sidebar slot; embedded it goes in the route's own left column,
-  because the shell declares no extension point for its own sidebar. Same
-  `NavList`, same two lessons, same behaviour.
-- **One route contribution.** `public/manifest.json` declares a single `route`
-  (`/demo-04`) and one `navigation` entry. Splitting the lessons into two routes
-  would change how the demo is navigated, and was rejected.
+- **Who chooses the lesson is the difference.** Standalone, `App.vue` keeps its
+  own `NavList` in `AppShell`'s sidebar slot and writes the choice — that entry
+  is untouched. Embedded, the route carries the choice and the component draws
+  **no rail of its own**. App-shell task 17h removed it: the shell now draws one
+  rail with this demo's lessons in it, and the second rail inside the page was
+  the double navbar that phase 17 exists to delete.
+- **Two route contributions, one component.** `public/manifest.json` declares
+  `/demo-04/lesson-01` and `/demo-04/lesson-02`, one `navigation` entry each, in
+  the one `jetstream` group. Both routes name the SAME component,
+  `src/plugin/LessonRoute.vue` — the routes split, the UI did not. The shell
+  tells it which lesson it is showing by handing it its own contribution id as a
+  `routeId` prop (app-shell BR-AS91). The component **must not** import
+  `vue-router`: that is the shell's own dependency and is not shared across the
+  federation boundary.
+  - **The one-route shape was rejected**, 2026-09-24 (app-shell D17-1). A single
+    `/demo-04` route cannot put two lessons in the shell's one rail, which is
+    the whole point of phase 17.
+  - **`/demo-04` still works.** Lesson 01 declares `default: true` and the shell
+    builds the bare-prefix redirect from that (app-shell BR-AS90).
+  - **Switching lesson embedded reconnects.** Two route records mean the
+    component unmounts and remounts, so `useDemoState` runs again and the NATS
+    WebSocket is re-opened. Standalone, one component and one ref keep a single
+    connection. This is accepted, not a bug: it is what navigating away and
+    back has always done.
 
 ### The public path prefix
 
@@ -358,7 +375,7 @@ The frontend has its own three, and all three must pass before a UI task is
 done. Run them from `frontend/`:
 
 ```bash
-npx vitest run                      # 502 specs, 34 files
+npx vitest run                      # 519 specs, 35 files
 npx eslint src --ext .js,.vue       # 0 errors; 3 warnings are the baseline
 npm run build
 ```

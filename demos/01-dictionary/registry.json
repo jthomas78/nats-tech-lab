@@ -72,18 +72,36 @@
       "contributions": [
         {
           "kind": "route",
-          "id": "odometer",
-          "path": "/demo-04",
-          "title": "Odometer — JetStream CQRS",
-          "component": "odometer"
+          "id": "lesson-01",
+          "path": "/demo-04/lesson-01",
+          "title": "JetStream — Stream + CQRS",
+          "component": "lesson",
+          "default": true
+        },
+        {
+          "kind": "route",
+          "id": "lesson-02",
+          "path": "/demo-04/lesson-02",
+          "title": "JetStream — Scaling a consumer",
+          "component": "lesson"
         },
         {
           "kind": "navigation",
-          "id": "odometer-nav",
-          "label": "Odometer",
-          "route": "odometer",
+          "id": "lesson-01-nav",
+          "label": "Stream + CQRS",
+          "route": "lesson-01",
           "icon": "pi pi-gauge",
-          "order": 40
+          "order": 40,
+          "group": { "id": "jetstream", "label": "JetStream" }
+        },
+        {
+          "kind": "navigation",
+          "id": "lesson-02-nav",
+          "label": "Scaling a consumer",
+          "route": "lesson-02",
+          "icon": "pi pi-users",
+          "order": 41,
+          "group": { "id": "jetstream", "label": "JetStream" }
         }
       ],
       "backendServices": [],
