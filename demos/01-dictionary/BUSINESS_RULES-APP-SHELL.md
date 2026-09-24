@@ -1932,6 +1932,13 @@ fixtures.
   BR-AS86's purity: the same manifests give the same clashes in the same order, a withdrawal takes
   a clash away without anybody clearing it, and a restore brings it back.
 
+  **A clash names labels, but it is suffered by plugins, and every one of them takes part.** The
+  displayed diagnostic **must** be built from the DISTINCT labels — it is a sentence about names,
+  and repeating one name three times says nothing extra. The `participants` list **must not** be
+  narrowed the same way: a plugin that asked for a label somebody else asked for first has lost
+  exactly the same name and **must** be markable in the rail. Folding it away leaves its entry
+  silent while its neighbours are dotted, which reads as "your band is fine" and is not true.
+
   **These three are NOT clashes, and the shell must be able to show that they are not.** Two plugins
   naming one band the same way is the FEATURE of this phase and merges silently. A group order
   conflict cannot arise, because D17-2 gave group placement to the shell and a plugin declares no
@@ -1949,9 +1956,14 @@ fixtures.
   - **A router-backed entry renders a REAL link.** An item that carries `to` renders an
     anchor with an `href`, so open-in-new-tab works and the browser's own active-route behaviour
     applies. A `<button>` that calls `router.push` **must not** be accepted as satisfying this.
-    Which link is active is the router's answer and never a path comparison the rail makes:
-    `/` is the text prefix of every path in the shell, and a root link **must not** read as
-    active on the screens under it.
+    Which link is active is the router's answer by DEFAULT, and the router decides from the
+    matched route record: `/` is the text prefix of every path in the shell, and a root link
+    **must not** read as active on the screens under it. But record matching is not descendant
+    matching — `/demos` and `/demos/:id` are sibling records and neither lights the other — so an
+    item **may** carry the answer itself as a boolean, and the router's own matching **must**
+    stand aside for that item so the two cannot both write the class. The component **must not**
+    compute it: `shared/ui-shell/` may not import a router, because two of its three consumers
+    have none.
   - **A link claims no selection.** In link mode the component **must not** require `modelValue`,
     **must not** emit `update:modelValue`, and **must not** write `aria-pressed`; the router is the
     only thing that says what is active.
@@ -1983,6 +1995,11 @@ fixtures.
     reported as a `duplicate-group-label` clash, because the reader sees one word twice whatever
     its origin. The shell **must not** be blamed for it, and the reserved name **must** have one
     definition, shared by the rail that draws it and the check that compares against it.
+  - **An entry stays lit on its own detail pages.** The rail before this phase matched an entry's
+    path and everything under it, and that behaviour **must** survive the move to real links: an
+    entry whose plugin opens a detail page below it stays marked. The shell resolves the path and
+    decides, because it is the only layer that has a router; the rail's own two links keep exact
+    matching, which is what they always had.
   - **An empty band is not drawn.** A band whose entries all went away — withdrawn, refused or not
     permitted — **must not** leave a heading behind, and **must** come back when the plugin does
     (BR-AS56).
@@ -2014,4 +2031,4 @@ withdrawal stays restorable. No rule above re-classifies any of that.
 | BR-AS86 | *(17c)* `lab-shell/src/shell/contributions/navigationTree.spec.js` — grouping by `group.id` and never by label, the string shorthand, an ungrouped entry landing in `Features`, a plugin that cannot rename `Features`, the shell table first and unknown bands by id rather than by first seen, the within-band cascade, and the purity itself: the same tree from a reversed index, from three separate indexing passes, and across a withdrawal and a restore. The clash block holds amendment A2 — one displayed name chosen by `pluginId` then `declarationIndex`, both entries still placed, and the losing label kept with its claimant. |
 | BR-AS87 | *(17d)* `lab-shell/src/shell/contributions/navigationClashes.spec.js` — the three clash kinds, each naming its kind, its band and **both** owning plugins; the three silences that bound them (an agreed label, a shell-owned band, the same name at the same route, the same name in two different bands); the three cases A2 settled as not clashes plus the unresolved route that stays a refusal; a withdrawal taking a clash away and a restore bringing it back; and purity — the same clashes in the same order from a reversed index. `lab-shell/src/shell/bootShell.spec.js` — the same record on the inventory row of every plugin it names, with `refusals` still empty. `lab-shell/src/views/PluginsView.spec.js` — the two lists rendered apart, and no clash list at all for a plugin with none. *(review, 2026-09-24)* `navigationClashes.spec.js` — a plugin band spelling the RAIL's own reserved `Shell` reported as a duplicate name with the shell unblamed, and the reserved band alone reporting nothing. |
 | BR-AS88 | *(17e)* `demos/01-dictionary/frontend/admin/src/components/NavList.spec.js` — the existing button mode untouched, then link mode (a link not a button, no `modelValue` needed, no `aria-pressed`, nothing emitted on click, and both modes mixed in one list), the marker slot drawn per item and absent without a slot, and section identity: the eyebrow fallback for a consumer that passes no id, a band kept across a label edit, and two ids kept apart under one spelling. `lab-shell/src/shell/ui/navListLinkMode.spec.js` is the half a stub cannot prove — mounted against a REAL router, so the anchor has a real `href`, the router alone marks what is active, and the mark follows a route change nobody told the component about. |
-| BR-AS89 | *(17f)* `lab-shell/src/shell/ui/shellNavSections.spec.js` — the rail as data: the shell band first and present with no plugins at all, the `Features` fallback, the phase's worked two-plugin example in band and item order, a route named by qualified id, an empty band not drawn and restored with its plugin, mark isolation between plugins, and a clash marked on both participating entries by qualified id. `lab-shell/src/shell/ui/ShellNav.spec.js` — the rail mounted against a real router: one `<nav>` the shell labels, a plugin entry as a real `<a href>` with no `aria-pressed`, only the current page marked, the dot in the chosen tone, and the same thing in words — including a clash kept in the words of BOTH entries when one lost the dot to a failure. `lab-shell/src/shell/registry/navMark.spec.js` — the precedence with the clash last, and the description that survives losing the colour. |
+| BR-AS89 | *(17f)* `lab-shell/src/shell/ui/shellNavSections.spec.js` — the rail as data: the shell band first and present with no plugins at all, the `Features` fallback, the phase's worked two-plugin example in band and item order, a route named by qualified id, an empty band not drawn and restored with its plugin, mark isolation between plugins, a clash marked on both participating entries by qualified id, a third plugin that merely AGREED with a losing label marked too, and the lit entry: on its own page, on a page under it, on neither an unrelated page nor a mere text prefix, and left to the router when no path was given. `lab-shell/src/shell/ui/navListLinkMode.spec.js` — an item that decides its own active state, in both directions, with the router left in charge of one that said nothing. `lab-shell/src/shell/ui/ShellNav.spec.js` — the rail mounted against a real router: one `<nav>` the shell labels, a plugin entry as a real `<a href>` with no `aria-pressed`, only the current page marked, the dot in the chosen tone, and the same thing in words — including a clash kept in the words of BOTH entries when one lost the dot to a failure. `lab-shell/src/shell/registry/navMark.spec.js` — the precedence with the clash last, and the description that survives losing the colour. |

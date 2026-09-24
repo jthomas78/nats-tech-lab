@@ -90,9 +90,16 @@ export function buildNavigationTree(entries, { groupOrder = SHELL_GROUP_ORDER } 
          reached only by a caller that hand-built an entry. */
       label: owned?.label ?? distinct[0]?.label ?? node.id,
       shellOwned: owned !== null,
-      /* Every label anybody asked for, in cascade order. Exactly one is
-         displayed; task 17d reads the rest to name the clash. */
+      /* Every label anybody asked for, in cascade order — one claimant per
+         DISTINCT label. Exactly one is displayed; task 17d reads the rest to
+         name the clash, which is a sentence about labels. */
       labelClaims: Object.freeze(distinct),
+      /* Every claimant, in cascade order, with nobody folded away. A clash is
+         named from the labels but SUFFERED by the plugins, and two plugins
+         agreeing on a losing name are both affected by losing it — marking
+         only the first would leave the second's entry silent in the rail
+         (review, 2026-09-24). */
+      labelOwners: Object.freeze(claims.map((claim) => Object.freeze(claim))),
       items: Object.freeze(items),
       tableIndex: owned ? owned.index : -1,
     })

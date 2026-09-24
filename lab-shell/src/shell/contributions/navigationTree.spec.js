@@ -204,6 +204,17 @@ describe('BR-AS86 — a clashing label is chosen, never merged', () => {
     expect(tree[0].labelClaims).toHaveLength(1)
   })
 
+  it('keeps EVERY claimant on labelOwners, including a second plugin that agreed', () => {
+    const tree = treeOf(
+      navPlugin('alpha', [{ label: 'A', group: { id: 'ops', label: 'JETSTREAM' } }]),
+      navPlugin('bravo', [{ label: 'B', group: { id: 'ops', label: 'JETSTREAM' } }]),
+      navPlugin('charlie', [{ label: 'C', group: { id: 'ops', label: 'Streams' } }]),
+    )
+
+    expect(tree[0].labelClaims.map((c) => c.label)).toEqual(['JETSTREAM', 'Streams'])
+    expect(tree[0].labelOwners.map((c) => c.pluginId)).toEqual(['alpha', 'bravo', 'charlie'])
+  })
+
   it('lets a shell-owned band keep its own name whatever is claimed', () => {
     const tree = treeOf(
       navPlugin('alpha', [{ label: 'A', group: { id: 'features', label: 'Alpha Says' } }]),

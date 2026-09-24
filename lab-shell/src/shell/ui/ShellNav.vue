@@ -18,12 +18,15 @@
 */
 import NavList from '@ui-shell/NavList.vue'
 import { computed, inject } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { summarizeAttention } from '../registry/statusRollup.js'
 import { SHELL } from '../shellKey.js'
 import { shellNavSections } from './shellNavSections.js'
 
 const shell = inject(SHELL)
+const route = useRoute()
+const router = useRouter()
 
 /* The chrome's one aggregate signal, on the Plugins link. A plugin that
    failed is visible from every screen without opening the inventory — status
@@ -37,6 +40,10 @@ const sections = computed(() => shellNavSections(shell.contributions.navigationT
   healthOf: (pluginId) => shell.health?.signals?.[pluginId] ?? null,
   inventoryCount: shell.inventory.length,
   attention: attention.value,
+  /* The rail is a pure function and `NavList` may not import a router, so
+     the one place that HAS the router resolves for both. */
+  currentPath: route.path,
+  pathOf: (to) => router.resolve(to).path,
 }))
 </script>
 

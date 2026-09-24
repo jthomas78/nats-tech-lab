@@ -2868,6 +2868,10 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   not from the path text, and the shell's routes are flat siblings, so `/` is never active on the
   screens under it. The flag went; the spec that disproved it stayed, because the day that changes
   the rail goes wrong quietly on every screen.
+  **Corrected 2026-09-24 (second review).** That reasoning was right about `/` and wrong as a
+  general claim, and the entry said it too broadly. Record matching is not descendant matching:
+  sibling records never light each other, so dropping the rail's hand-written prefix match also
+  darkened an entry on its own detail pages. See the second follow-up below.
   Clash membership is asked of the clash record, not guessed from the plugin: every record carries
   its participants' qualified ids, so a plugin with four entries and one clashing label marks one of
   the four, and a `duplicate-group-label` whose other participant is the shell (`qualifiedId: null`)
@@ -2899,6 +2903,27 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   decision in the rail that nobody has asked for.
   5 new specs (2 clash, 3 manifest, less the one that asserted the old `"yes"` reading); lab-shell
   Vitest **1000 green**, lint 0 errors.
+- **17f second review follow-up (2026-09-24). DONE.** The same reviewer returned with two findings
+  it had left out of the first pass. Both were reproduced and both were real.
+  **A clash lost its participants.** `navigationTree.js` folded a band's label claims down to one
+  per DISTINCT label, and `navigationClashes.js` built `participants` from that folded list. So
+  with A and B both asking for `JETSTREAM` and C asking for `Streams`, B took part in the clash and
+  was never named in it — no dot, no words, while its neighbours carried both. The fold is right
+  for the MESSAGE, which is a sentence about names; it is wrong for the blame. The tree now carries
+  `labelOwners` — every claimant, cascade order, nobody folded away — beside the unchanged
+  `labelClaims`, and both clash kinds take their participants from it. **BR-AS87** gained the rule.
+  **A regression, and mine.** The 17f entry above claimed the router "already gets this right" and
+  needed no matching flag. It does for `/`; it does not for a section and its detail pages, which
+  are sibling records. The rail before 17f matched `route.path === target.path ||
+  route.path.startsWith(`${target.path}/`)` by hand, and deleting `isActive` with the old markup
+  quietly took that away. It is restored where it can be tested: an item may carry `active` as a
+  boolean and `NavList.vue` then stands the router's own matching down for it, so the class has one
+  author. `shared/ui-shell/` still imports no router — it may not, two of its three consumers have
+  none — so `ShellNav.vue` resolves the path and `shellNavSections.js` decides, for plugin entries
+  only. The shell's own two links keep exact matching, which is what the hand-rolled rail gave
+  them. **BR-AS88**'s link bullet and **BR-AS89** now say so.
+  11 new specs (2 tree/clash, 6 `shellNavSections`, 3 `navListLinkMode`); lab-shell Vitest
+  **1011 green**, admin **351 green**, seafreight-app **36 green**, lab-shell lint 0 errors.
 - **17g — The generic default-route redirect**, with A4's declaration, failure behaviour and the
   permission, withdrawal and readiness checks.
 - **17h — Demo 04 splits, in ONE commit (A3).** Two routes, two nav entries, one shared lesson

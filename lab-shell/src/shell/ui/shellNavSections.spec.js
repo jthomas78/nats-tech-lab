@@ -169,6 +169,48 @@ describe('BR-AS89 — the plugin bands are the merged tree', () => {
   })
 })
 
+describe('BR-AS89 — an entry stays lit on its own detail pages', () => {
+  /* The rail before phase 17 matched the path AND everything under it. The
+     router matches route records, which are siblings here, so the shell
+     keeps deciding this itself (review, 2026-09-24). */
+  const lit = (currentPath) => {
+    const indexed = registry(navPlugin('demo', [{ label: 'One' }, { label: 'Two' }]))
+    const sections = sectionsOf(indexed, {
+      currentPath,
+      pathOf: (to) => `/demo/${to.name.split('/')[1]}`,
+    })
+    return sections[1].items.filter((item) => item.active).map((item) => item.label)
+  }
+
+  it('lights the entry you are standing on', () => {
+    expect(lit('/demo/r0')).toEqual(['One'])
+  })
+
+  it('stays lit on a page UNDER the entry', () => {
+    expect(lit('/demo/r0/lesson-3')).toEqual(['One'])
+  })
+
+  it('lights nothing on an unrelated page', () => {
+    expect(lit('/plugins')).toEqual([])
+  })
+
+  it('does not light a mere prefix of another path', () => {
+    expect(lit('/demo/r00')).toEqual([])
+  })
+
+  it('leaves it to the router when the caller gave no path', () => {
+    const indexed = registry(navPlugin('demo', [{ label: 'One' }]))
+
+    expect(sectionsOf(indexed)[1].items[0].active).toBeNull()
+  })
+
+  it('leaves the shell band to the router, which is exact', () => {
+    const [shell] = sectionsOf(registry(), { currentPath: '/plugins/demo' })
+
+    expect(shell.items.every((item) => item.active === undefined)).toBe(true)
+  })
+})
+
 describe('BR-AS89 — a mark is this plugin`s own, never a sibling`s', () => {
   const two = () => registry(
     navPlugin('good', [{ label: 'Good' }]),
@@ -226,6 +268,22 @@ describe('BR-AS89 — a clash marks BOTH entries that caused it', () => {
 
     expect(marked).toEqual(['Same', 'Same'])
     expect(items.find((item) => item.label === 'Other').mark).toBeNull()
+  })
+
+  it('marks a plugin that AGREED with a label that lost', () => {
+    /* A and B both say JETSTREAM, C says Streams. All three take part: B
+       loses the same name A did, and an unmarked B is a silent rail. */
+    const indexed = registry(
+      navPlugin('alpha', [{ label: 'A', group: { id: 'ops', label: 'JETSTREAM' } }]),
+      navPlugin('bravo', [{ label: 'B', group: { id: 'ops', label: 'JETSTREAM' } }]),
+      navPlugin('charlie', [{ label: 'C', group: { id: 'ops', label: 'Streams' } }]),
+    )
+    const items = sectionsOf(indexed)[1].items
+
+    expect(items.map((item) => item.mark?.tone)).toEqual(['warn', 'warn', 'warn'])
+    for (const item of items) {
+      expect(item.mark.description).toContain('Navigation group ops')
+    }
   })
 
   it('leaves an agreed label unmarked', () => {

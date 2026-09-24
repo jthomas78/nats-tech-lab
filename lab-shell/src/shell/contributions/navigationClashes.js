@@ -49,7 +49,11 @@ export function detectNavigationClashes(tree, { reservedLabels = RESERVED_RAIL_L
           kind: 'group-label-conflict',
           groupId: group.id,
           label: group.label,
-          participants: group.labelClaims.map((c) => ({
+          /* Every claimant, not one per distinct label: a plugin that agreed
+             with a label that lost is affected by the loss and must be
+             markable in the rail. The MESSAGE is still built from the
+             distinct labels, because it is a sentence about names. */
+          participants: group.labelOwners.map((c) => ({
             pluginId: c.pluginId,
             qualifiedId: c.qualifiedId,
             label: c.label,
@@ -116,11 +120,17 @@ export function detectNavigationClashes(tree, { reservedLabels = RESERVED_RAIL_L
         groupId: groups[0].id,
         groupIds: groups.map((g) => g.id),
         label,
-        participants: groups.map((g) => ({
-          ...(g.labelClaims[0] ?? SHELL),
-          label,
-          groupId: g.id,
-        })),
+        /* Same rule: every plugin that named a band shown under a repeated
+           word takes part in the repeat, not just the one that named it
+           first. A band the shell owns has no claimant and is not blamed. */
+        participants: groups.flatMap((g) =>
+          (g.labelOwners?.length ? g.labelOwners : [SHELL]).map((owner) => ({
+            pluginId: owner.pluginId,
+            qualifiedId: owner.qualifiedId,
+            label,
+            groupId: g.id,
+          })),
+        ),
         message: `Navigation groups ${groups.map((g) => g.id).join(' and ')} are both shown as ${quoted(label)}`,
       }),
     )

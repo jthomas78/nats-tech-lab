@@ -53,6 +53,10 @@ export function clashesFor(clashes, entry) {
  * @param {(pluginId: string) => object|null} [context.healthOf]
  * @param {number} [context.inventoryCount] how many plugins the shell knows
  * @param {{count: number, tone: string, label: string}|null} [context.attention]
+ * @param {string|null} [context.currentPath] the path being shown
+ * @param {(to: object) => string|null} [context.pathOf] resolves a nav target
+ *   to its path. The rail cannot ask the router itself — it is a pure
+ *   function — and `NavList` cannot either, so the caller resolves.
  * @returns {object[]} `NavList` sections, shell band first
  */
 export function shellNavSections(tree, {
@@ -61,7 +65,25 @@ export function shellNavSections(tree, {
   healthOf = () => null,
   inventoryCount = 0,
   attention = null,
+  currentPath = null,
+  pathOf = () => null,
 } = {}) {
+  /*
+    A plugin entry is lit on its own detail pages, not only on its index.
+
+    The router decides active from the matched route RECORD, and a plugin's
+    `/demo-04/lessons` and `/demo-04/lessons/3` are SIBLING records — neither
+    lights the other. The rail before phase 17 matched the path and its
+    descendants by hand, and this keeps that behaviour rather than quietly
+    narrowing it (review, 2026-09-24). The shell's own two links keep exact
+    matching, exactly as they always had.
+  */
+  const activeFor = (to) => {
+    if (currentPath === null) return null
+    const path = pathOf(to)
+    if (!path) return null
+    return currentPath === path || currentPath.startsWith(`${path}/`)
+  }
   /* The badge is the inventory size, so the number and the screen it leads to
      can never disagree. It gives way to the dot rather than sitting beside it
      — BR-AS60 allows one mark, and a count next to a warning reads as part of
@@ -99,6 +121,7 @@ export function shellNavSections(tree, {
       /* By NAME, never by path — BR-AS12. The route's own record owns where
          it lives, and the rail asks the router for it. */
       to: { name: entry.routeQualifiedId },
+      active: activeFor({ name: entry.routeQualifiedId }),
       /* One dot, whichever signal earned it: this plugin's own failure, a
          dependency of it that is not answering, or a clash it takes part in.
          A sibling's failure never dots this entry — that isolation is the

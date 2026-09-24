@@ -14,9 +14,17 @@
 //
 // An item is a BUTTON by default and a real LINK when it carries `to`
 // (D17-6). A link is marked active by the router, which decides from the
-// matched ROUTE RECORD and not from the path text — so a root link is not
-// marked active on every page under it, and nothing here needs an `exact`
-// flag. The two modes coexist in one list: a button-only consumer passes
+// matched ROUTE RECORD and not from the path text. That is right for a link
+// to a screen — a root link is not lit on every page under it — but it is
+// WRONG for a link to a section whose detail pages are SIBLING records:
+// `/demos` and `/demos/:id` are two records, so the router lights neither
+// from the other. An item may therefore carry `active` as a boolean and
+// decide for itself; the router's own matching is then switched off for that
+// item so the two cannot both write the class. Nothing here computes it,
+// because nothing here may import a router: two of this component's three
+// consumers have none.
+//
+// The two modes coexist in one list: a button-only consumer passes
 // `modelValue` and reads `update:modelValue` exactly as before, and a link
 // consumer passes neither, because the router already knows what is active
 // and the browser already knows how to open a link in a new tab. A button
@@ -40,7 +48,8 @@
 import { computed, ref } from 'vue'
 
 const props = defineProps({
-  // [{ eyebrow?, id?, items: [{ key, label, icon?, badge?, to? }] } | { group, sections }]
+  // [{ eyebrow?, id?, items: [{ key, label, icon?, badge?, to?, active? }] }
+  //  | { group, sections }]
   sections: { type: Array, required: true },
   // Optional, because a link-mode list has no selection of its own to hold.
   modelValue: { type: String, default: null },
@@ -56,12 +65,14 @@ const attrsFor = (item) =>
   isLink(item)
     ? {
         to: item.to,
-        class: 'nav-item',
+        class: ['nav-item', { active: item.active === true }],
         // The stylesheet knows one selector, so both of the router's classes
         // are named to it rather than leaving the router's own defaults to
-        // leak a second class name into the markup.
-        activeClass: 'active',
-        exactActiveClass: 'active',
+        // leak a second class name into the markup. An item that decided for
+        // itself takes both names away, so the class has one author.
+        ...(item.active == null
+          ? { activeClass: 'active', exactActiveClass: 'active' }
+          : { activeClass: '', exactActiveClass: '' }),
       }
     : {
         type: 'button',

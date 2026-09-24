@@ -128,3 +128,48 @@ describe('D17-6 — a root link is not active on the pages under it', () => {
     expect(activeLabels(await mountRoot('/demo-04/lesson-01'))).toEqual(['Lesson 01'])
   })
 })
+
+describe('D17-6 — an item may decide its own active state', () => {
+  /*
+    The router matches route RECORDS, so a link to `/demo-04/lesson-01` is
+    dark on `/demo-04/lesson-01/step-2` — the two are sibling records. The
+    rail before phase 17 matched descendants by hand, so an item is allowed
+    to carry the answer and the router's own matching stands aside.
+  */
+  const sectionsWith = (active) => [
+    {
+      id: 'features',
+      eyebrow: 'Features',
+      items: [
+        { key: 'one', label: 'Lesson 01', to: { name: 'demo-04/lesson-01' }, active },
+        { key: 'two', label: 'Lesson 02', to: { name: 'demo-04/lesson-02' } },
+      ],
+    },
+  ]
+
+  const mountWith = async (active, start) =>
+    mount(NavList, {
+      props: { sections: sectionsWith(active) },
+      global: { plugins: [await routerFor(start)] },
+    })
+
+  it('marks an item that says it is active, on a page the router would not match', async () => {
+    /* Standing on `/`, so the router would light neither. Lesson 02 said
+       nothing and stays dark; Lesson 01 said yes and is lit. */
+    const wrapper = await mountWith(true, '/')
+
+    expect(wrapper.findAll('a.nav-item.active').map((a) => a.text())).toEqual(['Lesson 01'])
+  })
+
+  it('un-marks an item that says it is NOT active, even standing on it', async () => {
+    const wrapper = await mountWith(false, '/demo-04/lesson-01')
+
+    expect(wrapper.findAll('a.nav-item.active')).toHaveLength(0)
+  })
+
+  it('leaves the router in charge of an item that said nothing', async () => {
+    const wrapper = await mountWith(false, '/demo-04/lesson-02')
+
+    expect(wrapper.findAll('a.nav-item.active').map((a) => a.text())).toEqual(['Lesson 02'])
+  })
+})
