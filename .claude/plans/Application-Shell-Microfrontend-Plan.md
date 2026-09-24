@@ -2686,7 +2686,7 @@ That was contradictory. The settled policy is **three clashes, two inapplicable,
 | Same child label in one group, different routes | **CLASH.** Both rendered, both marked. |
 | Same `group.id`, conflicting group ORDER | **Inapplicable.** D17-2 gave the shell group placement; a plugin declares no order for a group, so the case cannot arise. |
 | Duplicate child identity across plugins | **Inapplicable.** Identity is qualified `${pluginId}/${id}` (`manifestSchema.js:256`), so the same local id in two plugins is VALID and not a clash. Inside one manifest it is already the `duplicate-id` refusal (`manifestSchema.js:151-158`). |
-| Route missing, refused, withdrawn or not permitted | **Not a clash — unchanged.** `unresolved-route` (`placementPolicy.js:229-243`), `permission-denied` (`placementPolicy.js:168-176`) and withdrawal (BR-AS56) keep their existing omission behaviour. A dead nav link is still never rendered. |
+| Route unavailable — missing, refused, withdrawn or not permitted | **Not a clash. Existing route admission and withdrawal behaviour remains UNCHANGED.** These are three different lifecycles and this phase merges none of them: `unresolved-route` (`placementPolicy.js:229-243`) and `permission-denied` (`placementPolicy.js:168-176`) are refusals; **withdrawal is NOT a refusal** — BR-AS56 takes away the plugin's routes and navigation, keeps the current-page behaviour, and is restorable. A dead nav link is still never rendered. |
 
 Two things that policy forces, and which the phase must state rather than discover:
 
@@ -2736,11 +2736,28 @@ Demo 01's `admin` and `seafreight-app` pass no id and are not touched; the shell
 and gets stable collapse. This is recorded as the chosen approach: a legacy-input adapter, NOT a
 coordinated consumer migration. The fallback is itself a test, not an implementation detail.
 
+**A6 — Withdrawal is not a refusal (user, 2026-09-24).** Stated because the amendment table above
+grouped four unavailable-route situations into one row and read as if all four were refusals. They
+are not. Existing route admission and withdrawal behaviour remains unchanged by this phase: a
+withdrawal removes navigation as it does today, keeps the reader's current page behaving as it
+does today, and remains restorable (BR-AS56, BR-AS58). No task in this phase may re-classify a
+withdrawal as a refusal, and no task may route a withdrawal through `navigationClashes`.
+
+**A7 — The frontend contract must NOT trigger an early manifest migration (user, 2026-09-24).**
+This is an ordering constraint on the tasks, and it is the practical half of A1. 17a teaches the
+frontend schema to ACCEPT the new shapes; it does not make anything emit them. **No production
+manifest emits a `group` object or a `default: true` route until 17b is done and the full registry
+round-trip — decode, persist, read back, signed registration, drift — is tested.** Demo 04 is the
+first production manifest to change, and it changes in 17h, after both contracts hold. A plugin
+that emitted the object form between 17a and 17b would be a plugin the registry could not carry.
+
 #### Task checklist — REVISED 2026-09-24 by the amendments above; none done
 
-- **17a — The frontend contract.** `group` becomes `{ id, label }` in `manifestSchema.js`, with a
-  plain string accepted as shorthand. `default: true` on a route contribution, at most one per
-  plugin. Specs first. No renderer changes.
+- **17a — The frontend contract, ACCEPTANCE ONLY (A7).** `group` becomes `{ id, label }` in
+  `manifestSchema.js`, with a plain string accepted as shorthand. `default: true` on a route
+  contribution, at most one per plugin. Specs first. No renderer changes, and — A7 — **no shipped
+  manifest changed**: the schema learns to read the new shapes while every manifest in the repo
+  still emits the old ones.
 - **17b — The Go contract (A1).** `registry.go`'s `Contribution` learns the object form and keeps
   accepting the legacy string; persistence and read round-trip, signed registration, and manifest
   drift all covered. Registry mode must be provably level with build mode before the merge lands.
