@@ -147,12 +147,36 @@ cross-origin ever reaches it. The demo declares the route, the port and the
 hosted upstream in `public/demo.json`; the shell generates both proxy rules
 from that.
 
-**Still not done:** the rest of the command API on `20402` is an absolute
-cross-origin URL, so the write side does not work from inside the shell. Reads
-do — a WebSocket is not subject to CORS. The fix is the same shape as the
-readiness route, a same-origin proxy, and it is not task 16e's — 16e proxies
-one readiness call, not a general tunnel to this service. Whoever does it must
-**not** widen `cqrs/names.go`'s CORS grant to close it.
+**Task 16j added the rest of the command API, route by route.** Until then the
+write side was dead inside the shell: the page sat on the shell's origin, this
+service granted only `http://localhost:20401`, and every button reported
+`Failed to fetch`. The repair was the readiness route's sibling, not a widened
+CORS grant — `cqrs/names.go` is unchanged and must stay so.
+
+`public/demo.json` now carries an `api` block naming the dev port, the hosted
+upstream and **every route, one by one**. The shell serves them at
+`/demo-api/04-jetstream-cqrs/…` on its own origin. Two rules fall out of that,
+and both matter:
+
+- **A route this file does not name is not forwarded.** That is what stops the
+  arrangement being a general tunnel to this service. Add a route to
+  `cqrs/serve.go` and it stays unreachable from the shell until it is named
+  here too.
+- **`/readyz` is deliberately absent from `api.routes`.** It has its own
+  declaration under `readiness`, because it is the shell's question to ask
+  before mounting, not the page's to ask after. It is refused through the API
+  prefix, and a spec holds that.
+
+`src/config.js` exports `COMMAND_API` with `let`, not `const`: every call site
+reads it as a default argument, so moving it once moves every later call.
+`plugin.js`'s `activate()` is what moves it, and only when the shell mounts the
+plugin. The standalone app on `20401` is unchanged, and the built bytes are the
+same in both catalogue sources.
+
+**Still not done:** the live NATS view stays dark inside the shell. That is a
+different door — a WebSocket is not subject to CORS at all, and `allowed_origins`
+in `deploy/nats.conf` names only `20401`. Widening it is its own decision, and
+nobody has taken it.
 
 ## The shim's routes
 

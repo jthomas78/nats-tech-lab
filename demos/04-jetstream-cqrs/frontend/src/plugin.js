@@ -20,6 +20,7 @@
    the shell already loads both, and a second copy would fight it. */
 import './styles/sides.css'
 
+import { EMBEDDED_COMMAND_API, setCommandApi } from './config.js'
 import OdometerRoute from './plugin/OdometerRoute.vue'
 
 export const components = {
@@ -27,7 +28,20 @@ export const components = {
 }
 
 /* Called at most once per plugin, by the loader, after the chunk arrives and
-   before anything renders. Demo 04 needs no setup here: the NATS watch opens
-   in the route component's own `onMounted`, so it starts when the demo is
-   opened and stops when it is left. */
-export function activate() {}
+   before anything renders. That timing is what this hook is for here.
+
+   Embedded, the page is served on the shell's origin. An absolute call to
+   `http://127.0.0.1:20402` is then cross-origin, and the shim answers 200 with
+   `Access-Control-Allow-Origin: http://localhost:20401` — so the browser
+   discards it and every button on the page reads `Failed to fetch`. Widening
+   that grant is forbidden (F-3, and this demo's own CLAUDE.md). The shell
+   instead proxies the routes `public/demo.json` declares, on its own origin,
+   and this is where the page is told to use them.
+
+   The NATS watch is NOT moved. It opens in the route component's own
+   `onMounted`, and a WebSocket is not subject to CORS — it is refused by the
+   server's own `allowed_origins` list in `deploy/nats.conf`, which is a
+   different door and a different decision. */
+export function activate() {
+  setCommandApi(EMBEDDED_COMMAND_API)
+}

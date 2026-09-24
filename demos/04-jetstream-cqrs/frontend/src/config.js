@@ -5,7 +5,40 @@
 // own network tab.
 //
 // Ports follow 20<demo number><increment> — see demos/04-jetstream-cqrs/CLAUDE.md.
-export const COMMAND_API = import.meta.env.VITE_COMMAND_API ?? 'http://127.0.0.1:20402'
+/* Standalone, the page is served on 20401 and calls 20402 directly. Embedded
+   in `lab-shell`, that same absolute URL is cross-origin, the browser throws
+   the answer away and every button reads `Failed to fetch`. So the embedded
+   entry moves this base onto the shell's own origin — see `setCommandApi`.
+   `let`, not `const`, because an ES module export is a live binding: the call
+   sites below all read it as a default argument, which is evaluated per call,
+   so they see the move without any of them being touched. */
+export let COMMAND_API = import.meta.env.VITE_COMMAND_API ?? 'http://127.0.0.1:20402'
+
+/* This demo's directory name. It is a fact about this demo, not about the
+   shell, and it is what the shell's route is keyed on — the same stable
+   identifier the readiness route uses, so the route does not change with the
+   plugin source (app-shell BR-AS78). */
+export const DEMO_NAME = '04-jetstream-cqrs'
+
+/* The one string here that belongs to the shell: its public path layout for a
+   demo's declared API routes (app-shell BR-AS82). This file already restates
+   the layout once — `vite.config.js` sets `base: '/plugins/demo-04/'` for the
+   same reason — and the shell holds the authoritative copy in
+   `lab-shell/src/shell/demos/demoCatalogueLocation.js`. Known limit, recorded
+   rather than claimed: nothing here imports that constant, because this demo
+   is a sealed unit and must not reach into the shell. `plugin.spec.js` asserts
+   the value; if the shell ever moves the prefix, that spec is where it shows. */
+export const EMBEDDED_COMMAND_API = `/demo-api/${DEMO_NAME}`
+
+/**
+ * Point the command API at a different base. Called once by the embedded
+ * entry, before anything renders.
+ *
+ * @param {string} base An origin or an absolute path, with no trailing slash.
+ */
+export function setCommandApi(base) {
+  COMMAND_API = base
+}
 export const NATS_WS = import.meta.env.VITE_NATS_WS ?? 'ws://127.0.0.1:20403'
 
 export const STREAM = 'ODOMETER'

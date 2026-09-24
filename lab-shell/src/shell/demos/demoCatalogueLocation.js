@@ -36,3 +36,25 @@ export const DEMO_READINESS_PREFIX = '/demo-readiness'
 export function demoReadinessPath(demo) {
   return `${DEMO_READINESS_PREFIX}/${demo}`
 }
+
+/* The demo API route prefix. Not under `/plugins` and not under
+   `/demo-readiness` — BR-AS82.
+
+   It is a third public path because it is a third kind of thing. `/plugins`
+   is files. `/demo-readiness/<demo>` is ONE call, exact-matched on purpose so
+   it can never be widened. This prefix carries a demo's own command surface:
+   several routes, declared by the demo, each one named before it is served.
+
+   The same stable demo identifier as readiness, for the same reason: a demo
+   keeps its route whichever source discovered its plugin. */
+export const DEMO_API_PREFIX = '/demo-api'
+
+/**
+ * The shell-origin API route base for one demo.
+ *
+ * @param {string} demo The demo's directory name — the same stable identifier
+ *   `demoReadinessPath` uses.
+ */
+export function demoApiPath(demo) {
+  return `${DEMO_API_PREFIX}/${demo}`
+}

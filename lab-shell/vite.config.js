@@ -5,6 +5,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
 import { buildCatalogue } from './tools/buildCatalogue/vitePlugin.js'
+import { demoApi } from './tools/buildCatalogue/demoApi.js'
 import { demoReadiness } from './tools/buildCatalogue/demoReadiness.js'
 import { pluginAssets } from './tools/buildCatalogue/pluginAssets.js'
 
@@ -50,7 +51,11 @@ export default defineConfig({
      for a stronger reason than the other two: readiness must be available in
      BOTH plugin sources, so a shell that reads its plugins from the registry
      still answers these routes (BR-AS79, R-1). */
-  plugins: [vue(), buildCatalogue(), demoReadiness(), pluginAssets(), ...federationPlugin],
+  /* `demoApi` serves `/demo-api/<demo>/…` from that same scan (BR-AS82). It
+     is the readiness route's sibling, not its extension: readiness is one
+     probe the shell makes before mounting, this is the demo's own calls
+     after it, and only the routes a demo named are forwarded. */
+  plugins: [vue(), buildCatalogue(), demoReadiness(), demoApi(), pluginAssets(), ...federationPlugin],
   resolve: {
     /* One Vue, one PrimeVue, whatever a nested workspace resolves for itself.
        An example plugin under `plugins/` installs its own copies, so a spec

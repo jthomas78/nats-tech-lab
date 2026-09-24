@@ -10,5 +10,21 @@
     "hostedUpstream": "http://demo04-cqrs:20402",
     "timeoutMs": 3000
   },
+  "api": {
+    "//": "The command surface, route by route, so the lab shell can serve it on its own origin (app-shell BR-AS82). Embedded, the page is on the shell's origin and an absolute call to 20402 is cross-origin, so the browser discards the answer and every button reports `Failed to fetch`. The fix is the shell proxying these paths, NOT a wider CORS grant in cqrs/names.go — see this demo's CLAUDE.md and the phase's F-3. Every path here is also a route in cqrs/serve.go; a path not listed is not forwarded, which is what stops this being a general tunnel. /readyz is deliberately absent: it has its own route above, and it is the shell's call to make, not the page's. The trailing slash on /commands/ is a prefix, matching how serve.go registers it.",
+    "devPort": 20402,
+    "hostedUpstream": "http://demo04-cqrs:20402",
+    "routes": [
+      "/rehydrate",
+      "/bench",
+      "/bench/seed",
+      "/pool",
+      "/pool/run",
+      "/pool/stop",
+      "/pool/seed",
+      "/pool/rm",
+      "/commands/"
+    ]
+  },
   "runCommand": "docker compose -f demos/04-jetstream-cqrs/deploy/compose.yaml up -d"
 }

@@ -41,6 +41,9 @@ COPY lab-shell/nginx.conf /etc/nginx/conf.d/default.conf
 # dist/deploy/; they are moved OUT of the served tree here, because they are a
 # deployment's routing config and name upstreams no page needs to know.
 COPY --from=build /repo/lab-shell/dist/deploy/demo-readiness.conf /etc/nginx/demo-readiness.conf
+# The generated demo API routes (BR-AS82), moved out of the served tree for
+# the same reason.
+COPY --from=build /repo/lab-shell/dist/deploy/demo-api.conf /etc/nginx/demo-api.conf
 COPY --from=build /repo/lab-shell/dist /usr/share/nginx/html
 RUN rm -rf /usr/share/nginx/html/deploy
 EXPOSE 80

@@ -111,6 +111,47 @@ function readinessOf(metadata) {
   }
 }
 
+/* The demo API declaration, normalised, or null (BR-AS82, task 16j).
+
+   Null when the demo declared nothing AND when it declared something
+   unusable — the same rule `readinessOf` follows, and for the same reason: a
+   half-written declaration must not become a proxy to port `NaN`.
+
+   `routes` is the whole of what makes this a declared surface rather than a
+   tunnel. Every path the shell will forward is named here, by the demo, and a
+   path that is not named is not served. The shell therefore never has to
+   decide what a demo's backend is willing to answer; it only forwards what the
+   demo already said out loud.
+
+   A route ending in `/` is a PREFIX — that is how Go's own mux reads a
+   trailing slash, and demo 04's `/commands/` is written that way in
+   `serve.go`. Anything else is matched exactly.
+
+   Four shapes are dropped rather than forwarded. A path not starting with `/`
+   has no meaning here. `//host` is an origin, not a path, and would let a
+   declaration point the proxy off the demo. `..` climbs, and the prefix is the
+   boundary as well as the layout — the same refusal `pluginAssets` makes for
+   files. A `?` is a query, and a query is the caller's, never the
+   declaration's. */
+function apiOf(metadata) {
+  const declared = metadata?.api
+  if (!declared || typeof declared !== 'object') return null
+  const devPort = port(declared.devPort)
+  const hostedUpstream = typeof declared.hostedUpstream === 'string' && declared.hostedUpstream !== ''
+    ? declared.hostedUpstream
+    : null
+  if (devPort === null && hostedUpstream === null) return null
+  const routes = (Array.isArray(declared.routes) ? declared.routes : [])
+    .filter((route) => typeof route === 'string')
+    .filter((route) => route.startsWith('/') && !route.startsWith('//'))
+    .filter((route) => !route.includes('..') && !route.includes('?') && !route.includes('#'))
+  /* No routes is no surface. An `api` block naming a port and nothing else
+     would otherwise read as "forward everything", which is the tunnel this
+     rule exists to refuse. */
+  if (routes.length === 0) return null
+  return { devPort, hostedUpstream, routes: [...new Set(routes)].sort() }
+}
+
 function directoriesIn(dir, fs) {
   let entries
   try {
@@ -201,6 +242,12 @@ export function scanDemoManifests({ repoRoot, fs = { readdirSync, readFileSync, 
          so a half-written declaration is one `null` instead of four
          different guesses. */
       readiness: readinessOf(metadata),
+      /* The demo's own command surface, normalised the same way and for the
+         same reason (BR-AS82). Separate from `readiness`: one is a single
+         probe the SHELL makes before mounting, the other is the demo's own
+         calls made after it, and merging them would let a readiness
+         declaration widen into a command route. */
+      api: apiOf(metadata),
       /* A local run command is information about the demo and is always
          true. Whether a READER is shown it is a property of the shell
          deployment, not of this file (F-5), so nothing is decided here. */

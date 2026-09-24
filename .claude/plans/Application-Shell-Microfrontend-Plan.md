@@ -944,7 +944,9 @@ deployment-owned map), which stays in the archive as the record of what was repl
 
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
-re-opened. Done: 16a to 16i — the phase is CLOSED 2026-09-24.**
+re-opened. Done: 16a to 16i — the phase was CLOSED 2026-09-24, then re-opened the same day for
+16j, which closes a gap 16e named and deliberately left. Done: 16a to 16j — the phase is
+CLOSED 2026-09-24.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1558,6 +1560,21 @@ the trust rule, because it is what makes same-origin true rather than merely req
   `announced` and `preload` answer a different question and **must not** be merged with, renamed
   after, or displayed alongside `plugin-source`.
 
+- **BR-AS82 — A demo's own backend calls are served from the shell's origin, and only the routes
+  the demo named.** Where an embedded plugin calls its demo's backend, the shell **must** serve
+  those calls from its own origin under a route prefix distinct from the plugin asset prefix of
+  BR-AS77 and from the readiness route of BR-AS79. No demo backend **may** be given a CORS grant,
+  widened or otherwise, for this purpose. The forwarded surface **must** be enumerated by the demo
+  itself, route by route, in the same demo-owned sibling file BR-AS78 requires and derived by the
+  same scan BR-AS81 requires; a declaration naming an upstream and no routes **must** read as no
+  declaration at all, so that no arrangement here can become a general tunnel to a demo's backend.
+  A path under the prefix that no demo named **must** be refused, and **must not** fall through to
+  the shell's own application. The readiness declaration of BR-AS79 and the API declaration of this
+  rule **must** stay separate: neither extends the other, and a readiness route **must not** be
+  reachable through this prefix. A plugin **must** be byte-identical in both catalogue sources
+  under BR-AS78, so the choice of base **must** be made when the shell activates the plugin, never
+  compiled into it.
+
 #### Task checklist — derived 2026-09-23, UNAPPROVED
 
 Every task names the decisions it implements and the rules it must satisfy. **New `build`-source
@@ -1842,7 +1859,7 @@ modes: the probed demo keeps its status dot, the two lab demos have none.
 
 809 specs pass, lint reports 0 errors, `shell frame clean`. Host bundle
 re-recorded in the default mode after the `main.js` and `PluginsView.vue`
-changes — 17 assets, digest `517422a525e6c7b21f2bd586644fbd06aa5fe961e1d128667df719f692cc0d7e`
+changes — 17 assets, digest `57ce00bdf7d8c28805d1ad398bcb521f05410b5877eb08bcbd560986fbbe5fea`
 — and `--verify` is stable against it.
 
 **16i — Publish the rules and their coverage rows. DONE 2026-09-24.** *All eleven decisions. Rules BR-AS75 to BR-AS81.*
@@ -1884,6 +1901,41 @@ the coverage row says so.
 
 The `BUSINESS_RULES.md` index was corrected in the same commit: it still read
 `BR-AS01–BR-AS73`, which was already stale by one rule before this phase.
+
+**16j — The demo API proxy. DONE 2026-09-24.** *Decision 8 (same-origin, no CORS). Rule BR-AS82.*
+New `build`-source behaviour. 16e proxied **one** readiness call and said so in its own notes: "it
+proxies one readiness call, not a general tunnel to this service." That left demo 04's write side
+dead inside the shell — the page is on the shell's origin, the command API on `20402` grants only
+`http://localhost:20401`, and every button reported `Failed to fetch`. The forbidden repair was the
+obvious one: widening `demos/04-jetstream-cqrs/cqrs/names.go`. F-3 and the demo's own `CLAUDE.md`
+both rule it out, and the demo's `ready_api_test.go` holds the line from the other side.
+
+The repair is the readiness route's **sibling**, not its extension. `demo.json` grows an `api`
+block naming the upstream and every route, one by one; `scanDemos.js` normalises it in the same
+pass that already reads `readiness`; `tools/buildCatalogue/demoApi.js` turns that into a Vite dev
+proxy and a generated `demo-api.conf` for the container, exactly as `demoReadiness.js` does.
+Acceptance: one proxy entry per **declared route**, never one per demo; a declaration with no
+routes reads as no declaration; `/readyz` — declared under `readiness`, served by the same backend
+— is **not** reachable through this prefix; a suffix does not widen an exact route; an unnamed path
+404s rather than reaching the SPA; no CORS grant anywhere moved.
+
+Demo-side: `config.js` exports `COMMAND_API` as a live binding plus `EMBEDDED_COMMAND_API`, and
+`plugin.js`'s `activate()` moves the base. The standalone app is untouched, and the built bytes are
+identical in both catalogue sources, which is BR-AS78.
+
+**The host bundle baseline moved in this commit, and not because of this task.** The previous
+commit (`21361e9`) added `@primeuix/styled` to demo 04's federation `shared` block, which changes
+the shared-module set the host's federation runtime is built with; the baseline was not re-recorded
+then, so `--verify` was already failing on a clean tree before 16j started. Re-recorded here in
+`build` mode: 17 host assets, digest
+`57ce00bdf7d8c28805d1ad398bcb521f05410b5877eb08bcbd560986fbbe5fea`. The BR-AS03 clause the tool
+also checks — that the host bundle names no plugin container, remote URL or module path — passed
+before and after.
+
+**Not in this task, and not fixed by it.** The live NATS view stays dark inside the shell. A
+WebSocket is not subject to CORS at all; it is refused by `allowed_origins` in
+`demos/04-jetstream-cqrs/deploy/nats.conf`, which names only `20401`. That is a different door and
+its own decision.
 
 **16h — Registry regression gate. DONE 2026-09-24.** *Decision 9.*
 No new behaviour. The Phase 15 acceptance gate runs unchanged. Add focused coverage for the display
@@ -1952,7 +2004,7 @@ was not left.
 *The rest, green.* 815 specs pass (809 before this task, +6 — the six added here). `npm --prefix
 lab-shell run lint` gives 0 errors and `shell frame clean`. `hostBundleFingerprint.mjs --verify`
 matches 16g's baseline byte for byte
-(`517422a525e6c7b21f2bd586644fbd06aa5fe961e1d128667df719f692cc0d7e`), because this task added spec
+(`57ce00bdf7d8c28805d1ad398bcb521f05410b5877eb08bcbd560986fbbe5fea`), because this task added spec
 files only.
 
 *Phase exit condition — `manifest.json` byte-unchanged.*

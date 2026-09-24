@@ -14,6 +14,8 @@ import NavList from '@ui-shell/NavList.vue'
 
 import PoolPanel from './components/PoolPanel.vue'
 import StreamCqrsPanel from './components/StreamCqrsPanel.vue'
+import * as config from './config.js'
+import { EMBEDDED_COMMAND_API } from './config.js'
 import { activate, components } from './plugin.js'
 import OdometerRoute from './plugin/OdometerRoute.vue'
 import { railSections } from './view/lessons.js'
@@ -100,5 +102,46 @@ describe('the plugin\'s identity, written in three files', () => {
     const demoJson = JSON.parse(read('../public/demo.json'))
     expect(demoJson.devServer.port).toBe(20401)
     expect(JSON.stringify(manifest)).not.toContain('20401')
+  })
+})
+
+describe('the command API base, when the demo is embedded', () => {
+  /* Standalone, the page is on 20401 and calls 20402 absolutely, and
+     `cqrs/names.go` grants that one origin. Embedded, the page is on the
+     shell's origin, the grant does not name it, and the browser throws away
+     every answer — every button said `Failed to fetch`. The fix is the shell
+     serving these routes on its own origin. Widening the CORS grant is
+     forbidden by this demo's CLAUDE.md and by the phase's F-3. */
+  it('is an absolute URL until the shell activates the plugin', () => {
+    expect(config.COMMAND_API).toMatch(/^http:\/\//)
+  })
+
+  it('is the shell-origin path the shell generates (app-shell BR-AS82)', () => {
+    expect(EMBEDDED_COMMAND_API).toBe('/demo-api/04-jetstream-cqrs')
+  })
+
+  /* The demo is a sealed unit, so it cannot import the shell's own constant.
+     The shell's route is built from this demo's DIRECTORY name, which is why
+     the literal above is a directory name and not the plugin id. */
+  it('names the demo directory the shell scans, not the plugin id', async () => {
+    expect(EMBEDDED_COMMAND_API.endsWith('/04-jetstream-cqrs')).toBe(true)
+    expect(EMBEDDED_COMMAND_API).not.toContain(manifest.id)
+  })
+
+  /* `COMMAND_API` is exported with `let` and read through the module
+     namespace here on purpose. Every call site reads it as a default
+     argument, evaluated per call, so moving it once moves every later call
+     — and a destructured copy, in a spec or anywhere else, would not see it
+     move. This spec is the place that shows if somebody makes it `const`. */
+  it('moves the base onto the shell\'s origin when activate runs', () => {
+    activate()
+    expect(config.COMMAND_API).toBe(EMBEDDED_COMMAND_API)
+  })
+
+  /* Only the HTTP side moves. The live NATS view is a WebSocket, which CORS
+     does not gate at all — it is gated by `allowed_origins` in
+     deploy/nats.conf, a different door and a separate decision. */
+  it('leaves the NATS WebSocket URL alone', () => {
+    expect(read('./plugin.js')).not.toContain('NATS_WS')
   })
 })
