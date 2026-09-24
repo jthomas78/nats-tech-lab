@@ -18,7 +18,7 @@ const state = useDemoState()
   <AppShell>
     <template #brand>
       <span class="dot">4</span>
-      <span>Odometer</span>
+      <span>JetStream</span>
     </template>
 
     <template #breadcrumb>
@@ -41,7 +41,7 @@ const state = useDemoState()
       <NavList
         v-model="state.view"
         :sections="state.sections"
-        aria-label="Lessons"
+        aria-label="JetStream"
       />
     </template>
 

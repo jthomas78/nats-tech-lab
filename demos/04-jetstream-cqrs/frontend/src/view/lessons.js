@@ -35,7 +35,7 @@ export const LIVE_SECONDS = 0
 export const LESSONS = Object.freeze([
   Object.freeze({
     key: 'lesson-01',
-    label: '01 · Stream + CQRS',
+    label: 'Stream + CQRS',
     // title is the breadcrumb's last step; heading is the <h1>. They differ on
     // purpose: the trail already names the lesson one step to the left, so a
     // breadcrumb ending "Lesson 01 - ..." would say it twice in one line. The
@@ -51,7 +51,7 @@ export const LESSONS = Object.freeze([
   }),
   Object.freeze({
     key: 'lesson-02',
-    label: '02 · Scaling a consumer',
+    label: 'Scaling a consumer',
     title: 'Worker pool',
     heading: 'Lesson 02 - One consumer, many workers',
     // Tabs, not rail rows: the pool is ONE subject under four conditions, not
@@ -81,7 +81,7 @@ export const LESSONS = Object.freeze([
 // counted something would be a rail that grew when that something did.
 export function railSections() {
   return [
-    { eyebrow: 'Lessons', items: LESSONS.map((l) => ({ key: l.key, label: l.label })) },
+    { eyebrow: 'JetStream', items: LESSONS.map((l) => ({ key: l.key, label: l.label })) },
   ]
 }
 

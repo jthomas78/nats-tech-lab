@@ -1,6 +1,6 @@
 {
   "id": "demo-04",
-  "name": "Odometer — JetStream CQRS",
+  "name": "JetStream - CQRS + Scaling",
   "version": "0.1.0",
   "description": "Rehydrating an aggregate: how much does a snapshot buy you? One NATS server, one log, two KV buckets.",
   "schemaVersion": 1,

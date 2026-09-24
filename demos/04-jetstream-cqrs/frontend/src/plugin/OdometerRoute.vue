@@ -1,3 +1,4 @@
+
 <script setup>
 /* The embedded entry — demo 04's single `route` contribution (task 16d).
 
@@ -29,7 +30,7 @@ const state = useDemoState()
       <NavList
         v-model="state.view"
         :sections="state.sections"
-        aria-label="Lessons"
+        aria-label="JetStream"
       />
     </aside>
 

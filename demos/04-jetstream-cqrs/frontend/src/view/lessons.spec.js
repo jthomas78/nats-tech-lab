@@ -10,8 +10,8 @@ describe('the rail is a lesson index', () => {
     const items = railSections().flatMap((s) => s.items)
     expect(items).toHaveLength(2)
     expect(items.map((i) => i.label)).toEqual([
-      '01 · Stream + CQRS',
-      '02 · Scaling a consumer',
+      'Stream + CQRS',
+      'Scaling a consumer',
     ])
   })
 
@@ -24,7 +24,7 @@ describe('the rail is a lesson index', () => {
   })
 
   it('bands the rows under the Lessons eyebrow', () => {
-    expect(railSections().map((s) => s.eyebrow)).toEqual(['Lessons'])
+    expect(railSections().map((s) => s.eyebrow)).toEqual(['JetStream'])
   })
 
   it('carries no badge, because a lesson has no count', () => {
@@ -84,7 +84,7 @@ describe('the breadcrumb carries the lesson — D11', () => {
   // saying it twice in one line tells the reader nothing new.
   it('names the lesson between the demo and the page', () => {
     expect(crumbFor('lesson-02')).toEqual({
-      lesson: '02 · Scaling a consumer',
+      lesson: 'Scaling a consumer',
       title: 'Worker pool',
       heading: 'Lesson 02 - One consumer, many workers',
     })
@@ -92,7 +92,7 @@ describe('the breadcrumb carries the lesson — D11', () => {
 
   it('names lesson 01 without a vehicle', () => {
     expect(crumbFor('lesson-01')).toEqual({
-      lesson: '01 · Stream + CQRS',
+      lesson: 'Stream + CQRS',
       title: 'Odometer',
       heading: 'Lesson 01 - One event source + CQRS',
     })
