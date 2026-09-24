@@ -3,9 +3,10 @@
 > **Status: Phases 1–5, 7, 8, 13, 14 COMPLETE and archived. Phase 15's design gate PASSED
 > (2026-09-02); its task checklist is derived and specs are next. Phase 16
 > (`plugin-source: build`) is APPROVED and CLOSED 2026-09-24 — 16a to 16l done, no open item.
-> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; 17a to 17d are done — both
-> contracts carry the new forms, the grouped tree exists as data and its clashes are reported —
-> and 17e (`NavList.vue`) is next.**
+> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; 17a to 17e are done — both
+> contracts carry the new forms, the grouped tree exists as data, its clashes are reported and the
+> shared rail renders links and markers — and 17f (the shell's rail switches to `NavList`) is
+> next.**
 >
 > This file follows `CLAUDE.md`'s required sequence: proposed business rules first, then an explicit
 > design gate. The gate was passed on 2026-08-28 — see
@@ -2819,9 +2820,24 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   clashes: an agreed label, a band the shell owns, the same name at the same route, and the same
   name in two different bands all report nothing. 27 new specs (21 clash, 3 boot, 3 view);
   lab-shell Vitest **950 green**, lint 0 errors.
-- **17e — `NavList.vue`** grows a link mode, a per-item marker slot and the optional `section.id`
-  of A5, under D17-6's five boundaries. Demo 01's `NavList.spec.js` grows in the same commit,
-  including the id-absent fallback.
+- **17e — `NavList.vue`. DONE.** A link mode, a per-item marker slot and the optional `section.id`
+  of A5, under D17-6's five boundaries. Demo 01's `NavList.spec.js` grew in the same commit,
+  including the id-absent fallback. **BR-AS88** is the rule.
+  One markup block serves both modes — `<component :is="tagFor(item)">` renders a `<button>` as
+  before and a real `<router-link>` when the item carries `to` — so a change to how an item looks
+  cannot reach one mode and miss the other, and a button calling `router.push` was never on the
+  table. `modelValue` became optional, because a link-mode list holds no selection of its own: in
+  that mode nothing is emitted and no `aria-pressed` is written. The marker slot is scoped to the
+  item and empty for every consumer that passes no slot. `section.id` falls back to the eyebrow
+  string, so `admin` and `seafreight-app` are untouched, and the fallback is itself a spec.
+  The coverage is split across two apps on purpose: `admin` drives the grouped shape but has no
+  `vue-router` dependency, so its 9 new specs use `RouterLinkStub`, and the half a stub cannot
+  prove — a real `href`, the router alone marking what is active, and the mark following a
+  `router.push` nobody told the component about — lives in
+  `lab-shell/src/shell/ui/navListLinkMode.spec.js` against a real router. 14 new specs
+  (9 admin, 5 lab-shell); admin Vitest **351 green**, seafreight-app **36 green**, lab-shell
+  **955 green**, lab-shell lint 0 errors. `shared/ui-shell/` sits outside every `lint` script in
+  the repo, so the edited component is guarded by its specs and not by ESLint.
 - **17f — The shell's rail switches to `NavList`.** `App.vue`'s two hand-rolled blocks go.
   `navMark.js` gains the clash mark last in its precedence, and the accessible description that
   survives losing the dot (A2).

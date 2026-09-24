@@ -1936,6 +1936,30 @@ fixtures.
   withdrawn or not permitted keeps its existing behaviour under amendment A6 — a refusal or a
   withdrawal, never a clash.
 
+- **BR-AS88 — The rail is drawn by the shared renderer, which renders and decides nothing.** The
+  shell **must** reuse `shared/ui-shell/NavList.vue` rather than fork it or wrap it in a second
+  two-level banding component (decision D17-6). Five boundaries hold, and each one is a test:
+  - **The existing consumers keep working.** Demo 01's `admin` and `seafreight-app` pass a
+    selection and read `update:modelValue`; that mode **must** go on rendering a `<button>` with
+    `aria-pressed`, and no change in this phase may require either app to be edited.
+  - **A router-backed entry renders a REAL link.** An item that carries `to` renders an
+    anchor with an `href`, so open-in-new-tab works and the browser's own active-route behaviour
+    applies. A `<button>` that calls `router.push` **must not** be accepted as satisfying this.
+  - **A link claims no selection.** In link mode the component **must not** require `modelValue`,
+    **must not** emit `update:modelValue`, and **must not** write `aria-pressed`; the router is the
+    only thing that says what is active.
+  - **An optional per-item slot carries a marker.** The component **must** offer one slot per item
+    and **must not** know what any mark means. A consumer that passes no slot **must** get nothing.
+  - **Identity keys off a stable id, never a display label.** A section **may** carry an `id`, and
+    when it does not, the eyebrow text **must** still work — a consumer that never had one is not
+    migrated. A band whose label is edited **must** stay the same band; two bands with different
+    ids **must** stay different bands however they are spelled.
+
+  And the line this rule exists to hold: **`NavList.vue` only RENDERS.** Grouping, ordering, default
+  routes and clash detection stay in the shell, and nothing in `shared/ui-shell/` may learn what a
+  plugin is. This does not make the rail an extension point — BR-AS07 is unchanged, and this phase
+  adds no way for a plugin to render arbitrary content into it.
+
 **Existing route admission and withdrawal behaviour remains UNCHANGED by this phase**
 (amendment A6). A route that is missing, refused or not permitted keeps the refusal behaviour of
 BR-AS12 and BR-AS05. A **withdrawal is not a refusal**: BR-AS56 takes away the plugin's routes,
@@ -1952,3 +1976,4 @@ withdrawal stays restorable. No rule above re-classifies any of that.
 | BR-AS85 | *(17b)* `demos/01-dictionary/backend/mfe-registry-service/registry/admissible_test.go` — the same door as the shell's: an explicit group id that is not kebab-case, a group object with no label, and a second default route all refused; the string shorthand and an unknown key inside the object both admitted. `registry/navgroup_test.go` — the round-trip: each form re-encodes as it was written, an absent group stays absent, an unknown key is dropped, and a malformed group is refused. `registry/drift_test.go` — a manifest carrying either form, and one carrying `default`, compares clean rather than reading as `invalid-manifest`, which is what `DisallowUnknownFields` would have made of them before this task. |
 | BR-AS86 | *(17c)* `lab-shell/src/shell/contributions/navigationTree.spec.js` — grouping by `group.id` and never by label, the string shorthand, an ungrouped entry landing in `Features`, a plugin that cannot rename `Features`, the shell table first and unknown bands by id rather than by first seen, the within-band cascade, and the purity itself: the same tree from a reversed index, from three separate indexing passes, and across a withdrawal and a restore. The clash block holds amendment A2 — one displayed name chosen by `pluginId` then `declarationIndex`, both entries still placed, and the losing label kept with its claimant. |
 | BR-AS87 | *(17d)* `lab-shell/src/shell/contributions/navigationClashes.spec.js` — the three clash kinds, each naming its kind, its band and **both** owning plugins; the three silences that bound them (an agreed label, a shell-owned band, the same name at the same route, the same name in two different bands); the three cases A2 settled as not clashes plus the unresolved route that stays a refusal; a withdrawal taking a clash away and a restore bringing it back; and purity — the same clashes in the same order from a reversed index. `lab-shell/src/shell/bootShell.spec.js` — the same record on the inventory row of every plugin it names, with `refusals` still empty. `lab-shell/src/views/PluginsView.spec.js` — the two lists rendered apart, and no clash list at all for a plugin with none. |
+| BR-AS88 | *(17e)* `demos/01-dictionary/frontend/admin/src/components/NavList.spec.js` — the existing button mode untouched, then link mode (a link not a button, no `modelValue` needed, no `aria-pressed`, nothing emitted on click, and both modes mixed in one list), the marker slot drawn per item and absent without a slot, and section identity: the eyebrow fallback for a consumer that passes no id, a band kept across a label edit, and two ids kept apart under one spelling. `lab-shell/src/shell/ui/navListLinkMode.spec.js` is the half a stub cannot prove — mounted against a REAL router, so the anchor has a real `href`, the router alone marks what is active, and the mark follows a route change nobody told the component about. |

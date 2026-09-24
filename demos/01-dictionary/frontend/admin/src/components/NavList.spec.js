@@ -3,7 +3,7 @@
 // that drives its grouped `{ group, sections }` shape, so its spec runs here
 // under admin's Vitest, reached through the same `@ui-shell` alias the app
 // uses.
-import { mount } from '@vue/test-utils'
+import { RouterLinkStub, mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import NavList from '@ui-shell/NavList.vue'
@@ -138,6 +138,135 @@ describe('NavList', () => {
       await wrapper.findAll('.nav-item')[3].trigger('click')
 
       expect(wrapper.emitted('update:modelValue')).toEqual([['streams']])
+    })
+  })
+
+  /*
+    Phase 17 (D17-6, amendment A5). Three additions, and the point of every
+    one of them is that the existing consumers above are untouched: admin and
+    seafreight pass no `to`, no `section.id` and no marker slot, and go on
+    rendering buttons with `aria-pressed` exactly as they did.
+  */
+  describe('link mode', () => {
+    const LINKED = [
+      {
+        eyebrow: 'Features',
+        items: [
+          { key: 'a/nav', label: 'Vessels', to: { name: 'a/vessels' } },
+          { key: 'b/nav', label: 'Berths', to: { name: 'b/berths' } },
+        ],
+      },
+    ]
+    const mountLinked = (sections = LINKED) =>
+      mount(NavList, {
+        props: { sections },
+        global: { stubs: { RouterLink: RouterLinkStub } },
+      })
+
+    it('renders a link, not a button, when an item carries `to`', () => {
+      const items = mountLinked().findAllComponents(RouterLinkStub)
+
+      expect(items).toHaveLength(2)
+      expect(items[0].props('to')).toEqual({ name: 'a/vessels' })
+      expect(mountLinked().findAll('button.nav-item')).toHaveLength(0)
+    })
+
+    it('needs no modelValue, and announces no selection', () => {
+      const wrapper = mountLinked()
+
+      expect(wrapper.find('.nav-item').attributes('aria-pressed')).toBeUndefined()
+    })
+
+    it('emits nothing when a link is clicked, because the router decides', async () => {
+      const wrapper = mountLinked()
+
+      await wrapper.findAll('.nav-item')[0].trigger('click')
+
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    })
+
+    it('still renders a button for an item with no `to`, in the same list', () => {
+      const wrapper = mountLinked([
+        { items: [{ key: 'a/nav', label: 'Vessels', to: { name: 'a/vessels' } }] },
+        { items: [{ key: 'plain', label: 'Plain' }] },
+      ])
+
+      expect(wrapper.findAllComponents(RouterLinkStub)).toHaveLength(1)
+      expect(wrapper.findAll('button.nav-item')).toHaveLength(1)
+    })
+  })
+
+  describe('the marker slot', () => {
+    it('draws whatever the consumer puts there, per item', () => {
+      const wrapper = mount(NavList, {
+        props: { sections: GROUPED, modelValue: 'overview' },
+        slots: { marker: '<i class="mark">{{ params.item.key }}</i>' },
+      })
+
+      expect(wrapper.findAll('.mark').map((m) => m.text())).toEqual([
+        'overview',
+        'accounts',
+        'shippers',
+        'streams',
+      ])
+    })
+
+    it('draws nothing for a consumer that passes no slot', () => {
+      const wrapper = mount(NavList, { props: { sections: GROUPED, modelValue: 'overview' } })
+
+      expect(wrapper.findAll('.mark')).toHaveLength(0)
+    })
+  })
+
+  describe('section identity (amendment A5)', () => {
+    // The fallback is the test, not an implementation detail: admin and
+    // seafreight pass no id and must keep their sections.
+    it('renders a section that carries no id, keyed off its eyebrow', () => {
+      const wrapper = mount(NavList, {
+        props: {
+          sections: [
+            { eyebrow: 'One', items: [{ key: 'a', label: 'A' }] },
+            { eyebrow: 'Two', items: [{ key: 'b', label: 'B' }] },
+          ],
+          modelValue: 'a',
+        },
+      })
+
+      expect(wrapper.findAll('.eyebrow').map((e) => e.text())).toEqual(['One', 'Two'])
+      expect(labelsOf(wrapper)).toEqual(['A', 'B'])
+    })
+
+    it('keeps a section when only its eyebrow is renamed, because the id is what identifies it', async () => {
+      const wrapper = mount(NavList, {
+        props: {
+          sections: [{ id: 'ops', eyebrow: 'Operations', items: [{ key: 'a', label: 'A' }] }],
+          modelValue: 'a',
+        },
+      })
+      const before = wrapper.find('.nav-group').element
+
+      await wrapper.setProps({
+        sections: [{ id: 'ops', eyebrow: 'Ops', items: [{ key: 'a', label: 'A' }] }],
+      })
+
+      expect(wrapper.find('.eyebrow').text()).toBe('Ops')
+      expect(wrapper.find('.nav-group').element).toBe(before)
+    })
+
+    it('treats two sections with different ids as different sections', async () => {
+      const wrapper = mount(NavList, {
+        props: {
+          sections: [{ id: 'sea', eyebrow: 'Ops', items: [{ key: 'a', label: 'A' }] }],
+          modelValue: 'a',
+        },
+      })
+      const before = wrapper.find('.nav-group').element
+
+      await wrapper.setProps({
+        sections: [{ id: 'road', eyebrow: 'Ops', items: [{ key: 'a', label: 'A' }] }],
+      })
+
+      expect(wrapper.find('.nav-group').element).not.toBe(before)
     })
   })
 })
