@@ -387,3 +387,119 @@ describe('BR-AS52 — the withdrawal class the shell admits', () => {
   })
 })
 
+
+describe('BR-AS83 — a navigation group is identified by the plugin and placed by the shell', () => {
+  const withNav = (group) =>
+    validateManifest(
+      manifest({
+        contributions: [
+          { kind: 'route', id: 'vessels', path: '/example-plugin/vessels', title: 'Vessels' },
+          { kind: 'navigation', id: 'vessels-nav', label: 'Vessels', route: 'vessels', ...(group === undefined ? {} : { group }) },
+        ],
+      }),
+    )
+  const nav = (result) => result.plugin.contributions.find((c) => c.kind === 'navigation')
+
+  it('reads a group object as an identity and a separate display label', () => {
+    // Merging is by id. The label is what the band says, and two plugins that
+    // spell the label differently still land in one group.
+    const result = withNav({ id: 'jetstream', label: 'JetStream' })
+    expect(result.ok).toBe(true)
+    expect(nav(result).group).toEqual({ id: 'jetstream', label: 'JetStream' })
+  })
+
+  it('accepts a plain string as shorthand for both fields', () => {
+    // This is what today's manifests would say. BR-AS13's per-entry tolerance
+    // forbids failing them, so the string is read verbatim as id and label.
+    const result = withNav('Features')
+    expect(result.ok).toBe(true)
+    expect(nav(result).group).toEqual({ id: 'Features', label: 'Features' })
+  })
+
+  it('leaves group null when the entry names none', () => {
+    expect(nav(withNav(undefined)).group).toBeNull()
+  })
+
+  it('refuses a group object whose id is not kebab-case', () => {
+    // The explicit form is held to the same id pattern as every other id in
+    // this contract; only the legacy shorthand is exempt.
+    const result = withNav({ id: 'Jet_Stream', label: 'JetStream' })
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('malformed')
+  })
+
+  it('refuses a group object missing either field', () => {
+    expect(withNav({ id: 'jetstream' }).ok).toBe(false)
+    expect(withNav({ label: 'JetStream' }).ok).toBe(false)
+    expect(withNav({ id: 'jetstream', label: '   ' }).ok).toBe(false)
+  })
+
+  it('refuses a group that is neither a string nor an object', () => {
+    expect(withNav(7).ok).toBe(false)
+    expect(nav(withNav(null)).group).toBeNull()
+  })
+
+  it('ignores a placement field on the group rather than honouring it', () => {
+    // BR-AS07: a plugin fills a target, it never chooses where the target
+    // lives. Ignoring is deliberate — refusing would let one stray key take a
+    // working plugin off screen over something that changes no behaviour.
+    const result = withNav({ id: 'jetstream', label: 'JetStream', order: 5, collapsed: true })
+    expect(result.ok).toBe(true)
+    expect(nav(result).group).toEqual({ id: 'jetstream', label: 'JetStream' })
+  })
+})
+
+describe('BR-AS84 — a plugin names at most one default route', () => {
+  const routes = (...list) => validateManifest(manifest({ contributions: list }))
+  const route = (id, extra = {}) => ({
+    kind: 'route',
+    id,
+    path: `/example-plugin/${id}`,
+    title: id,
+    ...extra,
+  })
+
+  it('admits one default route and records it', () => {
+    const result = routes(route('vessels', { default: true }), route('ports'))
+    expect(result.ok).toBe(true)
+    const byId = Object.fromEntries(result.plugin.contributions.map((c) => [c.id, c]))
+    expect(byId.vessels.default).toBe(true)
+    expect(byId.ports.default).toBe(false)
+  })
+
+  it('admits a plugin that names no default, unchanged', () => {
+    const result = routes(route('vessels'), route('ports'))
+    expect(result.ok).toBe(true)
+    expect(result.plugin.contributions.every((c) => c.default === false)).toBe(true)
+  })
+
+  it('refuses the whole plugin when a second default is declared', () => {
+    // Refused as a whole, like a duplicate id: a plugin with two defaults has
+    // not made a mistake in one contribution, it has failed to answer the one
+    // question the declaration exists to answer.
+    const result = routes(route('vessels', { default: true }), route('ports', { default: true }))
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('duplicate-default-route')
+  })
+
+  it('reads only a true default; anything else is no declaration', () => {
+    const result = routes(route('vessels', { default: 'yes' }), route('ports', { default: false }))
+    expect(result.ok).toBe(true)
+    expect(result.plugin.contributions.every((c) => c.default === false)).toBe(true)
+  })
+
+  it('ignores default on a contribution that is not a route', () => {
+    // The declaration names a route to open. It grants no placement, no
+    // precedence in the rail, and no navigation entry.
+    const result = validateManifest(
+      manifest({
+        contributions: [
+          route('vessels'),
+          { kind: 'navigation', id: 'vessels-nav', label: 'Vessels', route: 'vessels', default: true },
+        ],
+      }),
+    )
+    expect(result.ok).toBe(true)
+    expect(result.plugin.contributions.find((c) => c.kind === 'navigation').default).toBeUndefined()
+  })
+})

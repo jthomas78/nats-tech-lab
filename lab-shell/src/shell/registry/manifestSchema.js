@@ -146,6 +146,7 @@ export function validateManifest(manifest) {
 
   const contributions = []
   const seen = new Set()
+  let defaultRoute = null
   for (let index = 0; index < manifest.contributions.length; index += 1) {
     const result = validateContribution(id, manifest.contributions[index], index, routePrefix)
     if (!result.ok) return result
@@ -156,6 +157,19 @@ export function validateManifest(manifest) {
       )
     }
     seen.add(result.contribution.qualifiedId)
+    /* BR-AS84: refused as a whole, at the same point and in the same manner as
+       a duplicate id. A plugin with two defaults has not made a mistake in one
+       contribution; it has failed to answer the one question the declaration
+       exists to answer, so there is no single contribution to drop. */
+    if (result.contribution.kind === 'route' && result.contribution.default === true) {
+      if (defaultRoute) {
+        return REJECT(
+          'duplicate-default-route',
+          `Plugin ${id} declares ${defaultRoute} and ${result.contribution.id} both default`,
+        )
+      }
+      defaultRoute = result.contribution.id
+    }
     contributions.push(result.contribution)
   }
 
@@ -302,7 +316,16 @@ function validateRoute(pluginId, raw, base, routePrefix) {
   if (typeof raw.title !== 'string' || raw.title.trim() === '') {
     return REJECT('malformed', `Plugin ${pluginId} route ${raw.id} has no title`)
   }
-  return ok({ ...base, path: raw.path, title: raw.title, component: componentOf(raw) })
+  /* BR-AS84. Only `true` is a declaration; anything else is no declaration at
+     all. Normalised to a boolean here so no later reader has to ask whether
+     the key was absent or falsy. */
+  return ok({
+    ...base,
+    path: raw.path,
+    title: raw.title,
+    default: raw.default === true,
+    component: componentOf(raw),
+  })
 }
 
 function validateNavigation(pluginId, raw, base) {
@@ -316,14 +339,52 @@ function validateNavigation(pluginId, raw, base) {
   if (typeof raw.route !== 'string' || !ID_PATTERN.test(raw.route)) {
     return REJECT('malformed', `Plugin ${pluginId} navigation ${raw.id} names no route`)
   }
+  const group = validateNavigationGroup(pluginId, raw)
+  if (!group.ok) return group
   return ok({
     ...base,
     label: raw.label,
     route: raw.route,
     routeQualifiedId: `${pluginId}/${raw.route}`,
-    group: typeof raw.group === 'string' ? raw.group : null,
+    group: group.group,
     icon: typeof raw.icon === 'string' ? raw.icon : null,
   })
+}
+
+/* BR-AS83. A group is IDENTIFIED by the plugin and PLACED by the shell, so the
+   declaration carries an id and a display label and nothing else: two plugins
+   land in one group by agreeing on the id, never by agreeing on a spelling,
+   and a plugin cannot say where its group sits (BR-AS07). A placement key is
+   dropped rather than refused, because refusing would take a working plugin
+   off screen over a key that changes no behaviour. */
+function validateNavigationGroup(pluginId, raw) {
+  if (raw.group === undefined || raw.group === null) return { ok: true, group: null }
+  /* The shorthand is what manifests written before this contract say. It is
+     read verbatim as both fields and is NOT held to the id pattern: deriving
+     an id from the spelling would make merging depend on the spelling, which
+     is the thing this rule exists to prevent. */
+  if (typeof raw.group === 'string') {
+    if (raw.group.trim() === '') {
+      return REJECT('malformed', `Plugin ${pluginId} navigation ${raw.id} has an empty group`)
+    }
+    return { ok: true, group: Object.freeze({ id: raw.group, label: raw.group }) }
+  }
+  if (typeof raw.group !== 'object') {
+    return REJECT(
+      'malformed',
+      `Plugin ${pluginId} navigation ${raw.id} group is neither a string nor an object`,
+    )
+  }
+  if (typeof raw.group.id !== 'string' || !ID_PATTERN.test(raw.group.id)) {
+    return REJECT(
+      'malformed',
+      `Plugin ${pluginId} navigation ${raw.id} group id ${JSON.stringify(raw.group.id)} is not kebab-case`,
+    )
+  }
+  if (typeof raw.group.label !== 'string' || raw.group.label.trim() === '') {
+    return REJECT('malformed', `Plugin ${pluginId} navigation ${raw.id} group has no label`)
+  }
+  return { ok: true, group: Object.freeze({ id: raw.group.id, label: raw.group.label }) }
 }
 
 function validateExtension(pluginId, raw, base) {

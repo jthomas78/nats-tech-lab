@@ -2753,11 +2753,19 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
 
 #### Task checklist — REVISED 2026-09-24 by the amendments above; none done
 
-- **17a — The frontend contract, ACCEPTANCE ONLY (A7).** `group` becomes `{ id, label }` in
+- **17a — DONE 2026-09-24. The frontend contract, ACCEPTANCE ONLY (A7).** `group` becomes `{ id, label }` in
   `manifestSchema.js`, with a plain string accepted as shorthand. `default: true` on a route
   contribution, at most one per plugin. Specs first. No renderer changes, and — A7 — **no shipped
   manifest changed**: the schema learns to read the new shapes while every manifest in the repo
   still emits the old ones.
+  Landed as BR-AS83 and BR-AS84 in `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md`, specced in
+  `lab-shell/src/shell/registry/manifestSchema.spec.js` (12 new specs) and implemented in
+  `manifestSchema.js`: `validateNavigationGroup` normalises `group` to a frozen `{ id, label }`,
+  accepts the plain string verbatim as shorthand, refuses a non-kebab-case explicit id, a missing
+  or blank label and a non-object, and drops a placement key rather than refusing it; `default`
+  normalises to a boolean on route contributions, and a second one refuses the whole plugin with
+  the new code `duplicate-default-route`. Nothing consumed `group` before this change and no
+  manifest declared one, so no renderer moved. Suite 902 green, lint clean.
 - **17b — The Go contract (A1).** `registry.go`'s `Contribution` learns the object form and keeps
   accepting the legacy string; persistence and read round-trip, signed registration, and manifest
   drift all covered. Registry mode must be provably level with build mode before the merge lands.

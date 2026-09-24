@@ -1823,3 +1823,52 @@ carrying their run commands and the paths to their findings, and carrying **no
 health indicator and no readiness check**, because nothing measures them and
 BR-AS80 forbids drawing a mark nobody took. Nothing in this phase makes either
 inventory derive from the other.
+
+## Phase 17 — one navigation tree: plugin nav entries merge into shell-owned groups
+
+Two rules land with task 17a. Both are **contract** rules: they say what a
+manifest may declare and what the shell must do with it. 17a teaches the
+frontend schema to accept the declarations; it makes nothing emit them. Under
+amendment A7 of the phase plan, no shipped manifest declares either form until
+the Go contract of 17b is complete and the registry round-trip is tested, so
+both rules are stated here in full and are exercised, at 17a, only against
+fixtures.
+
+- **BR-AS83 — A navigation group is IDENTIFIED by the plugin and PLACED by the shell.** A
+  navigation contribution **may** name the group it belongs in. That name **must** be an identity
+  (`group.id`), and the label shown on the band **must** be a separate field (`group.label`), so
+  that two plugins land in one group by agreeing on an id and never by agreeing on a spelling.
+  Merging **must** be by id alone; a display label **must never** merge two groups or split one.
+  A plain string **must** continue to be accepted as shorthand for both fields, because that is
+  what today's manifests say and BR-AS13's per-entry tolerance forbids failing them. A group
+  declaration **must not** carry placement: the plugin **must not** be able to say where its group
+  sits in the rail, above or below which other group, or whether it is open — that is the shell's,
+  under BR-AS07, and two plugins disagreeing about one group's placement would be a disagreement
+  the shell has no way to settle. An explicitly declared `group.id` **must** be kebab-case, as
+  every other id in this contract is. The shorthand string **must not** be held to that pattern —
+  it is read verbatim as both id and label — because holding it there would refuse manifests this
+  contract already admits, and deriving an id from the spelling would make merging depend on the
+  spelling, which the rule above forbids.
+
+- **BR-AS84 — A plugin names at most one default route.** A route contribution **may** declare
+  itself its plugin's default (`default: true`). A plugin declaring a second **must** be refused as
+  a whole, in the same manner and at the same point as a duplicate contribution id, because a
+  plugin with two defaults has not made a mistake in one contribution — it has failed to answer the
+  one question the declaration exists to answer. The declaration **must** name the route to open
+  when a reader arrives at the plugin's prefix with nothing after it, and **must not** be read as
+  anything else: it grants no placement, no precedence in the rail, and no navigation entry.
+  A plugin declaring no default **must** remain valid and **must** behave exactly as it does today.
+
+**Existing route admission and withdrawal behaviour remains UNCHANGED by this phase**
+(amendment A6). A route that is missing, refused or not permitted keeps the refusal behaviour of
+BR-AS12 and BR-AS05. A **withdrawal is not a refusal**: BR-AS56 takes away the plugin's routes,
+navigation and footer items and nothing else, BR-AS58 suspends rather than refuses placements
+aimed at a withdrawn slot owner, the reader's current page keeps behaving as it does today, and a
+withdrawal stays restorable. No rule above re-classifies any of that.
+
+### How Phase 17's rules are checked
+
+| Rule | Specced by |
+| --- | --- |
+| BR-AS83 | *(17a)* `lab-shell/src/shell/registry/manifestSchema.spec.js` — the group object form, the string shorthand, a group id that is not kebab-case, a group object missing either field, and a group declaration carrying a placement field, which is ignored rather than honoured. |
+| BR-AS84 | *(17a)* `lab-shell/src/shell/registry/manifestSchema.spec.js` — one default admitted, a second refusing the whole plugin, none admitted unchanged, and `default` on a non-route contribution ignored. |
