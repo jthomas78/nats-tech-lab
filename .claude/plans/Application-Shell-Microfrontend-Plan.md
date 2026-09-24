@@ -3,8 +3,9 @@
 > **Status: Phases 1–5, 7, 8, 13, 14 COMPLETE and archived. Phase 15's design gate PASSED
 > (2026-09-02); its task checklist is derived and specs are next. Phase 16
 > (`plugin-source: build`) is APPROVED and CLOSED 2026-09-24 — 16a to 16l done, no open item.
-> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; its checklist is derived and
-> specs are next.**
+> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; 17a, 17b and 17c are done — both
+> contracts carry the new forms and the grouped tree exists as data — and 17d (the clash channel)
+> is next.**
 >
 > This file follows `CLAUDE.md`'s required sequence: proposed business rules first, then an explicit
 > design gate. The gate was passed on 2026-08-28 — see
@@ -2790,8 +2791,21 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   real group-identity change still reports `drift`). Ginkgo 477 of 477, **0 skipped**, so the
   Postgres specs genuinely ran. `go vet`, `go build` and `gofmt` clean; both `shared/mferegistry`
   submodules green.
-- **17c — The merge.** `contributionRegistry` groups by `group.id` and applies D17-3's four-step
-  cascade, including the deterministic displayed label of A2. Pure data; still rendered flat.
+- **17c — The merge. DONE.** `contributionRegistry` groups by `group.id` and applies D17-3's
+  four-step cascade, including the deterministic displayed label of A2. Pure data; still rendered
+  flat. **BR-AS86** is the rule. `lab-shell/src/shell/contributions/navigationTree.js` is the
+  projection and `contributionOrder.js` is the cascade, lifted out of `contributionRegistry.js`
+  into a module of its own so the tree can import it without a cycle. The registry gained one
+  getter, `navigationTree`, rebuilt on every read off the same reactive array the flat list is
+  read from, so the two cannot disagree and a plugin placed into a running shell reaches both.
+  Nothing renders it — `App.vue` is untouched, as the task says. The shell-owned table is
+  `SHELL_GROUP_ORDER`, one band, `features` / `Features`, which is also the home of every
+  ungrouped entry (step 4) and cannot be renamed by a plugin that claims the same id. A clash is
+  not a refusal: both entries place, the shell's own label wins for a band it owns and otherwise
+  the first claimant by `pluginId` then `declarationIndex` names it, and every distinct losing
+  label is kept on the node as `labelClaims` for 17d to read out. Purity is specced three ways —
+  a reversed index, three separate indexing passes, and a withdrawal followed by a restore all
+  produce the identical tree. 21 new specs; lab-shell Vitest **923 green**, lint 0 errors.
 - **17d — The clash channel.** `navigationClashes` on the registry, the THREE clash cases of A2,
   surfaced on the Plugins screen beside `refusals`. The other three cases get specs proving they
   are NOT clashes.

@@ -1874,6 +1874,35 @@ fixtures.
   curated entry and the served manifest it was made from **must** still compare equal, so the
   decode-and-re-encode of a group **must** be a pure function of what was written.
 
+- **BR-AS86 — The navigation tree is a pure function of the manifests, and its order is total.** The
+  shell **must** project its placed navigation entries into one grouped tree, and that projection
+  **must** depend on nothing but the entries themselves: the same set of manifests **must** produce
+  a byte-identical tree whatever order the plugins were indexed in, whatever order they returned
+  from a withdrawal in, and whichever catalogue source they came from. Grouping is by `group.id`
+  and never by `group.label` (BR-AS83). The order is settled by four steps, in this order, and each
+  step **must** be total — no step may leave two nodes tied:
+  1. a **shell-owned group order table**, naming the groups the shell knows and the position each
+     one holds. A group in the table takes its displayed label from the table, because the shell
+     places the group and a plugin only identifies it;
+  2. then every group **not** in the table, ordered by `group.id`. Ordering these by first-seen is
+     **forbidden**, because first-seen is arrival order, and arrival order is what step 1 of this
+     rule exists to remove;
+  3. then, within a group, the cascade the registry already sorts contributions by — `order`, then
+     `pluginId`, then `declarationIndex`;
+  4. an entry that declares no group **must** land in the shell's existing **`Features`** band. That
+     band keeps its name; this phase **must not** rename it, because a reader's mental map of the
+     rail is not a thing a merge is entitled to move.
+
+  **A group's displayed label is chosen, never merged.** Two plugins may identify the same group
+  with different labels. That is a clash, not a refusal: both entries **must** still be placed, and
+  the band **must** still display exactly one name. For a group the shell owns, the table's label
+  wins. For any other group, the displayed label is the label of the first contributor by the same
+  cascade that orders the band — `pluginId`, then `declarationIndex` — so it is deterministic and
+  identical in both catalogue sources. The losing label **must not** be discarded: every contributed
+  label **must** stay on the group node, in cascade order, so that the clash channel of task 17d can
+  name who asked for what. Producing the tree **must not** mutate, reorder or refuse anything in the
+  flat navigation list, which stays exactly as it is.
+
 **Existing route admission and withdrawal behaviour remains UNCHANGED by this phase**
 (amendment A6). A route that is missing, refused or not permitted keeps the refusal behaviour of
 BR-AS12 and BR-AS05. A **withdrawal is not a refusal**: BR-AS56 takes away the plugin's routes,
@@ -1888,3 +1917,4 @@ withdrawal stays restorable. No rule above re-classifies any of that.
 | BR-AS83 | *(17a)* `lab-shell/src/shell/registry/manifestSchema.spec.js` — the group object form, the string shorthand, a group id that is not kebab-case, a group object missing either field, and a group declaration carrying a placement field, which is ignored rather than honoured. |
 | BR-AS84 | *(17a)* `lab-shell/src/shell/registry/manifestSchema.spec.js` — one default admitted, a second refusing the whole plugin, none admitted unchanged, and `default` on a non-route contribution ignored. |
 | BR-AS85 | *(17b)* `demos/01-dictionary/backend/mfe-registry-service/registry/admissible_test.go` — the same door as the shell's: an explicit group id that is not kebab-case, a group object with no label, and a second default route all refused; the string shorthand and an unknown key inside the object both admitted. `registry/navgroup_test.go` — the round-trip: each form re-encodes as it was written, an absent group stays absent, an unknown key is dropped, and a malformed group is refused. `registry/drift_test.go` — a manifest carrying either form, and one carrying `default`, compares clean rather than reading as `invalid-manifest`, which is what `DisallowUnknownFields` would have made of them before this task. |
+| BR-AS86 | *(17c)* `lab-shell/src/shell/contributions/navigationTree.spec.js` — grouping by `group.id` and never by label, the string shorthand, an ungrouped entry landing in `Features`, a plugin that cannot rename `Features`, the shell table first and unknown bands by id rather than by first seen, the within-band cascade, and the purity itself: the same tree from a reversed index, from three separate indexing passes, and across a withdrawal and a restore. The clash block holds amendment A2 — one displayed name chosen by `pluginId` then `declarationIndex`, both entries still placed, and the losing label kept with its claimant. |

@@ -28,6 +28,8 @@
 import { reactive } from 'vue'
 
 import { PLUGIN_STATUS } from '../registry/pluginStatus.js'
+import { byOrder } from './contributionOrder.js'
+import { buildNavigationTree } from './navigationTree.js'
 import { decidePlacements } from './placementPolicy.js'
 
 export function createContributionRegistry({ extensionPoints, permissions }) {
@@ -282,6 +284,14 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
     get navigation() {
       return [...navigation]
     },
+    /* The same navigation, grouped (BR-AS86). A projection, not a second
+       source: it is rebuilt from `navigation` on every read, so a plugin
+       placed into a running shell reaches the tree by the same reactivity
+       that reaches the flat list, and the two can never disagree. Nothing
+       renders it yet — task 17f is where the rail switches over. */
+    get navigationTree() {
+      return buildNavigationTree(navigation)
+    },
     get shellFooter() {
       return [...footerItems]
     },
@@ -324,12 +334,4 @@ function dropFrom(list, matches) {
   for (let i = list.length - 1; i >= 0; i -= 1) {
     if (matches(list[i])) list.splice(i, 1)
   }
-}
-
-function byOrder(a, b) {
-  return (
-    a.order - b.order ||
-    a.pluginId.localeCompare(b.pluginId) ||
-    a.declarationIndex - b.declarationIndex
-  )
 }
