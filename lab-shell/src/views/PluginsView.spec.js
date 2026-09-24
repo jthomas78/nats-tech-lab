@@ -25,6 +25,7 @@ const row = (id) => ({
   status: 'available',
   contributionKinds: ['main'],
   refusals: [],
+  clashes: [],
 })
 
 const mountView = (health) => mount(PluginsView, {
@@ -219,5 +220,59 @@ describe('16h — `not configured` from the plane, not from the mapping', () => 
     const [catalogue] = cells(mountView({ signals, monitored: true }))
     expect(catalogue[0].text).toBe(HEALTH_STATE.HEALTHY)
     expect(catalogue[0].title).toMatch(/^last checked /)
+  })
+})
+
+/*
+  BR-AS87 — clashes are shown BESIDE refusals, never inside them.
+
+  The two lists answer different questions: a refusal says what the shell did
+  not place, a clash says what it placed twice. Merging them on this screen is
+  exactly what D17-5 withdrew, so these specs read the rendered lists apart.
+*/
+describe('BR-AS87 — the clash channel on the Plugins screen', () => {
+  const clash = {
+    kind: 'group-label-conflict',
+    groupId: 'ops',
+    groupIds: ['ops'],
+    label: 'Alpha Ops',
+    pluginIds: ['alpha', 'zulu'],
+    participants: [],
+    message: 'Navigation group ops is shown as "Alpha Ops" from alpha; zulu asked for "Zulu Ops"',
+  }
+  const refusal = { qualifiedId: 'alpha/foot', code: 'region-full', pluginId: 'alpha' }
+
+  const mountWith = (overrides) => mount(PluginsView, {
+    global: {
+      provide: {
+        [SHELL]: {
+          inventory: [{ ...row('alpha'), ...overrides }],
+          registry: { revision: 'rev-1' },
+          health: { monitored: false },
+        },
+      },
+    },
+  })
+
+  it('says the kind and the message of each clash', () => {
+    const items = mountWith({ clashes: [clash] }).findAll('ul.clashes li')
+
+    expect(items).toHaveLength(1)
+    expect(items[0].text()).toContain('group-label-conflict')
+    expect(items[0].text()).toContain('zulu asked for "Zulu Ops"')
+  })
+
+  it('draws no clash list when a plugin has none', () => {
+    expect(mountWith({ refusals: [refusal] }).findAll('ul.clashes')).toHaveLength(0)
+  })
+
+  it('keeps the two lists separate when a plugin has both', () => {
+    const view = mountWith({ clashes: [clash], refusals: [refusal] })
+
+    expect(view.findAll('ul.clashes li')).toHaveLength(1)
+    expect(view.findAll('ul:not(.clashes) li').some((li) => li.text().includes('region-full'))).toBe(
+      true,
+    )
+    expect(view.find('ul.clashes').text()).not.toContain('region-full')
   })
 })

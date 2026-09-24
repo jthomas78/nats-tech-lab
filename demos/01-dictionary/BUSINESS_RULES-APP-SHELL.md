@@ -1903,6 +1903,39 @@ fixtures.
   name who asked for what. Producing the tree **must not** mutate, reorder or refuse anything in the
   flat navigation list, which stays exactly as it is.
 
+- **BR-AS87 — A clash is placed and marked; it is never a refusal, and it never shares the refusal
+  channel.** `refusals` explains a contribution the shell did **not** place. A clash explains two
+  contributions the shell **did** place and that a reader will find confusing. The shell **must**
+  carry them in separate collections, and the Plugins screen **must** show them separately, because
+  one list holding both "dropped" and "kept but marked" cannot say which a row is. A clash **must
+  not** remove, reorder or refuse anything: both contributions stay placed, and `refusals` stays
+  exactly as it was. There are **three** clash kinds and no more (amendment A2):
+  - **`group-label-conflict`** — two plugins identify one band by the same `group.id` and ask for
+    different labels. The band still displays one name, chosen by BR-AS86; the clash names the
+    winner and every loser. A band the shell owns **must not** raise this, because the shell's label
+    is not in competition with a plugin's.
+  - **`duplicate-group-label`** — two bands with different ids display the same name, so the reader
+    sees one word twice in the rail. A shell-owned band takes part in this, because the repeat is
+    what the reader sees; the shell itself is not named as a culprit.
+  - **`duplicate-item-label`** — two entries in one band read the same and go to **different**
+    routes. The same name at the same route is a duplicate and **must not** be reported, because it
+    misleads nobody.
+
+  Every clash record **must** name its kind, the band or bands it is about, the name that is
+  displayed, and **every plugin involved** — a clash is a fault of a pair, so it **must** appear on
+  the inventory row of each of them, which is the opposite of a refusal's single owner. The list
+  **must** be derived from the navigation tree on read rather than accumulated, so it inherits
+  BR-AS86's purity: the same manifests give the same clashes in the same order, a withdrawal takes
+  a clash away without anybody clearing it, and a restore brings it back.
+
+  **These three are NOT clashes, and the shell must be able to show that they are not.** Two plugins
+  naming one band the same way is the FEATURE of this phase and merges silently. A group order
+  conflict cannot arise, because D17-2 gave group placement to the shell and a plugin declares no
+  order for a band. The same local contribution id in two plugins is valid, because identity is
+  qualified `${pluginId}/${id}` (BR-AS06). And a nav entry whose route is missing, refused,
+  withdrawn or not permitted keeps its existing behaviour under amendment A6 — a refusal or a
+  withdrawal, never a clash.
+
 **Existing route admission and withdrawal behaviour remains UNCHANGED by this phase**
 (amendment A6). A route that is missing, refused or not permitted keeps the refusal behaviour of
 BR-AS12 and BR-AS05. A **withdrawal is not a refusal**: BR-AS56 takes away the plugin's routes,
@@ -1918,3 +1951,4 @@ withdrawal stays restorable. No rule above re-classifies any of that.
 | BR-AS84 | *(17a)* `lab-shell/src/shell/registry/manifestSchema.spec.js` — one default admitted, a second refusing the whole plugin, none admitted unchanged, and `default` on a non-route contribution ignored. |
 | BR-AS85 | *(17b)* `demos/01-dictionary/backend/mfe-registry-service/registry/admissible_test.go` — the same door as the shell's: an explicit group id that is not kebab-case, a group object with no label, and a second default route all refused; the string shorthand and an unknown key inside the object both admitted. `registry/navgroup_test.go` — the round-trip: each form re-encodes as it was written, an absent group stays absent, an unknown key is dropped, and a malformed group is refused. `registry/drift_test.go` — a manifest carrying either form, and one carrying `default`, compares clean rather than reading as `invalid-manifest`, which is what `DisallowUnknownFields` would have made of them before this task. |
 | BR-AS86 | *(17c)* `lab-shell/src/shell/contributions/navigationTree.spec.js` — grouping by `group.id` and never by label, the string shorthand, an ungrouped entry landing in `Features`, a plugin that cannot rename `Features`, the shell table first and unknown bands by id rather than by first seen, the within-band cascade, and the purity itself: the same tree from a reversed index, from three separate indexing passes, and across a withdrawal and a restore. The clash block holds amendment A2 — one displayed name chosen by `pluginId` then `declarationIndex`, both entries still placed, and the losing label kept with its claimant. |
+| BR-AS87 | *(17d)* `lab-shell/src/shell/contributions/navigationClashes.spec.js` — the three clash kinds, each naming its kind, its band and **both** owning plugins; the three silences that bound them (an agreed label, a shell-owned band, the same name at the same route, the same name in two different bands); the three cases A2 settled as not clashes plus the unresolved route that stays a refusal; a withdrawal taking a clash away and a restore bringing it back; and purity — the same clashes in the same order from a reversed index. `lab-shell/src/shell/bootShell.spec.js` — the same record on the inventory row of every plugin it names, with `refusals` still empty. `lab-shell/src/views/PluginsView.spec.js` — the two lists rendered apart, and no clash list at all for a plugin with none. |

@@ -3,9 +3,9 @@
 > **Status: Phases 1–5, 7, 8, 13, 14 COMPLETE and archived. Phase 15's design gate PASSED
 > (2026-09-02); its task checklist is derived and specs are next. Phase 16
 > (`plugin-source: build`) is APPROVED and CLOSED 2026-09-24 — 16a to 16l done, no open item.
-> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; 17a, 17b and 17c are done — both
-> contracts carry the new forms and the grouped tree exists as data — and 17d (the clash channel)
-> is next.**
+> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; 17a to 17d are done — both
+> contracts carry the new forms, the grouped tree exists as data and its clashes are reported —
+> and 17e (`NavList.vue`) is next.**
 >
 > This file follows `CLAUDE.md`'s required sequence: proposed business rules first, then an explicit
 > design gate. The gate was passed on 2026-08-28 — see
@@ -2806,9 +2806,19 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   label is kept on the node as `labelClaims` for 17d to read out. Purity is specced three ways —
   a reversed index, three separate indexing passes, and a withdrawal followed by a restore all
   produce the identical tree. 21 new specs; lab-shell Vitest **923 green**, lint 0 errors.
-- **17d — The clash channel.** `navigationClashes` on the registry, the THREE clash cases of A2,
-  surfaced on the Plugins screen beside `refusals`. The other three cases get specs proving they
-  are NOT clashes.
+- **17d — The clash channel. DONE.** `navigationClashes` on the registry, the THREE clash cases of
+  A2, surfaced on the Plugins screen beside `refusals`. The other three cases get specs proving
+  they are NOT clashes. **BR-AS87** is the rule.
+  `lab-shell/src/shell/contributions/navigationClashes.js` derives the list from the tree on read,
+  so it inherits BR-AS86's purity: a withdrawal takes a clash away and a restore brings it back,
+  with nothing to clear. D17-5 is honoured literally — `refusals` is untouched, the new collection
+  sits beside it on the registry, in `bootShell`'s inventory row and in its own `ul.clashes` on the
+  Plugins screen, and a spec asserts the two lists never mix. A clash is a fault of a PAIR, so each
+  record carries `pluginIds` and shows on the row of every plugin it names, which is the one shape
+  difference from a refusal's single owner. The three silences are specced as hard as the three
+  clashes: an agreed label, a band the shell owns, the same name at the same route, and the same
+  name in two different bands all report nothing. 27 new specs (21 clash, 3 boot, 3 view);
+  lab-shell Vitest **950 green**, lint 0 errors.
 - **17e — `NavList.vue`** grows a link mode, a per-item marker slot and the optional `section.id`
   of A5, under D17-6's five boundaries. Demo 01's `NavList.spec.js` grows in the same commit,
   including the id-absent fallback.

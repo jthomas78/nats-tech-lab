@@ -246,6 +246,11 @@ export async function bootShell({
         reasonCode: record.reasonCode,
         reason: record.reason,
         refusals: contributions.refusals.filter((r) => r.pluginId === record.id),
+        /* Placed, and confusing (BR-AS87). Kept apart from `refusals` on
+           purpose: one says what is missing, the other says what is there
+           twice. A clash names every plugin it involves, so the same record
+           shows on the row of each. */
+        clashes: contributions.navigationClashes.filter((c) => c.pluginIds.includes(record.id)),
       }))
     },
   }

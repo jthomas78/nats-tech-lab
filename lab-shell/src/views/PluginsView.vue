@@ -229,6 +229,19 @@ const TOLERANCE = [
                   <span class="mono">{{ refusal.code }}</span> {{ refusal.qualifiedId }}
                 </li>
               </ul>
+              <!-- Beside the refusals, never inside them (BR-AS87): a clash
+                   is placed and visible, a refusal is not. -->
+              <ul
+                v-if="row.clashes.length"
+                class="clashes"
+              >
+                <li
+                  v-for="clash in row.clashes"
+                  :key="`${clash.kind}:${clash.groupIds.join('+')}:${clash.label}`"
+                >
+                  <span class="mono">{{ clash.kind }}</span> {{ clash.message }}
+                </li>
+              </ul>
             </td>
           </tr>
         </tbody>
@@ -303,6 +316,7 @@ table.tbl td {
 .id { display: block; font-size: 11px; color: var(--p-text-disabled-color); }
 .bad { color: var(--err); }
 .warn { color: var(--warn); }
+.clashes { color: var(--warn); }
 /* .pill and its five tones are the shared theme's (unifi.css) — one chip,
    one definition, so this view and the Admin UI's registry panels can never
    drift apart on what `enabled` looks like. */

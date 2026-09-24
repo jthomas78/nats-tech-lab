@@ -29,6 +29,7 @@ import { reactive } from 'vue'
 
 import { PLUGIN_STATUS } from '../registry/pluginStatus.js'
 import { byOrder } from './contributionOrder.js'
+import { detectNavigationClashes } from './navigationClashes.js'
 import { buildNavigationTree } from './navigationTree.js'
 import { decidePlacements } from './placementPolicy.js'
 
@@ -291,6 +292,13 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
        renders it yet — task 17f is where the rail switches over. */
     get navigationTree() {
       return buildNavigationTree(navigation)
+    },
+    /* Kept but marked, as opposed to `refusals`, which is dropped and why
+       (BR-AS87, D17-5). Derived from the tree on every read, so a clash
+       appears when the plugin that causes it is placed and goes when that
+       plugin is withdrawn — without anybody having to remember to clear it. */
+    get navigationClashes() {
+      return detectNavigationClashes(this.navigationTree)
     },
     get shellFooter() {
       return [...footerItems]

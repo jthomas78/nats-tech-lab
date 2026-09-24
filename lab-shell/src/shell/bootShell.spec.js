@@ -341,3 +341,53 @@ describe('BR-AS49 — a tombstone forces a reload', () => {
     expect(shell.pendingReload).toEqual([])
   })
 })
+
+/*
+  BR-AS87 — a clash reaches the operator's row, on BOTH sides of it.
+
+  A clash is a fault of a pair, not of one plugin, so the record names every
+  plugin it involves and shows on each of their rows. That is the difference
+  from a refusal, which belongs to exactly one plugin.
+*/
+describe('BR-AS87 — the inventory carries navigation clashes beside refusals', () => {
+  const grouped = (id, label) =>
+    manifest(id, {
+      contributions: [
+        { kind: 'route', id: 'home', path: `/${id}`, title: id },
+        { kind: 'navigation', id: 'nav', label: id, route: 'home', group: { id: 'ops', label } },
+      ],
+    })
+
+  const booted = () =>
+    bootShell({
+      registryClient: client({
+        ok: true,
+        plugins: [grouped('zulu', 'Zulu Ops'), grouped('alpha', 'Alpha Ops')],
+      }),
+      permissions,
+    })
+
+  it('puts the same clash on the row of every plugin it names', async () => {
+    const shell = await booted()
+    const rows = Object.fromEntries(shell.inventory.map((r) => [r.id, r]))
+
+    expect(rows.alpha.clashes.map((c) => c.kind)).toEqual(['group-label-conflict'])
+    expect(rows.zulu.clashes.map((c) => c.kind)).toEqual(['group-label-conflict'])
+  })
+
+  it('leaves refusals empty, because neither entry was dropped', async () => {
+    const shell = await booted()
+
+    expect(shell.inventory.flatMap((r) => r.refusals)).toEqual([])
+    expect(shell.contributions.navigation).toHaveLength(2)
+  })
+
+  it('gives a plugin with nothing to clash over an empty list', async () => {
+    const shell = await bootShell({
+      registryClient: client({ ok: true, plugins: [manifest('fleet-ops')] }),
+      permissions,
+    })
+
+    expect(shell.inventory[0].clashes).toEqual([])
+  })
+})
