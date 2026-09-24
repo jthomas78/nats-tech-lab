@@ -3,8 +3,8 @@
 > **Status: Phases 1–5, 7, 8, 13, 14 COMPLETE and archived. Phase 15's design gate PASSED
 > (2026-09-02); its task checklist is derived and specs are next. Phase 16
 > (`plugin-source: build`) is APPROVED and CLOSED 2026-09-24 — 16a to 16l done, no open item.
-> Phase 17 (one navigation tree) is PROPOSED 2026-09-24; its gate is NOT passed — nothing is
-> built.**
+> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; its checklist is derived and
+> specs are next.**
 >
 > This file follows `CLAUDE.md`'s required sequence: proposed business rules first, then an explicit
 > design gate. The gate was passed on 2026-08-28 — see
@@ -2348,10 +2348,11 @@ this phase may quietly make one derive from the other.
 
 ---
 
-### Phase 17 — PROPOSED 2026-09-24 — One navigation tree: plugin nav entries merge into shell-owned groups
+### Phase 17 — APPROVED (design gate passed 2026-09-24) — One navigation tree: plugin nav entries merge into shell-owned groups
 
-**Status: PROPOSED. Nothing below is approved, no task is derived, and no code, spec or business
-rule may be written until the user passes the design gate. This entry is a request for a decision.**
+**Status: OPEN 2026-09-24. The design gate passed the same day it was proposed. D17-1, D17-6 and
+D17-7 were decided by the user; D17-2 to D17-5 were delegated and stand as this entry recommends
+them. Settled decisions are not re-opened. The task checklist is derived below. No task is done.**
 
 Raised by the user 2026-09-24, in their own words: they do not prefer the current arrangement and
 want "a single navbar where we merge the nav bar elements from the mfe plugins". The worked example
@@ -2572,6 +2573,83 @@ catalogue sources.
 A sidebar extension point. Nested groups deeper than two levels. Any change to demos 02 and 03,
 which are shell-owned intro pages with no plugin. Any change to how `route-prefix-conflict` is
 decided between DIFFERENT plugins.
+
+
+#### Design gate — passed 2026-09-24
+
+Three decisions were put to the user; the other three were delegated and stand as recommended
+above. The constraints the user attached are part of the decision, not commentary, and a task
+that ignores one has not met the gate.
+
+**D17-1 — APPROVED: two routes.** Demo 04 declares `/demo-04/lesson-01` and `/demo-04/lesson-02`
+and contributes one nav entry each. With the user's constraints:
+
+- **Both routes render the SAME lesson component.** This is a routing change, not a UI fork. No
+  panel is duplicated, no second component appears, and the plugin is not split.
+- **The embedded rail is REMOVED; standalone navigation is PRESERVED.** `plugin/OdometerRoute.vue`
+  loses its left column; `App.vue` on `20401` keeps its own rail unchanged.
+- Recorded for the record, in the user's words: two routes are **not the only possible design**,
+  but they fit the existing route-contribution contract most directly. That is why this option
+  won, and the note guards against the plan later claiming the alternatives were unworkable.
+
+**D17-6 — APPROVED: extend `NavList.vue`.** The shared renderer is reused rather than forked. Five
+boundaries, all explicit, all testable:
+
+- **Existing button-based navigation keeps working.** Demo 01's `admin` and `seafreight-app` are
+  unchanged consumers and must stay that way.
+- **A router-backed entry renders a REAL link** — open-in-new-tab works, and the browser's own
+  active-route behaviour applies. A button that calls `router.push` does not satisfy this.
+- **An optional per-item slot** carries a health or clash marker.
+- **NavList only RENDERS.** Group merging, ordering and collision detection stay in the shell.
+  Nothing in `shared/ui-shell/` learns what a plugin is.
+- **Group identity and collapse state key off stable IDs, never display labels.** This extends
+  D17-2's rule past merging and into the component's own persisted state.
+- **Regression coverage for the existing consumers ships beside the new shell tests.** Demo 01's
+  `NavList.spec.js` is the existing guard and must grow, not merely keep passing.
+
+**D17-7 — APPROVED (new at the gate): the bare prefix redirects, and the PLUGIN declares it.**
+`/demo-04` resolves to `/demo-04/lesson-01`. Old links keep working and lesson 01 is marked active.
+The user's constraints make this a contract addition rather than a one-line router rule:
+
+- **No demo-specific redirect may be hardcoded in `lab-shell`.** The plugin declares its own
+  default destination; the shell handles the declaration generically, exactly as it handles every
+  other contribution.
+- **The destination still passes the normal checks** — permission, withdrawal and readiness. A
+  redirect must not become a side door around BR-AS79's readiness gate or BR-AS56's withdrawal.
+  A default that points at a withdrawn or refused route must not leave a dead prefix.
+
+**D17-2 to D17-5 — delegated, and stand as written above.** Group is `{ id, label }` with string
+shorthand accepted; ordering is the four-step cascade ending in `group.id`; the clash list is the
+six cases named; clashes report through a `navigationClashes` collection and never through
+`refusals`.
+
+#### Task checklist — derived 2026-09-24, none done
+
+Ordered so that each task is shippable and green on its own. The shell's side comes first, because
+demo 04 cannot contribute a group until the shell can read one.
+
+- **17a — The contract.** `group` becomes `{ id, label }` in `manifestSchema.js`, with a plain
+  string accepted as shorthand (`id` = `label` = the string). Add the plugin's default-route
+  declaration for D17-7. Specs first. No renderer changes.
+- **17b — The merge.** `contributionRegistry` groups navigation by `group.id` and applies D17-3's
+  four-step cascade. Pure data; still rendered flat. This is where build/registry parity is proven.
+- **17c — The clash channel.** `navigationClashes` on the registry, the six cases of D17-4,
+  surfaced on the Plugins screen beside `refusals`. Still no renderer change.
+- **17d — `NavList.vue` grows a link mode and a marker slot**, under D17-6's five boundaries.
+  Demo 01's `NavList.spec.js` grows its regression coverage in the same commit.
+- **17e — The shell's rail switches to `NavList`.** `App.vue:104-166`'s two hand-rolled blocks are
+  replaced. `navMark.js` gains the clash mark's place in its precedence (BR-AS60).
+- **17f — The generic default-route redirect**, with the permission, withdrawal and readiness
+  checks D17-7 requires.
+- **17g — Demo 04 splits.** Two routes, two nav entries, one shared lesson component, the embedded
+  rail deleted, the standalone rail untouched. `demos/04-jetstream-cqrs/CLAUDE.md` is amended in
+  the same commit, because it records the one-route choice as rejected.
+- **17h — The rename that was deferred.** `OdometerRoute.vue` and the `odometer` / `odometer-nav`
+  manifest ids move with the route split, once, here. `registry.json` changes with the same bytes.
+- **17i — The acceptance checks above, as specs.** Anything not already covered by 17a-17h.
+
+Business rules are written and approved before the task that implements them, per the repo's
+required sequence. Numbers are allocated when 17a opens.
 
 
 ---
