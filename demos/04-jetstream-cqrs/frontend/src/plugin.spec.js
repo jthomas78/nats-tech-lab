@@ -139,8 +139,9 @@ describe('the command API base, when the demo is embedded', () => {
   })
 
   /* Only the HTTP side moves. The live NATS view is a WebSocket, which CORS
-     does not gate at all — it is gated by `allowed_origins` in
-     deploy/nats.conf, a different door and a separate decision. */
+     does not gate at all, so proxying it would buy nothing — it is gated by
+     `allowed_origins` in deploy/nats.conf, which names the shell's origin
+     itself. A different door, and this spec holds the two apart. */
   it('leaves the NATS WebSocket URL alone', () => {
     expect(read('./plugin.js')).not.toContain('NATS_WS')
   })

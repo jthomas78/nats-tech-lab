@@ -173,10 +173,16 @@ reads it as a default argument, so moving it once moves every later call.
 plugin. The standalone app on `20401` is unchanged, and the built bytes are the
 same in both catalogue sources.
 
-**Still not done:** the live NATS view stays dark inside the shell. That is a
-different door — a WebSocket is not subject to CORS at all, and `allowed_origins`
-in `deploy/nats.conf` names only `20401`. Widening it is its own decision, and
-nobody has taken it.
+**The live view needed a second, separate change.** A WebSocket is not subject
+to CORS at all, so the proxy above did nothing for it. It is gated by
+`allowed_origins` in `deploy/nats.conf`, which named only `20401`, so the
+embedded page sat at **Not connected**. That list now names `7110` as well, and
+the file says why each entry is there.
+
+Keep the two apart when reading this. The command API on `20402` is HTTP, gated
+by CORS, and reaches the shell **through a proxy** so that no CORS grant has to
+widen. The WebSocket on `20403` is gated by one list, and an origin is either in
+it or refused. Loopback only, in both cases.
 
 ## The shim's routes
 

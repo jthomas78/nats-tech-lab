@@ -1932,10 +1932,18 @@ then, so `--verify` was already failing on a clean tree before 16j started. Re-r
 also checks — that the host bundle names no plugin container, remote URL or module path — passed
 before and after.
 
-**Not in this task, and not fixed by it.** The live NATS view stays dark inside the shell. A
-WebSocket is not subject to CORS at all; it is refused by `allowed_origins` in
-`demos/04-jetstream-cqrs/deploy/nats.conf`, which names only `20401`. That is a different door and
-its own decision.
+**The second door, decided separately and opened in a second commit.** The proxy above did nothing
+for the live view, because a WebSocket is not subject to CORS at all — it is gated by
+`allowed_origins` in `demos/04-jetstream-cqrs/deploy/nats.conf`, which named only `20401`, so the
+embedded page sat at **Not connected** with its controls hidden behind that message. On the user's
+decision the list now names `http://localhost:7110` and `http://127.0.0.1:7110` as well, loopback
+only, with the file recording why each entry is there.
+
+This is deliberately **not** the same mechanism as BR-AS82. That rule exists so that an HTTP
+surface can be reached without a CORS grant widening anywhere; here there is no proxy to build and
+no CORS to widen, only a list that either names an origin or refuses it. Verified end to end at
+that point: `Record trip` on `truck-7` returned `accepted — travel truck-7 appended to ODOMETER at
+seq 84142`, and the KV panels moved with it.
 
 **16h — Registry regression gate. DONE 2026-09-24.** *Decision 9.*
 No new behaviour. The Phase 15 acceptance gate runs unchanged. Add focused coverage for the display

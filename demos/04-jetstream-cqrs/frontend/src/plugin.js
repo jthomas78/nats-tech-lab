@@ -38,10 +38,11 @@ export const components = {
    instead proxies the routes `public/demo.json` declares, on its own origin,
    and this is where the page is told to use them.
 
-   The NATS watch is NOT moved. It opens in the route component's own
-   `onMounted`, and a WebSocket is not subject to CORS — it is refused by the
-   server's own `allowed_origins` list in `deploy/nats.conf`, which is a
-   different door and a different decision. */
+   The NATS watch is NOT moved, and does not need to be. It opens in the route
+   component's own `onMounted` and goes straight to `20403`. A WebSocket is not
+   subject to CORS at all, so no proxy would have helped it; it is gated by the
+   server's own `allowed_origins` list in `deploy/nats.conf`, which now names
+   the shell's origin as well. A different door, opened by a different change. */
 export function activate() {
   setCommandApi(EMBEDDED_COMMAND_API)
 }
