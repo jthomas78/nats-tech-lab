@@ -2924,8 +2924,24 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   them. **BR-AS88**'s link bullet and **BR-AS89** now say so.
   11 new specs (2 tree/clash, 6 `shellNavSections`, 3 `navListLinkMode`); lab-shell Vitest
   **1011 green**, admin **351 green**, seafreight-app **36 green**, lab-shell lint 0 errors.
-- **17g — The generic default-route redirect**, with A4's declaration, failure behaviour and the
-  permission, withdrawal and readiness checks.
+- **17g — The generic default-route redirect. DONE.** `/<routePrefix>` now redirects to the route
+  that declared `default: true`, and `lab-shell` names no demo doing it: both halves of the record
+  come from the manifest. **BR-AS90** is the rule.
+  The whole change is 19 lines in `shellRoutes.js`, and that is the point — the funnel every plugin
+  route already passes through emits one more record. A4's three failure cases needed no code:
+  a refused or unpermitted default never reaches the funnel, because the contribution registry
+  dropped it at index time, so the bare prefix simply has no record and falls through to not-found;
+  a withdrawal leaves the record in place and the existing guard refuses it by `meta.pluginId`,
+  which is amendment A6 honoured by not writing anything; and readiness is untouched because the
+  redirect lands on the real route record, whose component the demo gate already wraps. Each of the
+  three is a spec that asserts the absence rather than a branch that implements it.
+  Two edges are handled explicitly: a plugin whose default route's path already IS the bare prefix
+  gets no self-redirect, and the record's name is `default-route:<pluginId>` — a colon cannot
+  appear in a kebab-case qualified id, so it can never collide with a contribution's own name.
+  The Go side needed nothing: `Contribution.Default` and `Entry.RoutePrefix` were carried in 17b,
+  which is A7's ordering kept — the contract went first and the frontend followed it.
+  13 new specs (10 record shape, 3 against a real router); lab-shell Vitest **1022 green**,
+  lint 0 errors.
 - **17h — Demo 04 splits, in ONE commit (A3).** Two routes, two nav entries, one shared lesson
   component driven by the route, the embedded rail deleted, the standalone rail untouched, the
   `odometer` / `odometer-nav` ids and `OdometerRoute.vue` renamed, `registry.json` updated with the

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { createShellRoutes, resolveRouteComponent } from './shellRoutes.js'
 
@@ -100,5 +101,144 @@ describe('BR-AS04 — a route that will not resolve does not take the shell down
     })
 
     expect(component).toBe(ErrorPanel)
+  })
+})
+
+describe('D17-7 — the bare prefix redirects, and the PLUGIN declares it', () => {
+  const prefixed = (id) => (pluginId) => (pluginId === id ? { id, routePrefix: id } : null)
+
+  const lessons = (overrides = {}) => [
+    route({ qualifiedId: 'demo-04/lesson-01', pluginId: 'demo-04', path: '/demo-04/lesson-01', default: true, ...overrides }),
+    route({ qualifiedId: 'demo-04/lesson-02', pluginId: 'demo-04', path: '/demo-04/lesson-02' }),
+  ]
+
+  const build = (routes) => createShellRoutes({
+    contributions: { routes },
+    loader: loaderFor({}),
+    manifestFor: prefixed('demo-04'),
+  })
+
+  it('registers /<prefix> as a redirect to the declared default', () => {
+    const records = build(lessons())
+    const redirect = records.find((r) => r.path === '/demo-04')
+
+    expect(redirect.redirect).toEqual({ name: 'demo-04/lesson-01' })
+    expect(redirect.name).toBe('default-route:demo-04')
+  })
+
+  it('names no demo: the prefix comes from the manifest, not from the shell', () => {
+    const records = createShellRoutes({
+      contributions: {
+        routes: [route({ qualifiedId: 'fleet-ops/vessels', pluginId: 'fleet-ops', path: '/fleet/vessels', default: true })],
+      },
+      loader: loaderFor({}),
+      manifestFor: (id) => (id === 'fleet-ops' ? { id, routePrefix: 'fleet' } : null),
+    })
+
+    expect(records.find((r) => r.redirect)).toMatchObject({
+      path: '/fleet',
+      redirect: { name: 'fleet-ops/vessels' },
+    })
+  })
+
+  it('leaves the bare prefix alone when no route declared a default', () => {
+    expect(build(lessons({ default: false })).some((r) => r.redirect)).toBe(false)
+  })
+
+  it('adds no redirect when the default route IS the bare prefix', () => {
+    const records = build([route({ qualifiedId: 'demo-04/main', pluginId: 'demo-04', path: '/demo-04', default: true })])
+
+    expect(records.some((r) => r.redirect)).toBe(false)
+    expect(records).toHaveLength(1)
+  })
+
+  it('leaves no dead prefix when the default route was refused or not permitted', () => {
+    // A refused route never reaches this funnel, so the redirect cannot be
+    // built and /demo-04 falls through to not-found (amendment A4).
+    const records = build(lessons().slice(1))
+
+    expect(records.some((r) => r.redirect)).toBe(false)
+  })
+
+  it('carries the owning plugin, so the withdrawal guard already covers it', () => {
+    // A withdrawal is not a refusal (A6): the record stays and the existing
+    // guard refuses entry by meta.pluginId.
+    const redirect = build(lessons()).find((r) => r.redirect)
+
+    expect(redirect.meta).toEqual({ pluginId: 'demo-04', defaultFor: 'demo-04/lesson-01' })
+  })
+
+  it('is skipped for a plugin whose manifest went away', () => {
+    const records = createShellRoutes({
+      contributions: { routes: lessons() },
+      loader: loaderFor({}),
+      manifestFor: () => null,
+    })
+
+    expect(records.some((r) => r.redirect)).toBe(false)
+  })
+
+  it('does not bypass the readiness gate, because it lands on the real record', async () => {
+    const demoStore = { isReady: () => false }
+    const records = createShellRoutes({
+      contributions: { routes: lessons() },
+      loader: loaderFor({ components: { default: Catalog } }),
+      manifestFor: prefixed('demo-04'),
+      demoStore,
+    })
+    const target = records.find((r) => r.name === 'demo-04/lesson-01')
+
+    expect(records.find((r) => r.redirect).redirect).toEqual({ name: target.name })
+    await expect(target.component()).resolves.not.toBe(Catalog)
+  })
+})
+
+describe('D17-7 — the redirect against a real router', () => {
+  // The record shape above is only half the claim. This is the other half:
+  // a reader who trims the URL to the bare prefix arrives at the default.
+  const routerWith = async (records) => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }, ...records],
+    })
+    /* Memory history has no location of its own, so `isReady` waits for a
+       first navigation that nobody else is going to make. */
+    router.push('/')
+    await router.isReady()
+    return router
+  }
+
+  const records = () => createShellRoutes({
+    contributions: {
+      routes: [
+        route({ qualifiedId: 'demo-04/lesson-01', pluginId: 'demo-04', path: '/demo-04/lesson-01', default: true }),
+        route({ qualifiedId: 'demo-04/lesson-02', pluginId: 'demo-04', path: '/demo-04/lesson-02' }),
+      ],
+    },
+    loader: loaderFor({ components: { default: Catalog } }),
+    manifestFor: (id) => (id === 'demo-04' ? { id, routePrefix: 'demo-04' } : null),
+  })
+
+  it('lands a bare /demo-04 on lesson 01', async () => {
+    const router = await routerWith(records())
+    /* Pushed, not resolved: `resolve` reports the record a path matches and
+       the router follows the redirect when it navigates. */
+    await router.push('/demo-04')
+
+    expect(router.currentRoute.value.name).toBe('demo-04/lesson-01')
+    expect(router.currentRoute.value.redirectedFrom?.path).toBe('/demo-04')
+  })
+
+  it('leaves a full lesson link exactly where it points', async () => {
+    const router = await routerWith(records())
+
+    expect(router.resolve('/demo-04/lesson-02').name).toBe('demo-04/lesson-02')
+  })
+
+  it('rewrites the address bar, so a refresh does not bounce again', async () => {
+    const router = await routerWith(records())
+    await router.push('/demo-04')
+
+    expect(router.currentRoute.value.path).toBe('/demo-04/lesson-01')
   })
 })

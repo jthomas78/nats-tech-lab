@@ -23,6 +23,15 @@
   every plugin route passes through, so the check cannot be forgotten on a
   route somebody adds later — the same argument as the permission note above.
   It is optional: with no demo store the resolver behaves exactly as it did.
+
+  Task 17g adds the second kind of record this funnel emits: the bare-prefix
+  redirect (D17-7, amendment A4). A plugin whose routes all sit under
+  `/<prefix>/...` leaves `/<prefix>` itself pointing at nothing, and a reader
+  who trims the URL lands on not-found. One route contribution may say
+  `default: true`, and the shell then registers `/<prefix>` as a redirect to
+  it. The shell hardcodes no demo: the prefix is the plugin's own declared
+  `routePrefix` and the target is the plugin's own declared route, handled
+  like every other contribution.
 */
 import { withDemoGate } from '../demos/demoGate.js'
 
@@ -47,7 +56,14 @@ export function createShellRoutes({
      the rest (BR-AS19, decision 26). */
   routes = contributions.routes,
 }) {
-  return routes.map((route) => ({
+  return [
+    ...routes.map((route) => routeRecord(route, { loader, manifestFor, errorComponent, demoStore })),
+    ...defaultPrefixRedirects(routes, manifestFor),
+  ]
+}
+
+function routeRecord(route, { loader, manifestFor, errorComponent, demoStore }) {
+  return {
     path: route.path,
     /* The qualified id is already globally unique (BR-AS06), so it is the
        route name too — a nav entry resolves to a name, never to a hand-built
@@ -60,7 +76,55 @@ export function createShellRoutes({
       contributionId: route.qualifiedId,
     },
     component: () => resolveRouteComponent({ route, loader, manifestFor, errorComponent, demoStore }),
-  }))
+  }
+}
+
+/*
+  `/<prefix>` -> the plugin's declared default route (D17-7, A4).
+
+  Three things this deliberately does NOT do:
+
+  * It does not look at any plugin id. The redirect exists because a manifest
+    asked for it, and the shell would build the same record for any plugin
+    that asked. No demo is named here, which is the constraint D17-7 was
+    written for.
+  * It does not check permission or refusal, because it cannot need to. Only
+    an ADMITTED route contribution reaches this function — the registry has
+    already dropped a route the reader may not see — so a default that was
+    refused or not permitted produces no record at all and `/<prefix>` falls
+    through to not-found, exactly as it does for a plugin that declared no
+    default. That is the "no dead prefix" half of A4, by construction rather
+    than by a check somebody has to remember.
+  * It does not check withdrawal, and must not. A withdrawal is not a refusal
+    (amendment A6): the records stay registered and `installWithdrawalGuard`
+    refuses entry by `meta.pluginId`. This record carries the same
+    `meta.pluginId`, so the existing guard covers it and the behaviour a
+    withdrawal already had is unchanged.
+
+  Readiness is not a special case either. The redirect lands on a real route
+  record, whose component is wrapped by the demo gate, so a reader arriving at
+  the bare prefix of a demo that is not running meets the same gate as a
+  reader who typed the full path (BR-AS79). The redirect is a shorter way in,
+  never a way round.
+*/
+function defaultPrefixRedirects(routes, manifestFor) {
+  return routes.flatMap((route) => {
+    if (route.default !== true) return []
+    const prefix = manifestFor(route.pluginId)?.routePrefix
+    if (!prefix) return []
+    const path = `/${prefix}`
+    /* The default already IS the bare prefix. Registering a redirect here
+       would be a route that redirects to itself. */
+    if (route.path === path) return []
+    return [{
+      path,
+      /* A colon cannot appear in a qualified id — ids are kebab-case — so
+         this name can never collide with a contribution's own. */
+      name: `default-route:${route.pluginId}`,
+      redirect: { name: route.qualifiedId },
+      meta: { pluginId: route.pluginId, defaultFor: route.qualifiedId },
+    }]
+  })
 }
 
 // Discovery now happens after the router has painted. Re-resolve an initial

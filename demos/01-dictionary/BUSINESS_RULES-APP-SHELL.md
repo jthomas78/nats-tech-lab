@@ -1863,6 +1863,27 @@ fixtures.
   as a Go `bool` and refuses the same values — reading them as false at one door and refusing them
   at the other is exactly what BR-AS85 forbids.
 
+- **BR-AS90 — The bare prefix redirects, and the shell names no demo doing it.** When a plugin's
+  admitted routes include one declaring itself the default (BR-AS84), the shell **must** register
+  `/<routePrefix>` as a redirect to that route, so a reader who trims the URL lands on the plugin's
+  opening screen instead of not-found. Both halves of the record are the PLUGIN's: the path is its
+  own declared `routePrefix` and the target its own declared route. No demo id, and no per-demo
+  rule, may appear in `lab-shell` (decision D17-7).
+  - **The redirect is built from an admitted route, or not at all.** A default that was refused or
+    is not permitted for this reader **must** leave the bare prefix with no record, falling through
+    to not-found exactly as a plugin declaring no default does. There **must not** be a second
+    permission check here to forget: the contribution registry has already dropped the route, so a
+    dead prefix is impossible by construction, not by inspection (amendment A4).
+  - **A withdrawal is unchanged.** The redirect record **must** carry its owning `pluginId` in
+    `meta`, so the existing withdrawal guard refuses it by the same rule it already refuses every
+    other record of that plugin. No task **may** re-classify a withdrawal as a refusal or remove
+    the record (BR-AS56, BR-AS57, amendment A6).
+  - **It is a shorter way in, never a way round.** The redirect lands on a real route record, whose
+    component carries the demo readiness gate, so a reader arriving at the bare prefix **must** meet
+    the same gate as one who typed the full path (BR-AS79).
+  - **A default that already IS the bare prefix adds nothing.** A plugin whose default route's path
+    is `/<routePrefix>` **must not** gain a record redirecting that path to itself.
+
 - **BR-AS85 — The registry carries what the shell admits, and holds the same door.** Whatever a
   manifest may declare under BR-AS83 and BR-AS84, the registry service **must** be able to carry it
   without loss: it **must** decode both group forms, **must** re-encode each in the form the
@@ -2031,4 +2052,5 @@ withdrawal stays restorable. No rule above re-classifies any of that.
 | BR-AS86 | *(17c)* `lab-shell/src/shell/contributions/navigationTree.spec.js` — grouping by `group.id` and never by label, the string shorthand, an ungrouped entry landing in `Features`, a plugin that cannot rename `Features`, the shell table first and unknown bands by id rather than by first seen, the within-band cascade, and the purity itself: the same tree from a reversed index, from three separate indexing passes, and across a withdrawal and a restore. The clash block holds amendment A2 — one displayed name chosen by `pluginId` then `declarationIndex`, both entries still placed, and the losing label kept with its claimant. |
 | BR-AS87 | *(17d)* `lab-shell/src/shell/contributions/navigationClashes.spec.js` — the three clash kinds, each naming its kind, its band and **both** owning plugins; the three silences that bound them (an agreed label, a shell-owned band, the same name at the same route, the same name in two different bands); the three cases A2 settled as not clashes plus the unresolved route that stays a refusal; a withdrawal taking a clash away and a restore bringing it back; and purity — the same clashes in the same order from a reversed index. `lab-shell/src/shell/bootShell.spec.js` — the same record on the inventory row of every plugin it names, with `refusals` still empty. `lab-shell/src/views/PluginsView.spec.js` — the two lists rendered apart, and no clash list at all for a plugin with none. *(review, 2026-09-24)* `navigationClashes.spec.js` — a plugin band spelling the RAIL's own reserved `Shell` reported as a duplicate name with the shell unblamed, and the reserved band alone reporting nothing. |
 | BR-AS88 | *(17e)* `demos/01-dictionary/frontend/admin/src/components/NavList.spec.js` — the existing button mode untouched, then link mode (a link not a button, no `modelValue` needed, no `aria-pressed`, nothing emitted on click, and both modes mixed in one list), the marker slot drawn per item and absent without a slot, and section identity: the eyebrow fallback for a consumer that passes no id, a band kept across a label edit, and two ids kept apart under one spelling. `lab-shell/src/shell/ui/navListLinkMode.spec.js` is the half a stub cannot prove — mounted against a REAL router, so the anchor has a real `href`, the router alone marks what is active, and the mark follows a route change nobody told the component about. |
+| BR-AS90 | *(17g)* `lab-shell/src/shell/routing/shellRoutes.spec.js` — the redirect record: built from the declared default, named from the manifest's own prefix for a plugin that is not demo 04, absent with no default declared, absent when the default already is the bare prefix, absent when the default route was refused, absent when the manifest went away, carrying the owning plugin in `meta` for the withdrawal guard, and landing on the gated record rather than around it. And against a real router: a bare `/demo-04` arriving at lesson 01 with `redirectedFrom` set, a full lesson link untouched, and the address bar rewritten so a refresh does not bounce again. |
 | BR-AS89 | *(17f)* `lab-shell/src/shell/ui/shellNavSections.spec.js` — the rail as data: the shell band first and present with no plugins at all, the `Features` fallback, the phase's worked two-plugin example in band and item order, a route named by qualified id, an empty band not drawn and restored with its plugin, mark isolation between plugins, a clash marked on both participating entries by qualified id, a third plugin that merely AGREED with a losing label marked too, and the lit entry: on its own page, on a page under it, on neither an unrelated page nor a mere text prefix, and left to the router when no path was given. `lab-shell/src/shell/ui/navListLinkMode.spec.js` — an item that decides its own active state, in both directions, with the router left in charge of one that said nothing. `lab-shell/src/shell/ui/ShellNav.spec.js` — the rail mounted against a real router: one `<nav>` the shell labels, a plugin entry as a real `<a href>` with no `aria-pressed`, only the current page marked, the dot in the chosen tone, and the same thing in words — including a clash kept in the words of BOTH entries when one lost the dot to a failure. `lab-shell/src/shell/registry/navMark.spec.js` — the precedence with the clash last, and the description that survives losing the colour. |
