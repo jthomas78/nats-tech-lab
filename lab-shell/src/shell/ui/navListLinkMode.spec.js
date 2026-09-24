@@ -94,3 +94,37 @@ describe('D17-6 — NavList draws a real link in link mode', () => {
     ])
   })
 })
+
+/*
+  D17-6, boundary 2 again — a root link.
+
+  `/` is the text-prefix of every path in the shell, so a rail that decided
+  "active" by string would mark Home on every page. The router does not: it
+  decides from the matched route RECORD, and the shell's routes are flat
+  siblings. These specs hold that, because the day it stops being true the
+  rail goes wrong quietly and on every screen.
+*/
+describe('D17-6 — a root link is not active on the pages under it', () => {
+  const WITH_ROOT = [
+    {
+      id: 'shell',
+      items: [
+        { key: 'shell/home', label: 'Home', to: '/' },
+        { key: 'demo-04/one', label: 'Lesson 01', to: { name: 'demo-04/lesson-01' } },
+      ],
+    },
+  ]
+  const mountRoot = async (start) =>
+    mount(NavList, { props: { sections: WITH_ROOT }, global: { plugins: [await routerFor(start)] } })
+
+  const activeLabels = (wrapper) =>
+    wrapper.findAll('.nav-item').filter((a) => a.classes().includes('active')).map((a) => a.text())
+
+  it('marks it when you are ON it', async () => {
+    expect(activeLabels(await mountRoot('/'))).toEqual(['Home'])
+  })
+
+  it('leaves it unmarked on a page merely under it', async () => {
+    expect(activeLabels(await mountRoot('/demo-04/lesson-01'))).toEqual(['Lesson 01'])
+  })
+})

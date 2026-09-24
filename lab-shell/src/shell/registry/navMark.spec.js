@@ -35,6 +35,7 @@ describe('the plugin`s own status', () => {
     expect(navMark({ status: PLUGIN_STATUS.FAILED })).toEqual({
       tone: 'err',
       title: PLUGIN_STATUS.FAILED,
+      description: PLUGIN_STATUS.FAILED,
     })
   })
 
@@ -42,6 +43,7 @@ describe('the plugin`s own status', () => {
     expect(navMark({ status: PLUGIN_STATUS.INCOMPATIBLE })).toEqual({
       tone: 'warn',
       title: PLUGIN_STATUS.INCOMPATIBLE,
+      description: PLUGIN_STATUS.INCOMPATIBLE,
     })
   })
 
@@ -59,6 +61,7 @@ describe('health decorates a plugin that loaded', () => {
     expect(navMark({ status: PLUGIN_STATUS.ACTIVE, health: health(HEALTH_STATE.UNAVAILABLE) })).toEqual({
       tone: 'warn',
       title: 'a dependency is unavailable',
+      description: 'a dependency is unavailable',
     })
   })
 
@@ -79,7 +82,11 @@ describe('precedence — a failure keeps the dot to itself', () => {
   it('shows the failure, not the dependency, when both are true', () => {
     const mark = navMark({ status: PLUGIN_STATUS.FAILED, health: health(HEALTH_STATE.UNAVAILABLE) })
 
-    expect(mark).toEqual({ tone: 'err', title: PLUGIN_STATUS.FAILED })
+    expect(mark).toEqual({
+      tone: 'err',
+      title: PLUGIN_STATUS.FAILED,
+      description: PLUGIN_STATUS.FAILED,
+    })
   })
 
   it('shows the incompatibility over a dependency, too', () => {
@@ -91,6 +98,78 @@ describe('precedence — a failure keeps the dot to itself', () => {
   it('never returns two marks — the nav item has room for one', () => {
     const mark = navMark({ status: PLUGIN_STATUS.FAILED, health: health(HEALTH_STATE.UNAVAILABLE) })
 
-    expect(Object.keys(mark).sort()).toEqual(['title', 'tone'])
+    expect(Object.keys(mark).sort()).toEqual(['description', 'title', 'tone'])
+  })
+})
+
+/*
+  BR-AS89 / amendment A2 — the clash ranks LAST, and survives losing the dot.
+
+  Load and health are runtime faults the reader is looking at now; a clash is
+  a configuration fault an operator fixes. So a clash never takes the dot from
+  either — which is exactly why it must not live in the dot alone.
+*/
+const clash = (message, kind = 'group-label-conflict') => ({ kind, message })
+
+describe('BR-AS89 — a navigation clash', () => {
+  it('marks an otherwise healthy entry in warning tone, and names the clash', () => {
+    expect(navMark({ clashes: [clash('Navigation group ops is shown as "Ops"')] })).toEqual({
+      tone: 'warn',
+      title: 'Navigation group ops is shown as "Ops"',
+      description: 'Navigation group ops is shown as "Ops"',
+    })
+  })
+
+  it('is a configuration fault, never an error tone', () => {
+    expect(navMark({ clashes: [clash('anything')] }).tone).toBe('warn')
+  })
+
+  it('draws nothing when the clash list is empty', () => {
+    expect(navMark({ status: PLUGIN_STATUS.ACTIVE, clashes: [] })).toBeNull()
+  })
+
+  it('joins several clashes on one entry into one description', () => {
+    const mark = navMark({ clashes: [clash('first'), clash('second', 'duplicate-item-label')] })
+
+    expect(mark.description).toBe('first; second')
+  })
+})
+
+describe('BR-AS89 — losing the dot does not lose the clash', () => {
+  it('gives the dot to a failure, and keeps the clash in the description', () => {
+    const mark = navMark({ status: PLUGIN_STATUS.FAILED, clashes: [clash('two plugins name this band')] })
+
+    expect(mark.tone).toBe('err')
+    expect(mark.title).toBe(PLUGIN_STATUS.FAILED)
+    expect(mark.description).toBe(`${PLUGIN_STATUS.FAILED}; two plugins name this band`)
+  })
+
+  it('gives the dot to an unavailable dependency, and keeps the clash in the description', () => {
+    const mark = navMark({
+      status: PLUGIN_STATUS.ACTIVE,
+      health: health(HEALTH_STATE.UNAVAILABLE),
+      clashes: [clash('two plugins name this band')],
+    })
+
+    expect(mark.tone).toBe('warn')
+    expect(mark.title).toBe('a dependency is unavailable')
+    expect(mark.description).toBe('a dependency is unavailable; two plugins name this band')
+  })
+
+  it('never says the same thing twice when the clash IS the mark', () => {
+    const mark = navMark({ clashes: [clash('said once')] })
+
+    expect(mark.description).toBe('said once')
+  })
+
+  it('still returns ONE mark — the nav item has room for one dot', () => {
+    const mark = navMark({
+      status: PLUGIN_STATUS.FAILED,
+      health: health(HEALTH_STATE.UNAVAILABLE),
+      clashes: [clash('and a clash as well')],
+    })
+
+    expect(Object.keys(mark).sort()).toEqual(['description', 'title', 'tone'])
+    expect(mark.tone).toBe('err')
   })
 })

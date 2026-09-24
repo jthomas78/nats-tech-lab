@@ -13,7 +13,10 @@
 //   { group: string, sections: [ <section> ] }        a collapsible group
 //
 // An item is a BUTTON by default and a real LINK when it carries `to`
-// (D17-6). The two modes coexist in one list: a button-only consumer passes
+// (D17-6). A link is marked active by the router, which decides from the
+// matched ROUTE RECORD and not from the path text — so a root link is not
+// marked active on every page under it, and nothing here needs an `exact`
+// flag. The two modes coexist in one list: a button-only consumer passes
 // `modelValue` and reads `update:modelValue` exactly as before, and a link
 // consumer passes neither, because the router already knows what is active
 // and the browser already knows how to open a link in a new tab. A button
@@ -51,7 +54,15 @@ const isLink = (item) => item.to != null
 const tagFor = (item) => (isLink(item) ? 'router-link' : 'button')
 const attrsFor = (item) =>
   isLink(item)
-    ? { to: item.to, class: 'nav-item', activeClass: 'active' }
+    ? {
+        to: item.to,
+        class: 'nav-item',
+        // The stylesheet knows one selector, so both of the router's classes
+        // are named to it rather than leaving the router's own defaults to
+        // leak a second class name into the markup.
+        activeClass: 'active',
+        exactActiveClass: 'active',
+      }
     : {
         type: 'button',
         class: ['nav-item', { active: item.key === props.modelValue }],

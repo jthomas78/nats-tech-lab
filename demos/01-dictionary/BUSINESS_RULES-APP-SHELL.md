@@ -1945,6 +1945,9 @@ fixtures.
   - **A router-backed entry renders a REAL link.** An item that carries `to` renders an
     anchor with an `href`, so open-in-new-tab works and the browser's own active-route behaviour
     applies. A `<button>` that calls `router.push` **must not** be accepted as satisfying this.
+    Which link is active is the router's answer and never a path comparison the rail makes:
+    `/` is the text prefix of every path in the shell, and a root link **must not** read as
+    active on the screens under it.
   - **A link claims no selection.** In link mode the component **must not** require `modelValue`,
     **must not** emit `update:modelValue`, and **must not** write `aria-pressed`; the router is the
     only thing that says what is active.
@@ -1959,6 +1962,28 @@ fixtures.
   routes and clash detection stay in the shell, and nothing in `shared/ui-shell/` may learn what a
   plugin is. This does not make the rail an extension point — BR-AS07 is unchanged, and this phase
   adds no way for a plugin to render arbitrary content into it.
+
+- **BR-AS89 — The rail is one list: the shell's own band, then the merged tree.** The sidebar
+  **must** be built from `navigationTree` (BR-AS86) and `navigationClashes` (BR-AS87) and rendered
+  through the shared `NavList` (BR-AS88). The two hand-rolled blocks it replaces — one for the
+  shell's screens, one a flat `v-for` over every plugin's entries — **must** be gone, because a
+  reader cannot see from two lists which of them a given entry will appear in.
+  - **The shell's band comes first and is host-owned.** Home and Plugins sit in a band the shell
+    names, above every plugin band. A plugin **must not** be able to place an entry into it, rename
+    it, or reorder it; BR-AS07 is unchanged and this phase adds no way in.
+  - **An empty band is not drawn.** A band whose entries all went away — withdrawn, refused or not
+    permitted — **must not** leave a heading behind, and **must** come back when the plugin does
+    (BR-AS56).
+  - **A mark is the plugin's own.** One nav item carries at most one dot, chosen by the precedence
+    in `navMark.js`: load status, then health, then clash (BR-AS04, BR-AS60). A sibling plugin's
+    failure **must not** dot this entry, and a clash **must** be attributed by the participating
+    entry's qualified id, never by plugin — a plugin with four entries and one clashing label
+    marks one of the four.
+  - **The clash ranks LAST, and never disappears when it loses.** Load and health are runtime
+    faults; a clash is a configuration fault (amendment A2), so a failed plugin keeps the colour.
+    Because the clash can therefore lose the dot, every mark **must** also carry an accessible
+    description naming every signal that applies, rendered as text. **A clash mark is reachable by
+    a screen reader, not colour alone, on BOTH affected entries.**
 
 **Existing route admission and withdrawal behaviour remains UNCHANGED by this phase**
 (amendment A6). A route that is missing, refused or not permitted keeps the refusal behaviour of
@@ -1977,3 +2002,4 @@ withdrawal stays restorable. No rule above re-classifies any of that.
 | BR-AS86 | *(17c)* `lab-shell/src/shell/contributions/navigationTree.spec.js` — grouping by `group.id` and never by label, the string shorthand, an ungrouped entry landing in `Features`, a plugin that cannot rename `Features`, the shell table first and unknown bands by id rather than by first seen, the within-band cascade, and the purity itself: the same tree from a reversed index, from three separate indexing passes, and across a withdrawal and a restore. The clash block holds amendment A2 — one displayed name chosen by `pluginId` then `declarationIndex`, both entries still placed, and the losing label kept with its claimant. |
 | BR-AS87 | *(17d)* `lab-shell/src/shell/contributions/navigationClashes.spec.js` — the three clash kinds, each naming its kind, its band and **both** owning plugins; the three silences that bound them (an agreed label, a shell-owned band, the same name at the same route, the same name in two different bands); the three cases A2 settled as not clashes plus the unresolved route that stays a refusal; a withdrawal taking a clash away and a restore bringing it back; and purity — the same clashes in the same order from a reversed index. `lab-shell/src/shell/bootShell.spec.js` — the same record on the inventory row of every plugin it names, with `refusals` still empty. `lab-shell/src/views/PluginsView.spec.js` — the two lists rendered apart, and no clash list at all for a plugin with none. |
 | BR-AS88 | *(17e)* `demos/01-dictionary/frontend/admin/src/components/NavList.spec.js` — the existing button mode untouched, then link mode (a link not a button, no `modelValue` needed, no `aria-pressed`, nothing emitted on click, and both modes mixed in one list), the marker slot drawn per item and absent without a slot, and section identity: the eyebrow fallback for a consumer that passes no id, a band kept across a label edit, and two ids kept apart under one spelling. `lab-shell/src/shell/ui/navListLinkMode.spec.js` is the half a stub cannot prove — mounted against a REAL router, so the anchor has a real `href`, the router alone marks what is active, and the mark follows a route change nobody told the component about. |
+| BR-AS89 | *(17f)* `lab-shell/src/shell/ui/shellNavSections.spec.js` — the rail as data: the shell band first and present with no plugins at all, the `Features` fallback, the phase's worked two-plugin example in band and item order, a route named by qualified id, an empty band not drawn and restored with its plugin, mark isolation between plugins, and a clash marked on both participating entries by qualified id. `lab-shell/src/shell/ui/ShellNav.spec.js` — the rail mounted against a real router: one `<nav>` the shell labels, a plugin entry as a real `<a href>` with no `aria-pressed`, only the current page marked, the dot in the chosen tone, and the same thing in words — including a clash kept in the words of BOTH entries when one lost the dot to a failure. `lab-shell/src/shell/registry/navMark.spec.js` — the precedence with the clash last, and the description that survives losing the colour. |

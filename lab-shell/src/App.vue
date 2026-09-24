@@ -6,13 +6,13 @@ import AppShell from '@ui-shell/AppShell.vue'
 import { computed, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { navMark } from './shell/registry/navMark.js'
 import { summarizeAttention } from './shell/registry/statusRollup.js'
 import { breadcrumbTrail } from './shell/routing/breadcrumb.js'
 import { createNavigationPending } from './shell/routing/navigationPending.js'
 import { SHELL } from './shell/shellKey.js'
 import RegistrySignalBanner from './shell/ui/RegistrySignalBanner.vue'
 import ShellFooter from './shell/ui/ShellFooter.vue'
+import ShellNav from './shell/ui/ShellNav.vue'
 import PluginSlot from './shell/ui/PluginSlot.vue'
 import SkeletonRows from './shell/ui/SkeletonRows.vue'
 import { isWithdrawnRoute } from './shell/routing/withdrawnRoutes.js'
@@ -22,7 +22,6 @@ const shell = inject(SHELL)
 const route = useRoute()
 const router = useRouter()
 
-const navigation = computed(() => shell.contributions.navigation)
 const inventory = computed(() => shell.inventory)
 const trail = computed(() =>
   breadcrumbTrail(route.meta, (id) => shell.statuses.get(id)?.name ?? null),
@@ -36,14 +35,6 @@ const controls = computed(() => shell.contributions.shellControlsFor(route.path)
    string, because a cause can quote a remote URL (BR-AS04). */
 const attention = computed(() => summarizeAttention(inventory.value))
 
-/* The nav item's single dot. Which of the two signals wins is BR-AS60, and it
-   is decided in `navMark` — this template renders one mark, never a pair of
-   conditionals whose order carries the rule. */
-const markFor = (pluginId) => navMark({
-  status: shell.statuses.get(pluginId)?.status ?? null,
-  health: shell.health?.signals?.[pluginId] ?? null,
-})
-
 /* A deep link into a remote that has never been loaded spends a network fetch
    before the view exists; this is what fills that gap (task 1b-6). */
 const { pending: navigating, target: navigatingTo } = createNavigationPending(router)
@@ -53,11 +44,6 @@ const { pending: navigating, target: navigatingTo } = createNavigationPending(ro
    component before the withdrawal, and re-resolving it would mean a live
    navigation on a URL nobody asked to leave. */
 const withdrawnHere = computed(() => isWithdrawnRoute(shell.contributions, route))
-
-function isActive(entry) {
-  const target = router.resolve({ name: entry.routeQualifiedId })
-  return route.path === target.path || route.path.startsWith(`${target.path}/`)
-}
 </script>
 
 <template>
@@ -101,69 +87,10 @@ function isActive(entry) {
       />
     </template>
 
+    <!-- One rail, one definition. The shell's own screens, then every
+         plugin's navigation merged into shell-placed bands (BR-AS89). -->
     <template #sidebar>
-      <!-- The shell's own two screens. They carry no feature content: Home is
-           a host for `shell/home-main/v1`, Plugins is the inventory. -->
-      <nav class="nav-group">
-        <div class="eyebrow">
-          <span>Shell</span>
-        </div>
-        <router-link
-          class="nav-item"
-          :class="{ active: route.path === '/' }"
-          to="/"
-        >
-          <i class="pi pi-home" />
-          <span class="label-fade">Home</span>
-        </router-link>
-        <router-link
-          class="nav-item"
-          :class="{ active: route.path === '/plugins' }"
-          to="/plugins"
-        >
-          <i class="pi pi-box" />
-          <span class="label-fade">Plugins</span>
-          <!-- The count is the inventory size, so the badge and the screen it
-               leads to can never disagree. -->
-          <span
-            v-if="attention.count"
-            class="nav-dot"
-            :class="attention.tone"
-          />
-          <span
-            v-else
-            class="nav-badge"
-          >{{ inventory.length }}</span>
-        </router-link>
-      </nav>
-      <nav class="nav-group">
-        <div class="eyebrow">
-          <span>Features</span>
-        </div>
-        <router-link
-          v-for="entry in navigation"
-          :key="entry.qualifiedId"
-          class="nav-item"
-          :class="{ active: isActive(entry) }"
-          :to="{ name: entry.routeQualifiedId }"
-        >
-          <i
-            v-if="entry.icon"
-            :class="entry.icon"
-          />
-          <span class="label-fade">{{ entry.label }}</span>
-          <!-- One dot, whichever signal earned it: this plugin's own failure,
-               or a dependency of it that is not answering. A sibling's failure
-               never dots this entry — that isolation is the whole claim the
-               shell makes (BR-AS04). -->
-          <span
-            v-if="markFor(entry.pluginId)"
-            class="nav-dot"
-            :class="markFor(entry.pluginId).tone"
-            :title="markFor(entry.pluginId).title"
-          />
-        </router-link>
-      </nav>
+      <ShellNav />
     </template>
 
     <template #footer>
@@ -213,30 +140,9 @@ function isActive(entry) {
 .crumb .sep {
   color: var(--p-text-disabled-color);
 }
-.nav-item {
-  text-decoration: none;
-}
-.nav-badge {
-  margin-left: auto;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 10px;
-  color: var(--p-text-disabled-color);
-  background: var(--lab-disabled-bg);
-  border-radius: 100px;
-  padding: 1px 6px;
-}
-.nav-dot {
-  margin-left: auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.nav-dot.err,
 .dot.err {
   background: var(--err);
 }
-.nav-dot.warn,
 .dot.warn {
   background: var(--warn);
 }

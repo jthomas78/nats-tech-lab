@@ -197,6 +197,10 @@
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
+  /* An item is a <button> or a real <a> (NavList's link mode, D17-6). The
+     underline is the only thing the two disagree about, and it is reset here
+     so a consumer does not have to know which tag it asked for. */
+  text-decoration: none;
 }
 .nav-item svg { flex-shrink: 0; opacity: 0.85; }
 .nav-item:hover { color: var(--p-text-color); }

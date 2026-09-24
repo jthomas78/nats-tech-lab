@@ -3,10 +3,10 @@
 > **Status: Phases 1–5, 7, 8, 13, 14 COMPLETE and archived. Phase 15's design gate PASSED
 > (2026-09-02); its task checklist is derived and specs are next. Phase 16
 > (`plugin-source: build`) is APPROVED and CLOSED 2026-09-24 — 16a to 16l done, no open item.
-> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; 17a to 17e are done — both
-> contracts carry the new forms, the grouped tree exists as data, its clashes are reported and the
-> shared rail renders links and markers — and 17f (the shell's rail switches to `NavList`) is
-> next.**
+> Phase 17 (one navigation tree) is APPROVED 2026-09-24 and OPEN; 17a to 17f are done — both
+> contracts carry the new forms, the grouped tree exists as data, its clashes are reported, the
+> shared rail renders links and markers, and the shell now draws ONE rail from that tree — and 17g
+> (the generic default-route redirect) is next.**
 >
 > This file follows `CLAUDE.md`'s required sequence: proposed business rules first, then an explicit
 > design gate. The gate was passed on 2026-08-28 — see
@@ -2838,9 +2838,30 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   (9 admin, 5 lab-shell); admin Vitest **351 green**, seafreight-app **36 green**, lab-shell
   **955 green**, lab-shell lint 0 errors. `shared/ui-shell/` sits outside every `lint` script in
   the repo, so the edited component is guarded by its specs and not by ESLint.
-- **17f — The shell's rail switches to `NavList`.** `App.vue`'s two hand-rolled blocks go.
-  `navMark.js` gains the clash mark last in its precedence, and the accessible description that
-  survives losing the dot (A2).
+- **17f — The shell's rail switches to `NavList`. DONE.** `App.vue`'s two hand-rolled blocks are
+  gone; the rail is `navigationTree` rendered through the shared component. `navMark.js` gained the
+  clash mark last in its precedence, and the accessible description that survives losing the dot
+  (A2). **BR-AS89** is the rule, and **BR-AS88**'s link bullet gained the root-link clause.
+  The rail split in two rather than growing an `App.spec.js` there has never been: `shellNavSections.js`
+  turns the tree into sections and is a pure function, and `ShellNav.vue` supplies the mark slot and
+  nothing else — the same split `ShellFooter.vue` and `RegistrySignalBanner.vue` already use, so the
+  rail's ORDER and its MARKS are assertable without a DOM. Two smaller things fell out of the swap.
+  `iconClass.js` bridges the two icon forms: `admin` and `seafreight-app` pass imported SVG
+  components, while every manifest names an icon by PrimeIcon class string, so the shell wraps the
+  string in a functional component cached on the string itself — `shared/ui-shell/` learned nothing
+  about either (BR-AS88). And `.nav-item` gained `text-decoration: none` in `app-shell.css`, because
+  every prior consumer rendered a `<button>` and no link had ever been drawn onto that class.
+  One expected change was tried and then removed: an `exact` flag for the Home link. A spec written
+  against a real router proved it dead — vue-router decides active from the matched route RECORD,
+  not from the path text, and the shell's routes are flat siblings, so `/` is never active on the
+  screens under it. The flag went; the spec that disproved it stayed, because the day that changes
+  the rail goes wrong quietly on every screen.
+  Clash membership is asked of the clash record, not guessed from the plugin: every record carries
+  its participants' qualified ids, so a plugin with four entries and one clashing label marks one of
+  the four, and a `duplicate-group-label` whose other participant is the shell (`qualifiedId: null`)
+  blames nobody. 35 new specs (9 `navMark`, 22 `shellNavSections`, 10 `ShellNav`, less the 2 that
+  replaced the withdrawn `exact` pair in `navListLinkMode`); lab-shell Vitest **997 green**, admin
+  **351 green**, seafreight-app **36 green**, lab-shell lint 0 errors.
 - **17g — The generic default-route redirect**, with A4's declaration, failure behaviour and the
   permission, withdrawal and readiness checks.
 - **17h — Demo 04 splits, in ONE commit (A3).** Two routes, two nav entries, one shared lesson
