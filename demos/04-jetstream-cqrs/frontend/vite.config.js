@@ -46,6 +46,15 @@ export default defineConfig({
         // own reactivity system, and `inject` across the boundary would stop
         // working. The shell owns the version (BR-AS09).
         vue: { singleton: true, requiredVersion: '^3.5' },
+        // The PrimeVue theme engine, for the same reason and with the same
+        // words as `lab-shell/vite.config.js`. The host calls
+        // `app.use(PrimeVue, { theme })` exactly once; a remote that bundles
+        // its own copy of this package gets a second, unconfigured theme
+        // service, and its components then render their `*-style` block
+        // without the `*-variables` block that carries the preset's tokens.
+        // Embedded tabs lost their padding, underline and active colour that
+        // way until 2026-09-24. Both folders resolve 0.7.4.
+        '@primeuix/styled': { singleton: true, requiredVersion: '^0.7.4' },
       },
       // No .d.ts generation: there is no TypeScript here, and the dts worker
       // shells out to tsc against a tsconfig that does not exist.
