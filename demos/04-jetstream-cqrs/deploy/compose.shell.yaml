@@ -1,0 +1,99 @@
+# Demo 04, arranged so the LAB SHELL's container can reach it (app-shell 16l).
+#
+# An overlay, never the default. `compose.yaml` on its own is still the whole
+# demo for a laptop: one NATS container, everything else on the host through
+# `deploy/start.sh`. Bring this file in as well, and two more containers start
+# — the demo's frontend image and its command API — on one extra network.
+#
+#   docker network create lab-shell-plugins
+#   docker compose -f compose.yaml -f compose.shell.yaml up -d --build
+#
+# WHY A SEPARATE NETWORK, AND WHY IT IS NOT SILENT
+#
+# Each demo owns its Compose files and does not share a network with the lab
+# shell or with another demo (root CLAUDE.md). That rule is not being bent
+# here. The shell does NOT join demo 04's network, and demo 04 does not join
+# the shell's: neither can see the other's private services, and demo 04's
+# NATS stays where it was, on this project's own default network.
+#
+# Instead there is a third, named network that is nobody's private one —
+# `lab-shell-plugins`, an EDGE. Exactly two of demo 04's containers put a foot
+# on it, and both of them are things the shell was always meant to call:
+#
+#   demo04-frontend   the built plugin assets  → /plugins/demo-04/…
+#   demo04-cqrs       the declared API routes  → /demo-api/04-jetstream-cqrs/…
+#
+# `nats` is absent from it on purpose, and so is anything else. The shell can
+# therefore reach what demo 04 published and nothing demo 04 kept.
+#
+# The network is `external: true` — created by hand, once, with the command
+# above. That is the "not silently" half. Compose will not conjure it, so a
+# stack cannot drift onto a shared network by accident; if it is missing, this
+# overlay fails loudly and the plain `compose.yaml` run is unaffected.
+services:
+  demo04-frontend:
+    build:
+      # Repo root: the app imports the shared UniFi theme and the shared
+      # AppShell, the same as every other frontend in this lab.
+      context: ../../..
+      dockerfile: demos/04-jetstream-cqrs/frontend/Dockerfile
+    container_name: lab4-frontend
+    ports:
+      # A direct look, without the shell. Same path either way, because the
+      # app is built with `base: '/plugins/demo-04/'`:
+      #   http://localhost:20401/plugins/demo-04/
+      - "20401:80"
+    networks:
+      - default
+      - shell-edge
+
+  demo04-cqrs:
+    build:
+      context: ../cqrs
+    container_name: lab4-cqrs
+    # 0.0.0.0 because the shell dials this container across the edge network.
+    # The loopback default in names.go is right for a host process and wrong
+    # for a container, where the network namespace is the boundary instead.
+    #
+    # `-origin` is deliberately NOT widened. F-3 for this phase: no CORS is
+    # added to any demo backend. The browser calls the shell's origin and the
+    # shell calls this container, so no grant is needed and none is given.
+    command: ["serve", "-url", "nats://nats:4222", "-addr", "0.0.0.0:20402"]
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - default
+      - shell-edge
+
+  # The two folders that fill the KV buckets. Not on the edge network: the
+  # shell never calls them, it reads what they wrote through demo04-cqrs.
+  # They are here so the packaged arrangement is the WHOLE demo — without
+  # them /readyz still answers yes and every KV panel on the page stays
+  # empty, which looks like a broken demo rather than a missing process.
+  demo04-snapshotter:
+    build:
+      context: ../cqrs
+    container_name: lab4-snapshotter
+    command: ["snapshotter", "-url", "nats://nats:4222"]
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - default
+
+  demo04-projector:
+    build:
+      context: ../cqrs
+    container_name: lab4-projector
+    command: ["projector", "-url", "nats://nats:4222"]
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - default
+
+networks:
+  shell-edge:
+    external: true
+    name: lab-shell-plugins

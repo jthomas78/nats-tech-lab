@@ -10,6 +10,10 @@
     "hostedUpstream": "http://demo04-cqrs:20402",
     "timeoutMs": 3000
   },
+  "//assets": "Where this demo's BUILT assets are served in a hosted deployment (app-shell BR-AS77, task 16l). The lab shell's packaged image compiles no plugin and copies no plugin -- that is BR-AS03 -- so /plugins/demo-04/ had nothing behind it and every asset was a 404, although development worked. This names the demo's own frontend image, and the shell forwards the whole prefix there: entry, lazy chunks, CSS, fonts and images. Origin only, no path: the prefix is already the public layout and this image is built with the same `base`, so nothing is rewritten on the way through. Started by deploy/compose.shell.yaml, which is the ONLY thing that puts a demo 04 container on a network the shell can see.",
+  "assets": {
+    "hostedUpstream": "http://demo04-frontend:80"
+  },
   "api": {
     "//": "The command surface, route by route, so the lab shell can serve it on its own origin (app-shell BR-AS82). Embedded, the page is on the shell's origin and an absolute call to 20402 is cross-origin, so the browser discards the answer and every button reports `Failed to fetch`. The fix is the shell proxying these paths, NOT a wider CORS grant in cqrs/names.go — see this demo's CLAUDE.md and the phase's F-3. Every path here is also a route in cqrs/serve.go; a path not listed is not forwarded, which is what stops this being a general tunnel. /readyz is deliberately absent: it has its own route above, and it is the shell's call to make, not the page's. The trailing slash on /commands/ is a prefix, matching how serve.go registers it.",
     "devPort": 20402,

@@ -91,6 +91,27 @@ missing. To reverse it:
 demos/04-jetstream-cqrs/deploy/stop.sh
 ```
 
+### All in containers, for a packaged lab shell
+
+`start.sh` runs three of the four pieces on your host. That is fine for
+development. A **packaged** lab shell runs in its own container and cannot
+reach a host process, so it needs this demo in containers too. Run these two
+from `demos/04-jetstream-cqrs/deploy/`:
+
+```bash
+docker network create lab-shell-plugins
+```
+
+```bash
+docker compose -f compose.yaml -f compose.shell.yaml up -d --build
+```
+
+That adds the frontend, the command API and both projectors as containers. The
+`lab-shell-plugins` network is the only place the shell and this demo meet —
+neither joins the other's private network, and this demo's NATS server is not
+on it. The shell joins the same network from its own side with
+`demos/01-dictionary/deploy/cell/compose.plugins.yaml`.
+
 The rest of this section is the same thing done by hand, one step at a time,
 because the steps are the lesson.
 

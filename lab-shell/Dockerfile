@@ -44,6 +44,12 @@ COPY --from=build /repo/lab-shell/dist/deploy/demo-readiness.conf /etc/nginx/dem
 # The generated demo API routes (BR-AS82), moved out of the served tree for
 # the same reason.
 COPY --from=build /repo/lab-shell/dist/deploy/demo-api.conf /etc/nginx/demo-api.conf
+# The generated hosted plugin-asset routes (BR-AS77, task 16l). Same move, and
+# the same reason: it is routing config naming upstreams no page needs. This
+# is what makes `/plugins/<id>/…` answer in an image that, as the note at the
+# top of this file says, packages no plugin of its own — the files come from
+# the demo's image over the network, not from a COPY here.
+COPY --from=build /repo/lab-shell/dist/deploy/demo-assets.conf /etc/nginx/demo-assets.conf
 COPY --from=build /repo/lab-shell/dist /usr/share/nginx/html
 RUN rm -rf /usr/share/nginx/html/deploy
 EXPOSE 80

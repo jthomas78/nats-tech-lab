@@ -152,6 +152,32 @@ function apiOf(metadata) {
   return { devPort, hostedUpstream, routes: [...new Set(routes)].sort() }
 }
 
+/* The demo's own HOSTED asset upstream, normalised, or null (BR-AS77, task 16l).
+
+   Why this exists. `plugin-source: build` copies each demo's built output into
+   the shell's own served tree, so `/plugins/<id>/…` is a file on disk. A
+   `plugin-source: registry` shell compiles no plugin and copies no plugin —
+   that is BR-AS03 — so in a packaged registry deployment that prefix has
+   nothing behind it and every asset is a 404. Development hid this, because
+   the dev proxy forwards the prefix to the demo's own dev server.
+
+   The repair is the same shape as `readiness` and `api`: the demo NAMES where
+   its built assets are served in a hosted deployment, and the shell forwards
+   the whole prefix there. The shell learns an upstream; it never learns a
+   file layout, and it still compiles nothing.
+
+   Origin only — scheme, host, optional port, and nothing else. A path here
+   would be a second, hidden rewrite of the public layout, and a query or a
+   fragment has no meaning for an upstream. `//host` is rejected with the rest,
+   because it is not a URL this proxy can name. */
+function assetsOf(metadata) {
+  const declared = metadata?.assets
+  if (!declared || typeof declared !== 'object') return null
+  const hostedUpstream = typeof declared.hostedUpstream === 'string' ? declared.hostedUpstream : ''
+  if (!/^https?:\/\/[A-Za-z0-9._-]+(?::[0-9]+)?$/.test(hostedUpstream)) return null
+  return { hostedUpstream }
+}
+
 function directoriesIn(dir, fs) {
   let entries
   try {
@@ -248,6 +274,13 @@ export function scanDemoManifests({ repoRoot, fs = { readdirSync, readFileSync, 
          calls made after it, and merging them would let a readiness
          declaration widen into a command route. */
       api: apiOf(metadata),
+      /* Where this demo's BUILT assets are served in a hosted deployment
+         (BR-AS77, task 16l). Separate from `devServer.port`, which is the
+         same prefix in development, and separate from `dist`, which is the
+         same prefix when the shell packages the files itself. Three ways to
+         fill one public layout; a demo declares the ones that are true of it
+         and the shell picks by how it was built. */
+      assets: assetsOf(metadata),
       /* A local run command is information about the demo and is always
          true. Whether a READER is shown it is a property of the shell
          deployment, not of this file (F-5), so nothing is decided here. */

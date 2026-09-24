@@ -6,6 +6,7 @@ import { defineConfig } from 'vite'
 
 import { buildCatalogue } from './tools/buildCatalogue/vitePlugin.js'
 import { demoApi } from './tools/buildCatalogue/demoApi.js'
+import { demoAssets } from './tools/buildCatalogue/demoAssets.js'
 import { demoReadiness } from './tools/buildCatalogue/demoReadiness.js'
 import { pluginAssets } from './tools/buildCatalogue/pluginAssets.js'
 
@@ -55,7 +56,14 @@ export default defineConfig({
      is the readiness route's sibling, not its extension: readiness is one
      probe the shell makes before mounting, this is the demo's own calls
      after it, and only the routes a demo named are forwarded. */
-  plugins: [vue(), buildCatalogue(), demoReadiness(), demoApi(), pluginAssets(), ...federationPlugin],
+  /* `demoAssets` emits the hosted `/plugins/<id>/…` proxy rule (BR-AS77,
+     task 16l). Build only, and only for a `registry` shell: a `build` shell
+     packages those files itself, and two rules on one prefix would let the
+     proxy quietly retire the packaged copy. */
+  plugins: [
+    vue(), buildCatalogue(), demoReadiness(), demoApi(), demoAssets(), pluginAssets(),
+    ...federationPlugin,
+  ],
   resolve: {
     /* One Vue, one PrimeVue, whatever a nested workspace resolves for itself.
        An example plugin under `plugins/` installs its own copies, so a spec

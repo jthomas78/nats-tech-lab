@@ -32,6 +32,8 @@ in a shared `diagrams/` directory.
 | Pattern cards (HTML + exported PDF) | `docs/demo-04-pattern-cards.*` |
 | Go module | `cqrs/` |
 | Compose | `deploy/compose.yaml` |
+| Compose overlay — containers for the lab shell | `deploy/compose.shell.yaml` |
+| Images | `frontend/Dockerfile`, `cqrs/Dockerfile` |
 | Start / stop the whole demo | `deploy/start.sh`, `deploy/stop.sh` |
 
 The one exception is `go.work` at the repo root, which must list `cqrs/` for
@@ -59,6 +61,50 @@ files name, so a `cqrs` started by hand is left alone. Run state lives in
 `public/demo.json`'s `runCommand` names `deploy/start.sh` and nothing else.
 `lab-shell/src/shell/demos/demoRunCommand.spec.js` fails if that path stops
 existing or stops being executable.
+
+### Starting it for a PACKAGED lab shell
+
+`start.sh` is the developer path: one container plus three Go processes on the
+host. A packaged `plugin-source: registry` lab shell cannot reach a host
+process, and it serves no plugin assets of its own (app-shell BR-AS03), so it
+needs this demo's own **containers** instead. That is `deploy/compose.shell.yaml`,
+added by app-shell task 16l:
+
+```bash
+docker network create lab-shell-plugins
+```
+
+```bash
+docker compose -f compose.yaml -f compose.shell.yaml up -d --build
+```
+
+It adds four containers — `demo04-frontend` (nginx, the built Vue app),
+`demo04-cqrs` (the command API and `/readyz`), `demo04-snapshotter` and
+`demo04-projector`. Run both commands from `deploy/`.
+
+**The network is the whole point, so do not change it casually.** The shell and
+this demo do **not** join each other's private networks. They meet on a third
+network, `lab-shell-plugins`, which is `external: true` on both sides — Compose
+will not create it, so a plain `docker compose up` of either stack is unchanged
+and cannot drift onto it. Only `demo04-frontend` and `demo04-cqrs` sit on it.
+`nats` does not, and the shell cannot reach it. The shell joins from its own
+side with `demos/01-dictionary/deploy/cell/compose.plugins.yaml`, named on the
+command line — opt-in on both sides, never silent.
+
+`frontend/public/demo.json`'s `assets.hostedUpstream` names
+`http://demo04-frontend:80`, and the shell generates its `/plugins/demo-04/`
+proxy from it. It is an **origin, with no path**: this image is built with
+`base: '/plugins/demo-04/'`, so the prefix passes through unrewritten and a
+chunk URL the compiler wrote cannot drift from the proxy.
+
+`cqrs/Dockerfile` builds the same binary the host path builds, and
+`demo04-cqrs` passes only `-url` and `-addr` — **never `-origin`**. F-3 still
+holds: no CORS is added to this demo's backend. The browser reaches the command
+API through the shell's own origin (app-shell BR-AS82).
+
+`frontend/Dockerfile` copies this demo's `README.md`, `docs/` and `diagrams/`
+into the build. They are **build inputs**, not runtime assets — the About page
+imports them with `?raw` — and the image build fails without them.
 
 ## What this demo is
 

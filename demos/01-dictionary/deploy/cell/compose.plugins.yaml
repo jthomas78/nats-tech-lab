@@ -1,0 +1,39 @@
+# The lab shell reaches a demo's own frontend image (app-shell task 16l).
+#
+# An overlay, never the default. Without it, `app-shell-frontend` is exactly
+# what it has always been: a container on this project's `frontend` network
+# and nothing else. Add this file and it gains ONE more foot, on a named edge
+# network that is nobody's private one.
+#
+#   docker network create lab-shell-plugins
+#   docker compose -p poc --env-file ../environments/local-za-1.env \
+#     -f compose.yaml -f ../global/compose.control.yaml -f compose.plugins.yaml \
+#     up -d --build
+#
+# WHY THIS IS AN OVERLAY AND NOT A LINE IN compose.runtime.yaml
+#
+# Each demo owns its Compose files and shares no network with the lab shell
+# (root CLAUDE.md). A shell that joined a demo's network would break that, and
+# so would a shell that silently created a shared one on every `up`. So the
+# join is opt-in twice over: this file has to be named on the command line,
+# and the network has to exist already (`external: true` — Compose will not
+# conjure it). A plain run of the cell is unchanged and cannot drift onto it.
+#
+# What the shell can reach across the edge: the containers a demo deliberately
+# put there, and nothing else. For demo 04 that is its frontend image and its
+# command API — see demos/04-jetstream-cqrs/deploy/compose.shell.yaml. Its
+# NATS server is not on the edge and stays unreachable from here.
+#
+# The routes themselves are GENERATED, not written here: each demo names its
+# upstream in its own demo.json and the shell's build turns that into
+# /etc/nginx/demo-assets.conf (BR-AS81). This file only supplies the wire.
+services:
+  app-shell-frontend:
+    networks:
+      - frontend
+      - shell-edge
+
+networks:
+  shell-edge:
+    external: true
+    name: lab-shell-plugins

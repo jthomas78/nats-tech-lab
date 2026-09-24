@@ -20,6 +20,15 @@ The stack is three bands under `demos/01-dictionary/deploy/` (ADR-055):
   Postgres, Temporal) and `compose.runtime.yaml` (the services and frontends).
 - `cell/compose.dedicated.yaml` — the micro-frontend plugin fixtures. Not part of
   a cell; add it with an extra `-f` when you want them.
+- `cell/compose.plugins.yaml` — an overlay that puts `app-shell-frontend` on the
+  external `lab-shell-plugins` network, so the packaged shell can reach another
+  demo's frontend container and serve it at `/plugins/<id>/…` (app-shell
+  BR-AS77, task 16l). Not part of a cell either; add it with an extra `-f`. It
+  attaches nothing else, and the cell's own networks are unchanged — the shell
+  does **not** join the other demo's network and the other demo does **not**
+  join this one's. Create the network once with
+  `docker network create lab-shell-plugins`; it is `external: true` on both
+  sides, so a cell brought up without this file behaves exactly as before.
 - `global/compose.control.yaml` — the control plane (`accounts-service`). One per
   trust domain, not one per region.
 

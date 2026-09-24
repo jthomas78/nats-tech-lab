@@ -946,8 +946,9 @@ deployment-owned map), which stays in the archive as the record of what was repl
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
 re-opened. Done: 16a to 16i — the phase was CLOSED 2026-09-24, then re-opened the same day for
 16j, which closes a gap 16e named and deliberately left. Re-opened again the same day for 16k,
-an independent review of 16a-16i. Done: 16a to 16k — the phase is CLOSED 2026-09-24, with ONE
-finding carried out of it as a named open item (see 16k, finding 2).**
+an independent review of 16a-16i. Re-opened a third time the same day for 16l, which closes the
+one finding 16k carried out as a named open item. Done: 16a to 16l — the phase is CLOSED
+2026-09-24 with NO open item.**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1976,6 +1977,8 @@ Recommendation on the record: **Option B**, because it is the arrangement the re
 already describes, it keeps the shell's image free of demo output, and it puts demo 04's deployment
 where demo 04's own `CLAUDE.md` says it belongs.
 
+**Option B was chosen by the user on 2026-09-24 and built as task 16l. This finding is CLOSED.**
+
 **Finding 3 — the readiness timeout ended before the body was read. CONFIRMED, FIXED.** P2.
 `fetch` resolves on the response HEADERS. `probeDemo` cleared its timer there, so a demo that sent
 `200` with a JSON content type and then stalled mid-body left `response.json()` awaiting forever
@@ -2174,6 +2177,109 @@ files only.
 `git log --oneline f9db851..HEAD -- demos/04-jetstream-cqrs/frontend/public/manifest.json` returns
 one commit, `f224965` (16d), which created it. It has not been amended since, and both sources read
 those same bytes.
+
+**16l — The hosted asset proxy, and demo 04's own image. DONE 2026-09-24.** *Closes 16k finding 2.
+Rule BR-AS77. Option B, chosen by the user.*
+
+*The gap.* A packaged `registry` shell advertised `/plugins/demo-04/remoteEntry.js` in its own
+registry and answered `404`. BR-AS03 is why: the shell's image compiles no plugin and copies no
+plugin, so `nginx.conf`'s `location /plugins/` had an empty directory behind it. Development hid
+this, because the dev proxy forwards the prefix to demo 04's dev server on `20401`.
+
+*The repair, in three parts.*
+
+1. **Demo-owned metadata.** `demo.json` grows an `assets` block with one field,
+   `hostedUpstream`. `scanDemos.js` normalises it in the same pass that already reads `readiness`
+   and `api` (`assetsOf`), and refuses anything that is not a bare `scheme://host[:port]` origin —
+   no path, no query, no trailing slash. An origin is all that is needed, because the demo's image
+   is built with the same `base: '/plugins/demo-04/'` the shell serves it at, so nothing is
+   rewritten on the way through and a compiler-written chunk URL cannot drift from the proxy.
+2. **A generated conf, gated on plugin source.** `tools/buildCatalogue/demoAssets.js` writes
+   `dist/deploy/demo-assets.conf`, one `location` per declaring demo, which the Dockerfile copies
+   to `/etc/nginx/demo-assets.conf` and `nginx.conf` includes. It is the exact sibling of
+   `demoReadiness.js` and `demoApi.js`, with one difference that matters: it emits **no** location
+   in `build` mode. nginx matches the longest prefix, so a `/plugins/demo-04/` proxy would shadow
+   the packaged files under `/plugins/` regardless of include order — build mode's static packaging
+   is preserved by emitting nothing rather than by ordering. The gate is `readPluginSource(env)`
+   against `config.env ?? process.env`, character for character the expression `pluginAssets.js`
+   uses to decide whether to package, because the two answers must agree.
+3. **Demo 04's own deployment.** `frontend/Dockerfile` (repo-root context, for `@unifi-theme` and
+   `@ui-shell`) and `cqrs/Dockerfile`, plus `deploy/compose.shell.yaml`, an overlay that adds the
+   frontend, the command API and the two projectors as containers. The frontend's own
+   `nginx.conf` ends `try_files $uri $uri/index.html =404` — **no** SPA fallback, so a missing
+   asset is a `404` and never HTML that a module loader would try to parse.
+
+*Network isolation, kept and explained.* Neither side joins the other's private network. A
+**third** network, `lab-shell-plugins`, is the edge. It is `external: true` in both compose files,
+so Compose will not conjure it and a plain `docker compose up` of either stack is unchanged and
+cannot drift onto it. Only `demo04-frontend` and `demo04-cqrs` put a foot on it; demo 04's `nats`
+stays on its own default network and is unreachable from the shell. The shell joins it through
+`deploy/cell/compose.plugins.yaml`, an overlay named on the command line — opt-in on both sides,
+never silent. The upstream goes through a `set` variable with `resolver 127.0.0.11`, not a literal,
+so nginx defers the lookup to the request: a stopped demo is a `502` on its own prefix, not a shell
+that refuses to start.
+
+*Coverage added.* 24 new specs across two files, both proved to FAIL against the unfixed state
+before being kept:
+
+- `demoAssetsGeneration.spec.js` — fixture-driven. The declaration is optional; it normalises to
+  one upstream; eight malformed shapes are refused; the snippet serves the plugin prefix as a
+  prefix and rewrites nothing; it defers the lookup with a resolver; it never intercepts an
+  upstream status; it emits nothing in `build` mode; unset source means `registry` and an unknown
+  source throws; one location per declaring demo.
+- `hostedPluginAssets.spec.js` — read against the **real repo**, so it rots when the arrangement
+  does. Each declaring demo ships a frontend image and an nginx conf that ends `=404` with no SPA
+  fallback; its files sit under `/usr/share/nginx/html/plugins/<id>` and its Vite `base` matches;
+  the shell's `nginx.conf` includes the generated rule and names no demo; the shell's `COPY` lines
+  reference no `frontend/dist`; the edge network is external on both sides, absent from both
+  non-overlay composes, and carries only the two containers named above.
+
+Removing the `assets` block fails the first spec of the repo-wide file; removing the `include` line
+fails another. Both were reverted straight after.
+
+*Checks actually run — the packaged image, not the dev proxy.*
+
+- `docker build -f lab-shell/Dockerfile` — green. `docker run --rm lab-shell:16l cat
+  /etc/nginx/demo-assets.conf` shows the one generated location, and the image's own
+  `/usr/share/nginx/html` holds no `plugins/` directory, which is BR-AS03 still true.
+- Demo 04 brought up from `deploy/` with `compose.yaml -f compose.shell.yaml`, and the **real**
+  cell brought up from `deploy/cell/` with `compose.plugins.yaml` added. Through the cell's shell
+  on `7110`: `remoteEntry.js` `200 application/javascript` (63 648 bytes), a CSS file `200`, the
+  1.2 MB lazy chunk `200`, a `woff2` `200`, the prefix's own index `200`, and a missing asset
+  `404` with nginx's error page, not the SPA.
+- **Upstream unavailable, both ways.** `docker stop lab4-frontend` — the shell keeps serving `/`
+  and its catalogue at `200`, the prefix answers `502`. Then the shell was **cold-started with no
+  demo container running at all**: it came up, served `/` at `200`, and answered `502` on both the
+  asset prefix and the readiness route. That is the property the resolver variable exists for.
+- **Backend readiness — verified, separately.** `GET /demo-readiness/04-jetstream-cqrs` through the
+  packaged shell: `{"ready":true}` with all three checks ok (stream `ODOMETER`, both KV buckets).
+- **Interactive operation — verified, separately.** Through the packaged shell's own origin:
+  `POST /demo-api/.../commands/register` → `{"seq":84143}`, `POST .../commands/travel` →
+  `{"seq":84144}`, then `GET .../rehydrate?id=…` → the folded state, `usedSnapshot:true`. In a
+  browser on the cell shell at `/demo-04` the remote **mounted** — nav entry, breadcrumb, all three
+  tabs — the Showcase tab drew live KV and stream data over the demo's WebSocket, and the
+  Performance tab's `GET /demo-api/.../bench` and three `POST .../bench/seed` calls all returned
+  `200`. Loading assets alone would not have shown any of this.
+- `npx vitest run` in `lab-shell` — 73 files, 890 specs, green (was 866). `npm run lint` — 0
+  errors, 30 warnings, the existing baseline, `shell frame clean`. `npx vitest run` in
+  `demos/04-jetstream-cqrs/frontend` — 35 files, 513 specs, green. `go test -count=1 ./...` in
+  `demos/04-jetstream-cqrs/cqrs` — ok.
+- `hostBundleFingerprint.mjs --verify` — unchanged at
+  `7e6a007a2e92e58d321a9f6b59b4ba8190dc937083e5d424e33e6777c13c3bf0`. No host runtime source was
+  touched; the generator is build tooling.
+
+*Registry protocol and lifecycle — untouched.* No file under `backend/mfe-registry-service/` or
+`cmd/registry-acceptance/` was changed, and no BR-AS rule owned by `registry` mode was amended.
+The shell still fetches its catalogue the same way; only what answers a `/plugins/<id>/…` request
+changed.
+
+*Limitations, stated plainly.* The frontend image had to copy demo 04's `README.md`, `docs/` and
+`diagrams/` into the build, because the About page imports them with `?raw` — they are build
+inputs, not runtime assets, and the image build fails without them. Verified on macOS with Docker
+Desktop only. The registry-acceptance gate was not re-run for this task, on the grounds that
+nothing it asserts was touched. `demo04-cqrs` passes only `-url` and `-addr`, never `-origin`:
+F-3's "no CORS added to any demo backend" still holds, and the browser reaches the command API
+through the shell's origin, which is 16j's arrangement working as designed.
 
 **Phase exit conditions.** 16c verified on demo 04 — the whole-plugin prefix and HMR, not the entry
 alone. F-1 to F-5 are resolved (2026-09-23) and no task is blocked. BR-AS75 to BR-AS81 approved and
