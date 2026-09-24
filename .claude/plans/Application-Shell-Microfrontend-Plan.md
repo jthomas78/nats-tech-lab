@@ -2434,8 +2434,8 @@ wins and the first draft's wording is gone.
   (`/demo-04/lesson-01`, `/demo-04/lesson-02`) and two nav entries, and the embedded rail is
   deleted. Option B: a nav entry may carry a path suffix under its own plugin's prefix, leaving one
   route. **A is recommended** — the shell already owns deep links, and B invents a second way to
-  address a page while weakening BR-AS12. A is also the only option that lets a reader link to one
-  lesson.
+  address a page while weakening BR-AS12. A gives each lesson its own address most directly, within
+  the contract that already exists.
 
   A is NOT a two-line change, and the gate must settle its consequences with it:
   - **Deep link and refresh.** `/demo-04/lesson-02` must load lesson 02 directly, from a cold
@@ -2623,7 +2623,11 @@ shorthand accepted; ordering is the four-step cascade ending in `group.id`; the 
 six cases named; clashes report through a `navigationClashes` collection and never through
 `refusals`.
 
-#### Task checklist — derived 2026-09-24, none done
+#### Task checklist — derived 2026-09-24 — SUPERSEDED
+
+**Superseded the same day by "Task checklist — REVISED" at the foot of this phase. Kept for
+the record only: it omitted the Go contract entirely, and it split demo 04's manifest from its
+curated registry copy across two tasks. Do not work from the list below.**
 
 Ordered so that each task is shippable and green on its own. The shell's side comes first, because
 demo 04 cannot contribute a group until the shell can read one.
@@ -2650,6 +2654,116 @@ demo 04 cannot contribute a group until the shell can read one.
 
 Business rules are written and approved before the task that implements them, per the repo's
 required sequence. Numbers are allocated when 17a opens.
+
+
+#### Gate amendments — 2026-09-24, after a second Codex review
+
+The gate above stands; the chosen design is not re-opened. Five gaps made the checklist
+not-yet-implementable, and all five were verified against the code before being accepted. Where an
+amendment contradicts the entry above, the amendment wins.
+
+**A1 — The contract is TWO contracts, and the second one is Go.** The checklist named only the
+frontend schema. `demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain/registry.go:128`
+declares `Group string`, so a `{ id, label }` object fails registry decoding outright: build mode
+would go green while registry mode broke, which is precisely the split task 16l was opened to
+close. The default-route declaration has the same problem — an unknown field is dropped by ordinary
+decoding, or refused by manifest-drift checking, unless the backend is taught it.
+
+The backend's own comment on that struct is the reason this is delicate:
+`Contribution` is deliberately ONE flat struct over all five kinds, so that the two sides do not
+grow two definitions of one contract. Changing `Group`'s type touches every kind's decoding path.
+Backend work therefore gets its own task, before the merge, covering: the types, acceptance of the
+legacy string, the persistence and read round-trip, signed registration, and drift coverage.
+
+**A2 — The six clash cases were a checklist, not a policy. Settled here.** The entry asked which
+cases are clashes and which are refusals, and the gate summary then implied all six were clashes.
+That was contradictory. The settled policy is **three clashes, two inapplicable, one unchanged**:
+
+| Case | Ruling |
+|---|---|
+| Same `group.id`, conflicting `group.label` | **CLASH.** Both rendered, both marked. |
+| Different `group.id`, same visible label | **CLASH.** Both bands rendered, both marked. |
+| Same child label in one group, different routes | **CLASH.** Both rendered, both marked. |
+| Same `group.id`, conflicting group ORDER | **Inapplicable.** D17-2 gave the shell group placement; a plugin declares no order for a group, so the case cannot arise. |
+| Duplicate child identity across plugins | **Inapplicable.** Identity is qualified `${pluginId}/${id}` (`manifestSchema.js:256`), so the same local id in two plugins is VALID and not a clash. Inside one manifest it is already the `duplicate-id` refusal (`manifestSchema.js:151-158`). |
+| Route missing, refused, withdrawn or not permitted | **Not a clash — unchanged.** `unresolved-route` (`placementPolicy.js:229-243`), `permission-denied` (`placementPolicy.js:168-176`) and withdrawal (BR-AS56) keep their existing omission behaviour. A dead nav link is still never rendered. |
+
+Two things that policy forces, and which the phase must state rather than discover:
+
+- **A conflicting label still has to DISPLAY something.** Marking both contributors does not choose
+  the band's name. The displayed label is taken by the same cascade that orders the band —
+  `pluginId`, then `declarationIndex` — so it is deterministic and identical in both catalogue
+  sources. The losing label is not lost: it is named in the clash diagnostic.
+- **Marker precedence, and what survives losing the dot.** BR-AS60 allows one nav item one mark,
+  and load status already outranks health (`navMark.js`). A clash is a configuration fault, visible
+  at index time and fixable by an operator; load and health are runtime faults the reader is
+  looking at now. **A clash therefore ranks LAST of the three.** Because it can lose the dot, the
+  clash must remain reachable without it: it stays in the item's accessible description and on the
+  Plugins screen in every case. "Highlighted" is satisfied by the diagnostic plus the description,
+  not by the dot alone.
+
+**A3 — 17g and 17h must be ONE task.** The checklist changed demo 04's manifest in one task and its
+curated `registry.json` copy in the next. BR-AS78 requires those two to be byte-identical, so the
+intermediate state is a broken registry — which contradicts "each task is shippable and green on
+its own". The route ids, the plugin's exported components, the curated registry entry, the file
+rename and the demo's own scoped docs move together, in one commit.
+
+**A4 — D17-7 needs concrete behaviour, not just a principle.** Settled:
+
+- **Declaration.** A `route` contribution may carry `default: true`. At most one per plugin; a
+  second is a refusal. This form was chosen over a plugin-level field NAMING a route id because it
+  makes the three things the review asked for true by construction: the target exists, the plugin
+  owns it, and no loop is expressible.
+- **Failure.** If the default route is refused, withdrawn or not permitted, the prefix does NOT
+  redirect. The shell renders its normal unavailable state for that plugin, and no nav entry links
+  to the dead route. A plugin declaring no default leaves the bare prefix behaving exactly as it
+  does today.
+- **How the shared component learns which lesson.** From the ROUTE, not from its own default.
+  `useDemoState`'s view state currently defaults to lesson 01, and under two routes that default
+  becomes a bug: a cold `/demo-04/lesson-02` link would render lesson 01. The phase must cover a
+  cold link to lesson 02, a refresh on it, browser back and forward between the two, and what
+  happens to readiness when the reader switches lesson — **one probe per plugin, not one per
+  lesson.** Probing twice for a single backend would be a regression against BR-AS79.
+
+**A5 — `NavList.vue` needs a legacy adapter, not a consumer migration.** The tension is real but
+narrower than the review assumed, and the file says so. NavList's LEVEL-1 band is already
+`{ id, label }` and already keys collapse off `group.id` (`NavList.vue:56`, `:63`, `:84`). It is
+the LEVEL-2 band that is a bare string: a section is `{ eyebrow?, items }` with no identity
+(`NavList.vue:12`, `:93-96`), and the shell's groups map onto that level.
+
+The resolution is an **optional `section.id`, falling back to the eyebrow string when absent**.
+Demo 01's `admin` and `seafreight-app` pass no id and are not touched; the shell passes `group.id`
+and gets stable collapse. This is recorded as the chosen approach: a legacy-input adapter, NOT a
+coordinated consumer migration. The fallback is itself a test, not an implementation detail.
+
+#### Task checklist — REVISED 2026-09-24 by the amendments above; none done
+
+- **17a — The frontend contract.** `group` becomes `{ id, label }` in `manifestSchema.js`, with a
+  plain string accepted as shorthand. `default: true` on a route contribution, at most one per
+  plugin. Specs first. No renderer changes.
+- **17b — The Go contract (A1).** `registry.go`'s `Contribution` learns the object form and keeps
+  accepting the legacy string; persistence and read round-trip, signed registration, and manifest
+  drift all covered. Registry mode must be provably level with build mode before the merge lands.
+- **17c — The merge.** `contributionRegistry` groups by `group.id` and applies D17-3's four-step
+  cascade, including the deterministic displayed label of A2. Pure data; still rendered flat.
+- **17d — The clash channel.** `navigationClashes` on the registry, the THREE clash cases of A2,
+  surfaced on the Plugins screen beside `refusals`. The other three cases get specs proving they
+  are NOT clashes.
+- **17e — `NavList.vue`** grows a link mode, a per-item marker slot and the optional `section.id`
+  of A5, under D17-6's five boundaries. Demo 01's `NavList.spec.js` grows in the same commit,
+  including the id-absent fallback.
+- **17f — The shell's rail switches to `NavList`.** `App.vue`'s two hand-rolled blocks go.
+  `navMark.js` gains the clash mark last in its precedence, and the accessible description that
+  survives losing the dot (A2).
+- **17g — The generic default-route redirect**, with A4's declaration, failure behaviour and the
+  permission, withdrawal and readiness checks.
+- **17h — Demo 04 splits, in ONE commit (A3).** Two routes, two nav entries, one shared lesson
+  component driven by the route, the embedded rail deleted, the standalone rail untouched, the
+  `odometer` / `odometer-nav` ids and `OdometerRoute.vue` renamed, `registry.json` updated with the
+  same bytes, and `demos/04-jetstream-cqrs/CLAUDE.md` amended — it records the one-route choice as
+  rejected.
+- **17i — The acceptance checks as specs.** Anything not already covered by 17a-17h, cold
+  lesson-02 links and back/forward included.
 
 
 ---
