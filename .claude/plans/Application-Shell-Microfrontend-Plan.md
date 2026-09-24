@@ -1,8 +1,10 @@
 # Extensible Application Shell + Micro-Frontend Plugins — Plan
 
 > **Status: Phases 1–5, 7, 8, 13, 14 COMPLETE and archived. Phase 15's design gate PASSED
-> (2026-09-02); its task checklist is derived and specs are next. Phase 16 (
-> `plugin-source: build`) is PROPOSED 2026-09-23; its gate is in progress — nothing is built.**
+> (2026-09-02); its task checklist is derived and specs are next. Phase 16
+> (`plugin-source: build`) is APPROVED and CLOSED 2026-09-24 — 16a to 16l done, no open item.
+> Phase 17 (one navigation tree) is PROPOSED 2026-09-24; its gate is NOT passed — nothing is
+> built.**
 >
 > This file follows `CLAUDE.md`'s required sequence: proposed business rules first, then an explicit
 > design gate. The gate was passed on 2026-08-28 — see
@@ -2343,6 +2345,234 @@ with no file change and no registry protocol or lifecycle change.
 **The closing rule of the phase:** the **demo menu** lists the lab's demos; the **Plugins screen**
 lists the active catalogue's plugins. Those two inventories need not be identical, and nothing in
 this phase may quietly make one derive from the other.
+
+---
+
+### Phase 17 — PROPOSED 2026-09-24 — One navigation tree: plugin nav entries merge into shell-owned groups
+
+**Status: PROPOSED. Nothing below is approved, no task is derived, and no code, spec or business
+rule may be written until the user passes the design gate. This entry is a request for a decision.**
+
+Raised by the user 2026-09-24, in their own words: they do not prefer the current arrangement and
+want "a single navbar where we merge the nav bar elements from the mfe plugins". The worked example
+they gave:
+
+```
+MFE plugin 1 contributes      MFE plugin 2 contributes       The shell renders
+- JETSTREAM                   - JETSTREAM                    - JETSTREAM
+  - Lesson 1                    - Lesson 3                     - Lesson 1
+  - Lesson 2                  - TOPOLOGY                       - Lesson 2
+                                - 3 NATS Cluster               - Lesson 3
+                                                             - TOPOLOGY
+                                                               - 3 NATS Cluster
+```
+
+Two plugins name the same group; the shell shows one band with both plugins' items in it. A
+collision or clash is HIGHLIGHTED rather than hidden.
+
+#### The problem this phase would close
+
+Demo 04, embedded in the shell, draws **two** navigation rails: the shell's own sidebar, and a
+second lesson rail inside its route's left column (`demos/04-jetstream-cqrs/frontend/src/plugin/OdometerRoute.vue`).
+That is not a defect — the shell declares no sidebar extension point, so the demo had nowhere else
+to put its lesson index, and demo 04's own `CLAUDE.md` records the choice. It is a preference the
+user has now stated against.
+
+#### What already exists, and what does not
+
+The groundwork is further along than it looks, and the gap is narrower than the feature sounds.
+
+- **`group` is already in the contract.** `lab-shell/src/shell/registry/manifestSchema.js:324`
+  accepts and normalises a `group` string on a `navigation` contribution.
+- **Nothing reads it.** That schema line is the ONLY occurrence of `.group` in `lab-shell/src`.
+  Neither `contributionRegistry.js` nor `placementPolicy.js` nor `App.vue` looks at it. It is dead
+  data, carried since the schema was written.
+- **The architecture doc already promises it.** `ARCHITECTURE-APP-SHELL.md:128` documents
+  `contributions.navigation` as carrying "groups". The intent is written down; the render is not.
+- **A two-level nav component already exists, proven, and the shell alone does not use it.**
+  `shared/ui-shell/NavList.vue:5-41` supports an `{ eyebrow, items }` model with collapsible
+  banding, and is covered by `demos/01-dictionary/frontend/admin/src/components/NavList.spec.js`.
+  Demo 01's `admin` (`src/App.vue:223`) and `seafreight-app` (`src/App.vue:223`) both render it.
+  `lab-shell/` is the one frontend that hand-rolls its rail instead.
+  `ARCHITECTURE-APP-SHELL.md:1250-1258` names NavList as the definition of the supported navigation
+  hierarchy.
+- **The shell's sidebar is hardcoded.** `lab-shell/src/App.vue:104-166` is two literal
+  `nav.nav-group` blocks: eyebrow `Shell` with two fixed links, and eyebrow `Features` with a single
+  FLAT `v-for` over `shell.contributions.navigation`, sorted by `order`, `pluginId`,
+  `declarationIndex` (`contributionRegistry.js:334-340`).
+- **The sidebar is not an extension point.** There are three, all in
+  `lab-shell/src/shell/extensions/extensionPoints.js:137-155`: `shell/topbar-controls/v1`,
+  `shell/footer/v1`, `shell/home-main/v1`. No `shell/sidebar/*` exists, and this phase does NOT
+  propose adding one — a plugin contributes a nav ENTRY, it does not fill a nav REGION. BR-AS07's
+  "plugins fill targets; they never choose where a target lives" is unchanged by this phase.
+- **No nav collision detection exists.** The shell refuses duplicate plugin ids
+  (`bootShell.js:72-82`), duplicate contribution ids inside one manifest
+  (`manifestSchema.js:151-158`), route-prefix conflicts (`placementPolicy.js:139-156`) and
+  duplicate extension-point declarations (`bootShell.js:94-104`). It compares NO nav labels and NO
+  group values, anywhere, in `lab-shell/src` or `lab-shell/tools`.
+
+#### The one real obstacle — a nav entry must name a route
+
+`manifestSchema.js:316-318` requires a navigation contribution's `route` to be a kebab-case LOCAL
+CONTRIBUTION ID, and rejects a path outright. BR-AS12 is the rule behind it. Demo 04 declares
+exactly ONE route (`/demo-04`) and holds its two lessons as internal view state, so today the shell
+has nothing to point two nav items at. Merging groups changes nothing until that is resolved.
+
+This is the decision the gate turns on, and it is not a small one: demo 04's own `CLAUDE.md`
+records "One route contribution" as a considered and REJECTED alternative — splitting the lessons
+into two routes "would change how the demo is navigated". This phase re-opens that decision
+deliberately, and the demo's file must be amended in the same commit if it is reversed.
+
+#### Decisions the gate must settle
+
+Revised 2026-09-24 after an independent review by Codex. The review's findings are folded in
+below rather than kept in a separate list; where it disagreed with the first draft, the review
+wins and the first draft's wording is gone.
+
+- **D17-1 — How a nav item addresses a lesson.** Option A: demo 04 contributes two routes
+  (`/demo-04/lesson-01`, `/demo-04/lesson-02`) and two nav entries, and the embedded rail is
+  deleted. Option B: a nav entry may carry a path suffix under its own plugin's prefix, leaving one
+  route. **A is recommended** — the shell already owns deep links, and B invents a second way to
+  address a page while weakening BR-AS12. A is also the only option that lets a reader link to one
+  lesson.
+
+  A is NOT a two-line change, and the gate must settle its consequences with it:
+  - **Deep link and refresh.** `/demo-04/lesson-02` must load lesson 02 directly, from a cold
+    browser, in both catalogue sources.
+  - **What `/demo-04` becomes.** Redirect to a default lesson, or an index page? A bare prefix that
+    renders nothing is the worst of the three.
+  - **Active state.** Which nav entry is marked active on each path, and what is marked on the
+    bare prefix before the redirect resolves.
+  - **Readiness, per lesson or per plugin.** BR-AS79's three-state gate is asked once per demo
+    today. Two routes do not obviously mean two probes, and probing twice for one backend would be
+    a regression.
+  - **Route rules.** Whether one plugin may claim several routes under its own prefix without
+    tripping `route-prefix-conflict` (`placementPolicy.js:139-156`). It should not, but the rule
+    was written for cross-plugin conflict and must be read again before it is relied on.
+  - **Standalone is unchanged.** `20401` keeps its own rail and its own view state. Only the
+    embedded entry changes. The one-build-two-entries rule holds.
+
+- **D17-2 — What a group IS. A string is not enough.** The first draft proposed a bare string
+  matched exactly. That is rejected. A group is an object with a stable identity separate from its
+  display text:
+
+  ```js
+  group: { id: 'jetstream', label: 'JETSTREAM' }
+  ```
+
+  **Merging is by `group.id` and never by `group.label`.** A bare string collapses two failures
+  into one field: `JETSTREAM` and `JetStream` would become two accidental bands, while two
+  genuinely unrelated groups that happen to share a visible word would become indistinguishable.
+
+  This is a **schema change with a migration**, not a read of existing data.
+  `manifestSchema.js:324` accepts a string today and coerces anything else to `null`. The gate must
+  say whether a string is still accepted as shorthand (`id` = the string, `label` = the string) or
+  is rejected outright. Shorthand is recommended: no plugin ships a `group` today, so nothing
+  breaks either way, and shorthand keeps a one-lesson plugin's manifest short.
+
+  **Who owns `order` is a real tension, not an oversight.** The review proposed `order` inside the
+  group object. BR-AS07 says "plugins fill targets; they never choose where a target lives", and
+  two plugins naming the same `group.id` with different `order` values is itself a clash. The
+  recommendation is therefore: a plugin declares `{ id, label }` only, and the SHELL owns group
+  placement (D17-3). If the gate admits a plugin-supplied `order`, it must at the same time say
+  which plugin wins when two disagree, and that answer must be deterministic, not first-seen.
+
+- **D17-3 — Deterministic ordering, stated as a cascade.** "The shell owns ordering" is not an
+  answer; catalogue arrival order differs between `build` and `registry`, so an unstated rule
+  produces two different menus from one set of manifests. The rule must be written out and must
+  terminate in something stable:
+
+  1. a shell-owned group order table, for the groups the shell knows;
+  2. then any group not in the table, ordered by `group.id` — NOT by first-seen;
+  3. then, within a group: `order`, then `pluginId`, then `declarationIndex` (the cascade
+     `contributionRegistry.js:334-340` already uses);
+  4. an entry with no `group` needs a defined home. The existing `Features` band is the obvious
+     one, which means that band keeps its name and is not quietly renamed by this phase.
+
+- **D17-4 — What counts as a CLASH.** The first draft named one case. That is too narrow. The gate
+  must rule on at least these, and say for each whether it is a clash (rendered and marked) or a
+  refusal (omitted):
+  - same `group.id`, conflicting `group.label` — two plugins disagree about a band's name;
+  - same `group.id`, conflicting group order, if D17-2 admits a plugin-supplied order;
+  - two groups with DIFFERENT `group.id` and the SAME visible label — the reader sees one name
+    twice;
+  - the same child label inside one group, pointing at different routes;
+  - duplicate child identity inside one group;
+  - a nav entry whose route is missing, refused, withdrawn or not permitted.
+
+  The same `group.id` is the FEATURE, not a clash — it merges. That is the whole point of the
+  phase.
+
+- **D17-5 — Clashes need their own diagnostic channel, not `refusals`.** The first draft said the
+  shell would reuse `refusals`. That is wrong and is withdrawn. `refusals` explains a contribution
+  that was NOT placed; the user's requirement is that both clashing entries stay VISIBLE and both
+  are marked. Overloading one collection with "dropped" and "kept but marked" makes the Plugins
+  screen lie.
+
+  The proposal is a separate `navigationClashes` collection on the contribution registry, each
+  entry naming the clash kind and BOTH owning plugins, surfaced on the Plugins screen beside
+  `refusals`. The mark drawn in the rail must be fitted into `navMark.js`'s existing precedence
+  (BR-AS60, "one nav item, one mark") rather than drawn beside it — the gate must say where a
+  clash mark sits against a load-status dot and a health dot.
+
+- **D17-6 — How the shell renders the tree. `NavList.vue` cannot be dropped in unchanged.** The
+  first draft implied it could. It cannot: `NavList.vue` is selection-based — it requires a
+  `modelValue` string (`:26`), emits `update:modelValue` (`:29`) and renders each item as a
+  `<button>` with `:aria-pressed` (`:98-105`). The shell's navigation is ROUTER-backed
+  (`App.vue:139-158` renders `router-link`), and it draws marks `NavList` knows nothing about.
+  Three ways out, and the gate must pick one:
+  - **A** — extend `NavList.vue` to render a router link when an item supplies one, and to take a
+    per-item mark slot. One component for the whole repo; demo 01's `admin` and `seafreight-app`
+    keep working unchanged.
+  - **B** — a shell-specific tree adapter, leaving `NavList` alone.
+  - **C** — extract a shared presentational primitive underneath both, keeping routing in the
+    shell.
+
+  **A is recommended.** The repo's standing rule is to add the missing thing to the shared
+  component rather than fork it, and B duplicates two-level banding in a second place. C is the
+  cleanest long-term shape and the most work; it is worth choosing only if a third consumer is
+  already in view.
+
+#### Proposed business rules (not yet approved, numbers not yet allocated)
+
+- Plugin navigation entries are merged into shell-owned groups. A group is IDENTIFIED by the
+  plugin (`group.id`) and PLACED by the shell. Merging is by id, never by display label.
+- A navigation clash is reported and marked, never silently resolved. Both clashing entries remain
+  visible and attributable to their plugin, and the report is a diagnostic distinct from a refusal
+  — a refusal means a contribution was not placed, a clash means it was.
+- The merged navigation tree is a pure function of the manifests, not of the order in which
+  plugins arrived. The same manifests produce the same tree in both catalogue sources.
+- The shell's sidebar remains host-owned and is not an extension point. This phase adds no way for
+  a plugin to render arbitrary content into the rail.
+
+#### Acceptance checks the phase must satisfy
+
+Listed at gate time so they cannot be negotiated down later. Every one of them must hold in BOTH
+catalogue sources.
+
+- **Build/registry parity.** The same manifests produce the same grouped tree, in the same order,
+  with the same clash diagnostics, whether the plugins arrived from `build` or from the registry.
+  This is the check that catches an arrival-order dependency (D17-3).
+- The exact two-plugin example at the head of this phase renders exactly as drawn.
+- Two plugins declaring the same `group.id` with different `group.label` are both rendered and
+  both marked.
+- Two groups with different `group.id` and the same visible label are both rendered and both
+  marked.
+- The same child label in one group, pointing at different routes, is rendered twice and marked.
+- Withdrawing a plugin updates the merged group live and leaves no empty band and no dead link
+  (BR-AS56).
+- A nav entry whose route was refused leaves a visible diagnostic and NO clickable dead link.
+- A clash mark is reachable by a screen reader, not colour alone, on BOTH affected entries.
+- Standalone demo 04 on `20401` keeps its own rail; the embedded plugin has none.
+- The host bundle fingerprint is unchanged by adding a plugin (BR-AS03), which
+  `lab-shell/tools/hostBundleFingerprint.mjs` already proves.
+
+#### Out of scope
+
+A sidebar extension point. Nested groups deeper than two levels. Any change to demos 02 and 03,
+which are shell-owned intro pages with no plugin. Any change to how `route-prefix-conflict` is
+decided between DIFFERENT plugins.
+
 
 ---
 
