@@ -25,6 +25,7 @@
 */
 import { BUILD_CATALOGUE_PATH } from './buildCatalogueLocation.js'
 import { validateRegistryDocument } from './manifestSchema.js'
+import { isPluginAssetUrl } from './pluginAssetPath.js'
 
 /* Distinct from the transport's `registry-*` codes on purpose. A reader who
    sees one of these knows which source failed without being told the mode. */
@@ -33,10 +34,53 @@ export const CATALOGUE_MISSING = 'build-catalogue-missing'
 export const CATALOGUE_UNREADABLE = 'build-catalogue-unreadable'
 export const CATALOGUE_MALFORMED = 'build-catalogue-malformed'
 
+/* The gate decision 2 always claimed and nobody asked (task 16k).
+
+   Build mode's whole trust story is "the shell's own build produced this
+   document". That is an argument about how the file is USUALLY made, not a
+   property of the file the browser fetched — and `scanDemos.js` copies a
+   demo's `manifest.json` through untouched, so a `remote.url` naming another
+   origin reaches this point unexamined. `RemoteAllowlist` cannot help: it is
+   built FROM the admitted manifests, so it allows whatever it was given.
+
+   Per entry, never per document. BR-AS13's tolerance table says an invalid
+   required field costs that plugin and nothing else, and a whole catalogue
+   emptied by one bad manifest would take the lab down for a typo.
+
+   Registry mode does not come through here at all. Its remotes are curated by
+   an operator, may legitimately name another origin, and are gated by
+   `REGISTRY_ALLOWED_ORIGINS` instead — which is why this check lives in the
+   build-mode client and not in the shared validator. */
+function sameOriginOnly(plugins, onRefusal) {
+  const kept = []
+  for (const plugin of plugins) {
+    const url = plugin?.remote?.url
+    /* A malformed remote is not this gate's business — `validateManifest`
+       refuses it at admission, with its own cause code and a row in the
+       inventory. Only a remote that IS a string and IS off the contract is
+       taken out here. */
+    if (typeof url !== 'string' || isPluginAssetUrl(plugin?.id, url)) {
+      kept.push(plugin)
+      continue
+    }
+    onRefusal(plugin?.id ?? '<unnamed>', url)
+  }
+  return kept
+}
+
 export function createBuildCatalogueClient({
   fetch,
   url = BUILD_CATALOGUE_PATH,
   now = () => new Date().toISOString(),
+  /* Refused entries vanish from the menu, so they must not vanish in
+     silence. Injected rather than imported so a spec can read the refusals
+     instead of the console. */
+  onRefusal = (id, refused) => {
+    console.error(
+      `[build-catalogue] plugin ${id} was not admitted: remote.url ${JSON.stringify(refused)} `
+      + 'is not under this plugin\'s own /plugins/<id>/ prefix on the shell\'s origin (BR-AS75, BR-AS77)',
+    )
+  },
 } = {}) {
   return {
     async fetchRegistry({ heldRevision: held = null } = {}) {
@@ -73,6 +117,8 @@ export function createBuildCatalogueClient({
       const validated = validateRegistryDocument(document)
       if (!validated.ok) return { ok: false, code: CATALOGUE_MALFORMED }
 
+      const plugins = sameOriginOnly(validated.plugins, onRefusal)
+
       const revision = validated.revision
       const fetchedAt = now()
 
@@ -84,7 +130,7 @@ export function createBuildCatalogueClient({
         ok: true,
         unchanged: false,
         revision,
-        plugins: validated.plugins,
+        plugins,
         degraded: false,
         heldRevision: revision,
         fetchedAt,

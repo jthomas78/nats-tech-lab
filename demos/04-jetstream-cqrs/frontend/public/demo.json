@@ -26,5 +26,6 @@
       "/commands/"
     ]
   },
-  "runCommand": "docker compose -f demos/04-jetstream-cqrs/deploy/compose.yaml up -d"
+  "//runCommand": "The WHOLE demo, not just its server (app-shell task 16k). Four processes have to be up before /readyz can answer yes: the NATS container, `cqrs serve` on 20402, and the snapshotter and projector that fill the two KV buckets. The old one-liner started only the container, so a reader who followed it was left with the same `unknown` the command was printed to fix. The script converges — it is safe to run again on a demo that is already up — and `deploy/stop.sh` reverses it.",
+  "runCommand": "demos/04-jetstream-cqrs/deploy/start.sh"
 }

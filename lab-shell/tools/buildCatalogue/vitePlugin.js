@@ -26,10 +26,17 @@
      holding rather than a limitation to work around — a catalogue the shell's
      build did not produce would be a runtime admission path.
 */
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 
 import { BUILD_CATALOGUE_ASSET, BUILD_CATALOGUE_PATH } from '../../src/shell/registry/buildCatalogueLocation.js'
-import { generateCatalogue } from './scanDemos.js'
+import { DEMO_METADATA_PATH, generateCatalogue, MANIFEST_PATH } from './scanDemos.js'
+
+/* Is this file one of the two the scan opts in on?
+   Matched by its tail, so a demo ADDED while the dev server runs reloads too
+   — its manifest was never read, so it cannot be in the watched set. */
+function isDiscoveryInput(file) {
+  return file.endsWith(`${sep}${MANIFEST_PATH}`) || file.endsWith(`${sep}${DEMO_METADATA_PATH}`)
+}
 
 /**
  * @param {object} [options]
@@ -49,6 +56,29 @@ export function buildCatalogue(options = {}) {
     },
 
     configureServer(server) {
+      /* Watching is not reloading (task 16k).
+
+         `server.watcher.add(file)` below tells chokidar to report the file.
+         It does NOT reload the page: Vite turns a file change into an HMR
+         message by looking the file up in its module graph, and these two
+         JSON files are read with `fs.readFileSync` from outside the Vite root
+         — they are in no module's import chain, so the lookup finds nothing
+         and Vite correctly does nothing. The catalogue is re-scanned on every
+         REQUEST, so the new document was always one manual refresh away; the
+         menu simply never asked.
+
+         So the reload is sent explicitly. A full reload rather than an HMR
+         update, because catalogue membership decides the nav tree and the
+         route table, which are built once at boot — there is no module to
+         swap. `server.hot` is Vite 6+; `server.ws` is the older name, kept so
+         this plugin does not pin a minor version. */
+      const watched = new Set()
+      const reload = (file) => {
+        if (!watched.has(file) && !isDiscoveryInput(file)) return
+        ;(server.hot ?? server.ws)?.send({ type: 'full-reload', path: '*' })
+      }
+      for (const event of ['add', 'change', 'unlink']) server.watcher.on(event, reload)
+
       /* Ahead of Vite's own middlewares, like vitePreview.js, so the path is
          ours before the static handler can answer it from `public/`. */
       server.middlewares.use((req, res, next) => {
@@ -69,7 +99,10 @@ export function buildCatalogue(options = {}) {
         }
         /* Watch what we read. An edit to a manifest is then an ordinary
            file change, and the page reloads without a restart. */
-        for (const file of rendered.files) server.watcher.add(file)
+        for (const file of rendered.files) {
+          server.watcher.add(file)
+          watched.add(file)
+        }
         res.statusCode = 200
         res.setHeader('Content-Type', 'application/json; charset=utf-8')
         res.setHeader('Cache-Control', 'no-store')

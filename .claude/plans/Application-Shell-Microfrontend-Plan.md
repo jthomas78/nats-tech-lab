@@ -945,8 +945,9 @@ deployment-owned map), which stays in the archive as the record of what was repl
 **Status: OPEN 2026-09-23. The design gate passed the same day — the eleven decisions below are
 APPROVED, F-1 to F-5 are resolved, and the task checklist is derived. Settled decisions are not
 re-opened. Done: 16a to 16i — the phase was CLOSED 2026-09-24, then re-opened the same day for
-16j, which closes a gap 16e named and deliberately left. Done: 16a to 16j — the phase is
-CLOSED 2026-09-24.**
+16j, which closes a gap 16e named and deliberately left. Re-opened again the same day for 16k,
+an independent review of 16a-16i. Done: 16a to 16k — the phase is CLOSED 2026-09-24, with ONE
+finding carried out of it as a named open item (see 16k, finding 2).**
 
 Direction agreed 2026-09-23 after scoping three alternatives. The other two were considered and
 rejected — see "Alternatives rejected" at the foot of this phase.
@@ -1901,6 +1902,160 @@ the coverage row says so.
 
 The `BUSINESS_RULES.md` index was corrected in the same commit: it still read
 `BR-AS01–BR-AS73`, which was already stale by one rule before this phase.
+
+**16k — Independent review of 16a-16i, and its repairs. DONE 2026-09-24.** *Rules BR-AS75,
+BR-AS77, BR-AS79. No new rule.*
+
+Codex reviewed 16a to 16i against the approved decisions and raised five findings. Each was checked
+against the source before anything was edited. Four are confirmed and fixed; one is confirmed and
+NOT fixed, and is carried out of the phase deliberately.
+
+**Finding 1 — build mode did not enforce same-origin plugin URLs. CONFIRMED, FIXED.** P1. Decision
+2's trust story is "the shell's own build produced this document". That is an argument about how
+the file is usually MADE, not a property of the file the browser fetched. `scanDemos.js` says so
+outright in its own header — it copies a demo's `manifest.json` through untouched and stamps no
+origin — so a manifest naming `https://outside.example/remoteEntry.js` travelled into the
+catalogue and was registered by the federation adapter. `RemoteAllowlist` cannot help: it is built
+FROM the admitted manifests, so it allows whatever it was given.
+
+The contract is now a question, asked once. `pluginAssetPath.js` grows `isPluginAssetUrl(id, url)`
+beside the three builders that already write the path; `buildCatalogueClient.js` asks it before
+admission. Four shapes are refused — a scheme, a protocol-relative authority, anything not rooted
+at `/`, and a path that climbs out of the plugin's own directory. The climb is answered by
+resolving against a base that cannot be the real origin and reading the result back, twice: once
+as written and once percent-decoded, because a server decodes a path before it routes it and
+`..%2f..%2fevil.js` is the same climb in another spelling. That second pass was added after the
+first version admitted it.
+
+Three properties hold the fix in place. It is **per entry, never per document** — BR-AS13's
+tolerance table says an invalid required field costs that plugin and nothing else, and a whole
+catalogue emptied by one bad manifest would take the lab down for a typo. It leaves a **malformed**
+remote alone, because `validateManifest` already refuses that at admission with its own cause code
+and a row in the inventory; a gate that swallowed it first would hide the reason. And it lives in
+the **build-mode client**, not in the shared validator, so registry-mode semantics are preserved by
+construction: a curated registry's remotes may legitimately name another origin and are gated by
+`REGISTRY_ALLOWED_ORIGINS` instead. Refusals are reported through an injected `onRefusal` —
+`console.error` by default — so an entry never vanishes from the menu in silence.
+
+**Finding 2 — the packaged registry shell cannot serve demo 04. CONFIRMED, NOT FIXED.** P2. Carried
+out of the phase as an open item. The evidence is complete and is recorded here so the next person
+does not have to find it again:
+
+- `demos/01-dictionary/registry.json` enables demo 04 with `"url": "/plugins/demo-04/remoteEntry.js"`
+  — a path on the shell's own origin.
+- `pluginAssets.js` gates its build-time copy on `plugin-source: build`
+  (`building = config.command === 'build' && readPluginSource(...) === PLUGIN_SOURCE_BUILD`), so a
+  registry-source build copies nothing. Two specs in `pluginAssets.spec.js` already assert exactly
+  that, deliberately.
+- `lab-shell/Dockerfile` copies only `demos/*/frontend/public/{manifest,demo}.json` and says why:
+  "This image is a `plugin-source: registry` shell … and serves no plugin assets of its own."
+- `lab-shell/nginx.conf`'s `location /plugins/` is `try_files $uri =404` against the image's own
+  disk. Nothing populates it.
+- There is no generated asset proxy. `demo-readiness.conf` and `demo-api.conf` are the only two
+  generated confs, and both are ungated on plugin source — which is the precedent a fix would
+  follow.
+
+So the packaged shell returns 404 for a plugin its own registry advertises, while development works
+through the dev proxy. The reason this was not repaired inside 16k is that both available repairs
+cross a boundary this phase documented, and neither is a small edit:
+
+- **Option A — ungate the copy.** Drop the `plugin-source` half of `building` and teach
+  `lab-shell/Dockerfile` to copy `demos/*/frontend/dist`. This preserves "plugin code is not
+  compiled into the shell bundle" exactly, because a `dist/` is copied as static files and never
+  enters the bundle — build mode already does this. The cost is the image's build contract:
+  `demos/*/frontend/dist` is gitignored, so the demo must be built BEFORE `docker compose build`,
+  and a `COPY` that matches nothing fails the image build outright.
+- **Option B — generate an asset proxy.** A `demo-assets.conf` produced from the same scan, exactly
+  mirroring `demo-api.conf`, driven by a new `assets.hostedUpstream` in `demo.json`. This is what
+  `registry.json`'s own comment already claims happens ("in a hosted deployment the reverse proxy
+  does") and preserves every rule. The cost is that demo 04 has no frontend container to point at —
+  `deploy/compose.yaml` holds only `nats`, and there is no `demos/04-jetstream-cqrs/frontend/Dockerfile`
+  — so Option B is new deployment work inside a sealed demo folder.
+
+Recommendation on the record: **Option B**, because it is the arrangement the registry comment
+already describes, it keeps the shell's image free of demo output, and it puts demo 04's deployment
+where demo 04's own `CLAUDE.md` says it belongs.
+
+**Finding 3 — the readiness timeout ended before the body was read. CONFIRMED, FIXED.** P2.
+`fetch` resolves on the response HEADERS. `probeDemo` cleared its timer there, so a demo that sent
+`200` with a JSON content type and then stalled mid-body left `response.json()` awaiting forever
+with no timer left to abort it. The panel stayed blank past `timeoutMs`, and because the panel
+waits on the promise, every later check queued behind the stuck one. A half-sent body is what a
+container killed mid-answer produces, so it is not a theoretical shape. `clearTimeout` moved into a
+`finally` that spans both the fetch and the body read; the timeout is reported as
+`unknown` / `timeout`, and because the timer is always cleared, the very next check gets a clock of
+its own and recovers.
+
+**Finding 4 — the operator recovery command did not start the demo. CONFIRMED, FIXED, with one
+correction to the finding.** P2. The old `runCommand` was
+`docker compose -f demos/04-jetstream-cqrs/deploy/compose.yaml up -d`, which starts the NATS
+container and nothing else. A reader who followed it was left with the same `unknown` the command
+was printed to fix: `cqrs serve` was not listening on `20402`, and the snapshotter and projector
+were not filling the two KV buckets.
+
+The finding's second claim — that the command "does not initialize the required stream and
+buckets" — is **not correct**, and the fix does not act on it. `cqrs/main.go` runs `ensureStream`
+and both `ensureKV` calls before it dispatches any subcommand, so any `cqrs` process creates them.
+The missing pieces were processes, not initialisation.
+
+New `demos/04-jetstream-cqrs/deploy/start.sh` brings up the container, waits for its health check,
+builds the CLI, starts `serve`, `snapshotter` and `projector` under PID files, then waits on
+`/readyz` and prints both URLs. It converges — running it on a demo that is already up reports each
+piece as already running and exits 0. `deploy/stop.sh` reverses it by PID file, so a `cqrs` the
+reader started by hand is left alone. The operator/visitor split is untouched: the command is still
+declared in `demo.json`, still shown only to an operator, and the shell still never runs it.
+
+**Finding 5 — manifest edits did not refresh the development catalogue. CONFIRMED, FIXED.** P2.
+`server.watcher.add(file)` tells chokidar to REPORT a file. It does not reload the page: Vite turns
+a change into an HMR message by looking the file up in its module graph, and both discovery inputs
+are read with `fs.readFileSync` from outside the Vite root — they are in no module's import chain,
+so the lookup finds nothing and Vite correctly does nothing. The catalogue was re-scanned on every
+REQUEST, so the new document was always one manual refresh away; the menu simply never asked.
+
+The reload is now sent explicitly, on `add`, `change` and `unlink`, for any file that was read by
+the last scan OR whose tail is one of the two discovery inputs — the second half so that a demo
+ADDED while the server runs reloads too, since its manifest was never read and cannot be in the
+watched set. A full reload rather than an HMR update, because catalogue membership decides the nav
+tree and the route table and both are built once at boot. `server.hot ?? server.ws` keeps the
+plugin off a pinned Vite minor.
+
+*Coverage added.* 24 new specs, and each was proved to FAIL against the unfixed code before being
+kept — the fix was temporarily reverted, the spec run, and the revert undone:
+
+- `buildCatalogueClient.spec.js` — `the same-origin gate on a build catalogue`: the reported case,
+  eleven escape spellings, per-entry refusal, the malformed-remote hand-off, and the refusal
+  report. 4 of 19 fail without the gate. The file's own `PLUGIN` fixture moved from `/remoteEntry.js`
+  to `/plugins/jetstream-cqrs/remoteEntry.js`, because the old one was itself off the BR-AS77
+  contract.
+- `demoReadiness.spec.js` — `a body that never finishes arriving`: the stall times out and calls it
+  a timeout, and the very next check recovers. Both hang without the fix.
+- `buildCatalogueReload.spec.js`, new — the reload wiring, including the never-read manifest, the
+  unlink, the quiet case for an unrelated file, and the `server.ws` fallback. 6 of 7 fail without
+  the fix.
+- `demoRunCommand.spec.js`, new — a `runCommand` that names a path in this repo must exist and be
+  executable, plus demo 04's four pieces by name. This is the narrow rule: the shell never runs the
+  command, so there is nothing to execute here, but a command pointing at nothing is worse than one
+  that does too little.
+
+*Checks run.* `npm --prefix lab-shell test` — 71 files, 866 specs, green (was 842). `npm --prefix
+lab-shell run lint` — 0 errors, 30 warnings, the existing baseline, and the repo's own "shell frame
+clean" guard passed. `npx vitest run` from `demos/04-jetstream-cqrs/frontend` — 35 files, 513
+specs, green. `go test ./...` from `demos/04-jetstream-cqrs/cqrs` — ok. `bash -n` on both new
+scripts. `deploy/start.sh` run for real against a live Docker: `/readyz` answered
+`{"ready":true}` with all three checks ok, and a second run converged and exited 0.
+
+*The host bundle baseline moved, and legitimately.* This task edits host SOURCE —
+`buildCatalogueClient.js`, `pluginAssetPath.js`, `readinessProbe.js` — which is exactly what
+BR-AS03's digest is supposed to notice. Re-recorded in `build` mode: 17 host assets, digest
+`7e6a007a2e92e58d321a9f6b59b4ba8190dc937083e5d424e33e6777c13c3bf0`. The clause the tool also checks
+— that the host bundle names no plugin container, remote URL or module path — passed before and
+after.
+
+*Limitations, stated plainly.* Finding 2 is not fixed, so the packaged registry shell still 404s on
+`/plugins/demo-04/…`; that was verified against source and configuration, not against a running
+container, and no registry-acceptance run was made for this task. The same-origin gate is a
+build-mode gate only, by design — a curated registry is still trusted to name its own origins.
+`start.sh` was verified on macOS with Docker Desktop and has not been run on Linux.
 
 **16j — The demo API proxy. DONE 2026-09-24.** *Decision 8 (same-origin, no CORS). Rule BR-AS82.*
 New `build`-source behaviour. 16e proxied **one** readiness call and said so in its own notes: "it

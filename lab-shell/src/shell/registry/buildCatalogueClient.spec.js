@@ -16,7 +16,10 @@ const PLUGIN = {
   name: 'JetStream CQRS',
   schemaVersion: 1,
   shellApiVersion: 1,
-  remote: { kind: 'federated', url: '/remoteEntry.js', module: 'plugin' },
+  /* Under the plugin's OWN prefix, because the client now asks (task 16k).
+     `/remoteEntry.js` was the old fixture and is off the BR-AS77 contract —
+     it is the shell's root, not this plugin's directory. */
+  remote: { kind: 'federated', url: '/plugins/jetstream-cqrs/remoteEntry.js', module: 'plugin' },
   contributions: [{ kind: 'route', id: 'main', path: '/jetstream-cqrs', title: 'CQRS' }],
 }
 
@@ -150,5 +153,87 @@ describe('the build catalogue client', () => {
         expect(result.unchanged, String(held)).toBe(false)
       }
     })
+  })
+})
+
+/* Finding 1 (task 16k). Build mode's trust story is "the shell's own build
+   produced this document" — an argument about how the file is usually made,
+   not a property of the file the browser fetched. `scanDemos.js` copies a
+   demo's manifest through untouched, and `RemoteAllowlist` is built FROM the
+   admitted manifests, so neither one looks at the origin. This client does. */
+describe('the same-origin gate on a build catalogue', () => {
+  const entryWith = (url, id = 'demo-04') => ({ ...PLUGIN, id, remote: { ...PLUGIN.remote, url } })
+
+  const admit = async (plugins) => {
+    const refusals = []
+    const client = createBuildCatalogueClient({
+      fetch: served({ schemaVersion: 1, revision: 'r', degraded: false, plugins }),
+      onRefusal: (id, url) => refusals.push({ id, url }),
+    })
+    const result = await client.fetchRegistry({})
+    return { result, refusals }
+  }
+
+  it('admits a plugin under its own /plugins/<id>/ prefix', async () => {
+    const good = entryWith('/plugins/demo-04/remoteEntry.js')
+    const { result, refusals } = await admit([good])
+    expect(result.plugins).toEqual([good])
+    expect(refusals).toEqual([])
+  })
+
+  it('refuses the reported case: a valid entry naming another origin', async () => {
+    const { result, refusals } = await admit([entryWith('https://outside.example/remoteEntry.js')])
+    expect(result.ok).toBe(true)
+    expect(result.plugins).toEqual([])
+    expect(refusals).toEqual([{ id: 'demo-04', url: 'https://outside.example/remoteEntry.js' }])
+  })
+
+  /* Each of these leaves the origin or leaves the plugin's directory, and
+     each is a spelling somebody reaches for when the obvious one is blocked. */
+  it('refuses every other shape that escapes the contract', async () => {
+    const escapes = [
+      '//outside.example/remoteEntry.js',        // protocol-relative: no scheme, still another origin
+      'https://outside.example/remoteEntry.js',
+      'javascript:alert(1)',
+      'remoteEntry.js',                          // relative: resolves against whatever page is open
+      '../plugins/demo-04/remoteEntry.js',
+      '/plugins/demo-04/../../evil.js',          // climbs out after normalisation
+      '/plugins/demo-04/..%2f..%2fevil.js',      // the same climb, percent-encoded
+      '/plugins/demo-04',                        // the directory itself, not an asset in it
+      '/plugins/demo-04/',
+      '/plugins/other-demo/remoteEntry.js',      // another plugin's prefix
+      '/plugins/demo-04-evil/remoteEntry.js',    // a prefix that merely starts the same
+    ]
+    for (const url of escapes) {
+      const { result } = await admit([entryWith(url)])
+      expect(result.plugins, url).toEqual([])
+    }
+  })
+
+  /* BR-AS13's tolerance table: an invalid required field costs that plugin
+     and nothing else. A whole catalogue emptied by one bad manifest would
+     take the lab down for a typo. */
+  it('drops the one bad entry, never the document', async () => {
+    const good = entryWith('/plugins/demo-04/remoteEntry.js')
+    const { result, refusals } = await admit([entryWith('https://outside.example/x.js', 'evil'), good])
+    expect(result.ok).toBe(true)
+    expect(result.plugins).toEqual([good])
+    expect(refusals.map((r) => r.id)).toEqual(['evil'])
+  })
+
+  /* A remote that is not a string at all is `validateManifest`'s business —
+     it refuses it at admission with its own cause code and a row in the
+     inventory. This gate must not swallow it first and hide the reason. */
+  it('leaves a malformed remote to the manifest validator', async () => {
+    const broken = { ...PLUGIN, id: 'broken', remote: { kind: 'federated', module: 'plugin' } }
+    const { result, refusals } = await admit([broken])
+    expect(result.plugins).toEqual([broken])
+    expect(refusals).toEqual([])
+  })
+
+  it('says which plugin it refused, so an entry never vanishes in silence', async () => {
+    const { refusals } = await admit([entryWith('https://outside.example/x.js')])
+    expect(refusals[0].id).toBe('demo-04')
+    expect(refusals[0].url).toBe('https://outside.example/x.js')
   })
 })

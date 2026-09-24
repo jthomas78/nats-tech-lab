@@ -174,6 +174,36 @@ describe('the readiness probe', () => {
     expect(result.cause).toBe(PROBE_CAUSE.NO_ROUTE)
   })
 
+  /* Task 16k. `fetch` resolves on the response HEADERS, so a demo that sends
+     `200` and a JSON content type and then stalls mid-body used to leave
+     `response.json()` awaiting with no timer left to abort it. The panel then
+     stayed blank past `timeoutMs` and every later check queued behind it. */
+  describe('a body that never finishes arriving', () => {
+    /* Headers, then nothing. `json()` settles only when the abort lands,
+       which is what a real body stream does when its signal is aborted. */
+    const stalling = () => vi.fn(async (url, init) => ({
+      ok: true,
+      status: 200,
+      json: () => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      }),
+    }))
+
+    it('still times out, and calls it a timeout', async () => {
+      const result = await probeDemo({ readiness: { url: '/x', timeoutMs: 10 }, fetch: stalling() })
+      expect(result.state).toBe(DEMO_STATE.UNKNOWN)
+      expect(result.cause).toBe(PROBE_CAUSE.TIMEOUT)
+    })
+
+    /* The stuck read must not poison the next one. The timer is cleared in a
+       `finally`, so the retry starts with a clock of its own. */
+    it('lets the very next check recover', async () => {
+      await probeDemo({ readiness: { url: '/x', timeoutMs: 10 }, fetch: stalling() })
+      const result = await probeDemo({ readiness, fetch: answering({ ready: true, checks: [] }) })
+      expect(result.state).toBe(DEMO_STATE.AVAILABLE)
+    })
+  })
+
   it('reduces an unrecognised check code to one the shell knows', async () => {
     const fetch = answering({ ready: false, checks: [{ name: 'x', ok: false, code: 'on fire' }] }, { status: 503 })
     const { failing } = await probeDemo({ readiness, fetch })

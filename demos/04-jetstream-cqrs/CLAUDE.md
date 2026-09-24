@@ -32,9 +32,33 @@ in a shared `diagrams/` directory.
 | Pattern cards (HTML + exported PDF) | `docs/demo-04-pattern-cards.*` |
 | Go module | `cqrs/` |
 | Compose | `deploy/compose.yaml` |
+| Start / stop the whole demo | `deploy/start.sh`, `deploy/stop.sh` |
 
 The one exception is `go.work` at the repo root, which must list `cqrs/` for
 the module to build.
+
+## Starting it
+
+`deploy/start.sh` starts the WHOLE demo and `deploy/stop.sh` reverses it. Four
+pieces have to be up before `/readyz` can answer yes: the NATS container,
+`cqrs serve` on `20402`, and the snapshotter and projector that fill the two
+KV buckets. `deploy/compose.yaml` holds only the container, so the compose
+command alone is not enough — that was app-shell task 16k, finding 4, where
+`demo.json`'s `runCommand` showed a reader a one-liner that left the demo in
+the same `unknown` state the command was printed to fix.
+
+The stream and both KV buckets need no separate step. `cqrs/main.go` runs
+`ensureStream` and both `ensureKV` calls before it dispatches any subcommand,
+so any `cqrs` process creates them.
+
+The script converges — run it again on a demo that is already up and it starts
+only what is missing. `stop.sh` stops only the processes the script's own PID
+files name, so a `cqrs` started by hand is left alone. Run state lives in
+`deploy/.run/` and is gitignored.
+
+`public/demo.json`'s `runCommand` names `deploy/start.sh` and nothing else.
+`lab-shell/src/shell/demos/demoRunCommand.spec.js` fails if that path stops
+existing or stops being executable.
 
 ## What this demo is
 

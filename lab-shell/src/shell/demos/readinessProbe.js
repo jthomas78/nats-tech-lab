@@ -84,36 +84,54 @@ export async function probeDemo({ readiness, fetch, now = () => new Date().toISO
     controller?.abort()
   }, readiness.timeoutMs ?? 3000)
 
+  /* The timeout covers the WHOLE read, headers and body alike, and that is
+     the reason this is one `try` rather than two (task 16k).
+
+     It used to clear the timer as soon as `fetch` resolved. `fetch` resolves
+     on the response HEADERS, so a demo that sent `200` and a JSON content
+     type and then stalled mid-body left `response.json()` awaiting forever
+     with no timer left to abort it. The panel stayed blank past `timeoutMs`,
+     and because the panel waits on the promise, every later check queued
+     behind the stuck one. A half-sent body is exactly what a container being
+     killed mid-answer produces, so it is not a theoretical shape.
+
+     `clearTimeout` therefore moves to the end, and every early return below
+     runs the `finally` on its way out. */
   let response
-  try {
-    response = await fetch(readiness.url, { cache: 'no-store', signal: controller?.signal })
-  } catch {
-    return unknown(timedOut ? PROBE_CAUSE.TIMEOUT : PROBE_CAUSE.UNREACHABLE)
-  } finally {
-    clearTimeout(timer)
-  }
-
-  /* 404 is the route, not the demo. Both environments close the readiness
-     prefix with a 404 precisely so this case is distinguishable, instead of
-     the SPA answering 200 with a page of HTML that would read as "ready". */
-  if (response?.status === 404) return unknown(PROBE_CAUSE.NO_ROUTE)
-
-  /* 503 is the demo answering, so it is `unavailable`, not `unknown`, and its
-     body is read below. Any other refusal is something BETWEEN us and the
-     demo — most often the proxy reporting that the demo's port refused the
-     connection — so it is `unreachable`.
-
-     This is checked BEFORE the body is parsed, and the order matters. A proxy
-     reporting a refused upstream answers 500 with a line of plain text, and
-     parsing first read that as "the answer did not make sense" — blaming the
-     demo for a sentence the demo never sent. */
-  if (!response.ok && response.status !== 503) return unknown(PROBE_CAUSE.UNREACHABLE)
-
   let body
   try {
+    response = await fetch(readiness.url, { cache: 'no-store', signal: controller?.signal })
+
+    /* 404 is the route, not the demo. Both environments close the readiness
+       prefix with a 404 precisely so this case is distinguishable, instead of
+       the SPA answering 200 with a page of HTML that would read as "ready". */
+    if (response?.status === 404) return unknown(PROBE_CAUSE.NO_ROUTE)
+
+    /* 503 is the demo answering, so it is `unavailable`, not `unknown`, and
+       its body is read below. Any other refusal is something BETWEEN us and
+       the demo — most often the proxy reporting that the demo's port refused
+       the connection — so it is `unreachable`.
+
+       This is checked BEFORE the body is parsed, and the order matters. A
+       proxy reporting a refused upstream answers 500 with a line of plain
+       text, and parsing first read that as "the answer did not make sense" —
+       blaming the demo for a sentence the demo never sent. */
+    if (!response.ok && response.status !== 503) return unknown(PROBE_CAUSE.UNREACHABLE)
+
     body = await response.json()
   } catch {
-    return unknown(PROBE_CAUSE.UNREADABLE)
+    /* Three failures, one catch, and the order of the questions is the
+       answer. A timer that fired outranks everything: an abort surfaces as a
+       rejection wherever it lands, and "we stopped waiting" is the true
+       account whether it stopped the headers or the body. Otherwise, a
+       response we never received is `unreachable`; a response we received and
+       could not read is `unreadable`. */
+    if (timedOut) return unknown(PROBE_CAUSE.TIMEOUT)
+    return unknown(response === undefined ? PROBE_CAUSE.UNREACHABLE : PROBE_CAUSE.UNREADABLE)
+  } finally {
+    /* Always, and only here. A probe leaves no timer behind, so a caller may
+       retry immediately and the retry gets a clock of its own. */
+    clearTimeout(timer)
   }
 
   if (body?.ready === true) {

@@ -42,3 +42,8 @@ demos/03-multi-cluster-and-accounts/js/
 
 # Compiled Go binary, rebuilt on every run
 demos/02-multi-region/odometer/odometer
+
+# Demo 04's run state — PID files and logs written by deploy/start.sh, plus
+# the CLI it builds beside its source. All rebuilt or rewritten on every run.
+demos/04-jetstream-cqrs/deploy/.run/
+demos/04-jetstream-cqrs/cqrs/cqrs

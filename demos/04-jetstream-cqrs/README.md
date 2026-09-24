@@ -74,6 +74,26 @@ outside demo 01's 7100-7299 bands. `4422` and `8422` predate the scheme.
 
 You need Docker and Go. Nothing else.
 
+### The short way
+
+One script starts everything — the NATS container, the command API on `20402`,
+and both projectors. It waits until `/readyz` says the demo is ready, then
+prints the two URLs.
+
+```bash
+demos/04-jetstream-cqrs/deploy/start.sh
+```
+
+Run it again any time. It reports what is already up and starts only what is
+missing. To reverse it:
+
+```bash
+demos/04-jetstream-cqrs/deploy/stop.sh
+```
+
+The rest of this section is the same thing done by hand, one step at a time,
+because the steps are the lesson.
+
 ### 1. Start the server
 
 From `demos/04-jetstream-cqrs/`:
