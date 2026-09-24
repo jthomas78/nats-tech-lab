@@ -162,3 +162,75 @@ var _ = Describe("BR-AS69: structural admissibility", func() {
 		Expect(toggle.Validate()).To(Succeed())
 	})
 })
+
+// BR-AS85 — the registry holds the same door as the shell.
+//
+// Parity in BOTH directions is the point. Too loose and a plugin the registry
+// stored is refused on screen; too strict and a plugin that works in `build`
+// mode cannot be carried in `registry` mode. So there is a refusal spec for
+// each rule the shell enforces, and an admission spec for each thing the shell
+// tolerates.
+var _ = Describe("BR-AS85: the navigation group and the default route, at the write door", func() {
+	navGroupEntry := func(g *domain.NavGroup) domain.Entry {
+		e := admissibleEntry()
+		e.Contributions[1].Group = g
+		return e
+	}
+
+	Context("what is refused, because the shell refuses it", func() {
+		It("refuses an explicit group id that is not kebab-case", func() {
+			e := navGroupEntry(&domain.NavGroup{ID: "Jet_Stream", Label: "JetStream"})
+			Expect(errors.Is(e.Admissible(), domain.ErrEntryNotAdmissible)).To(BeTrue())
+		})
+
+		It("refuses a group object with no label", func() {
+			e := navGroupEntry(&domain.NavGroup{ID: "jetstream", Label: "  "})
+			Expect(errors.Is(e.Admissible(), domain.ErrEntryNotAdmissible)).To(BeTrue())
+		})
+
+		It("refuses an entry declaring a second default route", func() {
+			// Refused as a whole, like a duplicate contribution id: an entry
+			// with two defaults has not erred in one contribution, it has
+			// failed to answer the one question the declaration exists to
+			// answer, so there is no single contribution to drop.
+			e := admissibleEntry()
+			e.Contributions = append(e.Contributions,
+				domain.Contribution{Kind: "route", ID: "ports", Path: "/fleet-ops/ports", Title: "Ports", Default: true})
+			e.Contributions[0].Default = true
+			Expect(errors.Is(e.Admissible(), domain.ErrEntryNotAdmissible)).To(BeTrue())
+		})
+	})
+
+	Context("what is admitted, because the shell admits it", func() {
+		It("admits the string shorthand without holding it to the id pattern", func() {
+			Expect(navGroupEntry(domain.ShorthandNavGroup("Features")).Admissible()).To(Succeed())
+		})
+
+		It("admits an entry with no group at all", func() {
+			Expect(navGroupEntry(nil).Admissible()).To(Succeed())
+		})
+
+		It("admits exactly one default route", func() {
+			e := admissibleEntry()
+			e.Contributions[0].Default = true
+			Expect(e.Admissible()).To(Succeed())
+		})
+
+		It("admits an entry with no default route", func() {
+			Expect(admissibleEntry().Admissible()).To(Succeed())
+		})
+
+		It("ignores a default declared on a contribution that is not a route", func() {
+			// The declaration names a route to open. On any other kind it is
+			// meaningless, and meaningless is not the same as wrong.
+			e := admissibleEntry()
+			e.Contributions[1].Default = true
+			e.Contributions[0].Default = true
+			Expect(e.Admissible()).To(Succeed())
+		})
+
+		It("refuses a blank shorthand, which names no group at all", func() {
+			Expect(errors.Is(navGroupEntry(domain.ShorthandNavGroup("  ")).Admissible(), domain.ErrEntryNotAdmissible)).To(BeTrue())
+		})
+	})
+})

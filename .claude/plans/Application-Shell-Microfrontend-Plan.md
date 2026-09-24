@@ -2766,9 +2766,30 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   normalises to a boolean on route contributions, and a second one refuses the whole plugin with
   the new code `duplicate-default-route`. Nothing consumed `group` before this change and no
   manifest declared one, so no renderer moved. Suite 902 green, lint clean.
-- **17b — The Go contract (A1).** `registry.go`'s `Contribution` learns the object form and keeps
-  accepting the legacy string; persistence and read round-trip, signed registration, and manifest
-  drift all covered. Registry mode must be provably level with build mode before the merge lands.
+- **17b — DONE 2026-09-24. The Go contract (A1).** `registry.go`'s `Contribution` learns the object
+  form and keeps accepting the legacy string; persistence and read round-trip, signed registration,
+  and manifest drift all covered. Registry mode must be provably level with build mode before the
+  merge lands.
+  Landed as BR-AS85. `internal/domain/navgroup.go` is a new `NavGroup` type whose `UnmarshalJSON`
+  takes either form and whose `MarshalJSON` re-emits **the form that was written** — required, not
+  cosmetic, because `application/drift.go` re-marshals both sides and compares the text, so a
+  one-sided promotion would read as permanent drift on `contributions`. `Contribution.Group` became
+  `*NavGroup` (a pointer, so `omitempty` still fires for an absent group) and gained
+  `Default bool`; without the latter, `CompareManifest`'s `DisallowUnknownFields` would have read
+  any manifest carrying `default` as `invalid-manifest`. `admissible.go` now holds the same door as
+  the shell: a non-kebab-case explicit group id, a group with no label, a blank shorthand and a
+  second default route are all refused, while the shorthand is exempt from the id pattern and an
+  unknown key inside the group object is dropped rather than refused — a registry stricter than the
+  shell would reintroduce the split A1 exists to close.
+  **The A7 gate is now satisfied.** The full round-trip is proven, not assumed: `navgroup_test.go`
+  (decode/encode in both forms, idempotent twice-round entry marshal), `admissible_test.go` (the
+  write door, refusals and admissions), `store_integration_test.go` (through Postgres and back via
+  a second `Store`, shorthand not promoted), `manifest_test.go` (a **signed** manifest carrying both
+  new forms keeps its bytes verbatim and still reports `Attested()`, with a guard spec proving
+  attestation can still fail), and `drift_test.go` (both forms and `default` compare `checked`; a
+  real group-identity change still reports `drift`). Ginkgo 477 of 477, **0 skipped**, so the
+  Postgres specs genuinely ran. `go vet`, `go build` and `gofmt` clean; both `shared/mferegistry`
+  submodules green.
 - **17c — The merge.** `contributionRegistry` groups by `group.id` and applies D17-3's four-step
   cascade, including the deterministic displayed label of A2. Pure data; still rendered flat.
 - **17d — The clash channel.** `navigationClashes` on the registry, the THREE clash cases of A2,

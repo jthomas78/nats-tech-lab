@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -293,5 +294,74 @@ var _ = Describe("Phase 8c — manifest drift", func() {
 				Expect(string(raw)).NotTo(ContainSubstring("http"))
 			}
 		})
+	})
+})
+
+// BR-AS85 — drift must stay silent across the Phase 17 contract change.
+//
+// CompareManifest decodes the served manifest with DisallowUnknownFields, so
+// before this task a manifest carrying `default`, or a group written as an
+// object, read as `invalid-manifest` rather than as agreement. These specs
+// hold the two halves: the new forms decode, and a curated entry still
+// compares clean against the manifest it was made from.
+var _ = Describe("BR-AS85: drift across the navigation group contract", func() {
+	curated := func(group *domain.NavGroup, def bool) domain.Entry {
+		e := federated("example", "http://localhost:7111/remoteEntry.js")
+		e.Name = "Example"
+		e.Contributions = []domain.Contribution{
+			{Kind: "route", ID: "vessels", Path: "/example/vessels", Title: "Vessels", Default: def},
+			{Kind: "navigation", ID: "vessels-nav", Label: "Vessels", Route: "vessels", Group: group},
+		}
+		return e
+	}
+
+	It("compares clean when the group is written as an object", func() {
+		e := curated(&domain.NavGroup{ID: "jetstream", Label: "JetStream"}, false)
+		served, _ := json.Marshal(e)
+		Expect(domain.CompareManifest(e, served).State).To(Equal("checked"))
+	})
+
+	It("compares clean when the group is written as the string shorthand", func() {
+		e := curated(domain.ShorthandNavGroup("Features"), false)
+		served, _ := json.Marshal(e)
+		Expect(domain.CompareManifest(e, served).State).To(Equal("checked"))
+	})
+
+	It("compares clean when a route declares itself the default", func() {
+		e := curated(nil, true)
+		served, _ := json.Marshal(e)
+		Expect(domain.CompareManifest(e, served).State).To(Equal("checked"))
+	})
+
+	It("reads a served manifest carrying the raw new forms, rather than refusing it", func() {
+		// Written by hand, in the shapes a publisher actually writes, so the
+		// spec does not merely prove Go agrees with its own marshaller.
+		e := curated(&domain.NavGroup{ID: "jetstream", Label: "JetStream"}, true)
+		served := []byte(`{"id":"example","name":"Example","schemaVersion":` +
+			strconv.Itoa(domain.SchemaVersion) + `,"shellApiVersion":` + strconv.Itoa(domain.ShellAPIVersion) +
+			`,"remote":{"kind":"federated","url":"http://localhost:7111/remoteEntry.js","module":"./plugin"},` +
+			`"contributions":[` +
+			`{"kind":"route","id":"vessels","path":"/example/vessels","title":"Vessels","default":true},` +
+			`{"kind":"navigation","id":"vessels-nav","label":"Vessels","route":"vessels","group":{"id":"jetstream","label":"JetStream"}}` +
+			`]}`)
+		result := domain.CompareManifest(e, served)
+		Expect(result.State).To(Equal("checked"))
+	})
+
+	It("still reports drift when the group identity actually differs", func() {
+		e := curated(&domain.NavGroup{ID: "jetstream", Label: "JetStream"}, false)
+		served, _ := json.Marshal(curated(&domain.NavGroup{ID: "lessons", Label: "JetStream"}, false))
+		result := domain.CompareManifest(e, served)
+		Expect(result.State).To(Equal("drift"))
+		Expect(result.Fields).To(Equal([]string{"contributions"}))
+	})
+
+	It("reports drift between the two forms, because they are not the same text", func() {
+		// The registry carries what was written. A publisher who moved from
+		// the shorthand to the object form changed the manifest, and drift
+		// saying so is the correct answer, not a false alarm.
+		e := curated(domain.ShorthandNavGroup("jetstream"), false)
+		served, _ := json.Marshal(curated(&domain.NavGroup{ID: "jetstream", Label: "jetstream"}, false))
+		Expect(domain.CompareManifest(e, served).State).To(Equal("drift"))
 	})
 })

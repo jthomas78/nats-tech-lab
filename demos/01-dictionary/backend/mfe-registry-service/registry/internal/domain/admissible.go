@@ -116,6 +116,7 @@ func (e Entry) Admissible() error {
 	}
 
 	seen := make(map[string]struct{}, len(e.Contributions))
+	defaultRoute := ""
 	for i, c := range e.Contributions {
 		if err := admissibleContribution(e.ID, prefix, i, c); err != nil {
 			return err
@@ -124,6 +125,18 @@ func (e Entry) Admissible() error {
 			return notAdmissible("entry %q declares contribution %q twice", e.ID, c.ID)
 		}
 		seen[c.ID] = struct{}{}
+		// BR-AS84: refused as a whole, at the same point and in the same
+		// manner as a duplicate id. An entry with two defaults has not erred
+		// in one contribution; it has failed to answer the one question the
+		// declaration exists to answer, so there is no single one to drop.
+		// On any kind but `route` the flag is meaningless, and meaningless is
+		// not the same as wrong, so it is ignored rather than refused.
+		if c.Kind == "route" && c.Default {
+			if defaultRoute != "" {
+				return notAdmissible("entry %q declares %q and %q both default", e.ID, defaultRoute, c.ID)
+			}
+			defaultRoute = c.ID
+		}
 	}
 
 	// The health declaration is structure like any other: it is spelled into
@@ -164,6 +177,19 @@ func admissibleContribution(entryID, prefix string, index int, c Contribution) e
 		// than on click.
 		if !idPattern.MatchString(c.Route) {
 			return notAdmissible("entry %q navigation %q names no route", entryID, c.ID)
+		}
+		// BR-AS83/BR-AS85: the same door the shell holds. An explicit group
+		// id is an id like every other id here; the string shorthand is NOT
+		// held to the pattern, because deriving an id from a spelling would
+		// make merging depend on the spelling, which is the thing the rule
+		// exists to prevent.
+		if c.Group != nil {
+			if strings.TrimSpace(c.Group.ID) == "" || strings.TrimSpace(c.Group.Label) == "" {
+				return notAdmissible("entry %q navigation %q group names no id or no label", entryID, c.ID)
+			}
+			if !c.Group.Shorthand() && !idPattern.MatchString(c.Group.ID) {
+				return notAdmissible("entry %q navigation %q group id %q is not kebab-case", entryID, c.ID, c.Group.ID)
+			}
 		}
 	case "extension":
 		if !extensionPointPattern.MatchString(c.Target) {

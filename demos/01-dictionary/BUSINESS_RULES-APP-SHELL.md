@@ -1859,6 +1859,21 @@ fixtures.
   anything else: it grants no placement, no precedence in the rail, and no navigation entry.
   A plugin declaring no default **must** remain valid and **must** behave exactly as it does today.
 
+- **BR-AS85 — The registry carries what the shell admits, and holds the same door.** Whatever a
+  manifest may declare under BR-AS83 and BR-AS84, the registry service **must** be able to carry it
+  without loss: it **must** decode both group forms, **must** re-encode each in the form the
+  publisher wrote, and **must not** normalise one form into the other, because the registry is a
+  carrier of a publisher's manifest and not an author of it. The registry **must** enforce the same
+  two rules at its write door that the shell enforces at its read door — an explicit group id that
+  is not kebab-case, a group object missing its label, and a second default route **must** be
+  refused as not admissible — so that a plugin admitted in one catalogue source cannot be refused
+  in the other. Conversely the registry **must not** be stricter than the shell: an unrecognised
+  key inside a group declaration **must** be dropped exactly as the shell drops it, never refused,
+  because a registry that refuses what the shell admits reintroduces the very split between the two
+  sources this rule exists to close. Drift detection **must** remain silent across this change: a
+  curated entry and the served manifest it was made from **must** still compare equal, so the
+  decode-and-re-encode of a group **must** be a pure function of what was written.
+
 **Existing route admission and withdrawal behaviour remains UNCHANGED by this phase**
 (amendment A6). A route that is missing, refused or not permitted keeps the refusal behaviour of
 BR-AS12 and BR-AS05. A **withdrawal is not a refusal**: BR-AS56 takes away the plugin's routes,
@@ -1872,3 +1887,4 @@ withdrawal stays restorable. No rule above re-classifies any of that.
 | --- | --- |
 | BR-AS83 | *(17a)* `lab-shell/src/shell/registry/manifestSchema.spec.js` — the group object form, the string shorthand, a group id that is not kebab-case, a group object missing either field, and a group declaration carrying a placement field, which is ignored rather than honoured. |
 | BR-AS84 | *(17a)* `lab-shell/src/shell/registry/manifestSchema.spec.js` — one default admitted, a second refusing the whole plugin, none admitted unchanged, and `default` on a non-route contribution ignored. |
+| BR-AS85 | *(17b)* `demos/01-dictionary/backend/mfe-registry-service/registry/admissible_test.go` — the same door as the shell's: an explicit group id that is not kebab-case, a group object with no label, and a second default route all refused; the string shorthand and an unknown key inside the object both admitted. `registry/navgroup_test.go` — the round-trip: each form re-encodes as it was written, an absent group stays absent, an unknown key is dropped, and a malformed group is refused. `registry/drift_test.go` — a manifest carrying either form, and one carrying `default`, compares clean rather than reading as `invalid-manifest`, which is what `DisallowUnknownFields` would have made of them before this task. |

@@ -168,3 +168,59 @@ var _ = Describe("BR-AS37/BR-AS50 — the signed manifest is stored and served a
 		})
 	})
 })
+
+// BR-AS85 — a signed manifest carrying the Phase 17 contract.
+//
+// The signature is Ed25519 over the received bytes and those bytes are never
+// re-encoded on the registry side, so a new field cannot break an existing
+// signature. What CAN break is Attested(), which re-parses the stored bytes
+// and reflect.DeepEqual's the projection against them: a group type whose
+// decode is not a pure function of what was written would make an untouched
+// signed entry read as tampered with. These specs hold that line.
+var _ = Describe("BR-AS85 — the signed bytes and the new contribution fields", func() {
+	// Same ugly shape as signedBytes above: key order and whitespace that a
+	// re-encode would not reproduce.
+	newFormBytes := []byte("{\n  \"remote\": {\n    \"module\": \"./plugin\",\n    \"kind\": \"federated\",\n    \"url\": \"http://localhost:7110/remoteEntry.js\"\n  },\n  \"id\": \"fleet\",\n  \"shellApiVersion\": 1,\n  \"schemaVersion\": 1,\n  \"name\": \"Fleet\",\n  \"contributions\": [\n    {\"kind\": \"route\", \"id\": \"vessels\", \"path\": \"/fleet/vessels\", \"title\": \"Vessels\", \"default\": true},\n    {\"kind\": \"navigation\", \"id\": \"vessels-nav\", \"label\": \"Vessels\", \"route\": \"vessels\", \"group\": {\"id\": \"jetstream\", \"label\": \"JetStream\"}}\n  ]\n}\n")
+
+	shorthandBytes := []byte("{\n  \"id\": \"fleet\",\n  \"name\": \"Fleet\",\n  \"schemaVersion\": 1,\n  \"shellApiVersion\": 1,\n  \"remote\": {\"kind\": \"federated\", \"url\": \"http://localhost:7110/remoteEntry.js\", \"module\": \"./plugin\"},\n  \"contributions\": [\n    {\"kind\": \"route\", \"id\": \"vessels\", \"path\": \"/fleet/vessels\", \"title\": \"Vessels\"},\n    {\"kind\": \"navigation\", \"id\": \"vessels-nav\", \"label\": \"Vessels\", \"route\": \"vessels\", \"group\": \"Features\"}\n  ]\n}\n")
+
+	It("keeps the signed bytes verbatim when they carry a group object and a default", func() {
+		e, err := domain.EntryFromManifest(newFormBytes, signedSignature, signedSigningKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(e.Manifest.Bytes).To(Equal(newFormBytes))
+	})
+
+	It("projects the new fields out of those bytes", func() {
+		e, err := domain.EntryFromManifest(newFormBytes, signedSignature, signedSigningKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(e.Contributions[0].Default).To(BeTrue())
+		Expect(e.Contributions[1].Group.ID).To(Equal("jetstream"))
+		Expect(e.Contributions[1].Group.Label).To(Equal("JetStream"))
+	})
+
+	It("reports the untouched entry as attested, in both group forms", func() {
+		object, err := domain.EntryFromManifest(newFormBytes, signedSignature, signedSigningKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(object.Attested()).To(BeTrue())
+
+		shorthand, err := domain.EntryFromManifest(shorthandBytes, signedSignature, signedSigningKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(shorthand.Contributions[1].Group.Shorthand()).To(BeTrue())
+		Expect(shorthand.Attested()).To(BeTrue())
+	})
+
+	It("still reports a projection edited away from the bytes as not attested", func() {
+		// The guard the specs above rest on: attestation has to be able to
+		// fail, or proving it true proves nothing.
+		e, err := domain.EntryFromManifest(newFormBytes, signedSignature, signedSigningKey)
+		Expect(err).NotTo(HaveOccurred())
+		e.Contributions[1].Group = &domain.NavGroup{ID: "lessons", Label: "JetStream"}
+		Expect(e.Attested()).To(BeFalse())
+	})
+
+	It("refuses a manifest whose group is neither a string nor an object", func() {
+		bad := []byte(`{"id":"fleet","name":"Fleet","schemaVersion":1,"shellApiVersion":1,"remote":{"kind":"federated","url":"http://localhost:7110/remoteEntry.js","module":"./plugin"},"contributions":[{"kind":"navigation","id":"n","label":"L","route":"r","group":7}]}`)
+		_, err := domain.EntryFromManifest(bad, signedSignature, signedSigningKey)
+		Expect(err).To(HaveOccurred())
+	})
+})

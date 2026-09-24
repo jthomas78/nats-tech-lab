@@ -162,6 +162,67 @@ var _ = Describe("the registry store", func() {
 		})
 	})
 
+	Context("BR-AS85 — the navigation group survives the store", func() {
+		// The round-trip A7 gates the manifest migration on: a group goes
+		// into Postgres, through the JSONB projection, and comes back out in
+		// the form it was written. Until this passes, no manifest may emit
+		// either new form.
+		roundTrip := func(mutate func(*domain.Entry)) domain.Contribution {
+			e := federated("example-plugin", "http://localhost:7110/remoteEntry.js")
+			e.Contributions = []domain.Contribution{
+				{Kind: "route", ID: "vessels", Path: "/example-plugin/vessels", Title: "Vessels"},
+				{Kind: "navigation", ID: "vessels-nav", Label: "Vessels", Route: "vessels"},
+			}
+			mutate(&e)
+			_, err := store.Apply(ctx, domain.Write{
+				Op: domain.OpUpsert, EntryID: e.ID, Actor: domain.SharedAdminActor,
+				Entry: &e, IfRevision: domain.NoRevision,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			doc, err := postgres.NewStore(pgDB, allowed).Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Entries).To(HaveLen(1))
+			return doc.Entries[0].Contributions[1]
+		}
+
+		It("carries the object form back out as an object", func() {
+			nav := roundTrip(func(e *domain.Entry) {
+				e.Contributions[1].Group = &domain.NavGroup{ID: "jetstream", Label: "JetStream"}
+			})
+			Expect(nav.Group).NotTo(BeNil())
+			Expect(nav.Group.ID).To(Equal("jetstream"))
+			Expect(nav.Group.Label).To(Equal("JetStream"))
+			Expect(nav.Group.Shorthand()).To(BeFalse())
+		})
+
+		It("carries the string shorthand back out as a string, not promoted", func() {
+			nav := roundTrip(func(e *domain.Entry) {
+				e.Contributions[1].Group = domain.ShorthandNavGroup("Features")
+			})
+			Expect(nav.Group.ID).To(Equal("Features"))
+			Expect(nav.Group.Shorthand()).To(BeTrue(), "a publisher who wrote a string does not get an object back")
+		})
+
+		It("carries the default route declaration", func() {
+			e := federated("example-plugin", "http://localhost:7110/remoteEntry.js")
+			e.Contributions = []domain.Contribution{
+				{Kind: "route", ID: "vessels", Path: "/example-plugin/vessels", Title: "Vessels", Default: true},
+			}
+			_, err := store.Apply(ctx, domain.Write{
+				Op: domain.OpUpsert, EntryID: e.ID, Actor: domain.SharedAdminActor,
+				Entry: &e, IfRevision: domain.NoRevision,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			doc, err := postgres.NewStore(pgDB, allowed).Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Entries[0].Contributions[0].Default).To(BeTrue())
+		})
+
+		It("leaves an entry that names no group with no group", func() {
+			Expect(roundTrip(func(*domain.Entry) {}).Group).To(BeNil())
+		})
+	})
+
 	Context("BR-AS17 — revision is server-assigned and monotonic", func() {
 		It("assigns 1 to the first write and never repeats one", func() {
 			first, err := upsert("plugin-a", domain.NoRevision)

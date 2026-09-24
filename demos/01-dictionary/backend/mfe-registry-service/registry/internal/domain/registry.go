@@ -122,11 +122,18 @@ type Contribution struct {
 
 	Path  string `json:"path,omitempty"`
 	Title string `json:"title,omitempty"`
+	// Default marks this route as the one to open when a reader arrives at
+	// the plugin's prefix with nothing after it (BR-AS84). At most one per
+	// entry; it grants no placement, no precedence and no navigation entry.
+	Default bool `json:"default,omitempty"`
 
 	Label string `json:"label,omitempty"`
 	Route string `json:"route,omitempty"`
-	Group string `json:"group,omitempty"`
-	Icon  string `json:"icon,omitempty"`
+	// Group is a pointer so that an absent group stays absent through
+	// `omitempty`, which does not fire for a struct value. See navgroup.go
+	// for why the written form is preserved rather than normalised.
+	Group *NavGroup `json:"group,omitempty"`
+	Icon  string    `json:"icon,omitempty"`
 
 	Target string `json:"target,omitempty"`
 	Region string `json:"region,omitempty"`
