@@ -125,6 +125,21 @@ describe('BR-AS87 — different group ids showing the same name is a clash', () 
     expect(found[0].pluginIds).toEqual(['bravo'])
   })
 
+  /* The rail draws a band the tree does not hold — the shell's own Home and
+     Plugins band. It is host-owned and unplaceable (BR-AS07), but a reader
+     who sees `Shell` twice is confused by it either way. */
+  it('reports a band that collides with one the RAIL draws outside the tree', () => {
+    const found = clashesOf(navPlugin('alpha', [{ label: 'A', group: { id: 'extras', label: 'Shell' } }]))
+
+    expect(kinds(found)).toEqual(['duplicate-group-label'])
+    expect(found[0].groupIds).toEqual(['shell', 'extras'])
+    expect(found[0].pluginIds).toEqual(['alpha'])
+  })
+
+  it('does not report the reserved band on its own, because the rail always draws it', () => {
+    expect(clashesOf(navPlugin('alpha', [{ label: 'A' }]))).toEqual([])
+  })
+
   it('is silent when two bands read differently', () => {
     expect(
       clashesOf(

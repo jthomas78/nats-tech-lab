@@ -24,12 +24,19 @@
   the plugins arrived in.
 */
 
+import { RESERVED_RAIL_LABELS } from './navigationTree.js'
+
 /* A band the shell owns takes its name from the shell, so no plugin is at
    fault for it. It still takes part in a duplicate-name clash, because the
    reader sees the repeat either way. */
 const SHELL = Object.freeze({ pluginId: null, qualifiedId: null })
 
-export function detectNavigationClashes(tree) {
+/* The id a reserved rail band is reported under. It names no group in the
+   tree, because a reserved band is not IN the tree — that is the point of
+   it. */
+const RESERVED_RAIL_GROUP_ID = 'shell'
+
+export function detectNavigationClashes(tree, { reservedLabels = RESERVED_RAIL_LABELS } = {}) {
   const clashes = []
 
   for (const group of tree) {
@@ -84,8 +91,16 @@ export function detectNavigationClashes(tree) {
   }
 
   /* Two bands, one name. Read across the whole tree, after the per-band pass,
-     so the order of the list stays a function of the tree's own order. */
+     so the order of the list stays a function of the tree's own order.
+
+     Seeded with the bands the rail draws outside the tree (the shell's own
+     band), because the reader sees the repeat whether or not the band it
+     collides with came from a manifest. Those bands are shell-owned, so they
+     are never blamed for it. */
   const byDisplayed = new Map()
+  for (const label of reservedLabels) {
+    byDisplayed.set(label, [{ id: RESERVED_RAIL_GROUP_ID, label, shellOwned: true, labelClaims: [] }])
+  }
   for (const group of tree) {
     const seen = byDisplayed.get(group.label) ?? []
     seen.push(group)
@@ -93,6 +108,8 @@ export function detectNavigationClashes(tree) {
   }
   for (const [label, groups] of byDisplayed) {
     if (groups.length < 2) continue
+    /* A reserved band on its own is not a clash — it is the rail doing its
+       job. It becomes one only when a manifest spells the same word. */
     clashes.push(
       clash({
         kind: 'duplicate-group-label',

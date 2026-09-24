@@ -33,6 +33,18 @@ export const SHELL_GROUP_ORDER = Object.freeze([Object.freeze({ id: 'features', 
    on its behalf. */
 export const UNGROUPED_GROUP_ID = 'features'
 
+/*
+  The bands the RAIL draws that are not in the tree at all.
+
+  The shell's own band — Home and Plugins — is host-owned and deliberately not
+  placeable, so it is not in `SHELL_GROUP_ORDER` and a plugin cannot name it
+  (BR-AS07, BR-AS89). But a reader who sees `Shell` twice in the rail is
+  confused by it exactly as much as by any other repeated band name, so the
+  label is named here and handed to clash detection. Being reserved is about
+  the WORD, not about placement: nothing here lets a plugin into the band.
+*/
+export const RESERVED_RAIL_LABELS = Object.freeze(['Shell'])
+
 export function buildNavigationTree(entries, { groupOrder = SHELL_GROUP_ORDER } = {}) {
   const table = new Map()
   groupOrder.forEach((group, index) => table.set(group.id, { label: group.label, index }))

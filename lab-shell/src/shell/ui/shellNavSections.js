@@ -14,14 +14,18 @@
   fixed content has one definition instead of a template's worth.
 */
 
+import { RESERVED_RAIL_LABELS } from '../contributions/navigationTree.js'
 import { navMark } from '../registry/navMark.js'
 import { iconClass } from './iconClass.js'
 
 /* The shell's own screens. Not contributions, and deliberately not reachable
    by one — BR-AS07 keeps the rail host-owned, and this band is the part of it
-   no plugin can touch. */
+   no plugin can touch. The label is taken from the contributions layer's
+   reserved list rather than written twice, because that list is what clash
+   detection compares a plugin's band against: the two going out of step would
+   stop a repeated `Shell` in the rail being reported. */
 export const SHELL_SECTION_ID = 'shell'
-export const SHELL_SECTION_LABEL = 'Shell'
+export const [SHELL_SECTION_LABEL] = RESERVED_RAIL_LABELS
 
 /**
  * Which clashes name this entry.

@@ -316,9 +316,17 @@ function validateRoute(pluginId, raw, base, routePrefix) {
   if (typeof raw.title !== 'string' || raw.title.trim() === '') {
     return REJECT('malformed', `Plugin ${pluginId} route ${raw.id} has no title`)
   }
-  /* BR-AS84. Only `true` is a declaration; anything else is no declaration at
-     all. Normalised to a boolean here so no later reader has to ask whether
-     the key was absent or falsy. */
+  /* BR-AS84. The key is a boolean or it is absent — `"yes"`, `1` and `{}` are
+     refused rather than quietly read as "no default". The registry carries
+     this field as a Go `bool` and its decoder rejects the same values, and
+     BR-AS85 says a plugin admitted in one catalogue source must not be
+     refused in the other. Reading them as false here would have made a
+     manifest that works in `build` mode fail in `registry` mode. */
+  if (raw.default !== undefined && typeof raw.default !== 'boolean') {
+    return REJECT('malformed', `Plugin ${pluginId} route ${raw.id} has a non-boolean default`)
+  }
+  /* Normalised to a boolean so no later reader has to ask whether the key was
+     absent or present-and-false. */
   return ok({
     ...base,
     path: raw.path,

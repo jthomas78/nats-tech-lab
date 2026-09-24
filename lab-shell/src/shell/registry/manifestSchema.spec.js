@@ -482,10 +482,22 @@ describe('BR-AS84 — a plugin names at most one default route', () => {
     expect(result.code).toBe('duplicate-default-route')
   })
 
-  it('reads only a true default; anything else is no declaration', () => {
-    const result = routes(route('vessels', { default: 'yes' }), route('ports', { default: false }))
+  it('reads a declared false as no declaration', () => {
+    const result = routes(route('vessels', { default: false }), route('ports'))
     expect(result.ok).toBe(true)
     expect(result.plugin.contributions.every((c) => c.default === false)).toBe(true)
+  })
+
+  /* BR-AS85: the registry carries this field as a Go `bool` and its decoder
+     refuses these same values. Reading them as false here would admit in
+     `build` mode a manifest that `registry` mode rejects. */
+  it('refuses a non-boolean default rather than reading it as false', () => {
+    for (const value of ['yes', 1, 0, {}, [], null]) {
+      const result = routes(route('vessels', { default: value }))
+
+      expect(result.ok, `default: ${JSON.stringify(value)}`).toBe(false)
+      expect(result.code).toBe('malformed')
+    }
   })
 
   it('ignores default on a contribution that is not a route', () => {

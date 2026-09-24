@@ -2604,8 +2604,10 @@ boundaries, all explicit, all testable:
 - **An optional per-item slot** carries a health or clash marker.
 - **NavList only RENDERS.** Group merging, ordering and collision detection stay in the shell.
   Nothing in `shared/ui-shell/` learns what a plugin is.
-- **Group identity and collapse state key off stable IDs, never display labels.** This extends
-  D17-2's rule past merging and into the component's own persisted state.
+- **Group identity and any collapse state key off stable IDs, never display labels.** This extends
+  D17-2's rule past merging and into the component's own persisted state. Collapse is a LEVEL-1
+  feature — the outer `{ group, sections }` banner — and the shell's rail does not use it; see A5
+  as corrected.
 - **Regression coverage for the existing consumers ships beside the new shell tests.** Demo 01's
   `NavList.spec.js` is the existing guard and must grow, not merely keep passing.
 
@@ -2735,8 +2737,18 @@ the LEVEL-2 band that is a bare string: a section is `{ eyebrow?, items }` with 
 
 The resolution is an **optional `section.id`, falling back to the eyebrow string when absent**.
 Demo 01's `admin` and `seafreight-app` pass no id and are not touched; the shell passes `group.id`
-and gets stable collapse. This is recorded as the chosen approach: a legacy-input adapter, NOT a
-coordinated consumer migration. The fallback is itself a test, not an implementation detail.
+and gets stable identity for the band. This is recorded as the chosen approach: a legacy-input
+adapter, NOT a coordinated consumer migration. The fallback is itself a test, not an
+implementation detail.
+
+**Corrected 2026-09-24 (review, option A).** As first written this paragraph said the shell "gets
+stable collapse", which the code does not do and was never going to. `NavList.vue` collapses the
+LEVEL-1 `{ group, sections }` banner only; a level-2 section's `id` is its stable identity in the
+list and nothing more. The shell's rail passes flat sections, so its plugin bands are not
+collapsible — as the hand-rolled rail they replaced never was. Making them collapsible was weighed
+and rejected here: it would add an affordance to a shared component and a design decision to the
+rail that nobody has asked for. `section.id` earns its keep on identity alone — a band renamed by
+its owner must not read as a different band.
 
 **A6 — Withdrawal is not a refusal (user, 2026-09-24).** Stated because the amendment table above
 grouped four unavailable-route situations into one row and read as if all four were refusals. They
@@ -2862,6 +2874,31 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   blames nobody. 35 new specs (9 `navMark`, 22 `shellNavSections`, 10 `ShellNav`, less the 2 that
   replaced the withdrawn `exact` pair in `navListLinkMode`); lab-shell Vitest **997 green**, admin
   **351 green**, seafreight-app **36 green**, lab-shell lint 0 errors.
+- **17f review follow-up (2026-09-24). DONE.** An external review of `5015952` raised four points.
+  Two were based on a misreading — it took the phase to be claiming 17g, which nothing does. Two
+  were real and are fixed here, with the wording call taken as **option A**.
+  The real defect was a **split door** on `default`, against BR-AS85. `manifestSchema.js` read
+  `raw.default === true`, so `default: "yes"` was admitted as no declaration; the registry carries
+  the field as a Go `bool` and its decoder refuses the same value. A manifest could therefore work
+  in `build` mode and fail in `registry` mode — the one thing BR-AS85 exists to prevent. A
+  non-boolean `default` is now refused as malformed, which is the Go behaviour spelled out on the
+  shell's side rather than a new rule.
+  The boundary case was real and smaller: `SHELL_GROUP_ORDER` holds only `features`, so the rail's
+  own `Shell` band is not in the tree and clash detection could not see it — a plugin band labelled
+  `Shell` drew the word twice and reported nothing. `RESERVED_RAIL_LABELS` now lives beside the
+  order table, seeds the duplicate-name pass, and is where `shellNavSections.js` takes the band's
+  label from, so the name the rail draws and the name the check compares against cannot drift. A
+  reserved band alone is not a clash; it becomes one only when a manifest spells the same word, and
+  the shell is never blamed for it. Being reserved is about the WORD — it opens no door into the
+  band, and BR-AS07 is unchanged.
+  The collapse point was a **wording** defect, not a code one. A5 said the shell "gets stable
+  collapse" from `section.id`; `NavList.vue` collapses the level-1 banner only, and the shell's
+  rail passes flat sections. Option A corrects the words: `section.id` is identity and nothing
+  more, and the rail's plugin bands are not collapsible — as the hand-rolled rail they replaced
+  never was. Building it was weighed and rejected: an affordance in a shared component and a design
+  decision in the rail that nobody has asked for.
+  5 new specs (2 clash, 3 manifest, less the one that asserted the old `"yes"` reading); lab-shell
+  Vitest **1000 green**, lint 0 errors.
 - **17g — The generic default-route redirect**, with A4's declaration, failure behaviour and the
   permission, withdrawal and readiness checks.
 - **17h — Demo 04 splits, in ONE commit (A3).** Two routes, two nav entries, one shared lesson
