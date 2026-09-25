@@ -40,7 +40,28 @@ import (
 // definitions of one contract.
 var (
 	ErrEntryNotAdmissible = errors.New("registry: entry is not structurally admissible")
+	// ErrReservedRoutePrefix is the one refusal a caller may want to tell
+	// apart: the entry is well formed, and names a segment the shell owns.
+	// It always arrives wrapped with ErrEntryNotAdmissible as well.
+	ErrReservedRoutePrefix = errors.New("registry: route prefix is reserved by the shell")
 )
+
+// reservedRoutePrefixes are the first path segments the shell owns, with who
+// owns each. The shell's RESERVED_ROUTE_PREFIXES
+// (lab-shell/src/shell/registry/reservedPrefixes.js) is the same list, derived
+// there from the shell's routes and hosting config; its spec parses this
+// literal and fails when the two differ. A plugin whose routes lived under one
+// of these would either lose its routes to the shell's own, take a shell page
+// away, or never reach the SPA at all.
+var reservedRoutePrefixes = map[string]string{
+	"plugins":        "shell route /plugins and plugin asset path /plugins/",
+	"lab-demos":      "shell route /lab-demos/:demo",
+	"api":            "hosting namespace /api/",
+	"nats":           "hosting namespace /nats",
+	"demo-api":       "hosting namespace /demo-api/",
+	"demo-readiness": "hosting namespace /demo-readiness/",
+	"assets":         "build output /assets/",
+}
 
 // idPattern is the shell's ID_PATTERN: kebab-case, no leading, trailing or
 // doubled hyphens. Narrow on purpose — these ids land in route paths, DOM ids
@@ -91,6 +112,11 @@ func (e Entry) Admissible() error {
 	}
 	if !idPattern.MatchString(prefix) {
 		return notAdmissible("entry %q route prefix %q is not kebab-case", e.ID, prefix)
+	}
+	// Held to the defaulted prefix too: an entry called "api" would claim /api.
+	if owner, reserved := reservedRoutePrefixes[prefix]; reserved {
+		return fmt.Errorf("%w: %w: entry %q route prefix %q is reserved by the shell (%s)",
+			ErrEntryNotAdmissible, ErrReservedRoutePrefix, e.ID, prefix, owner)
 	}
 
 	for _, p := range e.ExtensionPoints {

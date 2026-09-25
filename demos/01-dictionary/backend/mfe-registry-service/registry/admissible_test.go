@@ -234,3 +234,48 @@ var _ = Describe("BR-AS85: the navigation group and the default route, at the wr
 		})
 	})
 })
+
+// BR-AS12 — a plugin may not claim a segment the shell owns.
+//
+// The list is the shell's RESERVED_ROUTE_PREFIXES, and lab-shell's
+// reservedPrefixes.spec.js holds the two equal. What is pinned here is the
+// door itself: every reserved segment refused with its own error, the
+// defaulted prefix held to the same rule, and a near miss still admitted.
+var _ = Describe("BR-AS12: reserved route prefixes, at the write door", func() {
+	reservedEntry := func(prefix string) domain.Entry {
+		e := admissibleEntry()
+		e.RoutePrefix = prefix
+		e.Contributions[0].Path = "/" + prefix + "/vessels"
+		return e
+	}
+
+	for _, prefix := range []string{"plugins", "lab-demos", "api", "nats", "demo-api", "demo-readiness", "assets"} {
+		It("refuses "+prefix+", naming the reservation", func() {
+			err := reservedEntry(prefix).Admissible()
+			Expect(errors.Is(err, domain.ErrEntryNotAdmissible)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrReservedRoutePrefix)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("reserved by the shell"))
+		})
+	}
+
+	It("refuses an id that would default to a reserved prefix", func() {
+		e := admissibleEntry()
+		e.ID = "api"
+		e.ExtensionPoints = []domain.ExtensionPoint{{ID: "api/details-sidebar/v1"}}
+		e.Contributions[0].Path = "/api/vessels"
+		Expect(errors.Is(e.Admissible(), domain.ErrReservedRoutePrefix)).To(BeTrue())
+	})
+
+	It("admits a segment that only starts like a reserved one", func() {
+		Expect(reservedEntry("plugins-archive").Admissible()).To(Succeed())
+		Expect(reservedEntry("api-docs").Admissible()).To(Succeed())
+	})
+
+	It("keeps every other refusal distinct from the reservation", func() {
+		e := admissibleEntry()
+		e.Contributions[0].Path = "/vessels"
+		err := e.Admissible()
+		Expect(errors.Is(err, domain.ErrEntryNotAdmissible)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrReservedRoutePrefix)).To(BeFalse())
+	})
+})

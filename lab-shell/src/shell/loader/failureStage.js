@@ -13,6 +13,7 @@ const STAGES = Object.freeze({
   'unsupported-shell-api-version': 'manifest validation',
   'invalid-id': 'manifest validation',
   malformed: 'manifest validation',
+  'reserved-route-prefix': 'manifest validation',
   'remote-not-curated': 'curation check',
   'no-loader-adapter': 'loader selection',
   'chunk-load-failed': 'remote entry fetch',

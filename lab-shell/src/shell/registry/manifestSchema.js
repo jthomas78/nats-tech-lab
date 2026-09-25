@@ -13,6 +13,7 @@
 */
 
 import { REGISTRY_SCHEMA_VERSION, SHELL_API_VERSION } from '../versions.js'
+import { reservedPrefixOwner } from './reservedPrefixes.js'
 
 /* Kebab-case, no leading/trailing/double hyphens. Deliberately narrow: these
    ids end up in route paths, DOM ids, Pinia store keys and log lines, and a
@@ -91,6 +92,15 @@ export function validateManifest(manifest) {
   const routePrefix = manifest.routePrefix ?? id
   if (typeof routePrefix !== 'string' || !ID_PATTERN.test(routePrefix)) {
     return REJECT('invalid-id', `Plugin ${id} route prefix ${JSON.stringify(routePrefix)} is not kebab-case`)
+  }
+  /* The shell's own segments. A prefix that defaults to the id is held to
+     this too: a plugin called `api` would otherwise claim `/api`. */
+  const owner = reservedPrefixOwner(routePrefix)
+  if (owner) {
+    return REJECT(
+      'reserved-route-prefix',
+      `Plugin ${id} route prefix ${JSON.stringify(routePrefix)} is reserved by the shell (${owner})`,
+    )
   }
 
   /* A plugin may own extension points of its own — the demo catalog owns
