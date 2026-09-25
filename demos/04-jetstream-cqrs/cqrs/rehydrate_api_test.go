@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"time"
@@ -153,6 +154,19 @@ var _ = Describe("the rehydrate endpoint", func() {
 
 			Expect(rec.Code).To(Equal(http.StatusBadGateway))
 			Expect(body).To(HaveKeyWithValue("error", "Unavailable"))
+			Expect(body).NotTo(HaveKey("rule"))
+		})
+
+		It("reports a history it cannot read as 422, with the sequence", func() {
+			bad := &MalformedHistoryError{Seq: 5, Err: fmt.Errorf("%w: unknown event type", ErrUndecodable)}
+			h := rehydrateAPI(stubRehydrate(Rehydrated{}, bad))
+
+			rec := get(h, "/rehydrate?id=V1")
+			body := decodeBody(rec)
+
+			Expect(rec.Code).To(Equal(http.StatusUnprocessableEntity))
+			Expect(body).To(HaveKeyWithValue("error", "MalformedHistory"))
+			Expect(body).To(HaveKeyWithValue("seq", BeNumerically("==", 5)))
 			Expect(body).NotTo(HaveKey("rule"))
 		})
 	})

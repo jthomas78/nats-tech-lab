@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -195,6 +196,42 @@ var _ = Describe("the command API", func() {
 
 			Expect(rec.Code).To(Equal(http.StatusServiceUnavailable))
 			Expect(decodeBody(rec)).To(HaveKeyWithValue("error", "ErrConflict"))
+		})
+	})
+
+	// A log the fold cannot read is not NATS being down. 502 told the reader
+	// to wait and retry, and the tenth retry reads the same bytes as the
+	// first. The answer names the problem and, when known, the sequence.
+	Describe("a history the fold cannot read", func() {
+		It("answers 422 MalformedHistory, naming the blocking sequence", func() {
+			bad := &MalformedHistoryError{Seq: 17, Err: fmt.Errorf("%w: unknown event type", ErrUndecodable)}
+			h := api(failingRunner(bad))
+			rec := post(h, "/commands/travel", `{"id":"truck-7","km":42}`)
+			body := decodeBody(rec)
+
+			Expect(rec.Code).To(Equal(http.StatusUnprocessableEntity))
+			Expect(body).To(HaveKeyWithValue("error", "MalformedHistory"))
+			Expect(body).To(HaveKeyWithValue("seq", BeNumerically("==", 17)))
+			Expect(body).NotTo(HaveKey("rule"))
+		})
+
+		It("answers 422 without a sequence when none is known", func() {
+			h := api(failingRunner(fmt.Errorf("%w: body", ErrUndecodable)))
+			rec := post(h, "/commands/travel", `{"id":"truck-7","km":42}`)
+			body := decodeBody(rec)
+
+			Expect(rec.Code).To(Equal(http.StatusUnprocessableEntity))
+			Expect(body).To(HaveKeyWithValue("error", "MalformedHistory"))
+			Expect(body).NotTo(HaveKey("seq"))
+		})
+
+		// The shim reports. It does not prescribe a repair, and publishing
+		// into the log by hand is not one this demo supports.
+		It("does not tell the reader to publish into the log", func() {
+			bad := &MalformedHistoryError{Seq: 17, Err: fmt.Errorf("%w: x", ErrUndecodable)}
+			rec := post(api(failingRunner(bad)), "/commands/travel", `{"id":"truck-7","km":42}`)
+
+			Expect(rec.Body.String()).NotTo(ContainSubstring("nats pub"))
 		})
 	})
 

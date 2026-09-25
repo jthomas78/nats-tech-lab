@@ -60,6 +60,26 @@ var (
 	ErrUndecodable = errors.New("event cannot be decoded")
 )
 
+// MalformedHistoryError is BR-OD09 with the one fact a reader needs to act:
+// WHERE the log stopped being readable. rehydrate() wraps the decode failure
+// in it because rehydrate is the only place that holds the sequence when the
+// fold stops.
+//
+// It unwraps to the decode error, so errors.Is(err, ErrUndecodable) and
+// Permanent() still hold. This is a better REPORT of the same stop. Whether a
+// fold should stop or skip is a separate decision, and this type changes
+// neither.
+type MalformedHistoryError struct {
+	Seq uint64 // stream sequence of the event that could not be decoded
+	Err error  // the decode failure; wraps ErrUndecodable
+}
+
+func (e *MalformedHistoryError) Error() string {
+	return fmt.Sprintf("history is malformed at seq %d: %v", e.Seq, e.Err)
+}
+
+func (e *MalformedHistoryError) Unwrap() error { return e.Err }
+
 // Permanent reports whether a failure is one that retrying cannot fix.
 //
 // This is the difference between a bad EVENT and a bad MOMENT. NATS being

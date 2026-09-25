@@ -160,7 +160,9 @@ func rehydrate(ctx context.Context, access logAccess, src Source, id string, wit
 	err := access.replay(ctx, src, src.VehicleFilter(id), out.FromSeq, func(seq uint64, subject string, data []byte) error {
 		e, err := decode(subject, data)
 		if err != nil {
-			return err
+			// The sequence is known here and nowhere later. The stop itself
+			// is unchanged; this only says where it happened.
+			return &MalformedHistoryError{Seq: seq, Err: err}
 		}
 		out.Vehicle = out.Vehicle.Apply(e)
 		out.LastSeq = seq

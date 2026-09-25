@@ -101,7 +101,11 @@ type fakeLog struct {
 	// delivered on. Only the decode spec uses it.
 	subjectOverride string
 
-	snap      Snapshot
+	// badSeq, when set, is the one sequence delivered on a subject no
+	// decoder knows. The events before it are real.
+	badSeq uint64
+
+	snap     Snapshot
 	snapFound bool
 	snapErr   error
 
@@ -143,6 +147,9 @@ func (f *fakeLog) access() logAccess {
 				subject := f.src.VehicleSubject(f.id, e.EventType())
 				if f.subjectOverride != "" {
 					subject = f.subjectOverride
+				}
+				if f.badSeq != 0 && seq == f.badSeq {
+					subject = f.src.VehicleSubject(f.id, "nonsense")
 				}
 				if err := fn(seq, subject, data); err != nil {
 					return err
@@ -394,6 +401,46 @@ var _ = Describe("rehydrating one vehicle", func() {
 
 			Expect(err).To(MatchError(ErrUndecodable))
 			Expect(out.EventsRead).To(Equal(0))
+		})
+
+		/* The stop names where. A caller that is told only "the history is
+		   bad" has a whole log to search; the sequence is the one fact the
+		   replay had in hand when it stopped. Still ErrUndecodable, so
+		   Permanent() -- and with it stop-versus-skip -- is unchanged. */
+		It("names the sequence it stopped at", func() {
+			log := newLog(history())
+			log.badSeq = 4
+
+			out, err := log.run(false)
+
+			var malformed *MalformedHistoryError
+			Expect(errors.As(err, &malformed)).To(BeTrue())
+			Expect(malformed.Seq).To(Equal(uint64(4)))
+			Expect(err).To(MatchError(ErrUndecodable))
+			Expect(Permanent(err)).To(BeTrue())
+			Expect(out.EventsRead).To(Equal(3))
+			Expect(out.LastSeq).To(Equal(uint64(3)))
+		})
+
+		It("names a sequence in the tail, after a snapshot", func() {
+			log := newLog(history()).withSnapshotAt(6)
+			log.badSeq = 8
+
+			_, err := log.run(true)
+
+			var malformed *MalformedHistoryError
+			Expect(errors.As(err, &malformed)).To(BeTrue())
+			Expect(malformed.Seq).To(Equal(uint64(8)))
+		})
+
+		It("does not call a broken stream malformed history", func() {
+			log := newLog(history())
+			log.replayErr = errors.New("stream down")
+
+			_, err := log.run(false)
+
+			var malformed *MalformedHistoryError
+			Expect(errors.As(err, &malformed)).To(BeFalse())
 		})
 	})
 

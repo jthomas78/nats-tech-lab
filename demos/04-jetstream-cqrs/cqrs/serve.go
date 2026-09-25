@@ -84,6 +84,9 @@ type refusal struct {
 	Rule    string `json:"rule,omitempty"`
 	Error   string `json:"error"`
 	Message string `json:"message"`
+	// Seq is the stream sequence a MalformedHistory answer stopped at. Absent
+	// when no sequence is known, and on every other answer.
+	Seq uint64 `json:"seq,omitempty"`
 }
 
 // endpoint is one command: how to decide it, and what each refusal is called.
@@ -289,10 +292,9 @@ func rehydrateHandler(rehydrateOne rehydrateRunner, allowedOrigins []string) htt
 		out, err := rehydrateOne(r.Context(), src, id, r.URL.Query().Get("snapshot") != "false")
 		if err != nil {
 			// No rule code. Rehydrating refuses no command, so there is no
-			// business rule here to name -- see describe().
-			writeJSON(w, http.StatusBadGateway, refusal{
-				Error: "Unavailable", Message: err.Error(),
-			})
+			// business rule here to name -- describe() gets no rules.
+			status, body := describe(err, nil)
+			writeJSON(w, status, body)
 			return
 		}
 
@@ -328,6 +330,18 @@ func describe(err error, rules map[error]string) (int, refusal) {
 			Error:   errorNames[ErrConflict],
 			Message: "too many writers on this vehicle at once; try again",
 		}
+	}
+	// BR-OD09. Not a rule refusal -- no command was refused -- and not the
+	// demo being down either: NATS answered, and what it holds cannot be
+	// read. A retry reads the same bytes, so this must not look like 502.
+	// No rule code, and no repair advice: the answer says what and where.
+	if errors.Is(err, ErrUndecodable) {
+		out := refusal{Error: "MalformedHistory", Message: err.Error()}
+		var malformed *MalformedHistoryError
+		if errors.As(err, &malformed) {
+			out.Seq = malformed.Seq
+		}
+		return http.StatusUnprocessableEntity, out
 	}
 	return http.StatusBadGateway, refusal{
 		Error: "Unavailable", Message: err.Error(),
