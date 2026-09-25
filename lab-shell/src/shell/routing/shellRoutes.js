@@ -33,7 +33,10 @@
   `routePrefix` and the target is the plugin's own declared route, handled
   like every other contribution.
 */
+import { defineComponent, h, provide, shallowRef } from 'vue'
+
 import { withDemoGate } from '../demos/demoGate.js'
+import { ROUTE_RETRY } from './routeRetry.js'
 
 /**
  * @param {object} options
@@ -171,9 +174,13 @@ export async function resolveRouteComponent({
   try {
     module = await loader.load(plugin)
   } catch {
-    return errorComponent
+    return errorComponent && recoverableRoute({ route, loader, plugin, errorComponent, demoStore })
   }
 
+  return routeComponentFrom(module, { route, errorComponent, demoStore })
+}
+
+function routeComponentFrom(module, { route, errorComponent, demoStore }) {
   /* The manifest promised a component this module does not export. Same class
      of failure as a chunk that will not load: a broken plugin, reported, not a
      crashed shell. */
@@ -184,4 +191,53 @@ export async function resolveRouteComponent({
      shell failure and is reported as one; asking whether its demo is running
      would answer a question nobody asked. */
   return withDemoGate({ component, pluginId: route.pluginId, demoStore })
+}
+
+/*
+  What a route resolves to when its plugin would NOT load.
+
+  vue-router resolves a lazy route component once and keeps the answer on the
+  record for the life of the page. Handing it the bare error component made
+  that answer permanent: Retry loaded the plugin, re-entered the route, and
+  the router rendered the cached error panel again without asking. Only a
+  page reload cleared it.
+
+  So a failure resolves to this component instead, and IT is what the router
+  keeps. It draws the error panel, and hands the panel a way to try again
+  (ROUTE_RETRY). A retry that loads swaps the real component in place, behind
+  the same demo gate a first-time success gets. A later visit whose plugin has
+  since loaded some other way — an extension slot, a sibling route — renders
+  it straight away rather than an error about a load that has succeeded.
+
+  The success path is untouched: a plugin that loads first time resolves to
+  exactly the component it always did, and navigation still waits for it.
+*/
+function recoverableRoute({ route, loader, plugin, errorComponent, demoStore }) {
+  return defineComponent({
+    name: `PluginRoute(${route.qualifiedId})`,
+    inheritAttrs: false,
+    setup(_props, { attrs }) {
+      const loaded = () => {
+        const module = loader.peek?.(route.pluginId) ?? null
+        return module && routeComponentFrom(module, { route, errorComponent, demoStore })
+      }
+      const resolved = shallowRef(loaded())
+
+      /* Rejects when the load fails again, so the panel's own finally-block
+         is what clears its busy state; the status record is the report. */
+      provide(ROUTE_RETRY, async () => {
+        await loader.load(plugin)
+        resolved.value = loaded()
+      })
+
+      return () => {
+        const component = resolved.value
+        /* Route props (params, `routeId`) go to the plugin, never to the
+           error panel, which reads its route through vue-router. */
+        return component && component !== errorComponent
+          ? h(component, attrs)
+          : h(errorComponent)
+      }
+    },
+  })
 }

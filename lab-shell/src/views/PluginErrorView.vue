@@ -11,6 +11,7 @@ import { computed, inject, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { failureStage } from '../shell/loader/failureStage.js'
+import { ROUTE_RETRY } from '../shell/routing/routeRetry.js'
 import { SHELL } from '../shell/shellKey.js'
 
 const shell = inject(SHELL, null)
@@ -26,23 +27,33 @@ const manifest = computed(() =>
 )
 const stage = computed(() => failureStage(record.value?.reasonCode ?? null))
 
+/* The failed route's own retry, when this panel stands in for a plugin route
+   (see `recoverableRoute` in shellRoutes.js). It loads the plugin and swaps
+   the real component in on success. Re-entering the route cannot do that:
+   vue-router keeps the first component a lazy route resolved to, so a
+   re-entry would render this same panel again. */
+const retryRoute = inject(ROUTE_RETRY, null)
+
 /* Retry is a real second attempt, not a reload: `failed -> loading` is a legal
    transition and the loader has already dropped its cached in-flight promise,
-   so re-entering the route runs the whole load again. */
+   so the whole load runs again. */
 async function retry() {
   if (retrying.value) return
   retrying.value = true
   try {
     const plugin = manifest.value
-    if (plugin && shell?.loader) await shell.loader.load(plugin)
+    if (retryRoute) await retryRoute()
+    else if (plugin && shell?.loader) await shell.loader.load(plugin)
   } catch {
     /* The status record is the report; a rejection here just means the retry
        failed too, and the panel is already showing why. */
   } finally {
     retrying.value = false
-    /* Re-resolve the route either way: on success the real component renders,
-       on failure this panel re-renders with the fresh cause. */
-    await router.replace({ path: route.path, query: { ...route.query, r: Date.now() } })
+    /* No route to swap into (the panel is shown for a route whose manifest
+       is gone): re-enter, so a failure re-renders with the fresh cause. */
+    if (!retryRoute) {
+      await router.replace({ path: route.path, query: { ...route.query, r: Date.now() } })
+    }
   }
 }
 </script>

@@ -80,7 +80,11 @@ describe('BR-AS04 — a route that will not resolve does not take the shell down
       errorComponent: ErrorPanel,
     })
 
-    expect(component).toBe(ErrorPanel)
+    /* Not the bare panel: vue-router would cache that for the life of the
+       page and Retry could never replace it. A wrapper that draws the panel
+       (routeRetry.spec.js covers the retry itself). */
+    const wrapper = mount(component)
+    expect(wrapper.findComponent(ErrorPanel).exists()).toBe(true)
   })
 
   it('renders the error component when the module lacks the promised component', async () => {
