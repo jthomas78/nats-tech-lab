@@ -216,6 +216,39 @@ describe('it never flatters the comparison', () => {
     expect(w.get('[data-testid="rehydrate-verdict"]').text()).toContain('Run both sides')
   })
 
+  // The seq is shown on its own, so a reader does not have to find it in the
+  // message text. The panel offers no repair: publishing an event is not one.
+  it('names the seq a malformed history stopped at', async () => {
+    vi.spyOn(api, 'fetchBoth').mockResolvedValue({
+      cold: {
+        kind: 'broken',
+        error: 'MalformedHistory',
+        message: 'history is malformed at seq 5',
+        seq: 5,
+      },
+      warm,
+    })
+    const w = await mountPanel()
+    await w.get('[data-testid="rehydrate-run-both"]').trigger('click')
+    await flushPromises()
+
+    const cold = w.get('[data-testid="rehydrate-cold"]')
+    expect(cold.get('[data-testid="rehydrate-seq"]').text()).toBe('seq 5')
+    expect(cold.text()).not.toContain('nats pub')
+  })
+
+  it('shows no seq for a broken write side that named none', async () => {
+    vi.spyOn(api, 'fetchBoth').mockResolvedValue({
+      cold: { kind: 'broken', error: 'Unavailable', message: 'nats down' },
+      warm,
+    })
+    const w = await mountPanel()
+    await w.get('[data-testid="rehydrate-run-both"]').trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-testid="rehydrate-seq"]').exists()).toBe(false)
+  })
+
   // CLAUDE.md: "the snapshot is always stale". The panel says so with the
   // run's own number, not as a slogan.
   it('says how far the snapshot trailed on this run', async () => {

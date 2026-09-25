@@ -271,6 +271,12 @@ function rows(out) {
           class="broken"
         >
           {{ s.out.error }} — {{ s.out.message }}
+          <code
+            v-if="s.out.seq"
+            class="seq"
+            data-testid="rehydrate-seq"
+            title="stream sequence of the event the replay could not read"
+          >seq {{ s.out.seq }}</code>
         </p>
         <p
           v-else
@@ -507,6 +513,13 @@ dd {
 
 .broken {
   color: var(--d4-lost);
+}
+
+.broken .seq {
+  margin-left: 6px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--p-text-color);
 }
 
 .stale b {

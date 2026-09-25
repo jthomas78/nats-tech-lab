@@ -45,6 +45,20 @@ describe('describeResult', () => {
     expect(r.kind).toBe('broken')
     expect(r.rule).toBeUndefined()
     expect(r.message).toBe('nats down')
+    expect(r.seq).toBeUndefined()
+  })
+
+  // The replay stopped on an event it could not read. The seq says where.
+  it('carries the seq of a malformed history', () => {
+    const r = describeResult({
+      snapshot: false,
+      id: 'V1',
+      status: 422,
+      body: { error: 'MalformedHistory', message: 'history is malformed at seq 5', seq: 5 },
+    })
+    expect(r.kind).toBe('broken')
+    expect(r.error).toBe('MalformedHistory')
+    expect(r.seq).toBe(5)
   })
 })
 

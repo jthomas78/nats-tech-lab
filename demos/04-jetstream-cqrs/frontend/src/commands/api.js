@@ -92,15 +92,23 @@ export function describeOutcome({ command, id, status, body = {} }) {
       message: body.message ?? 'the domain refused the command',
     }
   }
-  // Anything else is the plumbing, not the domain. No rule code is carried
-  // here even if the body somehow had one.
+  // Anything else is not the domain. No rule code is carried here even if the
+  // body somehow had one. A 422 MalformedHistory may name the seq the replay
+  // stopped at, and only a positive seq is kept.
   return {
     kind: 'broken',
     command,
     id,
     error: body.error ?? `HTTP ${status}`,
     message: body.message ?? 'the command API did not answer with a decision',
+    ...stoppedAt(body),
   }
+}
+
+// stoppedAt keeps the seq of a malformed history, when the server named one.
+export function stoppedAt(body = {}) {
+  const seq = Number(body.seq)
+  return Number.isInteger(seq) && seq > 0 ? { seq } : {}
 }
 
 // unreachable is the case fetch itself fails: the shim is not running, or the

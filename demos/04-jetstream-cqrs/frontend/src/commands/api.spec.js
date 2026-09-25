@@ -82,6 +82,31 @@ describe('describeOutcome', () => {
     expect(out.error).toBe('Unavailable')
   })
 
+  // A 422 is the log, not the network: the replay stopped on an event it
+  // could not read, and the seq says which one. It is still not a refusal.
+  it('carries the seq of a malformed history', () => {
+    const out = describeOutcome({
+      command: 'travel',
+      id: 'V1',
+      status: 422,
+      body: { error: 'MalformedHistory', message: 'history is malformed at seq 17', seq: 17 },
+    })
+    expect(out.kind).toBe('broken')
+    expect(out.error).toBe('MalformedHistory')
+    expect(out.seq).toBe(17)
+    expect(out.rule).toBeUndefined()
+  })
+
+  it('carries no seq when the server named none', () => {
+    const out = describeOutcome({
+      command: 'travel',
+      id: 'V1',
+      status: 422,
+      body: { error: 'MalformedHistory', message: 'history is malformed' },
+    })
+    expect(out.seq).toBeUndefined()
+  })
+
   it('describes a 404 from an unknown command', () => {
     const out = describeOutcome({ command: 'scrap', id: 'V1', status: 404, body: {} })
     expect(out.kind).toBe('broken')

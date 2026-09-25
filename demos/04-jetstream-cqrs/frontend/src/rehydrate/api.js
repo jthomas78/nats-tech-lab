@@ -14,6 +14,7 @@
 // It sends, and it hands back an outcome for every path including failure.
 
 import { COMMAND_API } from '../config.js'
+import { stoppedAt } from '../commands/api.js'
 
 // describeResult turns one HTTP answer into one half of the comparison.
 //
@@ -40,6 +41,7 @@ export function describeResult({ snapshot, id, status, body = {} }) {
     usedSnapshot: snapshot,
     error: body.error ?? `HTTP ${status}`,
     message: body.message ?? 'the write side did not answer with a rehydration',
+    ...stoppedAt(body),
   }
 }
 

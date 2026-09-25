@@ -163,6 +163,12 @@ const KINDS = {
           v-if="o.error"
           class="errname"
         >{{ o.error }}</code>
+        <code
+          v-if="o.kind === 'broken' && o.seq"
+          class="seq"
+          data-testid="outcome-seq"
+          title="stream sequence of the event the replay could not read"
+        >seq {{ o.seq }}</code>
         <span class="msg">{{ o.message }}</span>
         <span class="at">{{ formatClock(o.at) }}</span>
       </li>
@@ -328,6 +334,7 @@ input:focus-visible {
 .what,
 .rulecode,
 .errname,
+.seq,
 .at {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 11px;
@@ -342,6 +349,10 @@ input:focus-visible {
 
 .errname {
   color: var(--p-text-muted-color);
+}
+
+.seq {
+  color: var(--p-text-color);
 }
 
 .msg {
