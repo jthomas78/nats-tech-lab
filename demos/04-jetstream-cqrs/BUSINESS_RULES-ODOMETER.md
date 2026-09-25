@@ -99,6 +99,21 @@ pool lost this event to racing", which is the lesson that panel teaches. An
 unreadable event was never the pool's fault, so it is logged and not counted
 there.
 
+**Rehydration does not drop. It stops.** A long-lived fold terminates an
+unreadable event and moves on. A rehydration cannot: it is rebuilding one
+aggregate to decide one command, and a state with an event missing would
+approve what it should refuse. So the replay stops at the event, and the
+command API answers `422 MalformedHistory` with the `seq` it stopped at.
+
+**A later snapshot can step over the event. It does not repair the log.** The
+snapshotter drops the event and does not advance past it. When the next good
+event for that vehicle arrives, the snapshot's `lastSeq` moves beyond the bad
+sequence, and a rehydration that starts from the snapshot never reads it
+again. The bytes are still in the log. A replay from sequence 1 still stops
+on them, and so does any rehydration whose snapshot is older than the bad
+event. Whether a fold should stop or skip here is an open decision, not
+settled by this rule.
+
 ## Rehydration reports two facts about the snapshot, not one
 
 **Asking for a snapshot does not mean there was one.** The snapshotter is

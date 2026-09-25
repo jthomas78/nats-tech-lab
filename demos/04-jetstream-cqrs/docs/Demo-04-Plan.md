@@ -246,6 +246,13 @@ Success: `200` with `{"seq":129}`. Refusal: `409` with
 `{"rule":"BR-OD04","error":"ErrRetired","message":"..."}`. The rule code is
 carried so the screen can show *which* rule refused, not just that one did.
 
+Added 2026-09-25: a history the fold cannot read (BR-OD09) answers `422` with
+`{"error":"MalformedHistory","message":"...","seq":17}`, on `/commands/*` and
+on `GET /rehydrate` alike. It is not a refusal, so it carries no `rule`. `seq`
+is the stream sequence the replay stopped at. It is optional: it is left out
+when no sequence is known. Before this, the same failure answered `502
+Unavailable`, which read as "NATS is down, retry". A retry reads the same bytes.
+
 CORS is open to the frontend origin only. There is no auth — this demo has no
 accounts, and adding them belongs to demo 03.
 
