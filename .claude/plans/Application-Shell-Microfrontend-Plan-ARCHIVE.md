@@ -527,7 +527,7 @@ route-scoped shell control, footer) and must be able to demonstrate each failure
 - [x] **1b-1 — Module Federation loader.** `module-federation/vite` implementing the 1a loader
       interface. If the interface has to change to accommodate it, that is a recorded revision of the
       1a contract, not a silent edit. *(BR-AS03.)*
-- [x] **1b-2 — Example plugin package** at `lab-shell/plugins/example-plugin/` — its own
+- [x] **1b-2 — Example plugin package** at `lab-shell/plugins/example-plugin/` (now `lab-shell/plugins/fixtures/example-plugin/`) — its own
       `package.json`, Vite config and build, dev port **7110**, built and served independently of the
       host. *(BR-AS03, BR-AS15.)*
 - [x] **1b-3 — One contribution of every kind.** Route; navigation; an extension into
@@ -2028,7 +2028,7 @@ shutdown, never with failure detection.
 
    **Resolved 2026-09-01 (13e):** announcer-only container. It keeps its own
    publisher, and its manifest lives at
-   `lab-shell/plugins/example-plugin-unreachable/public/manifest.json` — under
+   `lab-shell/plugins/fixtures/example-plugin-unreachable/public/manifest.json` — under
    `public/` like every other plugin's, even though nothing serves it there, so
    the five sidecar mounts are identical.
 5. **The announcer is a resident process, not a one-shot.** It announces at
@@ -2126,7 +2126,7 @@ shutdown, never with failure detection.
     A manifest provenance decision is still needed, for a different reason: the
     plugin's *content* must come from a build-owned artifact, not a
     hand-maintained copy. Four fixtures already have
-    `lab-shell/plugins/<id>/public/manifest.json`; `example-plugin-unreachable`
+    `lab-shell/plugins/fixtures/<id>/public/manifest.json`; `example-plugin-unreachable`
     has none (see decision 4).
 
     **Amended 2026-09-01 after 13b was built.** Revision 2 said every manifest

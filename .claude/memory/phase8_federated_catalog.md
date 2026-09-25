@@ -7,7 +7,7 @@
   explicit operator curation/seeding; preload preserves them. registry.dev.json
   removed. Five frontend services carry the preload source label.
 - Builtin kind/adapter/boot option removed. Catalog source, views and README raw
-  import live in lab-shell/plugins/demo-catalog. Host Docker no longer copies README.
+  import live in lab-shell/plugins/shell/demo-catalog. Host Docker no longer copies README.
 - activate gets one shared frozen {version:1,ui:{ExtensionRegion}}. Freeze ui too,
   never the Vue definition. Catalog stores API in module scope; local wrapper
   forwards attrs/slots. No host runtime imports, no NATS API exposed.

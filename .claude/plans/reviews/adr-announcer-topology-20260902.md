@@ -54,7 +54,7 @@ Plugin Dockerfile becomes:
 FROM node:24-alpine AS build
 # ... npm ci && npm run build ...
 FROM mfe-plugin-host:latest
-COPY --from=build /repo/lab-shell/plugins/<id>/dist /srv
+COPY --from=build /repo/lab-shell/plugins/fixtures/<id>/dist /srv
 ```
 
 Compose has one stanza per plugin. Manifest is read from `/srv/manifest.json`

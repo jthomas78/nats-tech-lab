@@ -88,7 +88,7 @@ Plus one non-breaking rule addition:
 - `lab-shell/diagrams/phase2-*` and `phase3-*` — historical design mockups. They
   record what was true then. A repo-wide `sed` for the subject rename would
   corrupt the record.
-- `demo-catalog`. **This is the trap.** `lab-shell/plugins/demo-catalog/` and the
+- `demo-catalog`. **This is the trap.** `lab-shell/plugins/demo-catalog/` (now `lab-shell/plugins/shell/demo-catalog/`) and the
   `demo-catalog-frontend` compose service exist and look exactly like the other
   five, but it has **no announcer and no credential** — it is a *curated* plugin,
   not an announced one. It is not migrated, not scaffolded, not given a
