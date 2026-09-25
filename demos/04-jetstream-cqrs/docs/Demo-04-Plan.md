@@ -3597,3 +3597,129 @@ read's nine-field record, the untyped health bag, `main.js` at 275 lines with
 no spec, six shallow modules in the shell, and the hand-mirrored Go↔Vue wire
 shapes. None of them is this demo's headline claim, which is why this phase
 took only the one.
+
+## 19. Phase 04.13 — an unreadable snapshot is a reason to replay, not to fail (PROPOSED)
+
+Proposed 2026-09-25. **No tasks, no tests, no code until approved.**
+
+### 19.1 Today
+
+`loadSnapshot` has two ways to fail, and `rehydrate` returns both unchanged:
+
+| Failure | Where | What it is |
+|---|---|---|
+| `read snapshot <id>: …` | `kv.Get` | transport: NATS down, timeout, cancelled context, permission denied |
+| `decode snapshot <id>: …` | `json.Unmarshal` | the value is there and is not a `Snapshot` |
+
+`describe()` answers both with `502 Unavailable`, and a command on that
+vehicle fails the same way (`handleCommand` rehydrates first). For the second
+row that is wrong: NATS answered, and the log — the only source of truth —
+is intact. A snapshot is a derived copy of it.
+
+### 19.2 The field semantics as they stand (checked, not assumed)
+
+- `Rehydrated.SnapshotRequested` — the caller asked for snapshot mode.
+- `Rehydrated.SnapshotFound` — documented as "a snapshot key existed **and was
+  folded in**". Two facts in one flag. Today they are always equal, so nothing
+  notices; a rejected snapshot is exactly the case that separates them.
+- Wire `usedSnapshot` carries `SnapshotRequested`, not use (§18; kept for
+  compatibility, see `BUSINESS_RULES-ODOMETER.md`). `SnapshotFound` is **not
+  on the wire at all**: the browser infers the outcome from `fromSeq`.
+- `printRehydration` (`main.go`) prints the mode from Requested and Found.
+- The Performance tab labels its cards by the request, and
+  `view/rehydrate.js` writes the verdict from `eventsRead` and `fromSeq`. A
+  rejected snapshot would today read as "the snapshot side read 0 fewer
+  events" — a snapshot blamed for work it never did.
+
+### 19.3 Decisions proposed
+
+**D24 — Fallback is for invalid snapshot data, and nothing else.** "Invalid"
+means the value exists and does not decode as a `Snapshot`. `loadSnapshot`
+wraps that one case in a new sentinel, `ErrSnapshotInvalid`; `rehydrate`
+falls back only on `errors.Is(err, ErrSnapshotInvalid)`. Every other snapshot
+error — transport, timeout, cancellation, permission — is returned exactly as
+today and still answers `502`. A snapshot that decodes but holds the wrong
+state is not detectable here and is not in scope; the panel's existing
+"the two sides rebuilt different states" verdict is what catches that.
+
+**D25 — The fallback is a recovery attempt, not a guarantee.** The replay
+starts at sequence 1 from the zero `Vehicle`, through the same fold as the
+cold side. If it meets an event it cannot decode, it stops with
+`MalformedHistoryError` and the command API answers `422 MalformedHistory`
+with the optional `seq` — unchanged from `becf80f`. Stop-versus-skip stays
+open. The `422` body does not grow a snapshot field; the rejection is in the
+log line (D28).
+
+**D26 — Four facts, not two, and no name that collides with `usedSnapshot`.**
+
+| Go field | Wire field | Meaning |
+|---|---|---|
+| `SnapshotRequested` | `usedSnapshot` (unchanged, legacy name) | snapshot mode was asked for |
+| `SnapshotFound` | `snapshotFound` (new on the wire) | **narrowed:** a snapshot key existed, readable or not |
+| `SnapshotApplied` (new) | `snapshotApplied` | its state was folded in and the replay started after it |
+| `SnapshotRejected` (new) | `snapshotRejected` | it existed, was invalid (D24), and was ignored |
+
+Invariants, each a spec: `Applied ⇒ Found ⇒ Requested`;
+`Rejected ⇒ Found ∧ ¬Applied`; `Found ∧ ¬Rejected ⇔ Applied`. Every place
+that reads `SnapshotFound` today to mean "was used" moves to
+`SnapshotApplied`; for every non-rejected case the value is identical. The
+new name is `applied`, not `used`, on purpose: `snapshotUsed` beside the
+legacy `usedSnapshot` would be a trap. Renaming `usedSnapshot` is out of
+scope. All three new wire fields are always present and are `false` on the
+cold side.
+
+**D27 — The Performance tab says which of three things happened.** The
+snapshot card gets one mode line, derived from the four facts:
+
+| Facts | Mode line |
+|---|---|
+| requested, not found | no snapshot yet — full replay from seq 1 |
+| requested, applied | snapshot at seq N, then the tail (today's card) |
+| requested, rejected | snapshot unreadable — rejected, full replay from seq 1 |
+
+When nothing was applied, the verdict must not credit or blame the snapshot:
+it says no snapshot was applied, so the comparison measures nothing, instead
+of "read 0 fewer events". `printRehydration` prints the same three modes. A
+browser talking to an older `cqrs serve` sees the new fields absent and
+treats them as `false` — today's behaviour.
+
+**D28 — Report, never repair.** `rehydrate` never writes to KV; `logAccess`
+has no write function, and this phase does not add one. The invalid value
+stays where it is. Each rejection writes one log line naming the vehicle and
+the KV revision:
+`rehydrate: snapshot REJECTED <id> rev <n> — <decode error>; full replay`.
+
+### 19.4 Tests — specs first, and where each one lives
+
+Go (`cqrs/`), through the §18 seam where it reaches:
+
+- `rehydrate_test.go`: invalid snapshot → replay from 1, `Found`, `Rejected`,
+  not `Applied`; transport error → returned, no replay; a permission-shaped
+  error → returned, no replay; invalid snapshot then an undecodable event →
+  `MalformedHistoryError` with its seq; the four invariants across every case.
+- A pure `decodeSnapshot([]byte)` split out of `loadSnapshot`, so the
+  classification into `ErrSnapshotInvalid` is spec'd without a server. The
+  KV read itself stays behind the seam, uncovered, as §18 records.
+- `rehydrate_api_test.go`: the three wire fields for cold, applied,
+  not-found and rejected; `422` body unchanged; `502` for a transport error.
+- Whether `printRehydration` has a spec is to be checked; if not, one is added.
+
+Frontend (`frontend/`): `rehydrate/api.spec.js` (fields carried, absent →
+`false`), `view/rehydrate.spec.js` (verdict when nothing was applied),
+`RehydratePanel.spec.js` (the mode line). The route table and `docs_test.go`
+are unaffected: no route changes.
+
+The file list follows from the specs, and is confirmed when they are written,
+not promised here.
+
+### 19.5 Not in this phase
+
+- **The snapshotter stalls on an invalid snapshot.** `foldIntoSnapshot`
+  returns the unmarshal error, which is not `Permanent`, so the message is
+  nak'd and redelivered for ever, and with `MaxAckPending: 1` no snapshot
+  after it advances. That is an existing defect, found while writing this,
+  and it needs its own decision. It is why D28 matters: nothing in the demo
+  will overwrite the bad value on its own today.
+- A decodable-but-wrong snapshot (see D24).
+- Stop-versus-skip for log events (BR-OD09, open).
+- Renaming `usedSnapshot`.

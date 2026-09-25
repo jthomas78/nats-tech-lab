@@ -446,7 +446,9 @@ A phase entry in `docs/Demo-04-Plan.md` stays **PROPOSED** until the user
 approves it. No tasks, no tests, no code before that. An entry marked PROPOSED
 is a request for a decision, not a backlog item to pick up.
 
-Nothing is PROPOSED right now.
+**04.13 is PROPOSED** (2026-09-25) — an invalid snapshot falls back to a
+full replay instead of failing. See `docs/Demo-04-Plan.md` section 19,
+decisions D24 to D28. No code until approved.
 
 **04.12 is COMPLETE** (2026-09-17) — one Overview per lesson, one source file
 per lesson. See `docs/Demo-04-Plan.md` section 15, decisions D20 to D23.
