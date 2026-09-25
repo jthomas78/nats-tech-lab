@@ -60,12 +60,12 @@
     <div class="arrow">&rarr;</div>
     <div class="panel grow">
       <h3>KV cache</h3>
-      <div class="node"><div class="t mono" style="font-size:12px;">registry / _platform.frontend-plugins.current</div><div class="s">Whole document, write-through, miss falls to Postgres &mdash; so no reader can assemble a catalog that existed at no revision.</div></div>
+      <div class="node"><div class="t mono" style="font-size:12px;">frontend-plugins / _platform.frontend-plugins.current</div><div class="s">Whole document, write-through, miss falls to Postgres &mdash; so no reader can assemble a catalog that existed at no revision.</div></div>
     </div>
     <div class="arrow">&rarr;</div>
     <div class="panel grow">
       <h3>Notify</h3>
-      <div class="node accent-bar"><div class="t mono" style="font-size:12px;">notify._platform.registry .frontend-plugins.changed</div><div class="s">Revision only. Every subscribed shell answers with a conditional read.</div></div>
+      <div class="node accent-bar"><div class="t mono" style="font-size:12px;">notify._platform.mfe-registry .frontend-plugins.changed</div><div class="s">Revision only. Every subscribed shell answers with a conditional read.</div></div>
     </div>
   </div>
 
