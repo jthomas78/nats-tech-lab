@@ -15,6 +15,8 @@ the file.
 ## General preferences
 
 - If asked to do too much at once, stop and say so.
+- Prove the cause before you fix it: reproduce it, or read the code that
+  causes it. Don't act on the first plausible guess.
 - If computer use helps complete or verify work, shell out to Codex (`codex:rescue`
   skill / `codex:codex-rescue` agent).
 - **Don't read large docs whole by default.** Before `Read` with no `offset`/`limit`
