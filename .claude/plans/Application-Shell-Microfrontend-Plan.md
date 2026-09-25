@@ -2978,8 +2978,58 @@ that emitted the object form between 17a and 17b would be a plugin the registry 
   Demo 04 Vitest **519 green / 35 files** (was 502 / 34); lab-shell Vitest **1031 green** (was
   1022); lab-shell lint 0 errors / 30 warnings; demo 04 lint 0 errors / 3 warnings; demo 04
   `npm run build` clean; registry service `go test ./...` green.
-- **17i — The acceptance checks as specs.** Anything not already covered by 17a-17h, cold
-  lesson-02 links and back/forward included.
+- **17i — The acceptance checks as specs. DONE.** The ten checks were listed at gate time so
+  they could not be negotiated down later. Six were already standing after 17a-17h; four were
+  not, and one of those four turned out to be a spec that could never have failed. The full
+  table — every check and where it is now proven — is in
+  `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` § *Phase 17's acceptance checks*. What this
+  task added:
+  **Build/registry parity (D17-3)** — new `lab-shell/src/shell/contributions/catalogueParity.spec.js`.
+  Every other navigation spec calls `contributionRegistry.index()` with manifests that were
+  already admitted, so no spec had ever compared the two catalogue SOURCES. This one feeds raw
+  manifests through the real clients — `createRegistryTransport` reading `reply.entries` on one
+  side, `createBuildCatalogueClient` fetching a JSON doc on the other, the fixture list passed to
+  build mode REVERSED — then validates and indexes each result. The grouped tree, the clash list
+  with its participants, and the refusals all compare equal. Parity holds because BR-AS86's
+  cascade ends at `group.id.localeCompare`, alphabetical, which no arrival order can reach. A
+  fourth spec reads the tree out in full so the comparison cannot pass by matching nothing
+  against nothing.
+  **The worked example (check 2)** — `shellNavSections.spec.js` now draws the picture at the head
+  of this phase exactly as drawn: one `JETSTREAM` band holding Lesson 1, Lesson 2 and Lesson 3,
+  then `TOPOLOGY` holding 3 NATS Cluster, the band shown once under the agreed label, each item
+  still owned by its giver, and nothing marked because the two plugins agree.
+  **Withdrawal from a MERGED band (BR-AS56)** — the standing specs withdrew the only plugin in a
+  band, which is the easy half. Five more: a band shared by two plugins keeps standing when one
+  withdraws, goes only when the LAST owner goes, leaves every surviving item with a real
+  destination rather than a disabled one, comes back on restore, and re-picks its label from the
+  owners that remain.
+  **The refused route (check 7), both ends** — `shellNavSections.spec.js` holds the rail half (no
+  item drawn, every drawn item holding a destination, an `unresolved-route` refusal naming the
+  entry, the rest of the plugin still placed, and no clash reported, because a refusal is not a
+  clash); `lab-shell/src/views/PluginsView.spec.js` holds the screen half (named on the Plugins
+  screen by qualified id and by cause, in the refusals list and not in `ul.clashes`).
+  **The standalone rail (D17-1, check 9)** — `demos/04-jetstream-cqrs/frontend/src/App.spec.js`
+  had no rail spec at all, so a later tidy-up could have deleted both rails and stayed green.
+  Four now: a `NavList` of its own inside `AppShell`'s sidebar, both lessons in it, the lesson
+  switching from the rail with no route involved, and its own `AppShell` rendered.
+  **A guard that could not fail, repaired** — `plugin.spec.js`'s *renders no AppShell of its own*
+  asserted `.app-shell`, a class name that has never existed in this repo; `AppShell.vue`'s root
+  class is `.app`. It was passing on a selector that matched nothing. It now asks
+  `findComponent(AppShell)`, which is the question it meant to ask.
+  **The fingerprint (BR-AS03, check 10)** — an evidence run, not a new script, because
+  `hostBundleFingerprint.mjs` runs a full `vite build` per invocation and is deliberately a manual
+  reviewer gate. `--verify` first FAILED, correctly: phase 17 changed HOST code
+  (`shellRoutes.js`, `navigationTree.js`, `NavList.vue`), and BR-AS03 claims a plugin cannot move
+  the host, never that the host cannot change. So the documented two-step workflow was run —
+  `--record` against the phase-17 host, a third plugin added to `demos/01-dictionary/registry.json`,
+  `--verify` — giving `ok — host bundle unchanged across the plugin deployment (5da322dd…)`, 17
+  host assets, name scan clean. The probe plugin was reverted; the refreshed baseline
+  (`lab-shell/tools/.host-bundle-fingerprint.json`) ships in this commit.
+  Cold lesson-02 links and back/forward were already specced in 17h and are named in the table
+  rather than duplicated.
+  lab-shell Vitest **1050 green / 79 files** (was 1031); demo 04 Vitest **523 green / 35 files**
+  (was 519); admin 351; seafreight-app 36; lab-shell lint 0 errors / 26 warnings; demo 04 lint 0
+  errors / 3 warnings; demo 04 `npm run build` clean; registry service `go test ./...` green.
 
 
 ---

@@ -10,6 +10,7 @@ import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import { describe, expect, it } from 'vitest'
 
+import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
 
 import PoolPanel from './components/PoolPanel.vue'
@@ -78,7 +79,12 @@ describe('the embedded route component', () => {
   /* BR-AS09: lab-shell owns the outer chrome when the demo is embedded. A
      second AppShell inside the first would nest two topbars and two rails. */
   it('renders no AppShell of its own', () => {
-    expect(mountRoute().find('.app-shell').exists()).toBe(false)
+    /* Asked of the COMPONENT, not of a class name. `.app-shell` was the
+       string this spec used until task 17i, and `AppShell.vue`'s root class
+       is `.app` — so the guard was passing on a selector that could never
+       match anything. */
+    expect(mountRoute().findComponent(AppShell).exists()).toBe(false)
+    expect(mountRoute().find('.app').exists()).toBe(false)
   })
 
   it('never reaches for AppShell in its sources either', () => {

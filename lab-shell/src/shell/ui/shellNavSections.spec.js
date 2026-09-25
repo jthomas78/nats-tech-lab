@@ -167,6 +167,68 @@ describe('BR-AS89 — the plugin bands are the merged tree', () => {
       ['features', ['One']],
     ])
   })
+
+  /* Phase 17's acceptance check, the case a one-plugin band cannot show: a
+     MERGED band loses one of its two owners. The band must survive with the
+     survivor's items still in it — emptying it would take a working plugin's
+     navigation away because a different plugin went (task 17i). */
+  const merged = () => registry(
+    navPlugin('alpha', [{ label: 'Vessels', group: { id: 'ops', label: 'Operations' }, order: 10 }]),
+    navPlugin('bravo', [{ label: 'Berths', group: { id: 'ops', label: 'Operations' }, order: 20 }]),
+  )
+
+  it('keeps a merged band when only one of its two plugins withdraws', () => {
+    const indexed = merged()
+    indexed.withdraw('bravo')
+
+    expect(shape(sectionsOf(indexed))).toEqual([
+      ['shell', ['Home', 'Plugins']],
+      ['ops', ['Vessels']],
+    ])
+  })
+
+  it('takes the band away only when the LAST of its owners goes', () => {
+    const indexed = merged()
+    indexed.withdraw('bravo')
+    indexed.withdraw('alpha')
+
+    expect(shape(sectionsOf(indexed))).toEqual([['shell', ['Home', 'Plugins']]])
+  })
+
+  it('leaves no dead link behind: the withdrawn plugin\'s item is gone, not disabled', () => {
+    const indexed = merged()
+    indexed.withdraw('bravo')
+    const [, band] = sectionsOf(indexed)
+
+    expect(band.items.map((item) => item.label)).not.toContain('Berths')
+    expect(band.items.every((item) => item.to)).toBe(true)
+  })
+
+  it('restores the withdrawn owner back into the band it shares', () => {
+    const indexed = merged()
+    indexed.withdraw('bravo')
+    indexed.restore('bravo')
+
+    expect(shape(sectionsOf(indexed))).toEqual([
+      ['shell', ['Home', 'Plugins']],
+      ['ops', ['Vessels', 'Berths']],
+    ])
+  })
+
+  /* The band's NAME is a claim, and the claim cascade picks it from the
+     plugins still standing. A band that kept a withdrawn plugin's label would
+     be naming something no longer there. */
+  it('re-picks the band label from the owners that remain', () => {
+    const indexed = registry(
+      navPlugin('alpha', [{ label: 'Vessels', group: { id: 'ops', label: 'Operations' } }]),
+      navPlugin('bravo', [{ label: 'Berths', group: { id: 'ops', label: 'OPS' } }]),
+    )
+    expect(sectionsOf(indexed)[1].eyebrow).toBe('Operations')
+
+    indexed.withdraw('alpha')
+
+    expect(sectionsOf(indexed)[1].eyebrow).toBe('OPS')
+  })
 })
 
 describe('BR-AS89 — an entry stays lit on its own detail pages', () => {
@@ -326,5 +388,121 @@ describe('clashesFor', () => {
 
   it('returns nothing when there are no clashes at all', () => {
     expect(clashesFor([], entry)).toEqual([])
+  })
+})
+
+/*
+  Phase 17's acceptance check: a nav entry whose route was refused leaves a
+  visible diagnostic and NO clickable dead link.
+
+  Both halves in one place, because each on its own is a half-truth. Dropping
+  the entry silently would be a screen that quietly loses navigation; keeping
+  it would be a link to nowhere. The shell does neither: the item is gone from
+  the rail and the reason is on the record (task 17i).
+*/
+describe('BR-AS87 — a nav entry pointing at a route nobody placed', () => {
+  const dangling = () => plugin('alpha', [
+    { kind: 'route', id: 'good', path: '/alpha/good', title: 'Good' },
+    { kind: 'navigation', id: 'ok', label: 'Good', route: 'good' },
+    /* No route with this id was ever declared. */
+    { kind: 'navigation', id: 'broken', label: 'Ghost', route: 'missing' },
+  ])
+
+  it('draws no item for it, so there is nothing to click', () => {
+    const indexed = registry(dangling())
+
+    expect(shape(sectionsOf(indexed))).toEqual([
+      ['shell', ['Home', 'Plugins']],
+      ['features', ['Good']],
+    ])
+  })
+
+  it('leaves every item that IS drawn with a real destination', () => {
+    const indexed = registry(dangling())
+    const items = sectionsOf(indexed).flatMap((section) => section.items)
+
+    expect(items.every((item) => item.to || item.action)).toBe(true)
+  })
+
+  it('says so in the refusals, naming the entry and the cause', () => {
+    const { refusals } = registry(dangling())
+    const refused = refusals.find((r) => r.qualifiedId === 'alpha/broken')
+
+    expect(refused).toBeTruthy()
+    expect(refused.code).toBe('unresolved-route')
+  })
+
+  it('costs that entry and nothing else — the plugin is still placed', () => {
+    const indexed = registry(dangling())
+
+    expect(indexed.refusals).toHaveLength(1)
+    expect(sectionsOf(indexed)[1].items[0].label).toBe('Good')
+  })
+
+  /* A refusal is not a clash. It must not be reported through the channel
+     D17-5 built for things the shell DID place (BR-AS87). */
+  it('reports no clash for it', () => {
+    expect(registry(dangling()).navigationClashes).toEqual([])
+  })
+})
+
+/*
+  The drawing at the head of phase 17, as a spec.
+
+      MFE plugin 1 contributes      MFE plugin 2 contributes       The shell renders
+      - JETSTREAM                   - JETSTREAM                    - JETSTREAM
+        - Lesson 1                    - Lesson 3                     - Lesson 1
+        - Lesson 2                  - TOPOLOGY                       - Lesson 2
+                                      - 3 NATS Cluster               - Lesson 3
+                                                                   - TOPOLOGY
+                                                                     - 3 NATS Cluster
+
+  The phase's acceptance list asks for this exact picture, so here it is with
+  nothing added and nothing left out (task 17i). The parity spec next door
+  proves the same tree comes out of either catalogue source; this one proves
+  the tree is the one that was drawn.
+*/
+describe('phase 17 — the two-plugin example renders exactly as drawn', () => {
+  const jetstream = { id: 'jetstream', label: 'JetStream' }
+  const topology = { id: 'topology', label: 'Topology' }
+
+  const drawn = () => registry(
+    navPlugin('plugin-one', [
+      { label: 'Lesson 1', group: jetstream, order: 10 },
+      { label: 'Lesson 2', group: jetstream, order: 20 },
+    ]),
+    navPlugin('plugin-two', [
+      { label: 'Lesson 3', group: jetstream, order: 30 },
+      { label: '3 NATS Cluster', group: topology, order: 10 },
+    ]),
+  )
+
+  it('draws one JETSTREAM band holding all three lessons, then TOPOLOGY', () => {
+    expect(shape(sectionsOf(drawn()))).toEqual([
+      ['shell', ['Home', 'Plugins']],
+      ['jetstream', ['Lesson 1', 'Lesson 2', 'Lesson 3']],
+      ['topology', ['3 NATS Cluster']],
+    ])
+  })
+
+  it('shows the band once, under the label both plugins agreed on', () => {
+    const [, band] = sectionsOf(drawn())
+
+    expect(band.eyebrow).toBe('JetStream')
+  })
+
+  it('keeps each item owned by the plugin that gave it', () => {
+    const [, band] = sectionsOf(drawn())
+
+    /* The item's key is its qualified id, so the owner is written into it
+       (BR-AS06) — a merged band never loses track of who gave it what. */
+    expect(band.items.map((item) => item.key))
+      .toEqual(['plugin-one/n0', 'plugin-one/n1', 'plugin-two/n0'])
+  })
+
+  /* Nothing is wrong here, so nothing is marked. A mark on a clean merge
+     would train the reader to ignore marks. */
+  it('marks nothing, because the two plugins agree', () => {
+    expect(drawn().navigationClashes).toEqual([])
   })
 })

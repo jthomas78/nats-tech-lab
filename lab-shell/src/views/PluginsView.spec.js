@@ -266,6 +266,24 @@ describe('BR-AS87 — the clash channel on the Plugins screen', () => {
     expect(mountWith({ refusals: [refusal] }).findAll('ul.clashes')).toHaveLength(0)
   })
 
+  /*
+    Phase 17's acceptance check, screen half: a nav entry whose route was
+    refused leaves a VISIBLE diagnostic. The rail half — that no dead link
+    survives — is held in `shellNavSections.spec.js`. Together they say the
+    entry went somewhere a reader can find, not nowhere (task 17i).
+  */
+  it('shows a nav entry whose route was never placed, by name and by cause', () => {
+    const dangling = { qualifiedId: 'alpha/broken', code: 'unresolved-route', pluginId: 'alpha' }
+    const view = mountWith({ refusals: [dangling] })
+    const items = view.findAll('ul:not(.clashes) li')
+
+    expect(items.some((li) => li.text().includes('unresolved-route'))).toBe(true)
+    expect(items.some((li) => li.text().includes('alpha/broken'))).toBe(true)
+    /* It is a refusal, not a clash. Reporting it as a clash would put it in
+       the list D17-5 built for entries the shell DID place. */
+    expect(view.findAll('ul.clashes')).toHaveLength(0)
+  })
+
   it('keeps the two lists separate when a plugin has both', () => {
     const view = mountWith({ clashes: [clash], refusals: [refusal] })
 
