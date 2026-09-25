@@ -33,18 +33,58 @@ const shellApi = Object.freeze({
   ui: Object.freeze({ ExtensionRegion }),
 })
 
+/*
+  How long each step may take before the shell calls it failed.
+
+  The Module Federation runtime bounds a classic-script remote at 20 s, but a
+  `type: 'module'` remote — every remote here — goes through a bare
+  `import()` with no timer at all. A remote that accepts the connection and
+  never answers would hold the plugin in `loading` for the life of the page,
+  with a spinner and no Retry. The load bound matches the runtime's own figure;
+  it has to clear example-plugin-slow's deliberate six seconds. Activation is a
+  plugin's own start-up code and gets less.
+*/
+export const DEFAULT_TIMEOUTS = Object.freeze({ load: 20_000, activate: 10_000 })
+
 /**
  * @param {object} options
  * @param {{allows(url: string): boolean}} options.allowlist from the curated registry document
  * @param {Record<string, {load(remote: object): Promise<object>}>} options.adapters keyed by remote.kind
  * @param {Map<string, import('../registry/pluginStatus.js').PluginStatusRecord>} options.statuses
+ * @param {{load?: number, activate?: number}} [options.timeouts] milliseconds per step
  */
-export function createPluginLoader({ allowlist, adapters, statuses }) {
+export function createPluginLoader({ allowlist, adapters, statuses, timeouts = {} }) {
+  const limits = { ...DEFAULT_TIMEOUTS, ...timeouts }
   /* Keyed by plugin id. Holds the in-flight promise, not just the settled
      module, so two components asking for the same plugin in the same tick
      share one load and one activate() (BR-AS08). */
   const inFlight = new Map()
   const modules = new Map()
+  /*
+    Keyed by module object: the activate() call already made for it.
+
+    A timeout stops the shell WAITING; it does not stop the plugin's code. An
+    activate() that timed out may still be running, and may finish. The
+    federation runtime caches a remote, so a retry usually gets the SAME module
+    object back — and calling its activate() a second time would start the
+    plugin twice. So a retry on the same module waits on the first call
+    instead of making a new one. A call that rejected is forgotten, because
+    retrying a plugin whose activate() threw has always meant calling it again.
+  */
+  const activations = new WeakMap()
+
+  const activateOnce = (module) => {
+    let call = activations.get(module)
+    if (!call) {
+      /* Plugins receive only this explicitly versioned public surface. The
+         shell's connection, credentials and registries remain private; an
+         argument-ignoring v1 plugin still works unchanged. */
+      call = Promise.resolve().then(() => module.activate(shellApi))
+      activations.set(module, call)
+      call.catch(() => activations.delete(module))
+    }
+    return call
+  }
 
   const fail = (plugin, code, error) => {
     const record = statuses.get(plugin.id)
@@ -122,11 +162,18 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
 
         record?.transition(PLUGIN_STATUS.LOADING)
 
+        /* Each step is raced against its own timer. Once the race settles
+           this attempt has its answer and moves on: a remote or an activate()
+           that finishes AFTER its timeout resolves a promise nobody is
+           awaiting any more, so it cannot publish a module, set `active`, or
+           touch a newer attempt's state. A timeout also ends the attempt
+           through `fail()`, which clears `inFlight`, so Retry starts a fresh
+           one rather than joining the stalled one. */
         let module
         try {
-          module = await adapter.load(plugin.remote)
+          module = await bounded(adapter.load(plugin.remote), limits.load, 'load-timeout', plugin)
         } catch (error) {
-          fail(plugin, 'chunk-load-failed', error)
+          fail(plugin, error?.timeoutCode ?? 'chunk-load-failed', error)
         }
         if (!module || typeof module !== 'object') {
           fail(plugin, 'malformed-module', new Error(`Plugin ${plugin.id} exported no module`))
@@ -134,12 +181,9 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
 
         if (typeof module.activate === 'function') {
           try {
-            /* Plugins receive only this explicitly versioned public surface.
-               The shell's connection, credentials and registries remain
-               private; an argument-ignoring v1 plugin still works unchanged. */
-            await module.activate(shellApi)
+            await bounded(activateOnce(module), limits.activate, 'activate-timeout', plugin)
           } catch (error) {
-            fail(plugin, 'activate-threw', error)
+            fail(plugin, error?.timeoutCode ?? 'activate-threw', error)
           }
         }
 
@@ -165,6 +209,24 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
       return promise
     },
   }
+}
+
+/* `work`, or a rejection tagged with `code` once `ms` have passed. The timer
+   is cleared whichever way the race goes, so a load that settles in time
+   leaves nothing scheduled behind it. */
+function bounded(work, ms, code, plugin) {
+  let timer
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`Plugin ${plugin.id} did not finish ${code === 'load-timeout' ? 'loading' : 'activating'} within ${ms} ms`)
+      error.timeoutCode = code
+      reject(error)
+    }, ms)
+  })
+  /* The losing side of a race still settles. A late rejection from the work
+     would otherwise surface as unhandled. */
+  Promise.resolve(work).catch(() => {})
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer))
 }
 
 function canLoad(status) {

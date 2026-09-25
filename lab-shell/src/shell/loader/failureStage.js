@@ -16,8 +16,10 @@ const STAGES = Object.freeze({
   'remote-not-curated': 'curation check',
   'no-loader-adapter': 'loader selection',
   'chunk-load-failed': 'remote entry fetch',
+  'load-timeout': 'remote entry fetch',
   'malformed-module': 'module resolution',
   'activate-threw': 'plugin activation',
+  'activate-timeout': 'plugin activation',
   'render-threw': 'contribution render',
 })
 

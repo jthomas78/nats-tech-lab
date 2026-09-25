@@ -8,6 +8,11 @@ describe('the failure stage shown beside a cause', () => {
     expect(failureStage('activate-threw')).toBe('plugin activation')
   })
 
+  it('puts a timeout at the step that stalled', () => {
+    expect(failureStage('load-timeout')).toBe('remote entry fetch')
+    expect(failureStage('activate-timeout')).toBe('plugin activation')
+  })
+
   it('puts every metadata rejection at the same stage', () => {
     expect(failureStage('unsupported-shell-api-version')).toBe('manifest validation')
     expect(failureStage('malformed')).toBe('manifest validation')
