@@ -55,7 +55,7 @@ describe('reading a registry-sourced frontend out of a compose band', () => {
     '',
     '  example-plugin-frontend:',
     '    build:',
-    '      dockerfile: lab-shell/plugins/example-plugin/Dockerfile',
+    '      dockerfile: lab-shell/plugins/fixtures/example-plugin/Dockerfile',
     '    ports:',
     '      - "${PLUGIN_EXAMPLE_PORT:-7111}:80"',
     '',

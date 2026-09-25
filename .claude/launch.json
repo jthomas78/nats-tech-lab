@@ -106,7 +106,7 @@
         "run",
         "dev"
       ],
-      "cwd": "lab-shell/plugins/example-plugin",
+      "cwd": "lab-shell/plugins/fixtures/example-plugin",
       "port": 7111
     },
     {
@@ -121,7 +121,7 @@
         "7150",
         "--strictPort"
       ],
-      "cwd": "lab-shell/plugins/example-plugin",
+      "cwd": "lab-shell/plugins/fixtures/example-plugin",
       "port": 7150
     },
     {
@@ -132,7 +132,7 @@
         "run",
         "dev"
       ],
-      "cwd": "lab-shell/plugins/demo-catalog",
+      "cwd": "lab-shell/plugins/shell/demo-catalog",
       "port": 7112
     },
     {
@@ -146,7 +146,7 @@
         "7151",
         "--strictPort"
       ],
-      "cwd": "lab-shell/plugins/demo-catalog",
+      "cwd": "lab-shell/plugins/shell/demo-catalog",
       "port": 7151
     },
     {

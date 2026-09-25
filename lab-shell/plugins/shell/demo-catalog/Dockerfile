@@ -11,11 +11,11 @@ WORKDIR /repo
 COPY shared ./shared
 # The README is plugin content, never compiled into the host.
 COPY demos/01-dictionary/README.md ./demos/01-dictionary/README.md
-COPY lab-shell/plugins/demo-catalog/package.json lab-shell/plugins/demo-catalog/package-lock.json ./lab-shell/plugins/demo-catalog/
-COPY lab-shell/plugins/demo-catalog/index.html lab-shell/plugins/demo-catalog/vite.config.js ./lab-shell/plugins/demo-catalog/
-COPY lab-shell/plugins/demo-catalog/src ./lab-shell/plugins/demo-catalog/src
-COPY lab-shell/plugins/demo-catalog/public ./lab-shell/plugins/demo-catalog/public
-WORKDIR /repo/lab-shell/plugins/demo-catalog
+COPY lab-shell/plugins/shell/demo-catalog/package.json lab-shell/plugins/shell/demo-catalog/package-lock.json ./lab-shell/plugins/shell/demo-catalog/
+COPY lab-shell/plugins/shell/demo-catalog/index.html lab-shell/plugins/shell/demo-catalog/vite.config.js ./lab-shell/plugins/shell/demo-catalog/
+COPY lab-shell/plugins/shell/demo-catalog/src ./lab-shell/plugins/shell/demo-catalog/src
+COPY lab-shell/plugins/shell/demo-catalog/public ./lab-shell/plugins/shell/demo-catalog/public
+WORKDIR /repo/lab-shell/plugins/shell/demo-catalog
 RUN npm ci && npm run build
 
 # The shared Go host, like every other plugin (Phase 15c). The catalogue
@@ -33,4 +33,4 @@ RUN npm ci && npm run build
 # `demo-catalog-unreachable` fixture failing at the fetch and not later as a
 # module parse error.
 FROM mfe-plugin-host
-COPY --from=build /repo/lab-shell/plugins/demo-catalog/dist /srv
+COPY --from=build /repo/lab-shell/plugins/shell/demo-catalog/dist /srv

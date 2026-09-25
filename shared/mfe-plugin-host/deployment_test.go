@@ -51,7 +51,7 @@ var _ = Describe("Migrated plugin deployment", func() {
 	Context("BR-AS15 — every plugin retains its own toolchain and image", func() {
 		It("builds each plugin from its own package files and copies only dist into the shared base", func() {
 			for _, plugin := range migratedPlugins {
-				dockerfile := readRepositoryFile("lab-shell", "plugins", plugin, "Dockerfile")
+				dockerfile := readRepositoryFile("lab-shell", "plugins", "fixtures", plugin, "Dockerfile")
 				Expect(dockerfile).To(ContainSubstring(plugin+"/package.json"), plugin)
 				Expect(dockerfile).To(ContainSubstring(plugin+"/package-lock.json"), plugin)
 				Expect(dockerfile).To(ContainSubstring("RUN npm ci && npm run build"), plugin)
@@ -63,7 +63,7 @@ var _ = Describe("Migrated plugin deployment", func() {
 						copyLines = append(copyLines, line)
 					}
 				}
-				Expect(copyLines).To(Equal([]string{"COPY --from=build /repo/lab-shell/plugins/" + plugin + "/dist /srv"}), plugin)
+				Expect(copyLines).To(Equal([]string{"COPY --from=build /repo/lab-shell/plugins/fixtures/" + plugin + "/dist /srv"}), plugin)
 			}
 		})
 
@@ -107,7 +107,7 @@ var _ = Describe("Migrated plugin deployment", func() {
 						URL string `json:"url"`
 					} `json:"remote"`
 				}
-				Expect(json.Unmarshal([]byte(readRepositoryFile("lab-shell", "plugins", plugin, "public", "manifest.json")), &manifest)).To(Succeed())
+				Expect(json.Unmarshal([]byte(readRepositoryFile("lab-shell", "plugins", "fixtures", plugin, "public", "manifest.json")), &manifest)).To(Succeed())
 				Expect(manifest.Remote.URL).To(HavePrefix("/"), plugin)
 				Expect(manifest.Remote.URL).NotTo(HavePrefix("//"), plugin)
 				Expect(manifest.Remote.URL).NotTo(ContainSubstring("://"), plugin)
@@ -189,7 +189,7 @@ var _ = Describe("Plugin scaffolder", func() {
 		It("matches the golden fixture derived from example-plugin", func() {
 			root := GinkgoT().TempDir()
 			for _, dir := range []string{
-				"lab-shell/plugins",
+				"lab-shell/plugins/fixtures",
 				"demos/01-dictionary/nats",
 				"demos/01-dictionary/deploy/cell",
 				"demos/01-dictionary/deploy/environments",
@@ -197,7 +197,7 @@ var _ = Describe("Plugin scaffolder", func() {
 			} {
 				Expect(os.MkdirAll(filepath.Join(root, dir), 0o700)).To(Succeed())
 			}
-			copyTree(filepath.Join(repositoryRoot(), "lab-shell/plugins/example-plugin"), filepath.Join(root, "lab-shell/plugins/example-plugin"))
+			copyTree(filepath.Join(repositoryRoot(), "lab-shell/plugins/fixtures/example-plugin"), filepath.Join(root, "lab-shell/plugins/fixtures/example-plugin"))
 			// ADR-055 split the one flat file into bands, so a scaffolded
 			// plugin now touches five files: the dedicated band for the
 			// service and its volume, the runtime band for the registry's
@@ -221,8 +221,8 @@ var _ = Describe("Plugin scaffolder", func() {
 
 			compose := readFile(filepath.Join(root, "demos/01-dictionary/deploy/cell/compose.dedicated.yaml"))
 			generated := strings.Join([]string{
-				readFile(filepath.Join(root, "lab-shell/plugins/acme-widget/Dockerfile")),
-				readFile(filepath.Join(root, "lab-shell/plugins/acme-widget/public/manifest.json")),
+				readFile(filepath.Join(root, "lab-shell/plugins/fixtures/acme-widget/Dockerfile")),
+				readFile(filepath.Join(root, "lab-shell/plugins/fixtures/acme-widget/public/manifest.json")),
 				composeService(compose, "acme-widget-frontend"),
 			}, "\n---\n")
 			golden := readRepositoryFile("scripts", "testdata", "new-plugin.golden")

@@ -4,7 +4,7 @@ import { federation } from '@module-federation/vite'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
-import { previewHarness } from '../../../shared/mfe-preview/vitePreview.js'
+import { previewHarness } from '../../../../shared/mfe-preview/vitePreview.js'
 
 /*
   The BR-AS15 proof plugin — built and served entirely on its own, by its own
@@ -22,7 +22,7 @@ export default defineConfig({
   plugins: [
     vue(),
     federation({
-      name: 'example_plugin',
+      name: 'example_plugin_activate_throws',
       filename: 'remoteEntry.js',
       // Remote entries must load their CSS even when their index.html is never opened.
       bundleAllCSS: true,
@@ -47,7 +47,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@unifi-theme': fileURLToPath(new URL('../../../../shared/unifi-theme', import.meta.url)),
+      '@unifi-theme': fileURLToPath(new URL('../../../../../shared/unifi-theme', import.meta.url)),
     },
   },
   build: {
@@ -57,13 +57,13 @@ export default defineConfig({
     cssCodeSplit: false,
   },
   server: {
-    // 7111 — the next free frontend port after the shell's 7110 (CLAUDE.md's
+    // 7114 — the next free frontend port after the shell's 7110 (CLAUDE.md's
     // 7100-7199 range), and the port this plugin's own container publishes.
     // strictPort so a silently-moved port cannot make the shell's curated
     // remote URL wrong in a way that looks like a plugin bug.
-    port: 7111,
+    port: 7114,
     strictPort: true,
     cors: true,
   },
-  preview: { port: 7111, strictPort: true, cors: true },
+  preview: { port: 7114, strictPort: true, cors: true },
 })

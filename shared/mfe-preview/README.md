@@ -9,7 +9,7 @@ route that control is scoped to. This harness adds one route â€” `/__preview` â€
 a plugin's own dev server that mounts every contribution the plugin declares.
 
 ```bash
-cd lab-shell/plugins/example-plugin
+cd lab-shell/plugins/fixtures/example-plugin
 npm run dev            # then open http://localhost:7111/__preview
 ```
 

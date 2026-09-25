@@ -22,7 +22,9 @@ const compose = expand(repoFile('demos/01-dictionary/deploy/cell/compose.dedicat
 /* The preload fixture states its port as a variable too — same expansion. */
 const preload = JSON.parse(expand(repoFile('demos/01-dictionary/registry.json')))
 const packages = ['example-plugin', 'example-plugin-slow', 'example-plugin-activate-throws', 'example-plugin-incompatible']
-const read = (name, path) => readFileSync(resolve(root, 'plugins', name, path), 'utf8')
+/* demo-catalog is the one plugin the shell owns; every other name is a fixture. */
+const dirOf = (name) => resolve(root, 'plugins', name === 'demo-catalog' ? 'shell' : 'fixtures', name)
+const read = (name, path) => readFileSync(resolve(dirOf(name), path), 'utf8')
 /* 13e moved the five examples out of the preload file and behind publisher
    sidecars, so each plugin's own `public/manifest.json` is now the only place
    its entry lives. That is the file its sidecar signs and announces, which
@@ -46,10 +48,10 @@ const announcedEntry = (name) => {
 const entryOf = (name) =>
   name === 'demo-catalog' ? preload.plugins.find((p) => p.id === name) : manifest(name)
 const modules = {
-  'example-plugin': () => import('../../../plugins/example-plugin/src/plugin.js'),
-  'example-plugin-slow': () => import('../../../plugins/example-plugin-slow/src/plugin.js'),
-  'example-plugin-activate-throws': () => import('../../../plugins/example-plugin-activate-throws/src/plugin.js'),
-  'example-plugin-incompatible': () => import('../../../plugins/example-plugin-incompatible/src/plugin.js'),
+  'example-plugin': () => import('../../../plugins/fixtures/example-plugin/src/plugin.js'),
+  'example-plugin-slow': () => import('../../../plugins/fixtures/example-plugin-slow/src/plugin.js'),
+  'example-plugin-activate-throws': () => import('../../../plugins/fixtures/example-plugin-activate-throws/src/plugin.js'),
+  'example-plugin-incompatible': () => import('../../../plugins/fixtures/example-plugin-incompatible/src/plugin.js'),
 }
 
 // Real entry modules, with only HTTP replaced: failures cross the same loader
@@ -95,7 +97,7 @@ describe('BR-AS03 / decisions 87, 93–95 — independently built plugin service
       expect(port).toBe(new URL(origin).port)
     }
     for (const path of ['Dockerfile', 'vite.config.js', 'package.json', 'package-lock.json']) {
-      expect(existsSync(resolve(root, 'plugins', name, path))).toBe(true)
+      expect(existsSync(resolve(dirOf(name), path))).toBe(true)
     }
     // Every plugin, the catalogue included, is served by the same shared Go
     // host since Phase 15c. demo-catalog used to be the exception and ran
@@ -106,16 +108,16 @@ describe('BR-AS03 / decisions 87, 93–95 — independently built plugin service
     // authoritative is how a deleted contract quietly comes back.
     expect(read(name, 'Dockerfile')).toContain('FROM mfe-plugin-host')
     expect(read(name, 'Dockerfile')).toMatch(/COPY --from=build \/\S+\/dist \/srv/)
-    expect(existsSync(resolve(root, 'plugins', name, 'nginx.conf'))).toBe(false)
+    expect(existsSync(resolve(dirOf(name), 'nginx.conf'))).toBe(false)
     if (name === 'demo-catalog') {
-      expect(read(name, 'Dockerfile')).toContain(`lab-shell/plugins/${name}/public`)
+      expect(read(name, 'Dockerfile')).toContain(`lab-shell/plugins/shell/${name}/public`)
     } else {
       expect(entry.remote.url.startsWith('/')).toBe(true)
     }
   })
   it('keeps only one view in each variant and all six in the main example', () => {
     for (const name of packages) {
-      const views = readdirSync(resolve(root, 'plugins', name, 'src/views')).filter((f) => f.endsWith('.vue'))
+      const views = readdirSync(resolve(dirOf(name), 'src/views')).filter((f) => f.endsWith('.vue'))
       expect(views).toHaveLength(name === 'example-plugin' ? 6 : 1)
     }
   })
@@ -131,7 +133,7 @@ describe('BR-AS03 / decisions 87, 93–95 — independently built plugin service
     expect(manifest('example-plugin').backendServices).toEqual([])
   })
   it('has only one operator seed file', () => {
-    expect(existsSync(resolve(root, 'plugins/example-plugin/registry.dev.json'))).toBe(false)
+    expect(existsSync(resolve(dirOf('example-plugin'), 'registry.dev.json'))).toBe(false)
   })
 })
 

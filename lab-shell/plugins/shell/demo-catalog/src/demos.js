@@ -1,6 +1,6 @@
 // Registry of lab demos. Intro markdown is the demo's own README so the
 // shell never drifts from the demo docs.
-import dictionaryIntro from '../../../../demos/01-dictionary/README.md?raw'
+import dictionaryIntro from '../../../../../demos/01-dictionary/README.md?raw'
 
 export const demos = [
   {

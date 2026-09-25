@@ -661,7 +661,7 @@ binary, and the Go host goes back to being optional.
 ### Where the plugin's origin comes from (BR-AS71, BR-AS72)
 
 Merging the containers opened the announce path, and that path was already
-carrying a defect. Before Phase 14, `lab-shell/plugins/example-plugin/public/manifest.json` read:
+carrying a defect. Before Phase 14, `lab-shell/plugins/fixtures/example-plugin/public/manifest.json` read:
 
 ```json
 "url": "http://localhost:7111/remoteEntry.js"
@@ -1393,7 +1393,7 @@ DOM. The federation runtime is reachable from exactly one file.
 | `views/HomeView.vue`, `views/PluginsView.vue` | Shell-owned screens: the host of `shell/home-main/v1`, and the plugin inventory with each plugin's status and cause. Frame, not feature — `tools/frameOwnership.js` still passes. |
 | `tools/hostBundleFingerprint.mjs` | The no-host-rebuild proof: builds the host, refuses if any asset's digest moved across a plugin deployment, and refuses if the host bundle contains a plugin name, container name or remote URL. |
 
-Outside the shell: `lab-shell/plugins/example-plugin/` — its own `package.json`, its own Vite
+Outside the shell: `lab-shell/plugins/fixtures/example-plugin/` — its own `package.json`, its own Vite
 config, its own `node_modules`, its own dev server on 7111. The shell has never compiled it. That
 separation is the *only* thing that makes BR-AS03 a measurement rather than an assertion.
 

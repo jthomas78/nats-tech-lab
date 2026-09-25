@@ -27,7 +27,7 @@
   their own specs in the Go suite. What is asserted here is that the fixture
   the lab actually boots with is internally consistent.
 */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -62,7 +62,7 @@ const compose = expand(
 const registry = JSON.parse(expand(repoFile('demos/01-dictionary/registry.json')))
 const publishers = JSON.parse(repoFile('demos/01-dictionary/nats/keys/publishers.json'))
 
-/* The announced half. Each id is a directory under lab-shell/plugins/ holding
+/* The announced half. Each id is a directory under lab-shell/plugins/fixtures/ holding
    the manifest its own build owns and its sidecar announces. */
 const announcedIds = [
   'example-plugin',
@@ -74,7 +74,7 @@ const announcedIds = [
 const manifests = Object.fromEntries(
   announcedIds.map((id) => [
     id,
-    JSON.parse(repoFile(`lab-shell/plugins/${id}/public/manifest.json`)),
+    JSON.parse(repoFile(`lab-shell/plugins/fixtures/${id}/public/manifest.json`)),
   ]),
 )
 
@@ -222,6 +222,14 @@ describe('Phase 14 — one publisher identity per announced plugin (decisions 4,
     expect(new Set(publishers.map((p) => p.publisher)).size).toBe(publishers.length)
   })
 
+  it('keeps the shell-owned plugin out of the publisher list and out of fixtures/', () => {
+    // lab-shell/plugins/ is split by role: shell/ is curated, fixtures/ is
+    // announced. A publisher for demo-catalog would blur exactly that line.
+    expect(publishers.map((p) => p.plugin)).not.toContain('demo-catalog')
+    expect(existsSync(resolve(process.cwd(), 'plugins/shell/demo-catalog/public/manifest.json'))).toBe(true)
+    expect(existsSync(resolve(process.cwd(), 'plugins/fixtures/demo-catalog'))).toBe(false)
+  })
+
   it.each(announcedIds)('%s is wired to its own manifest, seed and creds', (id) => {
     // A process mounting another plugin's manifest or seed would announce the
     // wrong plugin, or sign with a key it does not own — both silent until a
@@ -232,7 +240,7 @@ describe('Phase 14 — one publisher identity per announced plugin (decisions 4,
     expect(block).toContain(`./nats/creds/plugins/${id}.creds:/etc/nats/creds/plugin.creds:ro`)
     expect(block).toContain(`./nats/keys/publisher-${id}.nk:/etc/plugin/signing.nk:ro`)
     if (id === 'example-plugin-unreachable') {
-      expect(block).toContain(`../../lab-shell/plugins/${id}/public/manifest.json:/etc/plugin/manifest.json:ro`)
+      expect(block).toContain(`../../lab-shell/plugins/fixtures/${id}/public/manifest.json:/etc/plugin/manifest.json:ro`)
     } else {
       expect(block).toContain('PLUGIN_MANIFEST_PATH: /srv/manifest.json')
       expect(compose).not.toContain(`\n  ${id}-announcer:\n`)

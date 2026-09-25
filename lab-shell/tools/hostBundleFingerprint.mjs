@@ -9,7 +9,7 @@
   How a reviewer uses it (see BUSINESS_RULES-APP-SHELL.md § BR-AS03):
 
       node tools/hostBundleFingerprint.mjs --record        # before
-      (cd plugins/example-plugin && edit something visible && npm run build)
+      (cd plugins/fixtures/example-plugin && edit something visible && npm run build)
       node tools/hostBundleFingerprint.mjs --verify        # after — must pass
 
   Between the two, the running shell shows the plugin's change on reload,

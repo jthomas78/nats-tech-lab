@@ -1,7 +1,7 @@
   __PLUGIN_ID__-frontend:
     build:
       context: ../../../..
-      dockerfile: lab-shell/plugins/__PLUGIN_ID__/Dockerfile
+      dockerfile: lab-shell/plugins/fixtures/__PLUGIN_ID__/Dockerfile
       additional_contexts:
         mfe-plugin-host: service:mfe-plugin-host
     ports:

@@ -1,10 +1,21 @@
 # Micro-frontend plugins
 
-The five `example-plugin*` directories are announced fixtures. `demo-catalog`
-is different: it is the one curated/preloaded plugin and must not receive a
-publisher credential or announcer lifecycle.
+Two folders, split by **role**, never by catalogue source:
 
-Create a served, announced plugin with:
+| Folder | Holds | Lifecycle |
+| --- | --- | --- |
+| `shell/` | `demo-catalog` — the one plugin the shell owns | curated/preloaded; must not receive a publisher credential or announcer lifecycle |
+| `fixtures/` | the five `example-plugin*` directories, plus anything `new-plugin.sh` creates | announced from the cell's dedicated compose band |
+
+`plugin-source` (`build` / `registry`) is a setting of the running shell, not a
+property of a plugin, so it is never encoded in a path (decision 11 of the
+app-shell plan). Domain and demo plugins live with their owning demo under
+`demos/<demo>/frontend/`, not here. The generated `demos/README.md` lists them.
+
+`fixtures/example-plugin` has two jobs: it is the healthy fixture, and it is
+the template `new-plugin.sh` copies. Change it with both in mind.
+
+Create a served, announced fixture plugin with:
 
 ```bash
 ./scripts/new-plugin.sh acme-widget 7116
@@ -21,9 +32,9 @@ After scaffolding, regenerate the operator fixtures before starting the stack:
 
 ```bash
 cd demos/01-dictionary/deploy/cell
-docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml down -v
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f compose.dedicated.yaml -f ../global/compose.control.yaml down -v
 ../../nats/bootstrap-operator.sh --force
-docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml up -d --build
+docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f compose.dedicated.yaml -f ../global/compose.control.yaml up -d --build
 ```
 
 The signing seed remains a runtime read-only mount. It and the NATS credential
@@ -35,7 +46,7 @@ Each plugin's dev server serves `/__preview` — every contribution it declares,
 rendered on its own port with no shell running:
 
 ```bash
-cd lab-shell/plugins/example-plugin
+cd lab-shell/plugins/fixtures/example-plugin
 npm run dev            # http://localhost:7111/__preview
 ```
 

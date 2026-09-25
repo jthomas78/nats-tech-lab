@@ -4,7 +4,7 @@ import { federation } from '@module-federation/vite'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
-import { previewHarness } from '../../../shared/mfe-preview/vitePreview.js'
+import { previewHarness } from '../../../../shared/mfe-preview/vitePreview.js'
 
 /*
   The BR-AS15 proof plugin — built and served entirely on its own, by its own
@@ -22,7 +22,7 @@ export default defineConfig({
   plugins: [
     vue(),
     federation({
-      name: 'demo_catalog',
+      name: 'example_plugin',
       filename: 'remoteEntry.js',
       // Remote entries must load their CSS even when their index.html is never opened.
       bundleAllCSS: true,
@@ -32,8 +32,6 @@ export default defineConfig({
         // own reactivity system, and `inject` across the boundary would stop
         // working. The shell owns the version (BR-AS09).
         vue: { singleton: true, requiredVersion: '^3.5' },
-        // PrimeVue remotes read the theme configured once by the host.
-        '@primeuix/styled': { singleton: true, requiredVersion: '^0.7.4' },
       },
       /* No .d.ts generation or consumption. There is no TypeScript here, and
          the dts worker shells out to tsc against a tsconfig that does not
@@ -49,7 +47,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@unifi-theme': fileURLToPath(new URL('../../../../shared/unifi-theme', import.meta.url)),
+      '@unifi-theme': fileURLToPath(new URL('../../../../../shared/unifi-theme', import.meta.url)),
     },
   },
   build: {
@@ -59,14 +57,13 @@ export default defineConfig({
     cssCodeSplit: false,
   },
   server: {
-    // 7112 — the next free frontend port after the shell's 7110 (CLAUDE.md's
+    // 7111 — the next free frontend port after the shell's 7110 (CLAUDE.md's
     // 7100-7199 range), and the port this plugin's own container publishes.
     // strictPort so a silently-moved port cannot make the shell's curated
     // remote URL wrong in a way that looks like a plugin bug.
-    port: 7112,
+    port: 7111,
     strictPort: true,
     cors: true,
-    fs: { allow: [fileURLToPath(new URL('../../..', import.meta.url)), fileURLToPath(new URL('../../../..', import.meta.url))] },
   },
-  preview: { port: 7112, strictPort: true, cors: true },
+  preview: { port: 7111, strictPort: true, cors: true },
 })

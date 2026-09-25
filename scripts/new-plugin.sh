@@ -19,8 +19,8 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${PLUGIN_SCAFFOLD_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-TEMPLATE="$REPO_ROOT/lab-shell/plugins/example-plugin"
-TARGET="$REPO_ROOT/lab-shell/plugins/$PLUGIN_ID"
+TEMPLATE="$REPO_ROOT/lab-shell/plugins/fixtures/example-plugin"
+TARGET="$REPO_ROOT/lab-shell/plugins/fixtures/$PLUGIN_ID"
 # ADR-055 retired the one flat demos/01-dictionary/docker-compose.yml on
 # 2026-09-08. A plugin now touches TWO compose files, because the split put the
 # two halves of a plugin in different bands: the plugin service and its release
@@ -73,7 +73,7 @@ from pathlib import Path
 root = Path(os.environ["PLUGIN_SCAFFOLD_ROOT"])
 plugin_id = os.environ["PLUGIN_SCAFFOLD_ID"]
 port = os.environ["PLUGIN_SCAFFOLD_PORT"]
-target = root / "lab-shell" / "plugins" / plugin_id
+target = root / "lab-shell" / "plugins" / "fixtures" / plugin_id
 title = " ".join(word.capitalize() for word in plugin_id.split("-"))
 
 for path in target.rglob("*"):

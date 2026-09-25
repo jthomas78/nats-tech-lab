@@ -9,15 +9,15 @@
 FROM node:24-alpine AS build
 WORKDIR /repo
 COPY shared ./shared
-COPY lab-shell/plugins/acme-widget/package.json lab-shell/plugins/acme-widget/package-lock.json ./lab-shell/plugins/acme-widget/
-COPY lab-shell/plugins/acme-widget/index.html lab-shell/plugins/acme-widget/vite.config.js ./lab-shell/plugins/acme-widget/
-COPY lab-shell/plugins/acme-widget/src ./lab-shell/plugins/acme-widget/src
-COPY lab-shell/plugins/acme-widget/public ./lab-shell/plugins/acme-widget/public
-WORKDIR /repo/lab-shell/plugins/acme-widget
+COPY lab-shell/plugins/fixtures/acme-widget/package.json lab-shell/plugins/fixtures/acme-widget/package-lock.json ./lab-shell/plugins/fixtures/acme-widget/
+COPY lab-shell/plugins/fixtures/acme-widget/index.html lab-shell/plugins/fixtures/acme-widget/vite.config.js ./lab-shell/plugins/fixtures/acme-widget/
+COPY lab-shell/plugins/fixtures/acme-widget/src ./lab-shell/plugins/fixtures/acme-widget/src
+COPY lab-shell/plugins/fixtures/acme-widget/public ./lab-shell/plugins/fixtures/acme-widget/public
+WORKDIR /repo/lab-shell/plugins/fixtures/acme-widget
 RUN npm ci && npm run build
 
 FROM mfe-plugin-host
-COPY --from=build /repo/lab-shell/plugins/acme-widget/dist /srv
+COPY --from=build /repo/lab-shell/plugins/fixtures/acme-widget/dist /srv
 
 ---
 {
@@ -94,7 +94,7 @@ COPY --from=build /repo/lab-shell/plugins/acme-widget/dist /srv
 ---
     build:
       context: ../../../..
-      dockerfile: lab-shell/plugins/acme-widget/Dockerfile
+      dockerfile: lab-shell/plugins/fixtures/acme-widget/Dockerfile
       additional_contexts:
         mfe-plugin-host: service:mfe-plugin-host
     ports:
@@ -129,7 +129,7 @@ COPY --from=build /repo/lab-shell/plugins/acme-widget/dist /srv
     depends_on: *plugin_dependencies
 
   # Announcer-only: this fixture has no code and no web server, by design
-  # (see lab-shell/plugins/example-plugin-unreachable/README.md). It is a
+  # (see lab-shell/plugins/fixtures/example-plugin-unreachable/README.md). It is a
   # manifest pointing at a dead path on example-plugin's port, so the shell's
   # 404 failure path has something to fail on. It still gets its own
   # publisher: letting example-plugin's host announce it too would put two

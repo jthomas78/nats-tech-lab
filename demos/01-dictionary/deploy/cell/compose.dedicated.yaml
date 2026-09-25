@@ -41,7 +41,7 @@ services:
   example-plugin-frontend:
     build:
       context: ../../../..
-      dockerfile: lab-shell/plugins/example-plugin/Dockerfile
+      dockerfile: lab-shell/plugins/fixtures/example-plugin/Dockerfile
       additional_contexts:
         mfe-plugin-host: service:mfe-plugin-host
     ports:
@@ -91,7 +91,7 @@ services:
   demo-catalog-frontend:
     build:
       context: ../../../..
-      dockerfile: lab-shell/plugins/demo-catalog/Dockerfile
+      dockerfile: lab-shell/plugins/shell/demo-catalog/Dockerfile
       additional_contexts:
         mfe-plugin-host: service:mfe-plugin-host
     ports:
@@ -119,7 +119,7 @@ services:
   example-plugin-slow-frontend:
     build:
       context: ../../../..
-      dockerfile: lab-shell/plugins/example-plugin-slow/Dockerfile
+      dockerfile: lab-shell/plugins/fixtures/example-plugin-slow/Dockerfile
       additional_contexts:
         mfe-plugin-host: service:mfe-plugin-host
     ports:
@@ -156,7 +156,7 @@ services:
   example-plugin-activate-throws-frontend:
     build:
       context: ../../../..
-      dockerfile: lab-shell/plugins/example-plugin-activate-throws/Dockerfile
+      dockerfile: lab-shell/plugins/fixtures/example-plugin-activate-throws/Dockerfile
       additional_contexts:
         mfe-plugin-host: service:mfe-plugin-host
     ports:
@@ -193,7 +193,7 @@ services:
   example-plugin-incompatible-frontend:
     build:
       context: ../../../..
-      dockerfile: lab-shell/plugins/example-plugin-incompatible/Dockerfile
+      dockerfile: lab-shell/plugins/fixtures/example-plugin-incompatible/Dockerfile
       additional_contexts:
         mfe-plugin-host: service:mfe-plugin-host
     ports:
@@ -228,7 +228,7 @@ services:
     depends_on: *plugin_dependencies
 
   # Announcer-only: this fixture has no code and no web server, by design
-  # (see lab-shell/plugins/example-plugin-unreachable/README.md). It is a
+  # (see lab-shell/plugins/fixtures/example-plugin-unreachable/README.md). It is a
   # manifest pointing at a dead path on example-plugin's port, so the shell's
   # 404 failure path has something to fail on. It still gets its own
   # publisher: letting example-plugin's host announce it too would put two
@@ -265,7 +265,7 @@ services:
       # Read-only, and mounted at runtime rather than copied in: a signing seed
       # must never enter an image layer (decision 8).
       - ../../nats/keys/publisher-example-plugin-unreachable.nk:/etc/plugin/signing.nk:ro
-      - ../../../../lab-shell/plugins/example-plugin-unreachable/public/manifest.json:/etc/plugin/manifest.json:ro
+      - ../../../../lab-shell/plugins/fixtures/example-plugin-unreachable/public/manifest.json:/etc/plugin/manifest.json:ro
       - example-plugin-unreachable-release:/var/lib/announcer
     stop_grace_period: 30s
     restart: unless-stopped

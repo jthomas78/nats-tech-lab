@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { validateManifest } from './manifestSchema.js'
-import demoCatalogManifest from '../../../plugins/demo-catalog/public/manifest.json'
+import demoCatalogManifest from '../../../plugins/shell/demo-catalog/public/manifest.json'
 
 describe('BR-AS15 — the demo catalog is a plugin, not a special case', () => {
   it('passes the same manifest gate every other plugin passes', () => {
@@ -36,7 +36,7 @@ describe('BR-AS15 — the demo catalog is a plugin, not a special case', () => {
   })
 
   it('exports a component for every component name its routes declare', async () => {
-    const module = await import('../../../plugins/demo-catalog/src/plugin.js')
+    const module = await import('../../../plugins/shell/demo-catalog/src/plugin.js')
     const { plugin } = validateManifest(demoCatalogManifest)
 
     for (const route of plugin.contributions.filter((c) => c.kind === 'route')) {
