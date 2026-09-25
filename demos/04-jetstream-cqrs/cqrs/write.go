@@ -41,13 +41,91 @@ type Snapshot struct {
 
 // Rehydrated is one rebuilt aggregate plus the numbers that make the
 // snapshot claim measurable.
+//
+// SnapshotRequested and SnapshotFound are two different facts and the demo
+// needs both. Asking for the snapshot mode does NOT mean a snapshot existed:
+// the snapshotter is asynchronous, so a vehicle can be rehydrated before it
+// has ever been snapshotted. That is valid behaviour, not a failure --
+// loadSnapshot answers with a zero Snapshot and the replay simply starts at
+// sequence 1, which is always right and merely slower.
+//
+// It matters because the two look identical on a screen that reads only one
+// of them. Requested-but-not-found replays the whole history, so both cards
+// show the same work and the same time, and a reader who sees "snapshot" on
+// one card concludes the snapshot bought nothing. It was never there.
+//
+//	SnapshotRequested  the caller asked for snapshot mode
+//	SnapshotFound      a snapshot key existed and was folded in
+//
+// FromSeq is the visible consequence: requested-and-found starts after the
+// snapshot, requested-and-missing starts at 1, exactly like the cold side.
 type Rehydrated struct {
-	Vehicle      Vehicle
-	LastSeq      uint64 // stream sequence of its last event; 0 = no events
-	EventsRead   int    // how many events this rehydration actually read
-	FromSeq      uint64 // where the replay started
-	UsedSnapshot bool
-	Elapsed      time.Duration
+	Vehicle           Vehicle
+	LastSeq           uint64 // stream sequence of its last event; 0 = no events
+	EventsRead        int    // how many events this rehydration actually read
+	FromSeq           uint64 // where the replay started
+	SnapshotRequested bool   // snapshot mode was asked for
+	SnapshotFound     bool   // a snapshot existed and was used
+	Elapsed           time.Duration
+}
+
+// foldFunc receives one replayed message, in stream order.
+type foldFunc func(seq uint64, subject string, data []byte) error
+
+// logAccess is everything rehydrate needs from OUTSIDE the process: the
+// snapshot bucket and the event log. Nothing else in rehydrate touches NATS.
+//
+// It is a struct of functions rather than the two jetstream interfaces for
+// one reason: those interfaces are large, and a spec that wanted to drive
+// rehydrate had to stand up a real server to satisfy them. Because of that
+// nothing ever drove rehydrate, and the demo's headline measurement -- the
+// one thing this demo exists to report -- had no spec at all.
+//
+// The seam is deliberately narrow. Decoding and folding stay INSIDE
+// rehydrate, so a spec that fakes this struct still exercises the real
+// decode() and the real Vehicle.Apply(). What is faked is where the bytes
+// came from, never what they mean.
+//
+// This is the same pattern serve.go uses with apiDeps, for the same reason.
+type logAccess struct {
+	// snapshot answers (snap, found, err). found=false is NOT an error: it
+	// is the asynchronous snapshotter not having reached this vehicle yet.
+	snapshot func(ctx context.Context, id string) (Snapshot, bool, error)
+	replay   func(ctx context.Context, src Source, filter string, fromSeq uint64, fn foldFunc) error
+
+	// now measures the rehydration. It is a field so a spec can hold time
+	// still: a real clock can only be asserted against loosely, and a loose
+	// assertion on the number this demo reports is not worth writing.
+	// Zero value means the real clock -- see elapsedSince.
+	now func() time.Time
+}
+
+// natsLog is the production logAccess: the real bucket and the real stream.
+func natsLog(js jetstream.JetStream, kv jetstream.KeyValue) logAccess {
+	return logAccess{
+		snapshot: func(ctx context.Context, id string) (Snapshot, bool, error) {
+			return loadSnapshot(ctx, kv, id)
+		},
+		replay: func(ctx context.Context, src Source, filter string, fromSeq uint64, fn foldFunc) error {
+			return replay(ctx, js, src, filter, fromSeq, fn)
+		},
+	}
+}
+
+// elapsedSince measures with this logAccess's clock, or the real one.
+func (a logAccess) elapsedSince(start time.Time) time.Duration {
+	if a.now == nil {
+		return time.Since(start)
+	}
+	return a.now().Sub(start)
+}
+
+// startedAt reads this logAccess's clock, or the real one.
+func (a logAccess) startedAt() time.Time {
+	if a.now == nil {
+		return time.Now()
+	}
+	return a.now()
 }
 
 // rehydrate rebuilds one vehicle from the log.
@@ -62,21 +140,24 @@ type Rehydrated struct {
 // below is unconditional.
 // The `src` argument is what lets the same code measure two different logs:
 // Live for the demo, Bench for the fixture the Rehydrate panel seeds (04.7.16).
-func rehydrate(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue, src Source, id string, withSnapshot bool) (Rehydrated, error) {
-	start := time.Now()
-	out := Rehydrated{UsedSnapshot: withSnapshot, FromSeq: 1}
+func rehydrate(ctx context.Context, access logAccess, src Source, id string, withSnapshot bool) (Rehydrated, error) {
+	start := access.startedAt()
+	out := Rehydrated{SnapshotRequested: withSnapshot, FromSeq: 1}
 
 	if withSnapshot {
-		snap, err := loadSnapshot(ctx, kv, id)
+		snap, found, err := access.snapshot(ctx, id)
 		if err != nil {
 			return out, err
 		}
-		out.Vehicle = snap.State
-		out.LastSeq = snap.LastSeq
-		out.FromSeq = snap.LastSeq + 1
+		if found {
+			out.SnapshotFound = true
+			out.Vehicle = snap.State
+			out.LastSeq = snap.LastSeq
+			out.FromSeq = snap.LastSeq + 1
+		}
 	}
 
-	err := replay(ctx, js, src, src.VehicleFilter(id), out.FromSeq, func(seq uint64, subject string, data []byte) error {
+	err := access.replay(ctx, src, src.VehicleFilter(id), out.FromSeq, func(seq uint64, subject string, data []byte) error {
 		e, err := decode(subject, data)
 		if err != nil {
 			return err
@@ -86,26 +167,28 @@ func rehydrate(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValu
 		out.EventsRead++
 		return nil
 	})
-	out.Elapsed = time.Since(start)
+	out.Elapsed = access.elapsedSince(start)
 	return out, err
 }
 
 // loadSnapshot reads one vehicle's snapshot. A missing key is not an error:
 // it means the snapshotter has not caught up yet, or was never run, and the
-// caller then simply replays the whole history.
-func loadSnapshot(ctx context.Context, kv jetstream.KeyValue, id string) (Snapshot, error) {
+// caller then simply replays the whole history. The second return value says
+// which of the two happened, because "asked for a snapshot" and "had one" are
+// different facts and the demo reports both.
+func loadSnapshot(ctx context.Context, kv jetstream.KeyValue, id string) (Snapshot, bool, error) {
 	var snap Snapshot
 	entry, err := kv.Get(ctx, snapshotKey(id))
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return snap, nil
+		return snap, false, nil
 	}
 	if err != nil {
-		return snap, fmt.Errorf("read snapshot %s: %w", id, err)
+		return snap, false, fmt.Errorf("read snapshot %s: %w", id, err)
 	}
 	if err := json.Unmarshal(entry.Value(), &snap); err != nil {
-		return Snapshot{}, fmt.Errorf("decode snapshot %s: %w", id, err)
+		return Snapshot{}, false, fmt.Errorf("decode snapshot %s: %w", id, err)
 	}
-	return snap, nil
+	return snap, true, nil
 }
 
 // replayInactiveThreshold is how long the server keeps this demo's replay
@@ -144,7 +227,7 @@ const replayInactiveThreshold = 30 * time.Second
 // Stopping is decided by the server, not by a timeout: every JetStream
 // message reports how many are still pending, and pending==0 is the end of
 // the history as it stood when the replay began.
-func replay(ctx context.Context, js jetstream.JetStream, src Source, filter string, fromSeq uint64, fn func(seq uint64, subject string, data []byte) error) error {
+func replay(ctx context.Context, js jetstream.JetStream, src Source, filter string, fromSeq uint64, fn foldFunc) error {
 	cfg := jetstream.OrderedConsumerConfig{
 		FilterSubjects:    []string{filter},
 		InactiveThreshold: replayInactiveThreshold,
@@ -305,7 +388,7 @@ func conflictBackoff(attempt int) time.Duration {
 func handleCommand(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue, id string, withSnapshot bool, decide func(Vehicle) (Event, error)) (Rehydrated, uint64, error) {
 	const attempts = 5
 	for attempt := 1; ; attempt++ {
-		state, err := rehydrate(ctx, js, kv, Live, id, withSnapshot)
+		state, err := rehydrate(ctx, natsLog(js, kv), Live, id, withSnapshot)
 		if err != nil {
 			return state, 0, err
 		}

@@ -51,12 +51,12 @@ func rehydrateAPI(r rehydrateRunner) http.Handler {
 
 var _ = Describe("the rehydrate endpoint", func() {
 	cold := Rehydrated{
-		Vehicle:      Vehicle{Status: StatusRegistered, Plate: "ABC-123"},
-		LastSeq:      10003,
-		EventsRead:   10001,
-		FromSeq:      1,
-		UsedSnapshot: false,
-		Elapsed:      25 * time.Millisecond,
+		Vehicle:           Vehicle{Status: StatusRegistered, Plate: "ABC-123"},
+		LastSeq:           10003,
+		EventsRead:        10001,
+		FromSeq:           1,
+		SnapshotRequested: false,
+		Elapsed:           25 * time.Millisecond,
 	}
 
 	Context("the mode the caller asked for", func() {
@@ -114,7 +114,7 @@ var _ = Describe("the rehydrate endpoint", func() {
 		})
 
 		It("reports an empty vehicle without inventing a state", func() {
-			h := rehydrateAPI(stubRehydrate(Rehydrated{UsedSnapshot: true, FromSeq: 1}, nil))
+			h := rehydrateAPI(stubRehydrate(Rehydrated{SnapshotRequested: true, FromSeq: 1}, nil))
 
 			body := decodeBody(get(h, "/rehydrate?id=ghost"))
 

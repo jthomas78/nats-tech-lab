@@ -3483,3 +3483,110 @@ Three findings from the same review are still open and are NOT actioned here:
   compiler enforce it — Go allows any import. Enforcement needs an
   import-parsing guard. `names.go` holds streams, buckets, ports and worker
   timing, so it is infrastructure and must not move into a domain package.
+
+## 18. A seam under `rehydrate`, and the specs it lets in (2026-09-25, complete)
+
+An architecture review of demo 04 asked one question of the code: which part
+of the demo's headline claim has no spec? The answer was the claim itself.
+
+### 18.1 The gap
+
+`rehydrate()` produces both numbers the Rehydrate panel prints — `eventsRead`
+and `elapsedMs` — and the state the two cards are compared on. It has four
+call sites (`main.go`, `seed.go`, `write.go`, `serve.go`) and **no test
+reached any of them**, because every one needs a live JetStream and this
+suite starts no server.
+
+What *was* covered, and stays covered, is everything on either side of it:
+
+- the browser's derivation — `view/rehydrate.spec.js` (21 cases) and
+  `rehydrate/api.spec.js`, including `fetchBoth` running the cold side first
+  so the snapshot side is not flattered;
+- the HTTP endpoint — `rehydrate_api_test.go`, which drives the handler
+  against a stubbed runner.
+
+So the two ends were proved and the middle was not.
+
+### 18.2 What changed in the code
+
+A narrow seam, and nothing else. `logAccess` is a struct of two functions —
+`snapshot` and `replay` — plus an optional `now`. `natsLog(js, kv)` builds
+the production pair, and `rehydrate`'s two JetStream parameters collapse into
+one `logAccess`, so each call site is a one-token change.
+
+The seam is deliberately narrow: `decode()` and `Vehicle.Apply()` stay
+**inside** `rehydrate`, and the fake log encodes its events with the real
+`encode()`. A spec that says "the warm side ends up retired" is therefore a
+claim about the real fold, not about a double agreeing with itself. This is
+the same shape `serve.go` already uses with `apiDeps`.
+
+`loadSnapshot` now returns `(Snapshot, bool, error)` and `Rehydrated`'s
+`UsedSnapshot` splits into `SnapshotRequested` and `SnapshotFound` — see
+`BUSINESS_RULES-ODOMETER.md`, "Rehydration reports two facts about the
+snapshot, not one". **No wire change**: `rehydrateResult.UsedSnapshot` keeps
+its `json:"usedSnapshot"` tag and carries `SnapshotRequested`, which is what
+it has always meant. The frontend is untouched. The CLI gained one honest
+line — a run that asked for a snapshot and found none now prints
+`snapshot (none found, full replay)` instead of plain `snapshot`.
+
+### 18.3 The coverage boundary — read this before trusting the green
+
+`rehydrate_test.go` covers **`rehydrate`**. It does **not** cover:
+
+- the production `loadSnapshot` — the KV `Get` and its JSON decode;
+- the production `replay` — the ordered ephemeral consumer, its `Messages()`
+  loop, the `NumPending == 0` stop condition, and the consumer cleanup.
+
+Both sit behind `logAccess` and are faked in every spec. They are still
+untested and are tracked here as open. Proving them needs an embedded NATS
+server in the Go suite, which is a separate task with a separate cost, and is
+not smuggled into this one.
+
+### 18.4 What the specs assert, and what they refuse to
+
+Fixed history: ten events at sequences 1–10, one `Registered` then nine
+`Travelled`. `Travelled` leaves the `Vehicle` unchanged, which is exactly why
+a snapshot helps so much here.
+
+| Claim | How |
+|---|---|
+| Cold starts at 1 and reads all ten | `FromSeq`, `EventsRead`, `LastSeq` |
+| Cold never touches the snapshot | call recorder, even with one present |
+| Warm starts at 7 and reads four | snapshot at sequence 6 |
+| Both sides end at the same state and sequence | one fixed history, two runs |
+| The saving is six | `cold.EventsRead - warm.EventsRead` |
+| An empty tail is still asked for | the replay **call** is recorded, not just its answer |
+| A stale snapshot loses to the tail | snapshot says registered, event 10 retires |
+| A missing snapshot replays in full, with no error | requested true, found false |
+| An unreadable event stops the fold | real `decode`, `ErrUndecodable` |
+| `Elapsed` is the measured span | fake clock, exact equality |
+
+Two assertions were deliberately **not** written. Nothing claims the snapshot
+side is faster — that is a property of a machine on a day, and a suite that
+asserts it goes red for no reason. Nothing asserts `Elapsed > 0` against a
+real clock; the one timing spec drives a fake one and asserts an exact value.
+
+The partial-result guard stays in `rehydrate_api_test.go`, where it belongs:
+a unit test of `rehydrate` cannot prove that a broken read never becomes an
+HTTP 200. Only the handler can.
+
+### 18.5 Confirmed red before green
+
+Two mutations of `rehydrate`, each reverted:
+
+- `SnapshotFound: withSnapshot` (reporting a snapshot that was never there) —
+  **9 specs failed**.
+- an early return that skipped the tail replay when the snapshot was already
+  at the head — **red**, caught by the recorded call, not by the answer.
+
+`go test -count=1 ./...` from `cqrs/`: **323 of 323 green** (296 before
+this phase, 27 new).
+
+### 18.6 What this does not fix
+
+The three findings carried from phase 17.4 are still open and untouched. The
+same review raised five more that are **not** actioned here — the registry
+read's nine-field record, the untyped health bag, `main.js` at 275 lines with
+no spec, six shallow modules in the shell, and the hand-mirrored Go↔Vue wire
+shapes. None of them is this demo's headline claim, which is why this phase
+took only the one.

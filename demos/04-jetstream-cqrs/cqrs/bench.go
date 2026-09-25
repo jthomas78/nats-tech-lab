@@ -362,7 +362,7 @@ func benchFixture(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyV
 		return BenchFixture{}, false, nil
 	}
 
-	snap, err := loadSnapshot(ctx, kv, plan.Vehicle)
+	snap, _, err := loadSnapshot(ctx, kv, plan.Vehicle)
 	if err != nil {
 		return BenchFixture{}, false, err
 	}

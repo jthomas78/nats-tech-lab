@@ -52,7 +52,13 @@ type benchReader func(ctx context.Context) (BenchState, error)
 // vehicle finishes in well under a millisecond, and an integer would print
 // the demo's best number as 0.
 type rehydrateResult struct {
-	ID           string  `json:"id"`
+	ID string `json:"id"`
+	// UsedSnapshot is the mode the caller ASKED for, which is what the two
+	// cards on the screen are labelled with. Whether a snapshot was actually
+	// there is visible in FromSeq: 1 means there was none and this side
+	// replayed the whole history, exactly like the cold side. The wire name
+	// is unchanged on purpose -- the browser reads it and the field has
+	// always meant this.
 	UsedSnapshot bool    `json:"usedSnapshot"`
 	FromSeq      uint64  `json:"fromSeq"`
 	EventsRead   int     `json:"eventsRead"`
@@ -292,7 +298,7 @@ func rehydrateHandler(rehydrateOne rehydrateRunner, allowedOrigins []string) htt
 
 		writeJSON(w, http.StatusOK, rehydrateResult{
 			ID:           id,
-			UsedSnapshot: out.UsedSnapshot,
+			UsedSnapshot: out.SnapshotRequested,
 			FromSeq:      out.FromSeq,
 			EventsRead:   out.EventsRead,
 			LastSeq:      out.LastSeq,
@@ -409,7 +415,7 @@ func runServe(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue
 			}
 			snapKV = opened
 		}
-		return rehydrate(ctx, js, snapKV, src, id, withSnapshot)
+		return rehydrate(ctx, natsLog(js, snapKV), src, id, withSnapshot)
 	}
 
 	// The benchmark's two halves, wired to the same functions `cqrs bench`

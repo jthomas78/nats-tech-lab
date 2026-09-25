@@ -245,7 +245,7 @@ func run(cmd string, args []string) error {
 		} else if *source != "live" {
 			return fmt.Errorf("-source must be live or bench")
 		}
-		state, err := rehydrate(ctx, js, kv, src, *vehicle, *snapshot)
+		state, err := rehydrate(ctx, natsLog(js, kv), src, *vehicle, *snapshot)
 		if err != nil {
 			return err
 		}
@@ -318,9 +318,15 @@ func command(ctx context.Context, js jetstream.JetStream, kv jetstream.KeyValue,
 // printRehydration is the honest part of the demo: it says how much work the
 // rehydration actually did, so "snapshots are faster" stays a measurement.
 func printRehydration(id string, r Rehydrated) {
+	/* Requested and found are two facts. A run that asked for a snapshot and
+	   found none replays the whole history, so it must not print "snapshot"
+	   and let the reader credit a saving that never happened. */
 	mode := "no snapshot"
-	if r.UsedSnapshot {
+	if r.SnapshotRequested {
 		mode = "snapshot"
+		if !r.SnapshotFound {
+			mode = "snapshot (none found, full replay)"
+		}
 	}
 	fmt.Printf("vehicle     %s\n", id)
 	fmt.Printf("mode        %s\n", mode)

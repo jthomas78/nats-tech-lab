@@ -98,3 +98,33 @@ that says why, or it is not dropped at all.
 pool lost this event to racing", which is the lesson that panel teaches. An
 unreadable event was never the pool's fault, so it is logged and not counted
 there.
+
+## Rehydration reports two facts about the snapshot, not one
+
+**Asking for a snapshot does not mean there was one.** The snapshotter is
+asynchronous, so a vehicle can be rehydrated before it has ever been
+snapshotted. `loadSnapshot` answers "no key" with a zero snapshot and no
+error, and the replay then starts at sequence 1. That is correct behaviour,
+not a failure — the full replay is always right, and merely slower.
+
+It still has to be reported, because the two cases look identical on a screen
+that reads only one flag. A card labelled *snapshot* that found no snapshot
+replays the whole history, so it shows the same event count and roughly the
+same time as the cold card, and a reader concludes the snapshot bought
+nothing. It was never there.
+
+So `Rehydrated` carries both:
+
+| Field | Meaning |
+|---|---|
+| `SnapshotRequested` | the caller asked for snapshot mode |
+| `SnapshotFound` | a snapshot key existed and was folded in |
+
+`FromSeq` is the visible consequence — requested-and-found starts after the
+snapshot, requested-and-missing starts at 1, exactly like the cold side.
+
+This is not a new business rule and has no `BR-OD` id: rehydration refuses
+nothing and returns no rule code. It is a reporting rule. The wire field
+stays `usedSnapshot` and still carries `SnapshotRequested`, which is what it
+has always meant and what the two panel cards are labelled with; the browser
+is unchanged.
