@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Check a clustering-findings deck against the numbers demo 03 last measured.
 
-    python3 tools/check-deck-numbers.py nats-clustering-findings-v0.7.html
+    python3 tools/check-deck-numbers.py demos/03-multi-cluster-and-accounts/docs/nats-clustering-findings-v0.7.html
 
 The deck quotes counts, IDs and a run timestamp that all come from
 demos/03-multi-cluster-and-accounts/REPORT.md. That report is GENERATED --

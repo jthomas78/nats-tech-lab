@@ -260,13 +260,13 @@ Standard `go build ./...` / `go test ./...` / `npm run dev` / `docker compose up
 
 ### Checking a findings deck against the lab
 
-`nats-clustering-findings-v*.html` quote counts, check IDs and a run timestamp
+`demos/03-multi-cluster-and-accounts/docs/nats-clustering-findings-v*.html` quote counts, check IDs and a run timestamp
 that all come from `demos/03-multi-cluster-and-accounts/REPORT.md` — which is
 **generated**, so every `lab/run-all.sh` silently stales the deck. Before
 sharing or editing a deck, run:
 
 ```bash
-python3 tools/check-deck-numbers.py nats-clustering-findings-v0.7.html
+python3 tools/check-deck-numbers.py demos/03-multi-cluster-and-accounts/docs/nats-clustering-findings-v0.7.html
 ```
 
 It changes nothing and exits non-zero when a number moved. It also lists the
