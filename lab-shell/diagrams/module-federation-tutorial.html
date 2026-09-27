@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Module Federation — browser to lab shell</title>
+  <style>
+    :root {
+      --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+      --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+      --accent: #006fff; --nested: #171c29;
+      --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+      --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+      --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: var(--sans); font-size: 13px; line-height: 20px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+    .head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+    .head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+    .eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+    h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+    h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+    h3 { margin: 0; color: var(--text); font-size: 13px; line-height: 19px; font-weight: 600; }
+    p { margin: 0; color: var(--muted); max-width: 78ch; }
+    a { color: var(--sync); text-decoration-color: color-mix(in srgb, var(--sync) 56%, transparent); text-underline-offset: 2px; }
+    a:hover { color: var(--text); }
+    code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+    .sub { margin: 0; color: var(--muted); max-width: 68ch; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--dim); font-family: var(--mono); font-size: 10px; }
+    .badge { display: inline-flex; align-items: center; width: max-content; border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-family: var(--mono); font-size: 9px; letter-spacing: .02em; line-height: 15px; }
+    .badge.theory { color: var(--sync); border-color: color-mix(in srgb, var(--sync) 50%, var(--border)); }
+    .badge.browser { color: var(--evtl); border-color: color-mix(in srgb, var(--evtl) 50%, var(--border)); }
+    .badge.repo { color: var(--store); border-color: color-mix(in srgb, var(--store) 50%, var(--border)); }
+    .badge.inference { color: #d8b4fe; border-color: color-mix(in srgb, #d8b4fe 50%, var(--border)); }
+    .intro { display: flex; flex-direction: column; gap: 9px; border-left: 2px solid var(--accent); padding-left: 12px; }
+    .sec { display: flex; flex-direction: column; gap: 12px; padding: 17px; background: var(--nested); border: 1px solid var(--border); border-radius: 4px; }
+    .sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; }
+    .sec-num { color: var(--dim); font-family: var(--mono); font-size: 10px; }
+    .kinds { display: flex; flex-wrap: wrap; gap: 5px; }
+    .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px; }
+    .note { padding: 10px 11px; border: 1px solid var(--border); border-radius: 3px; background: color-mix(in srgb, var(--panel) 76%, transparent); color: var(--muted); }
+    .note b { color: var(--text); font-weight: 600; }
+    figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+    .fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+    figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+    figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+    figcaption b { color: var(--text); font-weight: 600; }
+    .reading { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .reading ol, .debug-list { margin: 0; padding-left: 19px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; }
+    .reading li b, .debug-list b { color: var(--text); font-weight: 600; }
+    .fine { color: var(--dim); font-size: 11px; line-height: 17px; }
+
+    /* SVG schematic vocabulary */
+    .n { fill: none; stroke: currentColor; stroke-width: 1; }
+    .nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: .5; }
+    .life { fill: none; stroke: var(--hop); stroke-width: 1; stroke-dasharray: 3 4; }
+    .lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+    .lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+    .grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: .07em; }
+    .edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+    .flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+    .proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+    .rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+    .err { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+    .inference { fill: none; stroke: #d8b4fe; stroke-width: 1.4; stroke-dasharray: 3 3; }
+    @media (max-width: 650px) {
+      .wrap { padding: 18px 12px 42px; gap: 18px; }
+      .sec { padding: 13px; }
+      .fig-body { padding: 10px 10px 3px; }
+    }
+    @media print {
+      @page { margin: 12mm; }
+      html, body { background: var(--bg) !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .wrap { max-width: none; padding: 0; }
+      figure, figcaption, .sec { break-inside: avoid; page-break-inside: avoid; }
+      h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
+    }
+  svg.seq text.edge { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <div class="head-txt">
+        <span class="eyebrow">Lab shell · Module Federation tutorial · implementation inspected 2026-09-25</span>
+        <h1>Module Federation: from browser mechanics to this lab shell</h1>
+        <p class="sub">A visual path from “another build provides a module” to the exact admission, loading, activation, readiness, and mounting boundaries used by <code>demo-catalog</code>.</p>
+      </div>
+      <div class="legend" aria-label="Content kind legend">
+        <span class="badge theory">general MF theory</span>
+        <span class="badge browser">browser &amp; Vite behavior</span>
+        <span class="badge repo">verified in this repo</span>
+        <span class="badge inference">runtime request sequence inference</span>
+      </div>
+    </header>
+
+    <div class="intro">
+      <p><b>Keep the two questions separate.</b> Federation answers how a host obtains a public module from another build. The shell answers whether metadata is admitted, where a contribution may appear, when it should load, what API it receives, and what failure state the UI should show.</p>
+      <p class="fine">This visual companion condenses <a href="../MODULE-FEDERATION-TUTORIAL.md">MODULE-FEDERATION-TUTORIAL.md</a>. Online links teach the general mechanism; local links show the implementation actually used here.</p>
+    </div>
+
+    <section class="sec" aria-labelledby="mental-model">
+      <div class="sec-head"><span class="sec-num">01</span><h2 id="mental-model">Plain-language mental model</h2></div>
+      <div class="kinds"><span class="badge theory">general MF theory</span><span class="badge repo">verified in this repo</span></div>
+      <p>A <b>host</b> learns where a separately built <b>remote</b> lives. Its <b>remote entry</b> exposes a <b>container</b>; the container makes named public modules available. The federation <b>runtime</b> registers that location, resolves an exposure, and coordinates a <b>share scope</b> for libraries such as Vue. The export is ordinary JavaScript — the host decides whether to render it as a Vue component.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 960 340" role="img" aria-label="Module Federation mental model showing the lab_shell host using a federation runtime to reach the demo_catalog remote entry and container, then obtain the exposed plugin module while the Vue share scope is negotiated. Below it, a contrast shows normal imports and lazy local imports remain inside the host build, whereas a federated import reaches a separate remote build at runtime.">
+            <defs>
+              <marker id="f1-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+              <marker id="f1-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+            </defs>
+            <text class="grp" x="16" y="16">FEDERATION MENTAL MODEL — PUBLIC MODULE FROM ANOTHER BUILD</text>
+            <rect class="nb" x="16" y="30" width="350" height="124" rx="4"/>
+            <text class="grp" x="28" y="47">HOST BUILD</text>
+            <rect class="n" x="32" y="65" width="148" height="48" rx="3"/>
+            <text class="lbl" x="106" y="85" text-anchor="middle">host: lab_shell</text>
+            <text class="lbl2" x="106" y="99" text-anchor="middle">renders a contribution</text>
+            <rect class="n" x="214" y="65" width="136" height="48" rx="3"/>
+            <text class="lbl" x="282" y="85" text-anchor="middle">MF runtime</text>
+            <text class="lbl2" x="282" y="99" text-anchor="middle">register + resolve</text>
+            <path class="flow" marker-end="url(#f1-sync)" d="M180 89 L204 89"/>
+            <text class="edge" x="192" y="83" text-anchor="middle">asks</text>
+
+            <rect class="nb" x="594" y="30" width="350" height="124" rx="4"/>
+            <text class="grp" x="606" y="47">REMOTE BUILD — INDEPENDENT OUTPUT</text>
+            <rect class="n" x="612" y="65" width="118" height="48" rx="3"/>
+            <text class="lbl" x="671" y="85" text-anchor="middle">remote entry</text>
+            <text class="lbl2" x="671" y="99" text-anchor="middle">remoteEntry.js</text>
+            <rect class="n" x="760" y="65" width="148" height="48" rx="3"/>
+            <text class="lbl" x="834" y="85" text-anchor="middle">container</text>
+            <text class="lbl2" x="834" y="99" text-anchor="middle">demo_catalog</text>
+            <path class="flow" marker-end="url(#f1-sync)" d="M730 89 L750 89"/>
+            <path class="flow" marker-end="url(#f1-sync)" d="M350 89 L584 89"/>
+            <text class="edge" x="467" y="83" text-anchor="middle">load entry as ESM</text>
+            <rect class="n" x="718" y="122" width="148" height="24" rx="3"/>
+            <text class="lbl2" x="792" y="138" text-anchor="middle">expose: ./plugin</text>
+            <path class="proj" marker-end="url(#f1-store)" d="M834 113 L834 120"/>
+
+            <rect class="nb" x="330" y="172" width="300" height="44" rx="4"/>
+            <text class="grp" x="342" y="190">SHARE SCOPE</text>
+            <text class="lbl2" x="520" y="190">Vue + @primeuix/styled singleton request</text>
+            <path class="proj" marker-end="url(#f1-store)" d="M282 113 L282 164 L480 164 L480 170"/>
+            <path class="proj" marker-end="url(#f1-store)" d="M792 146 L792 164 L530 164 L530 170"/>
+            <text class="edge" x="645" y="158" text-anchor="middle">negotiate providers</text>
+
+            <line class="nb" x1="16" y1="239" x2="944" y2="239"/>
+            <text class="grp" x="16" y="257">WHAT CHANGES FROM A NORMAL IMPORT?</text>
+            <rect class="n" x="16" y="274" width="236" height="42" rx="3"/>
+            <text class="lbl" x="134" y="292" text-anchor="middle">import './Feature.vue'</text>
+            <text class="lbl2" x="134" y="306" text-anchor="middle">host build knows and emits it</text>
+            <rect class="n" x="362" y="274" width="236" height="42" rx="3"/>
+            <text class="lbl" x="480" y="292" text-anchor="middle">import('./Feature.vue')</text>
+            <text class="lbl2" x="480" y="306" text-anchor="middle">lazy chunk, still host-owned</text>
+            <rect class="n" x="708" y="274" width="236" height="42" rx="3"/>
+            <text class="lbl" x="826" y="292" text-anchor="middle">loadRemote('remote/plugin')</text>
+            <text class="lbl2" x="826" y="306" text-anchor="middle">another build owns its module</text>
+          </svg>
+        </div>
+        <figcaption><b>Federation mental model.</b> Federation is a boundary between build graphs, not a second browser. The remote code runs in the same page and JavaScript realm as the shell. See the <a href="https://webpack.js.org/concepts/module-federation/">Module Federation concepts</a> for the general vocabulary; the local remote exposes <code>./plugin</code> in <a href="../plugins/shell/demo-catalog/vite.config.js">demo-catalog’s Vite config</a>.</figcaption>
+      </figure>
+      <div class="notes">
+        <div class="note"><b>Host and remote are roles.</b> A general federated app can be both. In this lab, <code>lab_shell</code> consumes and plugins expose.</div>
+        <div class="note"><b>Exposure is public.</b> <code>./src/plugin.js</code> is a remote implementation path; <code>./plugin</code> is the public key the host requests.</div>
+        <div class="note"><b>Not a sandbox.</b> Catching a rejected load or render error is resilience, not isolation from same-page JavaScript.</div>
+      </div>
+    </section>
+
+    <section class="sec" aria-labelledby="browser-lifecycle">
+      <div class="sec-head"><span class="sec-num">02</span><h2 id="browser-lifecycle">What happens in the browser</h2></div>
+      <div class="kinds"><span class="badge theory">general MF theory</span><span class="badge browser">browser &amp; Vite behavior</span><span class="badge inference">runtime request sequence inference</span></div>
+      <p>Loading an exposure is asynchronous. Discovery and registration decide <em>where</em> to look; the browser then loads the entry and any required assets, federation coordinates sharing, and the module evaluates before the shell receives its exports. The exact asset/chunk request order is a runtime-and-build implementation detail, not a stable protocol.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 960 278" role="img" aria-label="Browser loading lifecycle showing discovery, runtime registration, ES module remote entry loading, shared dependency negotiation, exposed module evaluation, activation, and Vue mounting. A separate dashed lane shows that implementation chunks and CSS may be requested while the remote is being loaded, and labels this request sequence as a runtime and build implementation detail.">
+            <defs>
+              <marker id="f2-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+              <marker id="f2-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+              <marker id="f2-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+            </defs>
+            <text class="grp" x="16" y="16">BROWSER LIFECYCLE — ONE FEATURE’S FIRST USE</text>
+            <rect class="n" x="16" y="58" width="106" height="48" rx="3"/><text class="lbl" x="69" y="78" text-anchor="middle">discovery</text><text class="lbl2" x="69" y="92" text-anchor="middle">metadata only</text>
+            <rect class="n" x="146" y="58" width="118" height="48" rx="3"/><text class="lbl" x="205" y="78" text-anchor="middle">register</text><text class="lbl2" x="205" y="92" text-anchor="middle">name + entry</text>
+            <rect class="n" x="288" y="58" width="118" height="48" rx="3"/><text class="lbl" x="347" y="78" text-anchor="middle">entry load</text><text class="lbl2" x="347" y="92" text-anchor="middle">ES module</text>
+            <rect class="n" x="430" y="58" width="130" height="48" rx="3"/><text class="lbl" x="495" y="78" text-anchor="middle">share scope</text><text class="lbl2" x="495" y="92" text-anchor="middle">negotiate</text>
+            <rect class="n" x="584" y="58" width="130" height="48" rx="3"/><text class="lbl" x="649" y="78" text-anchor="middle">module eval</text><text class="lbl2" x="649" y="92" text-anchor="middle">top-level code</text>
+            <rect class="n" x="738" y="58" width="206" height="48" rx="3"/><text class="lbl" x="841" y="78" text-anchor="middle">activate, then mount</text><text class="lbl2" x="841" y="92" text-anchor="middle">shell API → Vue component</text>
+            <path class="flow" marker-end="url(#f2-sync)" d="M122 82 L136 82"/><path class="flow" marker-end="url(#f2-sync)" d="M264 82 L278 82"/><path class="flow" marker-end="url(#f2-sync)" d="M406 82 L420 82"/><path class="proj" marker-end="url(#f2-store)" d="M560 82 L574 82"/><path class="flow" marker-end="url(#f2-sync)" d="M714 82 L728 82"/>
+            <text class="edge" x="271" y="48" text-anchor="middle">remote URL</text><text class="edge" x="567" y="48" text-anchor="middle">providers</text><text class="edge" x="721" y="48" text-anchor="middle">exports</text>
+            <rect class="nb" x="288" y="146" width="426" height="70" rx="4"/>
+            <text class="grp" x="428" y="163">REMOTE ASSET SET — NOT NECESSARILY ONE FILE</text>
+            <rect class="n" x="306" y="176" width="112" height="26" rx="3"/><text class="lbl2" x="362" y="193" text-anchor="middle">remoteEntry.js</text>
+            <rect class="n" x="454" y="176" width="112" height="26" rx="3"/><text class="lbl2" x="510" y="193" text-anchor="middle">code chunks</text>
+            <rect class="n" x="602" y="176" width="94" height="26" rx="3"/><text class="lbl2" x="649" y="193" text-anchor="middle">CSS assets</text>
+            <path class="rep" marker-end="url(#f2-evtl)" d="M347 106 L347 132 L362 132 L362 166"/>
+            <path class="inference" d="M418 189 L444 189"/>
+            <path class="inference" d="M566 189 L592 189"/>
+            <text class="edge" x="501" y="236" text-anchor="middle">exact request count, names, and order: observe Network; do not assume a fixed waterfall</text>
+            <text class="edge" x="501" y="252" text-anchor="middle" fill="#d8b4fe">inference about the federation runtime’s internal request sequence</text>
+          </svg>
+        </div>
+        <figcaption><b>Browser loading lifecycle.</b> Entry loading is not feature completion. A Vite remote entry is explicitly registered as <code>type: 'module'</code> in this shell’s <a href="../src/shell/loader/federatedAdapter.js">federated adapter</a>. Browser module evaluation is asynchronous; use DevTools Network to inspect the actual run. <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/import">MDN’s import() guide</a> and the <a href="https://module-federation.io/guide/runtime/runtime-api">runtime API</a> describe the two layers.</figcaption>
+      </figure>
+    </section>
+
+    <section class="sec" aria-labelledby="local-stack">
+      <div class="sec-head"><span class="sec-num">03</span><h2 id="local-stack">The local stack and its sharing contract</h2></div>
+      <div class="kinds"><span class="badge repo">verified in this repo</span><span class="badge theory">general MF theory</span></div>
+      <p>The Vite plugin shapes each independent build. The runtime performs the late registration and module request in the page. Vue renders returned component definitions. This is deliberately not one responsibility called “federation.”</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 960 286" role="img" aria-label="Local Module Federation stack showing independent host and demo_catalog Vite builds, the Module Federation Vite plugin providing build integration, the browser runtime registering and loading remotes, Vue mounting returned components, and Vue plus @primeuix/styled requested as shared singletons so rendering state and theme state are not split.">
+            <defs>
+              <marker id="f3-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+              <marker id="f3-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+            </defs>
+            <text class="grp" x="16" y="16">LOCAL STACK — BUILD-TIME INTEGRATION AND BROWSER-TIME LOADING</text>
+            <rect class="nb" x="16" y="30" width="416" height="92" rx="4"/><text class="grp" x="28" y="47">HOST BUILD</text>
+            <rect class="n" x="32" y="62" width="154" height="42" rx="3"/><text class="lbl" x="109" y="80" text-anchor="middle">Vue 3 host</text><text class="lbl2" x="109" y="94" text-anchor="middle">lab_shell</text>
+            <rect class="n" x="226" y="62" width="188" height="42" rx="3"/><text class="lbl" x="320" y="80" text-anchor="middle">@module-federation/vite</text><text class="lbl2" x="320" y="94" text-anchor="middle">name + shared configuration</text>
+            <path class="flow" marker-end="url(#f3-sync)" d="M186 83 L216 83"/>
+            <rect class="nb" x="528" y="30" width="416" height="92" rx="4"/><text class="grp" x="540" y="47">REMOTE BUILD</text>
+            <rect class="n" x="546" y="62" width="154" height="42" rx="3"/><text class="lbl" x="623" y="80" text-anchor="middle">Vue 3 remote</text><text class="lbl2" x="623" y="94" text-anchor="middle">demo_catalog</text>
+            <rect class="n" x="736" y="62" width="190" height="42" rx="3"/><text class="lbl" x="831" y="80" text-anchor="middle">@module-federation/vite</text><text class="lbl2" x="831" y="94" text-anchor="middle">remoteEntry + exposes</text>
+            <path class="flow" marker-end="url(#f3-sync)" d="M700 83 L726 83"/>
+            <rect class="n" x="318" y="148" width="324" height="50" rx="3"/><text class="lbl" x="480" y="169" text-anchor="middle">@module-federation/runtime</text><text class="lbl2" x="480" y="184" text-anchor="middle">init · registerRemotes · loadRemote</text>
+            <path class="flow" marker-end="url(#f3-sync)" d="M320 104 L320 136 L430 136 L430 146"/>
+            <path class="flow" marker-end="url(#f3-sync)" d="M831 104 L831 136 L530 136 L530 146"/>
+            <text class="edge" x="654" y="165">browser-time runtime boundary</text>
+            <rect class="nb" x="170" y="222" width="650" height="42" rx="4"/>
+            <text class="grp" x="182" y="239">REQUESTED SHARED SINGLETONS</text>
+            <text class="lbl2" x="366" y="239">vue — one reactivity / inject universe</text>
+            <text class="lbl2" x="610" y="239">@primeuix/styled — one theme store</text>
+            <path class="proj" marker-end="url(#f3-store)" d="M430 198 L430 212"/>
+            <path class="proj" marker-end="url(#f3-store)" d="M530 198 L530 212"/>
+          </svg>
+        </div>
+        <figcaption><b>Local stack: build plugin vs runtime.</b> Build plugin and runtime are different tools at different moments. Both <a href="../vite.config.js">host</a> and <a href="../plugins/shell/demo-catalog/vite.config.js">catalog</a> request singleton <code>vue</code> and <code>@primeuix/styled</code>. One Vue instance protects reactivity and dependency injection; sharing Vue alone would not share PrimeVue’s styling store. <a href="https://module-federation.io/configure/shared">Shared configuration reference</a>.</figcaption>
+      </figure>
+      <p class="fine"><span class="badge repo">verified in this repo</span> <code>resolve.dedupe</code> in Vite is a related local build/test precaution; it is not the browser share scope. Likewise, compatible federation libraries do not prove the application-level <code>shellApiVersion</code> is compatible.</p>
+    </section>
+
+    <section class="sec" aria-labelledby="artifacts">
+      <div class="sec-head"><span class="sec-num">04</span><h2 id="artifacts">Three easily confused artifacts</h2></div>
+      <div class="kinds"><span class="badge theory">general MF theory</span><span class="badge repo">verified in this repo</span></div>
+      <p>All three may be JSON-or-JavaScript-looking files near a remote. They do not have the same owner or job. The app-level manifest decides admission and placement; it happens before the direct remote entry is fetched.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 960 292" role="img" aria-label="Comparison of three artifacts: remoteEntry.js is a federation-generated JavaScript container entry loaded by this shell; mf-manifest.json is optional federation-generated metadata supported by federation tooling but not used by this walkthrough; and the demo-catalog public manifest.json is application-owned metadata defining identity, API version, remote coordinates, routes, navigation and extension points before remote code is loaded.">
+            <defs><marker id="f4-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker></defs>
+            <text class="grp" x="16" y="16">THREE ARTIFACTS — SAME NEIGHBOURHOOD, DIFFERENT CONTRACTS</text>
+            <rect class="n" x="16" y="44" width="278" height="178" rx="3"/>
+            <text class="lbl" x="155" y="69" text-anchor="middle">remoteEntry.js</text>
+            <text class="lbl2" x="155" y="88" text-anchor="middle">owner: federation build output</text>
+            <line class="nb" x1="32" y1="103" x2="278" y2="103"/>
+            <text class="lbl2" x="40" y="123">purpose: JS container entry</text>
+            <text class="lbl2" x="40" y="141">loaded by this adapter</text>
+            <text class="lbl2" x="40" y="159">provides access to exposure</text>
+            <text class="lbl2" x="40" y="190">here: direct ESM entry</text>
+            <text class="lbl2" x="40" y="206">after admission / first use</text>
+            <rect class="n" x="341" y="44" width="278" height="178" rx="3"/>
+            <text class="lbl" x="480" y="69" text-anchor="middle">mf-manifest.json</text>
+            <text class="lbl2" x="480" y="88" text-anchor="middle">owner: federation tooling</text>
+            <line class="nb" x1="357" y1="103" x2="603" y2="103"/>
+            <text class="lbl2" x="365" y="123">purpose: optional MF metadata</text>
+            <text class="lbl2" x="365" y="141">assets + sharing description</text>
+            <text class="lbl2" x="365" y="159">may be used by MF tooling</text>
+            <text class="lbl2" x="365" y="190">not this app’s contract</text>
+            <text class="lbl2" x="365" y="206">not used in this walkthrough</text>
+            <rect class="n" x="666" y="44" width="278" height="178" rx="3"/>
+            <text class="lbl" x="805" y="69" text-anchor="middle">public/manifest.json</text>
+            <text class="lbl2" x="805" y="88" text-anchor="middle">owner: this application</text>
+            <line class="nb" x1="682" y1="103" x2="928" y2="103"/>
+            <text class="lbl2" x="690" y="123">purpose: shell admission + UI</text>
+            <text class="lbl2" x="690" y="141">id, API, remote, routes, nav</text>
+            <text class="lbl2" x="690" y="159">extension points + services</text>
+            <text class="lbl2" x="690" y="190">indexed before any remote code</text>
+            <text class="lbl2" x="690" y="206">points at remoteEntry.js</text>
+            <path class="flow" marker-end="url(#f4-sync)" d="M805 222 L805 250 L155 250 L155 232"/>
+            <text class="edge" x="485" y="244" text-anchor="middle">remote.url → http://localhost:7112/remoteEntry.js</text>
+            <text class="edge" x="480" y="279" text-anchor="middle">registry metadata preload / read is not browser code preload</text>
+          </svg>
+        </div>
+        <figcaption><b>Three-artifact comparison.</b> The catalog manifest is not a renamed federation manifest. <a href="../plugins/shell/demo-catalog/public/manifest.json">This repo’s public manifest</a> carries application metadata and points to <code>remoteEntry.js</code>; the direct-entry adapter never needs an <code>mf-manifest.json</code>. Compare the <a href="https://module-federation.io/guide/advanced/manifest-fields.html">federation manifest fields</a> documentation with the local contract.</figcaption>
+      </figure>
+    </section>
+
+    <section class="sec" aria-labelledby="catalog-walkthrough">
+      <div class="sec-head"><span class="sec-num">05</span><h2 id="catalog-walkthrough">Exact <code>demo-catalog</code> walkthrough</h2></div>
+      <div class="kinds"><span class="badge repo">verified in this repo</span><span class="badge inference">runtime request sequence inference</span></div>
+      <p>Default <code>registry</code> mode discovers curated manifests over the shell’s NATS API. A changed notification is a reread hint, not the registry itself. Only after validation, contribution indexing, and a lazy route or extension request does the shell cross into federation. <code>build</code> mode is an alternate discovery source feeding the same admission and loading path.</p>
+      <figure>
+        <div class="fig-body">
+          <svg class="seq" viewBox="0 0 960 456" role="img" aria-label="demo-catalog sequence diagram with lifelines for registry preload, registry service, shell discovery and indexing, router or extension slot, plugin loader, and federation remote. It shows a registry read and optional changed-hint reread before manifest validation and contribution indexing, then a later first-use load that registers demo_catalog, loads demo_catalog/plugin, activates with the shell API, passes a separate readiness gate, and mounts the named Vue component.">
+            <defs>
+              <marker id="f5-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+              <marker id="f5-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+              <marker id="f5-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+              <marker id="f5-inference" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#d8b4fe"/></marker>
+            </defs>
+            <text class="grp" x="16" y="16">REGISTRY MODE — DISCOVER, ADMIT, THEN LOAD ONLY ON USE</text>
+            <rect class="n" x="16" y="32" width="108" height="34" rx="3"/><text class="lbl2" x="70" y="53" text-anchor="middle">registry preload</text>
+            <rect class="n" x="164" y="32" width="108" height="34" rx="3"/><text class="lbl2" x="218" y="53" text-anchor="middle">registry svc</text>
+            <rect class="n" x="312" y="32" width="120" height="34" rx="3"/><text class="lbl2" x="372" y="53" text-anchor="middle">shell / index</text>
+            <rect class="n" x="472" y="32" width="118" height="34" rx="3"/><text class="lbl2" x="531" y="53" text-anchor="middle">route / slot</text>
+            <rect class="n" x="630" y="32" width="114" height="34" rx="3"/><text class="lbl2" x="687" y="53" text-anchor="middle">plugin loader</text>
+            <rect class="n" x="784" y="32" width="160" height="34" rx="3"/><text class="lbl2" x="864" y="53" text-anchor="middle">MF runtime / remote</text>
+            <path class="life" d="M70 66 L70 432"/><path class="life" d="M218 66 L218 432"/><path class="life" d="M372 66 L372 432"/><path class="life" d="M531 66 L531 432"/><path class="life" d="M687 66 L687 432"/><path class="life" d="M864 66 L864 432"/>
+            <path class="rep" marker-end="url(#f5-evtl)" d="M70 88 L70 104 L208 104"/>
+            <text class="edge" x="144" y="119" text-anchor="middle">startup seed (unseen IDs)</text>
+            <path class="flow" marker-end="url(#f5-sync)" d="M372 128 L228 128"/>
+            <text class="edge" x="300" y="122" text-anchor="middle">frontend-plugins.read.v1</text>
+            <path class="flow" marker-end="url(#f5-sync)" d="M218 148 L362 148"/>
+            <text class="edge" x="290" y="163" text-anchor="middle">curated manifest document</text>
+            <path class="proj" marker-end="url(#f5-store)" d="M372 174 L400 174 L400 194 L382 194"/>
+            <text class="edge" x="410" y="188">validate → allowlist → index contributions</text>
+            <path class="rep" marker-end="url(#f5-evtl)" d="M218 220 L362 220"/>
+            <text class="edge" x="290" y="214" text-anchor="middle">changed hint (not a document)</text>
+            <path class="flow" marker-end="url(#f5-sync)" d="M372 242 L228 242"/>
+            <text class="edge" x="300" y="236" text-anchor="middle">reread authoritative registry</text>
+            <path class="flow" marker-end="url(#f5-sync)" d="M531 274 L677 274"/>
+            <text class="edge" x="604" y="268" text-anchor="middle">first /demos or extension use</text>
+            <path class="flow" marker-end="url(#f5-sync)" d="M687 298 L854 298"/>
+            <text class="edge" x="770" y="292" text-anchor="middle">registerRemotes(demo_catalog)</text>
+            <path class="inference" marker-end="url(#f5-inference)" d="M687 324 L854 324"/>
+            <text class="edge" x="770" y="318" text-anchor="middle" fill="#d8b4fe">loadRemote("demo_catalog/plugin") → entry / assets / sharing</text>
+            <path class="proj" marker-end="url(#f5-store)" d="M854 356 L697 356"/>
+            <text class="edge" x="776" y="350" text-anchor="middle">module exports</text>
+            <path class="proj" marker-end="url(#f5-store)" d="M687 378 L854 378"/>
+            <text class="edge" x="771" y="372" text-anchor="middle">activate(shellApi), if exported</text>
+            <path class="flow" marker-end="url(#f5-sync)" d="M687 404 L541 404"/>
+            <text class="edge" x="614" y="398" text-anchor="middle">components.catalog / intro</text>
+            <path class="flow" marker-end="url(#f5-sync)" d="M531 414 L556 414 L556 432 L541 432"/>
+            <text class="edge" x="566" y="427">separate readiness gate → Vue mount</text>
+          </svg>
+        </div>
+        <figcaption><b>demo-catalog sequence.</b> Metadata can make a route visible before remote code exists in memory. The default source selection is in <a href="../src/shell/pluginSource.js">pluginSource.js</a>; reads and changed hints are in <a href="../src/shell/registry/registryTransport.js">registryTransport.js</a>, <a href="../src/shell/registry/registrySession.js">registrySession.js</a>, and <a href="../src/shell/registry/changeSubscription.js">changeSubscription.js</a>. The purple request is deliberately tagged as an internal request-sequence inference, not a fixed network contract.</figcaption>
+      </figure>
+      <div class="notes">
+        <div class="note"><b>Admission first.</b> <a href="../src/shell/bootShell.js">bootShell.js</a> validates manifests, adds allowed remote URLs, declares extension points, and indexes contributions without importing remote code.</div>
+        <div class="note"><b>Lazy first use.</b> Lazy routes from <a href="../src/shell/routing/shellRoutes.js">shellRoutes.js</a> ask the loader; the adapter normalizes <code>./plugin</code> to <code>plugin</code> and requests <code>demo_catalog/plugin</code>.</div>
+        <div class="note"><b>Activation, then mounting.</b> <a href="../plugins/shell/demo-catalog/src/plugin.js">plugin.js</a> exports <code>catalog</code>, <code>intro</code>, and <code>activate</code>. <a href="../src/shell/demos/demoGate.js">demoGate.js</a> checks readiness after loading but before mount.</div>
+      </div>
+    </section>
+
+    <section class="sec" aria-labelledby="boundaries">
+      <div class="sec-head"><span class="sec-num">06</span><h2 id="boundaries">Responsibility boundaries</h2></div>
+      <div class="kinds"><span class="badge repo">verified in this repo</span><span class="badge theory">general MF theory</span></div>
+      <p>The useful seam is not “everything about plugins.” Each layer has one question. That separation is why the shell can index features without downloading them, and why loader policy can be tested with an injected adapter.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 960 304" role="img" aria-label="Responsibility-layer map showing the contribution registry deciding what accepted metadata may appear and where, the plugin loader deciding when code loads, activation and status, and the federation adapter obtaining an exposed module from a registered remote. A bottom boundary lists the concerns Module Federation does not supply: discovery, authorization, lifecycle policy, UI placement, or sandboxing.">
+            <defs>
+              <marker id="f6-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+              <marker id="f6-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+            </defs>
+            <text class="grp" x="16" y="16">SHELL RESPONSIBILITIES ENCLOSE THE FEDERATION MECHANISM</text>
+            <rect class="n" x="16" y="40" width="286" height="116" rx="3"/>
+            <text class="lbl" x="159" y="64" text-anchor="middle">contribution registry</text>
+            <text class="lbl2" x="32" y="89">input: admitted manifest metadata</text>
+            <text class="lbl2" x="32" y="107">answers: what may appear?</text>
+            <text class="lbl2" x="32" y="125">answers: route / nav / slot where?</text>
+            <text class="lbl2" x="32" y="143">does not load remote code</text>
+            <rect class="n" x="337" y="40" width="286" height="116" rx="3"/>
+            <text class="lbl" x="480" y="64" text-anchor="middle">plugin loader</text>
+            <text class="lbl2" x="353" y="89">input: allowed contribution requests</text>
+            <text class="lbl2" x="353" y="107">answers: when does code load?</text>
+            <text class="lbl2" x="353" y="125">owns: activation, timeout, status</text>
+            <text class="lbl2" x="353" y="143">shares in-flight work</text>
+            <rect class="n" x="658" y="40" width="286" height="116" rx="3"/>
+            <text class="lbl" x="801" y="64" text-anchor="middle">federation adapter</text>
+            <text class="lbl2" x="674" y="89">input: remote coordinates</text>
+            <text class="lbl2" x="674" y="107">answers: how obtain module?</text>
+            <text class="lbl2" x="674" y="125">register remote + load exposure</text>
+            <text class="lbl2" x="674" y="143">does not make app policy</text>
+            <path class="proj" marker-end="url(#f6-store)" d="M302 98 L327 98"/>
+            <text class="edge" x="315" y="113" text-anchor="middle">use</text>
+            <path class="flow" marker-end="url(#f6-sync)" d="M623 98 L648 98"/>
+            <text class="edge" x="635" y="113" text-anchor="middle">load</text>
+            <rect class="nb" x="16" y="190" width="928" height="86" rx="4"/>
+            <text class="grp" x="30" y="209">OUTSIDE MODULE FEDERATION — APPLICATION OWNERSHIP REMAINS HERE</text>
+            <text class="lbl2" x="32" y="235">discovery source + registry rereads</text>
+            <text class="lbl2" x="280" y="235">manifest validation + authorization</text>
+            <text class="lbl2" x="555" y="235">lifecycle policy + activation API</text>
+            <text class="lbl2" x="32" y="257">UI placement + contribution conflict rules</text>
+            <text class="lbl2" x="380" y="257">failure cards + retry behavior</text>
+            <text class="lbl2" x="625" y="257">sandboxing (not supplied)</text>
+          </svg>
+        </div>
+        <figcaption><b>Responsibility-layer map.</b> Federation is intentionally the narrowest layer. <a href="../src/shell/contributions/contributionRegistry.js">Contribution registry</a> handles placement; <a href="../src/shell/loader/pluginLoader.js">plugin loader</a> enforces allowlist, activation, status, and deadlines; <a href="../src/shell/loader/federatedAdapter.js">federated adapter</a> only obtains the exposure. Nothing about same-page federation is a security sandbox.</figcaption>
+      </figure>
+    </section>
+
+    <section class="sec" aria-labelledby="debugging">
+      <div class="sec-head"><span class="sec-num">07</span><h2 id="debugging">Failure and debugging guide</h2></div>
+      <div class="kinds"><span class="badge repo">verified in this repo</span><span class="badge browser">browser &amp; Vite behavior</span></div>
+      <p>Debug in the order a feature becomes available. Earlier failures mean later layers have no useful evidence yet: there is no value inspecting a chunk request for a manifest rejected before federation was called, or blaming federation for a backend which is unavailable only after code loaded.</p>
+      <figure>
+        <div class="fig-body">
+          <svg viewBox="0 0 960 346" role="img" aria-label="Failure-location and debugging flow progressing from discovery to validation, remote allowlist, entry and chunk loading, activation, styling, demo readiness, and Vue mounting. Red error paths identify invalid manifests and unsupported shell API versions, unadmitted origins, CORS or entry and chunk errors, distinct load and activation timeouts, missing CSS or an unshared PrimeVue styling store, and backend readiness failures after successful federation loading.">
+            <defs>
+              <marker id="f7-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+              <marker id="f7-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+              <marker id="f7-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+            </defs>
+            <text class="grp" x="16" y="16">DEBUG IN FEATURE-AVAILABILITY ORDER</text>
+            <rect class="n" x="16" y="58" width="104" height="42" rx="3"/><text class="lbl2" x="68" y="76" text-anchor="middle">1 discovery</text><text class="lbl2" x="68" y="90" text-anchor="middle">inventory</text>
+            <rect class="n" x="142" y="58" width="112" height="42" rx="3"/><text class="lbl2" x="198" y="76" text-anchor="middle">2 validation</text><text class="lbl2" x="198" y="90" text-anchor="middle">admission</text>
+            <rect class="n" x="276" y="58" width="116" height="42" rx="3"/><text class="lbl2" x="334" y="76" text-anchor="middle">3 allowlist</text><text class="lbl2" x="334" y="90" text-anchor="middle">origin / URL</text>
+            <rect class="n" x="414" y="58" width="132" height="42" rx="3"/><text class="lbl2" x="480" y="76" text-anchor="middle">4 remote load</text><text class="lbl2" x="480" y="90" text-anchor="middle">entry + chunks</text>
+            <rect class="n" x="568" y="58" width="122" height="42" rx="3"/><text class="lbl2" x="629" y="76" text-anchor="middle">5 activate</text><text class="lbl2" x="629" y="90" text-anchor="middle">shell API</text>
+            <rect class="n" x="712" y="58" width="104" height="42" rx="3"/><text class="lbl2" x="764" y="76" text-anchor="middle">6 ready?</text><text class="lbl2" x="764" y="90" text-anchor="middle">demo gate</text>
+            <rect class="n" x="838" y="58" width="106" height="42" rx="3"/><text class="lbl2" x="891" y="76" text-anchor="middle">7 mount</text><text class="lbl2" x="891" y="90" text-anchor="middle">Vue + CSS</text>
+            <path class="flow" marker-end="url(#f7-sync)" d="M120 79 L132 79"/><path class="flow" marker-end="url(#f7-sync)" d="M254 79 L266 79"/><path class="flow" marker-end="url(#f7-sync)" d="M392 79 L404 79"/><path class="flow" marker-end="url(#f7-sync)" d="M546 79 L558 79"/><path class="flow" marker-end="url(#f7-sync)" d="M690 79 L702 79"/><path class="flow" marker-end="url(#f7-sync)" d="M816 79 L828 79"/>
+            <rect class="n" x="16" y="168" width="206" height="48" rx="3"/><text class="lbl2" x="28" y="187">invalid manifest / unsupported</text><text class="lbl2" x="28" y="201">shell API → incompatible</text>
+            <path class="err" marker-end="url(#f7-bad)" d="M198 100 L198 132 L119 132 L119 158"/>
+            <text class="edge" x="119" y="126" text-anchor="middle">inspect reason code</text>
+            <rect class="n" x="246" y="168" width="198" height="48" rx="3"/><text class="lbl2" x="258" y="187">origin / URL not admitted</text><text class="lbl2" x="258" y="201">→ remote-not-curated</text>
+            <path class="err" marker-end="url(#f7-bad)" d="M334 100 L334 158"/>
+            <rect class="n" x="468" y="168" width="218" height="48" rx="3"/><text class="lbl2" x="480" y="187">CORS, remoteEntry, chunk error</text><text class="lbl2" x="480" y="201">→ chunk-load-failed</text>
+            <path class="err" marker-end="url(#f7-bad)" d="M480 100 L480 158"/>
+            <rect class="n" x="710" y="168" width="174" height="48" rx="3"/><text class="lbl2" x="722" y="187">20s load timeout ≠ 10s</text><text class="lbl2" x="722" y="201">activation timeout / throw</text>
+            <path class="err" marker-end="url(#f7-bad)" d="M629 100 L629 142 L797 142 L797 158"/>
+            <rect class="n" x="164" y="264" width="276" height="48" rx="3"/><text class="lbl2" x="176" y="283">code loaded, but CSS missing?</text><text class="lbl2" x="176" y="297">inspect remote CSS + @primeuix/styled</text>
+            <path class="err" marker-end="url(#f7-bad)" d="M930 100 L930 236 L302 236 L302 254"/>
+            <rect class="n" x="520" y="264" width="272" height="48" rx="3"/><text class="lbl2" x="532" y="283">backend unavailable after load?</text><text class="lbl2" x="532" y="297">readiness gate / feature backend</text>
+            <path class="err" marker-end="url(#f7-bad)" d="M764 100 L764 116 L900 116 L900 246 L656 246 L656 254"/>
+            <text class="edge" x="480" y="334" text-anchor="middle">A successful federation load proves only that module loading succeeded — not styling, activation semantics, or backend availability.</text>
+          </svg>
+        </div>
+        <figcaption><b>Failure-location and debugging flow.</b> Each red branch names the layer to inspect next. The loader defines <code>load-timeout</code> (20 seconds), <code>activate-timeout</code> (10 seconds), <code>activate-threw</code>, and common <code>chunk-load-failed</code> handling in <a href="../src/shell/loader/pluginLoader.js">pluginLoader.js</a>. Cross-origin ESM needs CORS on the entry <em>and</em> subsequent assets; <a href="../plugins/shell/demo-catalog/vite.config.js">the local catalog dev server</a> enables it.</figcaption>
+      </figure>
+      <ol class="debug-list">
+        <li><b>Find the plugin in the inventory.</b> Check source mode, discovery success, validation status, and the reason code before investigating browser requests.</li>
+        <li><b>Check placement and policy.</b> Confirm the admitted route/component name and allowlisted remote URL; a non-admitted URL should not reach the adapter.</li>
+        <li><b>Inspect the browser boundary.</b> Confirm container name, entry URL, public expose, CORS, ESM handling, entry/chunk responses, then distinguish a load deadline from activation.</li>
+        <li><b>Only after code loads, check presentation and service state.</b> Separate CSS delivery from the shared styling store, and separate a successful module load from a failed pre-mount demo readiness check.</li>
+      </ol>
+    </section>
+
+    <section class="sec" aria-labelledby="reading">
+      <div class="sec-head"><span class="sec-num">Reading path</span><h2 id="reading">Keep learning with the source beside the diagram</h2></div>
+      <div class="reading">
+        <div class="note"><h3>General mechanism</h3><ol><li><a href="https://webpack.js.org/concepts/module-federation/">Module Federation concepts</a></li><li><a href="https://module-federation.io/integrations/build-tool/vite">Official Vite integration</a></li><li><a href="https://module-federation.io/configure/exposes">Exposes</a> and <a href="https://module-federation.io/configure/shared">shared dependencies</a></li><li><a href="https://module-federation.io/guide/troubleshooting/runtime">Runtime troubleshooting</a></li></ol></div>
+        <div class="note"><h3>Lab-shell implementation</h3><ol><li><a href="../vite.config.js">host Vite config</a> and <a href="../plugins/shell/demo-catalog/vite.config.js">catalog Vite config</a></li><li><a href="../src/shell/bootShell.js">admission and indexing</a></li><li><a href="../src/shell/loader/federatedAdapter.js">runtime adapter</a> and <a href="../src/shell/loader/pluginLoader.js">loader</a></li><li><a href="../src/shell/demos/demoGate.js">pre-mount readiness gate</a></li></ol></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
