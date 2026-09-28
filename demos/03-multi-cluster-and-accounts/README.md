@@ -98,6 +98,48 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
 | **D03-R8** | Can two accounts share a subject **on purpose**, via export / import? | answered |
 | **D03-R9** | If we add an arbiter site, can real data land on it **by accident**? | answered |
 | **D03-R10** | If a system has a **gateway and a leaf link at the same time**, which one decides the JetStream shape? | answered |
+| **D03-R11** | Can a running **T4** be converted **in place** to **T5**, and keep its data? | open — defined 2026-09-28 |
+| **D03-R12** | Can a running **T5** be converted **in place** to **T4**, and keep its data? | open — defined 2026-09-28 |
+
+### D03-R11 and D03-R12 — switching topology in place
+
+Every lab script builds its shape from nothing and throws it away, so
+nothing here says a live system can change shape. Until these two are
+measured, **treat the choice between T4 and T5 as hard to undo.**
+
+**The question.** With application traffic paused and existing storage
+retained, can T4 be converted to T5, and T5 to T4, while preserving
+acknowledged messages, consumer progress and KV state — and then resume
+correct operation?
+
+**First slice — convert in place only.**
+
+- **Each direction starts fresh.** Seed a T4 and convert it to T5.
+  Separately, seed a new T5 and convert it to T4. A T4 → T5 → T4 round trip
+  does not stand for an established T5.
+- **Every message carries its own ID.** Record each JetStream ack. After the
+  switch, match every acked ID and payload. Equal counts can hide a lost
+  message and a duplicate.
+- **Writers and consumers are paused** for the switch. Record each consumer's
+  acked position before it.
+- **Check that it keeps working, not only that it kept the data.** After the
+  switch: publish new messages, resume the consumers, update the KV bucket,
+  and restart the destination once.
+- **T5 → T4 runs twice:** once with clean names, and once with the same
+  stream name in the same account on both sides. That collision is the
+  restriction most likely to bite.
+- One new script, `lab/09-switch-t4-t5.sh`, `t-` prefix, which keeps its
+  store directories between the two shapes.
+
+**Verdicts, per direction.** *Passed with a measured interruption*,
+*failed*, or *inconclusive* — each with the procedure and the evidence. A
+paused-traffic run can never show an online switch. A failure may show a
+symptom without proving its cause.
+
+**Not in this slice.** Live writers, a switch stopped partway, rollback
+after new writes, and migration to a separately built system. If
+conversion in place fails, that is the reason to measure migration — it
+does not show that switching shape is impossible.
 
 ### Carried forward — not measured
 
@@ -108,6 +150,8 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
   domains, and not for catch-up time at production volume.
 - The hub as a **real JetStream store**, not a pass-through (T5).
 - Leaf reconnect behaviour with **many** regions, not two.
+- **D03-R11 / D03-R12** — changing a live system between T4 and T5, in
+  either direction.
 
 ## Where the evidence is
 
