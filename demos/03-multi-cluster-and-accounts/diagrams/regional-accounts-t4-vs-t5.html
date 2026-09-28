@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regional accounts: what they split, and what they don't</title>
+<style>
+:root {
+  color-scheme: dark;
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 90ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-title { display: flex; align-items: baseline; gap: 12px; padding: 14px 14px 0; }
+.fig-title span { font: 10px var(--mono); color: var(--dim); }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b, li b { color: var(--text); font-weight: 600; }
+code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 90ch; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.dashed { stroke-dasharray: 5 4; }
+.store { color: var(--store); }
+.warn { color: var(--evtl); }
+/* Account headers intentionally cross the vertical cluster boundaries. */
+.boundary-label { paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<main class="wrap">
+<header class="head"><div class="head-txt">
+<div class="eyebrow">DEMO 03 · T4 / T5 · REGIONAL ACCOUNTS · E1–E18 · F3–F25 · D10–D14</div>
+<h1>Regional accounts: what they split, and what they don't</h1>
+<p class="sub">An account per region gives each region its own stream namespace. It does not give it its own JetStream vote. Setup: a single three-server AU cluster grows to T4 (AU + ZA + a 3-node arbiter site, joined by gateways, one meta group of 9, majority 5) or to T5 (hub + leaf cluster per region, three meta groups). Note: the lab's T1 is two unlinked clusters, a different starting point.</p>
+</div></header>
+<figure>
+<div class="fig-title"><span>01</span><h2>Accounts split names</h2></div>
+<div class="fig-body">
+<svg viewBox="0 0 1000 536" role="img" aria-label="In T4, AU, ARB and ZA each contain three servers. All three accounts span all nine servers. LB has one REFDATA stream in AU; a second REFDATA in ZA fails with error 10058 because the name is already taken across the supercluster. The distinct accounts LB_AU_TENANT1 and LB_ZA_TENANT1 can each own ORDERS. Their prefixes do not place streams: explicit placement by cluster or server tags chooses the cluster; without it, JetStream prefers the client's cluster, subject to resources and constraints.">
+<defs>
+<marker id="a-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+</defs>
+<!-- Grid: columns 24/352/680, width 296, gutters 32; account bands span all columns. -->
+<rect class="nb" x="24" y="16" width="296" height="504" rx="4"/>
+<text class="lbl" x="172" y="39" text-anchor="middle">AU cluster</text>
+<rect class="n" x="44" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="76.0" y="77.0" text-anchor="middle">au-1</text>
+<rect class="n" x="132" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="164.0" y="77.0" text-anchor="middle">au-2</text>
+<rect class="n" x="220" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="252.0" y="77.0" text-anchor="middle">au-3</text>
+<rect class="nb" x="352" y="16" width="296" height="504" rx="4"/>
+<text class="lbl" x="500" y="39" text-anchor="middle">ARB site</text>
+<rect class="n" x="372" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="404.0" y="77.0" text-anchor="middle">arb-1</text>
+<rect class="n" x="460" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="492.0" y="77.0" text-anchor="middle">arb-2</text>
+<rect class="n" x="548" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="580.0" y="77.0" text-anchor="middle">arb-3</text>
+<rect class="nb" x="680" y="16" width="296" height="504" rx="4"/>
+<text class="lbl" x="828" y="39" text-anchor="middle">ZA cluster</text>
+<rect class="n" x="700" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="732.0" y="77.0" text-anchor="middle">za-1</text>
+<rect class="n" x="788" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="820.0" y="77.0" text-anchor="middle">za-2</text>
+<rect class="n" x="876" y="58" width="64" height="30" rx="3"/>
+<text class="lbl" x="908.0" y="77.0" text-anchor="middle">za-3</text>
+<rect class="nb" x="8" y="120" width="984" height="140" rx="4"/>
+<text class="grp boundary-label" x="40" y="142" text-anchor="start">LB — GLOBAL, ONE NAMESPACE ACROSS THE SUPERCLUSTER</text>
+<rect class="nb" x="8" y="284" width="984" height="104" rx="4"/>
+<text class="grp boundary-label" x="40" y="306" text-anchor="start">LB_AU_TENANT1</text>
+<rect class="nb" x="8" y="412" width="984" height="96" rx="4"/>
+<text class="grp boundary-label" x="40" y="434" text-anchor="start">LB_ZA_TENANT1</text>
+<path class="n store" d="M84 178 V226 A88 8 0 0 0 260 226 V178"/>
+<ellipse class="n store" cx="172" cy="178" rx="88" ry="8"/>
+<text class="lbl" x="172" y="203" text-anchor="middle">REFDATA</text>
+<rect class="err dashed" x="716" y="182" width="224" height="44" rx="3"/>
+<text class="lbl" x="828.0" y="201.0" text-anchor="middle">2nd REFDATA</text>
+<text class="lbl2" x="828.0" y="215.0" text-anchor="middle">10058 — same account</text>
+<path class="err" d="M716 204 H270" marker-end="url(#a-bad)"/>
+<text class="edge" x="488" y="198" text-anchor="middle">name taken supercluster-wide</text>
+<path class="n store" d="M84 320 V368 A88 8 0 0 0 260 368 V320"/>
+<ellipse class="n store" cx="172" cy="320" rx="88" ry="8"/>
+<text class="lbl" x="172" y="345" text-anchor="middle">ORDERS</text>
+<text class="lbl2" x="172" y="359" text-anchor="middle">placement: au</text>
+<rect class="n warn" x="696" y="314" width="272" height="64" rx="3"/>
+<text class="lbl" x="832.0" y="335.0" text-anchor="middle">no placement: prefers client's cluster</text>
+<text class="lbl2" x="832.0" y="349.0" text-anchor="middle">subject to resources + constraints</text>
+<text class="lbl2" x="832.0" y="363.0" text-anchor="middle">prefix is a name, not placement</text>
+<path class="n store" d="M740 444 V492 A88 8 0 0 0 916 492 V444"/>
+<ellipse class="n store" cx="828" cy="444" rx="88" ry="8"/>
+<text class="lbl" x="828" y="469" text-anchor="middle">ORDERS</text>
+<text class="lbl2" x="828" y="483" text-anchor="middle">placement: za</text>
+</svg>
+</div>
+<figcaption><b>Accounts split names.</b> <code>LB_AU_TENANT1</code> and <code>LB_ZA_TENANT1</code> can each hold <code>ORDERS</code> (measured, E6–E8). Inside one account, a second stream with the same name and a different config fails with <code>10058</code> — LB is one namespace everywhere. The <code>LB_AU_</code> / <code>LB_ZA_</code> prefix tells people who owns an account; NATS reads no placement or availability from it. Placement comes from <code>"placement": {"cluster": "au"}</code> or server tags. Without it, JetStream prefers the client's cluster, subject to resources and constraints.</figcaption>
+</figure>
+<figure>
+<div class="fig-title"><span>02</span><h2>Accounts do not split the vote</h2></div>
+<div class="fig-body">
+<svg viewBox="0 0 1000 478" role="img" aria-label="T4 has one meta group with nine voters and a majority of five, distributed across AU, an independently failing arbiter site, and ZA. An AU stream creation request crosses the WAN to the illustrated ZA meta leader, which needs votes from other sites. Even an AU leader needs remote votes. Publishing to an existing AU R3 stream and consuming locally stay in AU while that stream quorum survives; remote mirrors and subscribers still use the WAN.">
+<defs>
+<marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+<marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+<marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+</defs>
+<!-- Vote lanes y=136/160; request y=276; local data y=398. WAN x=728. -->
+<rect class="nb" x="16" y="16" width="968" height="108" rx="4"/>
+<text class="grp" x="40" y="39" text-anchor="start">ONE META GROUP · 9 VOTERS · MAJORITY 5</text>
+<rect class="n" x="32" y="64" width="212" height="48" rx="3"/>
+<text class="lbl" x="138.0" y="92.0" text-anchor="middle">AU · 3 voters</text>
+<rect class="n" x="344" y="64" width="300" height="48" rx="3"/>
+<text class="lbl" x="494.0" y="92.0" text-anchor="middle">ARB · 3 voters · own failure boundary</text>
+<rect class="n" x="752" y="64" width="216" height="48" rx="3"/>
+<text class="lbl" x="860.0" y="92.0" text-anchor="middle">ZA · 3 voters · meta leader</text>
+<path class="nb" d="M728 196 V444"/>
+<text class="grp" x="744" y="209" text-anchor="start">WAN</text>
+<text class="grp" x="32" y="235" text-anchor="start">CONTROL PATH</text>
+<rect class="n" x="32" y="252" width="188" height="48" rx="3"/>
+<text class="lbl" x="126.0" y="280.0" text-anchor="middle">AU client: stream add</text>
+<rect class="n" x="752" y="252" width="216" height="48" rx="3"/>
+<text class="lbl" x="860.0" y="280.0" text-anchor="middle">meta leader (ZA)</text>
+<path class="flow" d="M220 276 H742" marker-end="url(#b-sync)"/>
+<text class="edge" x="474" y="270" text-anchor="middle">crosses WAN</text>
+<path class="rep" d="M848 252 V160 H138 V122" marker-end="url(#b-evtl)"/>
+<path class="rep" d="M872 252 V136 H494 V122" marker-end="url(#b-evtl)"/>
+<text class="edge" x="494" y="154" text-anchor="middle">needs 5 of 9 votes</text>
+<text class="lbl2" x="32" y="326" text-anchor="start">even an AU meta leader needs remote votes</text>
+<text class="grp" x="32" y="361" text-anchor="start">DATA PATH</text>
+<rect class="n" x="32" y="374" width="150" height="48" rx="3"/>
+<text class="lbl" x="107.0" y="402.0" text-anchor="middle">AU client: publish</text>
+<path class="n store" d="M340 374 V422 A80 8 0 0 0 500 422 V374"/>
+<ellipse class="n store" cx="420" cy="374" rx="80" ry="8"/>
+<text class="lbl" x="420" y="399" text-anchor="middle">ORDERS R3 in AU</text>
+<rect class="n" x="564" y="374" width="140" height="48" rx="3"/>
+<text class="lbl" x="634.0" y="402.0" text-anchor="middle">AU consumer</text>
+<path class="proj" d="M182 398 H330" marker-end="url(#b-store)"/>
+<text class="edge" x="256" y="392" text-anchor="middle">local ack, no WAN</text>
+<path class="flow" d="M500 398 H554" marker-end="url(#b-sync)"/>
+<text class="edge" x="527" y="392" text-anchor="middle">local</text>
+<text class="lbl2" x="32" y="462" text-anchor="start">remote mirrors / subscribers still use the WAN</text>
+</svg>
+</div>
+<figcaption><b>Accounts do not split the vote.</b> Every account shares one meta group (measured: 3 JS accounts, 1 meta group). Creating a stream needs 5 of 9 votes, so it crosses the WAN. Publishing into an existing AU stream and consuming through a local consumer stay in AU, as long as that stream's own R3 quorum is alive. The arbiter site must have its own failure boundary — put it with ZA and losing ZA loses 6 of 9 voters.</figcaption>
+</figure>
+<figure>
+<div class="fig-title"><span>02b</span><h2>T5 splits the vote, and charges for it</h2></div>
+<div class="fig-body">
+<svg viewBox="0 0 1000 392" role="img" aria-label="In T5, AU, the hub and ZA are three separate JetStream meta groups of three voters each, quorum two, with their own domains au, hub and za, joined only by leaf links. An AU client's stream creation goes to the AU meta leader and needs two of three votes, all inside AU, so it needs no WAN and works even when the WAN is fully cut or the hub is gone. The cost: nothing copies itself across a leaf link. A copy of a ZA stream in AU is a hand-written mirror that names the ZA domain's API prefix; without the prefix the mirror sits at zero messages with no error.">
+<defs>
+<marker id="e-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+<marker id="e-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+</defs>
+<!-- Groups x=16/360/704 w=280; voter boxes y=64..112, link lane y=88; control y=220; copy y=334. -->
+<rect class="nb" x="16" y="16" width="280" height="108" rx="4"/>
+<text class="grp" x="32" y="39" text-anchor="start">AU · META GROUP 3 · QUORUM 2</text>
+<rect class="n" x="32" y="64" width="248" height="48" rx="3"/>
+<text class="lbl" x="156.0" y="92.0" text-anchor="middle">3 voters · domain au</text>
+<rect class="nb" x="360" y="16" width="280" height="108" rx="4"/>
+<text class="grp" x="376" y="39" text-anchor="start">HUB · META GROUP 3 · QUORUM 2</text>
+<rect class="n" x="376" y="64" width="248" height="48" rx="3"/>
+<text class="lbl" x="500.0" y="92.0" text-anchor="middle">3 voters · domain hub</text>
+<rect class="nb" x="704" y="16" width="280" height="108" rx="4"/>
+<text class="grp" x="720" y="39" text-anchor="start">ZA · META GROUP 3 · QUORUM 2</text>
+<rect class="n" x="720" y="64" width="248" height="48" rx="3"/>
+<text class="lbl" x="844.0" y="92.0" text-anchor="middle">3 voters · domain za</text>
+<path class="flow dashed" d="M280 88 H376"/>
+<text class="edge" x="328" y="82" text-anchor="middle">leaf</text>
+<path class="flow dashed" d="M624 88 H720"/>
+<text class="edge" x="672" y="82" text-anchor="middle">leaf</text>
+<text class="grp" x="32" y="180" text-anchor="start">CONTROL PATH</text>
+<rect class="n" x="32" y="196" width="188" height="48" rx="3"/>
+<text class="lbl" x="126.0" y="224.0" text-anchor="middle">AU client: stream add</text>
+<rect class="n" x="252" y="196" width="172" height="48" rx="3"/>
+<text class="lbl" x="338.0" y="224.0" text-anchor="middle">AU meta leader</text>
+<path class="flow" d="M220 220 H242" marker-end="url(#e-sync)"/>
+<path class="rep" d="M268 196 V122" marker-end="url(#e-evtl)"/>
+<text class="edge" x="280" y="160" text-anchor="start">needs 2 of 3 votes, all in AU</text>
+<rect class="n warn" x="584" y="196" width="400" height="48" rx="3"/>
+<text class="lbl" x="784.0" y="217.0" text-anchor="middle">WAN fully cut: each region still creates</text>
+<text class="lbl2" x="784.0" y="231.0" text-anchor="middle">whole hub stopped: AU still elects, stores, creates R3 (D10–D14)</text>
+<text class="grp" x="32" y="294" text-anchor="start">CROSS-REGION COPY — ONLY WHAT YOU WRITE</text>
+<path class="n store" d="M84 314 V354 A88 8 0 0 0 260 354 V314"/>
+<ellipse class="n store" cx="172" cy="314" rx="88" ry="8"/>
+<text class="lbl" x="172" y="339" text-anchor="middle">ZA: ORDERS</text>
+<path class="n store" d="M450 314 V354 A110 8 0 0 0 670 354 V314"/>
+<ellipse class="n store" cx="560" cy="314" rx="110" ry="8"/>
+<text class="lbl" x="560" y="339" text-anchor="middle">AU: ORDERS_ZA mirror</text>
+<path class="rep" d="M260 334 H440" marker-end="url(#e-evtl)"/>
+<text class="edge" x="350" y="328" text-anchor="middle">external.api $JS.za.API</text>
+<text class="lbl2" x="700" y="330" text-anchor="start">nothing copies itself across a leaf link</text>
+<text class="lbl2" x="700" y="344" text-anchor="start">no prefix = 0 messages, no error</text>
+</svg>
+</div>
+<figcaption><b>T5 splits the vote, and charges for it.</b> Three meta groups, quorum 2 each, one domain each. A stream create in AU needs only AU's votes, so a full WAN cut or a dead hub does not freeze it (measured, <code>D10</code>–<code>D14</code>). The cost: nothing crosses a leaf link by itself. Every cross-region copy is a mirror you write, naming the other domain's <code>external.api</code> — a missing prefix gives 0 messages and no error. And no shared namespace refuses an overlap, so two domains can capture the same subject twice. Regional accounts work the same way inside each domain.</figcaption>
+</figure>
+<figure>
+<div class="fig-title"><span>03</span><h2>Which identity is the account?</h2></div>
+<div class="fig-body">
+<svg viewBox="0 0 1000 402" role="img" aria-label="The static configuration panel shows that the account name LB_AU_TENANT1 is its identity, and that the au-api and au-worker credentials both belong to that one account and share its namespace. The operator-mode panel shows an account JWT: name is a human label, while sub, the account public NKey, identifies the account. JWT subject means who the token describes, not a messaging subject such as orders.created.">
+<defs>
+<marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+</defs>
+<!-- Panels: x=16 width=456 and x=496 width=488; 24px gutter. -->
+<rect class="nb" x="16" y="16" width="456" height="370" rx="4"/>
+<rect class="nb" x="496" y="16" width="488" height="370" rx="4"/>
+<text class="grp" x="40" y="40" text-anchor="start">STATIC nats.conf</text>
+<text class="grp" x="520" y="40" text-anchor="start">OPERATOR MODE (JWT)</text>
+<rect class="n" x="40" y="64" width="408" height="44" rx="3"/>
+<text class="lbl" x="244.0" y="90.0" text-anchor="middle">accounts { LB_AU_TENANT1 { users: [...] } }</text>
+<rect class="n" x="80" y="148" width="328" height="36" rx="3"/>
+<text class="lbl" x="244.0" y="170.0" text-anchor="middle">the account name IS the identity</text>
+<path class="flow" d="M244 108 V138" marker-end="url(#c-sync)"/>
+<rect class="n" x="40" y="216" width="144" height="36" rx="3"/>
+<text class="lbl" x="112.0" y="238.0" text-anchor="middle">user: au-api</text>
+<rect class="n" x="288" y="216" width="160" height="36" rx="3"/>
+<text class="lbl" x="368.0" y="238.0" text-anchor="middle">user: au-worker</text>
+<rect class="n" x="128" y="304" width="232" height="40" rx="3"/>
+<text class="lbl" x="244.0" y="328.0" text-anchor="middle">LB_AU_TENANT1</text>
+<path class="flow" d="M112 252 V276 H208 V294" marker-end="url(#c-sync)"/>
+<path class="flow" d="M368 252 V276 H280 V294" marker-end="url(#c-sync)"/>
+<text class="lbl2" x="244" y="372" text-anchor="middle">two credentials ≠ two accounts — one shared namespace</text>
+<rect class="n" x="520" y="64" width="440" height="104" rx="3"/>
+<text class="grp" x="740.0" y="106.0" text-anchor="middle">ACCOUNT JWT</text>
+<text class="lbl" x="740.0" y="120.0" text-anchor="middle">name: LB_AU_TENANT1   ← label only</text>
+<text class="lbl" x="740.0" y="134.0" text-anchor="middle">sub: ABC…XYZ (account public NKey)   ← the identity</text>
+<rect class="n" x="520" y="216" width="440" height="76" rx="3"/>
+<text class="lbl2" x="740.0" y="251.0" text-anchor="middle">sub = subject of the JWT (who it describes),</text>
+<text class="lbl2" x="740.0" y="265.0" text-anchor="middle">not a message subject like orders.created</text>
+</svg>
+</div>
+<figcaption><b>The account, not the credential, owns the namespace.</b> In static config the account name identifies it. In operator mode the account's public NKey in <code>sub</code> identifies it; <code>name</code> is a human label. Users of one account share its namespace, subject to permissions.</figcaption>
+</figure>
+<figure>
+<div class="fig-title"><span>04</span><h2>T3, T4, T5 and the ways between them</h2></div>
+<div class="fig-body">
+<svg viewBox="0 0 1000 522" role="img" aria-label="A single three-server AU cluster can be extended toward T3 or T4 by adding an empty region and arbiter over gateways; these growth paths are proposed and unmeasured. T3 has seven voters, majority four, and survives one region loss without extra margin. T4 has nine voters, majority five, and survives a region plus one arbiter node loss, but stream creation needs the WAN. T5 has three independent meta groups with quorum two each, allowing local management during a full WAN cut if local quorum survives. The single-region AU to T5 path is also proposed and unmeasured. The proposed way between T4 and T5 is to build the destination and migrate state; changing links alone is not a validated procedure. Both designs still need local dependencies and regional disaster recovery design. Measurements cover fresh topologies and stopped processes, not migration, real network partitions, or production-volume recovery.">
+<defs>
+<marker id="d-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+<marker id="d-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+<marker id="d-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+</defs>
+<!-- Nodes x=16/252/484/756; lanes y=40/88/304/352. Minimum column gutter 32. -->
+<rect class="n" x="16" y="154" width="188" height="90" rx="3"/>
+<text class="lbl" x="110.0" y="203.0" text-anchor="middle">1 AU cluster · 3 servers</text>
+<rect class="n" x="252" y="154" width="196" height="90" rx="3"/>
+<text class="lbl" x="350.0" y="182.0" text-anchor="middle">T3</text>
+<text class="lbl2" x="350.0" y="196.0" text-anchor="middle">7 voters · majority 4</text>
+<text class="lbl2" x="350.0" y="210.0" text-anchor="middle">survives 1 region loss</text>
+<text class="lbl2" x="350.0" y="224.0" text-anchor="middle">no extra margin</text>
+<rect class="n" x="484" y="154" width="236" height="90" rx="3"/>
+<text class="lbl" x="602.0" y="182.0" text-anchor="middle">T4</text>
+<text class="lbl2" x="602.0" y="196.0" text-anchor="middle">9 voters · majority 5</text>
+<text class="lbl2" x="602.0" y="210.0" text-anchor="middle">survives 1 region + 1 arbiter node</text>
+<text class="lbl2" x="602.0" y="224.0" text-anchor="middle">creates need the WAN</text>
+<rect class="n" x="756" y="154" width="228" height="90" rx="3"/>
+<text class="lbl" x="870.0" y="182.0" text-anchor="middle">T5</text>
+<text class="lbl2" x="870.0" y="196.0" text-anchor="middle">3 meta groups · quorum 2 each</text>
+<text class="lbl2" x="870.0" y="210.0" text-anchor="middle">each region manages itself</text>
+<text class="lbl2" x="870.0" y="224.0" text-anchor="middle">when the WAN is fully cut</text>
+<path class="proj" d="M204 180 H228 V88 H350 V144" marker-end="url(#d-store)"/>
+<path class="flow" d="M110 154 V40 H602 V144" marker-end="url(#d-sync)"/>
+<text class="edge" x="356" y="34" text-anchor="middle">add empty region + arbiter by gateway · proposed, unmeasured</text>
+<path class="flow" d="M110 244 V304 H846 V254" marker-end="url(#d-sync)"/>
+<text class="edge" x="350" y="298" text-anchor="middle">single-region AU → T5 · proposed, unmeasured</text>
+<path class="err dashed" d="M602 254 V352 H894 V254" marker-end="url(#d-bad)" marker-start="url(#d-bad)"/>
+<text class="edge" x="614" y="367" text-anchor="start">proposed cutover: build destination + migrate state</text>
+<rect class="n" x="16" y="400" width="466" height="104" rx="3"/>
+<text class="grp" x="249.0" y="442.0" text-anchor="middle">NOT GIVEN BY EITHER TOPOLOGY</text>
+<text class="lbl2" x="249.0" y="456.0" text-anchor="middle">auth, refdata, app dependencies local to a region</text>
+<text class="lbl2" x="249.0" y="470.0" text-anchor="middle">region DR: copies, promotion, consumer continuity, client failover</text>
+<rect class="n" x="514" y="400" width="470" height="104" rx="3"/>
+<text class="grp" x="749.0" y="435.0" text-anchor="middle">EVIDENCE BOUNDARY</text>
+<text class="lbl2" x="749.0" y="449.0" text-anchor="middle">measured: fresh topologies, process outages (kill -STOP)</text>
+<text class="lbl2" x="749.0" y="463.0" text-anchor="middle">not measured: live migration, real WAN partition,</text>
+<text class="lbl2" x="749.0" y="477.0" text-anchor="middle">production-volume recovery</text>
+</svg>
+</div>
+<figcaption><b>Pick the end shape first.</b> Regional accounts + T4 is reasonable when shared management availability is acceptable. T5 keeps each region's JetStream management independent during a full WAN cut, provided local quorum survives. Plan a move between T4 and T5 as a workload and state migration; changing links alone is not a validated procedure.</figcaption>
+</figure>
+<section class="sec">
+<h2>In one line each</h2>
+<ul>
+<li><b>Accounts split names.</b> Different accounts can each own <code>ORDERS</code>; within one T4 account, a stream name is taken supercluster-wide.</li>
+<li><b>Prefixes are for people.</b> <code>LB_AU_</code> and <code>LB_ZA_</code> express ownership, with no placement or availability semantics.</li>
+<li><b>Placement is explicit.</b> Set <code>"placement": {"cluster": "au"}</code> to choose AU; without placement, JetStream prefers the client's cluster, subject to resources and constraints.</li>
+<li><b>The vote is shared.</b> T4 accounts share 9 meta voters and a majority of 5. T5 has three independent meta groups, each needing its local quorum.</li>
+<li><b>DR is still your design.</b> Keep regional dependencies available and plan copies, promotion, consumer continuity and client failover; neither topology supplies that plan.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>
