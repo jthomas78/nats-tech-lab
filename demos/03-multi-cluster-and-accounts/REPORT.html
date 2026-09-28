@@ -94,12 +94,12 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <section class="sec">
 <h2>The run that produced this</h2>
 <div class="card"><table><tbody>
-<tr><th>When</th><td>2026-09-23 09:24 SAST</td></tr>
+<tr><th>When</th><td>2026-09-28 13:40 SAST</td></tr>
 <tr><th>Server</th><td><code>nats-server v2.14.6</code></td></tr>
 <tr><th>Client</th><td><code>0.4.0</code></td></tr>
 <tr><th>Machine</th><td>Darwin 25.4.0 arm64</td></tr>
-<tr><th>Checks</th><td><strong class="pass">175 passed</strong>, <strong class="note">0 failed</strong></td></tr>
-<tr><th>Recorded observations</th><td>51</td></tr>
+<tr><th>Checks</th><td><strong class="pass">178 passed</strong>, <strong class="note">0 failed</strong></td></tr>
+<tr><th>Recorded observations</th><td>52</td></tr>
 </tbody></table></div>
 <p>A <strong>check</strong> has an expected answer and passes only on an exact match. A <strong>note</strong> has no expected answer &mdash; it records what the machine did, so the number is on the record. A note can never fail, so it guards nothing.</p>
 <p>To reproduce the whole thing:</p>
@@ -126,7 +126,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td>T2 / B -- gateway + per-cluster domain</td><td class='num'>15</td><td class='num pass'>15</td><td class='num note'>0</td><td class='num note'>8</td></tr>
 <tr><td>T2 / E -- export / import between accounts</td><td class='num'>17</td><td class='num pass'>17</td><td class='num note'>0</td><td class='num note'>3</td></tr>
 <tr><td>T3 / C -- gateway + arbiter</td><td class='num'>18</td><td class='num pass'>18</td><td class='num note'>0</td><td class='num note'>7</td></tr>
-<tr><td>T4 / F -- gateway + 3-node arbiter</td><td class='num'>23</td><td class='num pass'>23</td><td class='num note'>0</td><td class='num note'>8</td></tr>
+<tr><td>T4 / F -- gateway + 3-node arbiter</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>9</td></tr>
 <tr><td>T5 / D -- hub and leaf</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>6</td></tr>
 <tr><td>T5 / H -- hub and leaf, account per region</td><td class='num'>15</td><td class='num pass'>15</td><td class='num note'>0</td><td class='num note'>7</td></tr>
 <tr><td>T6 / G -- gateway AND hub leaf</td><td class='num'>23</td><td class='num pass'>23</td><td class='num note'>0</td><td class='num note'>6</td></tr>
@@ -327,7 +327,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>one publish in region ZA: messages in LB_ZA / LB_AU</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>A9</td><td><code>D03-R4</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>KV t7-vehicles created from AU, no placement flag, lands in</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>A10a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>8s</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>A10a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>0s</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>seconds /jsz still named a meta leader after ZA stopped answering</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>A10</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>NONE</td><td class='mono'>NONE</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>ZA dark: meta leader seen from AU (3 of 6 is below 4)</td></tr>
@@ -365,7 +365,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>LB_AU ODOMETER: replicas asked for / peers built</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>A24</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>za / au</td><td class='mono'>za / au</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>LB_ZA / LB_AU ODOMETER: region holding the stream leader</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>A24a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-za-2</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>A24a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-za-3</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>which server won the ZA stream election this run</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>A25</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>3 / za</td><td class='mono'>3 / za</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>shared LB SHARED_ODO, seen from AU: peers / leader region</td></tr>
@@ -442,7 +442,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <div class="card"><table><thead><tr><th></th><th>Check</th><th>Req</th><th>From</th><th>Expected</th><th>Measured</th><th>Extra info</th></tr></thead><tbody>
 <tr><td class='mark pass'>✓</td><td class='mono'>B1</td><td><code>D03-R3</code></td><td class='mono'>&mdash;</td><td>1</td><td class='mono'>1</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>sides that elect a meta leader, with NOTHING stopped (of 2)</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>B1a</td><td><code>D03-R3</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>za won; au is blind</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>B1a</td><td><code>D03-R3</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>au won; za is blind</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>which side won the race this run -- and it is a coin toss</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B2</td><td><code>D03-R3</code></td><td class='mono'>&mdash;</td><td>no</td><td class='mono'>no</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>the losing side has a meta leader</td></tr>
@@ -455,18 +455,18 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td class='mark pass'>✓</td><td class='mono'>B7</td><td><code>D03-R3</code></td><td class='mono'>&mdash;</td><td>1</td><td class='mono'>1</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>one publish on the LIVE side, shared account LB: messages seen from the LIVE side</td></tr>
 <tr><td class='mark note'>○</td><td class='mono'>B7a</td><td><code>D03-R3</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>1</td><td class='extra'>&mdash;</td></tr>
-<tr><td></td><td colspan='6'>the same count asked of the BLIND side (au)</td></tr>
+<tr><td></td><td colspan='6'>the same count asked of the BLIND side (za)</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B8</td><td><code>D03-R3</code></td><td class='mono'><code>A4</code></td><td>10058</td><td class='mono'>10058</td><td class='extra'>stream name already in use</td></tr>
 <tr><td></td><td colspan='6'>shared account LB: the SAME stream name asked for with a different config</td></tr>
 <tr><td class='mark note'>○</td><td class='mono'>B8b</td><td><code>D03-R3</code></td><td class='mono'><code>A4</code></td><td>&mdash;</td><td class='mono'>10058</td><td class='extra'>stream name already in use</td></tr>
 <tr><td></td><td colspan='6'>the same name aimed at the BLIND cluster -- name clash or placement?</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>B8a</td><td><code>D03-R3</code></td><td class='mono'><code>A5</code></td><td>&mdash;</td><td class='mono'>za</td><td class='extra'>&mdash;</td></tr>
-<tr><td></td><td colspan='6'>the same 'stream info' question asked of the BLIND side (au)</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>B8a</td><td><code>D03-R3</code></td><td class='mono'><code>A5</code></td><td>&mdash;</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>the same 'stream info' question asked of the BLIND side (za)</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B9</td><td><code>D03-R5</code></td><td class='mono'><code>A22</code></td><td>3 / 3</td><td class='mono'>3 / 3</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>the stream that was placed: replicas asked for / peers built</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B10</td><td><code>D03-R5</code></td><td class='mono'><code>A24</code></td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>that stream's leader sits in the LIVE region</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>B10a</td><td><code>D03-R5</code></td><td class='mono'><code>A24a</code></td><td>&mdash;</td><td class='mono'>t-za-3</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>B10a</td><td><code>D03-R5</code></td><td class='mono'><code>A24a</code></td><td>&mdash;</td><td class='mono'>t-au-3</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>which server won that stream election this run</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B11</td><td><code>D03-R2</code></td><td class='mono'><code>A6</code></td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>per-region account on the LIVE side: its own ODOMETER lands in the live region</td></tr>
@@ -476,7 +476,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>KV t7-vehicles made from the LIVE side, no placement flag, lands in the live region</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B14</td><td><code>D03-R4</code></td><td class='mono'><code>A18</code></td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>a consumer made on the LIVE side's stream lives in the live region</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>B14a</td><td><code>D03-R4</code></td><td class='mono'><code>A19</code></td><td>&mdash;</td><td class='mono'>za</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>B14a</td><td><code>D03-R4</code></td><td class='mono'><code>A19</code></td><td>&mdash;</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>the same consumer question asked through the BLIND side's client</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>B15</td><td><code>D03-R7</code></td><td class='mono'><code>A15</code></td><td>10005</td><td class='mono'>10005</td><td class='extra'>no suitable peers for placement</td></tr>
 <tr><td></td><td colspan='6'>a mirror of the live stream, placed in the BLIND region</td></tr>
@@ -728,7 +728,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <h3>T4 / F -- gateway + 3-node arbiter</h3>
 <figure>
 <div class="fig-body">
-<svg viewBox="0 0 960 620" role="img" aria-label="T4 / F &mdash; a gateway plus a three-node arbiter cluster. Clusters za and au sit in two regions and a third cluster named arb sits in an independent site, all joined by gateways into one JetStream meta group of nine peers with a majority of five. All nine servers carry the same accounts, drawn as one yellow dashed box around every cluster. Freezing a whole region leaves six peers and writes continue. Freezing one arbiter node as well leaves exactly five and writes still continue, which is the slack the one-node arbiter does not have. Freezing one node further leaves four, the meta leader goes, and new streams are refused while publishes into existing streams keep working. All nine servers form one JetStream system with no domain name set, drawn as one orange dashed box.">
+<svg viewBox="0 0 960 620" role="img" aria-label="T4 / F &mdash; a gateway plus a three-node arbiter cluster. Clusters za and au sit in two regions and a third cluster named arb sits in an independent site, all joined by gateways into one JetStream meta group of nine peers with a majority of five. All nine servers carry the same accounts, drawn as one yellow dashed box around every cluster. Freezing a whole region leaves six peers and writes continue. Freezing one arbiter node as well leaves exactly five and writes still continue, which is the slack the one-node arbiter does not have. Freezing one node further leaves four, the meta leader goes, and new streams are refused while publishes into existing streams keep working. With ZA dark and the meta group still alive, AU can still read its own stream but cannot read a stream whose three copies are all in za. All nine servers form one JetStream system with no domain name set, drawn as one orange dashed box.">
   <defs>
     <marker id="ff-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
   </defs>
@@ -794,6 +794,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
   <text class="ro g" x="30" y="542">F10  after thaw: size back to 9</text>
   <text class="ro h" x="30" y="560">F11  slack after losing one region: ONE node &mdash; T3 in the same state has none</text>
   <text class="ro" x="30" y="578">F13/F13a  one publish in region ZA, shared LB: 1 from ZA, 1 from AU &mdash; the arbiter did not change it</text>
+  <text class="ro r" x="30" y="596">F28  ZA dark, meta group ALIVE: AU still cannot read that ZA stream &mdash; F27: its own stream still reads</text>
 </svg>
 </div>
 <figcaption><b>A gateway plus a three-node arbiter cluster.</b> The same idea as the one-node arbiter, with the arbiter site no longer a single point of failure. Nine voters instead of seven means losing a whole region still leaves a spare node — the slack the one-node shape does not have. One node further and it freezes, in exactly the way the plain gateway does.</figcaption>
@@ -809,13 +810,13 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>AU dark: ZA creates a NEW 3-replica stream</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>F5</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>yes</td><td class='mono'>yes</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>AU dark AND one arbiter node dark (5 of 9 -- exactly the majority)</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>F5a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-arb-2</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>F5a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>t-arb-3</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>which server held the lead on the last surviving majority</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>F6</td><td><code>D03-R1</code></td><td class='mono'>&mdash;</td><td>ok</td><td class='mono'>ok</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>5 of 9: ZA still creates a NEW 3-replica stream</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>F6a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>21s</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>F6a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>53s</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>seconds after the new leader was named before it accepted a change</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>F7a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>14s</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>F7a</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>40s</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>seconds /jsz still named a meta leader after the majority went</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>F7</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>NONE</td><td class='mono'>NONE</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>4 of 9 left: meta leader seen from ZA</td></tr>
@@ -857,6 +858,14 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>shared LB SHARED_ODO, seen from AU: peers / leader region</td></tr>
 <tr><td class='mark note'>○</td><td class='mono'>F20a</td><td><code>D03-R9</code></td><td class='mono'><code>C20a</code></td><td>&mdash;</td><td class='mono'>it buys one node of slack -- it did not take a copy, a KV or a consumer</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>so a 3-node arbiter is still a VOTE and not a data centre</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>F26</td><td><code>D03-R1</code></td><td class='mono'>&mdash;</td><td>ok</td><td class='mono'>ok</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>all regions up: AU pulls from the SHARED account's ZA stream</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>F27</td><td><code>D03-R1</code></td><td class='mono'><code>A20</code></td><td>ok</td><td class='mono'>ok</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>ZA dark, meta group alive: AU pulls from its OWN region's stream</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>F28</td><td><code>D03-R1</code></td><td class='mono'><code>A21</code></td><td>fails</td><td class='mono'>fails</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>ZA dark, meta group alive: AU pulls from the SHARED account's ZA stream</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>F28a</td><td><code>D03-R1</code></td><td class='mono'><code>A21a</code></td><td>&mdash;</td><td class='mono'>nats: error: could not load consumer "AU_REMOTE": context de</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>how that cross-region pull failed with the meta group still alive</td></tr>
 <tr><td class='mark note'>○</td><td class='mono'>F11</td><td><code>D03-R5</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>one node -- 6 of 9 against a majority of 5; T3 in the same state has none</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>slack after losing one region</td></tr>
 <tr><td class='mark note'>○</td><td class='mono'>F12</td><td><code>D03-R1</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>measured here: it survives a region plus one more node, and no further</td><td class='extra'>&mdash;</td></tr>
@@ -1332,18 +1341,18 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <div class="card">
 <h3>D03-R1</h3>
 <p><strong>Asks:</strong> Which topology lets <strong>both</strong> regions accept a JetStream write while the other is dark?</p>
-<p><strong>This run says:</strong> <strong>'A write' is three different questions, and they do not have the same answer.</strong> Creating a stream needs the meta group. Publishing into a stream that already exists does not, because that stream's replicas all sit inside one cluster. Reading the dark region's stream is a third question again. Split that way: <strong>T1</strong>, <strong>T3</strong>, <strong>T4</strong> and <strong>T5</strong> let the surviving region create a stream; <strong>T2</strong> and <strong>T6</strong> do not, because in both the six servers are one meta group and a 3/3 split leaves nobody with a majority. But <strong>every</strong> topology measured kept accepting publishes into an existing local stream, including T2 and T6. T3 and T4 buy the create back with votes that sit outside both regions; T5 buys it back by giving each region its own JetStream system, so there is no shared vote to lose. The matrix below says which cells were measured, and on which check.</p>
+<p><strong>This run says:</strong> <strong>'A write' is three different questions, and they do not have the same answer.</strong> Creating a stream needs the meta group. Publishing into a stream that already exists does not, because that stream's replicas all sit inside one cluster. Reading the dark region's stream is a third question again, and its answer is <strong>no</strong> even when the vote survives: on T4 the meta group lives through a dark ZA, and AU still cannot read a stream whose copies are all in za (<code>F28</code>). Split that way: <strong>T1</strong>, <strong>T3</strong>, <strong>T4</strong> and <strong>T5</strong> let the surviving region create a stream; <strong>T2</strong> and <strong>T6</strong> do not, because in both the six servers are one meta group and a 3/3 split leaves nobody with a majority. But <strong>every</strong> topology measured kept accepting publishes into an existing local stream, including T2 and T6. T3 and T4 buy the create back with votes that sit outside both regions; T5 buys it back by giving each region its own JetStream system, so there is no shared vote to lose. The matrix below says which cells were measured, and on which check.</p>
 <table><thead><tr><th>Topology</th><th>Create a stream</th><th>Publish into an existing local stream</th><th>Read the dark region&rsquo;s stream</th></tr></thead><tbody>
 <tr><td>T1 -- no link</td><td>yes, ZA dark <code>T1h</code></td><td>not measured</td><td>impossible by design -- no link</td></tr>
 <tr><td>T2 / A -- gateway</td><td><strong>no</strong>, <code>10008</code> <code>A11</code></td><td>yes <code>A12</code></td><td><strong>no</strong> <code>A21</code></td></tr>
 <tr><td>T3 / C -- gateway + 1-node arbiter</td><td>yes, both ways <code>C4</code> <code>C6</code></td><td>not measured</td><td>not measured</td></tr>
-<tr><td>T4 / F -- gateway + 3-node arbiter</td><td>yes, both ways <code>F4</code> <code>F23</code></td><td>yes <code>F21</code> <code>F24</code></td><td>not measured</td></tr>
+<tr><td>T4 / F -- gateway + 3-node arbiter</td><td>yes, both ways <code>F4</code> <code>F23</code></td><td>yes <code>F21</code> <code>F24</code></td><td><strong>no</strong>, meta group alive <code>F28</code></td></tr>
 <tr><td>T5 / D -- hub and leaf</td><td>yes, AU dark <code>D25</code></td><td>yes, AU dark <code>D26</code></td><td>not measured</td></tr>
 <tr><td>T5 / H -- + an account per region</td><td>hub loss only <code>H13</code></td><td>hub loss only <code>H16</code></td><td>not measured</td></tr>
 <tr><td>T6 / G -- gateway AND leaf</td><td><strong>no</strong>, <code>10008</code> <code>G11</code></td><td>yes <code>G12</code></td><td>not measured</td></tr>
 </tbody></table>
 <p><em>A cell with no check ID was not run on that rig. It is not a claim.</em></p>
-<p><em>Evidence:</em> <code>T1g</code>, <code>T1h</code>, <code>A11</code>, <code>A11a</code>, <code>A12</code>, <code>A20</code>, <code>A21</code>, <code>A21a</code>, <code>C3</code>, <code>C3a</code>, <code>C4</code>, <code>C5</code>, <code>C5a</code>, <code>C6</code>, <code>D24</code>, <code>D25</code>, <code>D26</code>, <code>D27</code>, <code>D10</code>, <code>D11</code>, <code>D12</code>, <code>D13</code>, <code>D14</code>, <code>D23</code>, <code>F3</code>, <code>F4</code>, <code>F6</code>, <code>F8</code>, <code>F9</code>, <code>F21</code>, <code>F22</code>, <code>F23</code>, <code>F24</code>, <code>F12</code>, <code>G11</code>, <code>G11a</code>, <code>G12</code>, <code>H12</code>, <code>H13</code>, <code>H14</code>, <code>H16</code>, <code>H14a</code></p>
+<p><em>Evidence:</em> <code>T1g</code>, <code>T1h</code>, <code>A11</code>, <code>A11a</code>, <code>A12</code>, <code>A20</code>, <code>A21</code>, <code>A21a</code>, <code>C3</code>, <code>C3a</code>, <code>C4</code>, <code>C5</code>, <code>C5a</code>, <code>C6</code>, <code>D24</code>, <code>D25</code>, <code>D26</code>, <code>D27</code>, <code>D10</code>, <code>D11</code>, <code>D12</code>, <code>D13</code>, <code>D14</code>, <code>D23</code>, <code>F3</code>, <code>F4</code>, <code>F6</code>, <code>F8</code>, <code>F9</code>, <code>F21</code>, <code>F22</code>, <code>F23</code>, <code>F24</code>, <code>F26</code>, <code>F27</code>, <code>F28</code>, <code>F28a</code>, <code>F12</code>, <code>G11</code>, <code>G11a</code>, <code>G12</code>, <code>H12</code>, <code>H13</code>, <code>H14</code>, <code>H16</code>, <code>H14a</code></p>
 </div>
 <div class="card">
 <h3>D03-R2</h3>
@@ -1366,7 +1375,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <div class="card">
 <h3>D03-R5</h3>
 <p><strong>Asks:</strong> What does losing a <strong>region</strong>, a <strong>cluster</strong> or a <strong>single instance</strong> do to quorum, and what error code does the client see?</p>
-<p><strong>This run says:</strong> It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees <code>10008 JetStream system temporarily unavailable</code> on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, on <strong>one condition</strong>: that stream's own replicas must still hold their own majority. Every measurement here darkens a whole region, so the surviving region's streams keep all three replicas inside one live cluster (<code>F9</code>/<code>F21</code>). Losing the <strong>meta</strong> group is a <strong>change</strong> freeze, not a <strong>write</strong> freeze -- that is the same fact <code>D03-R1</code> splits three ways. Losing a single stream's <strong>own</strong> replicas is a different question, and it is <strong>not measured here</strong>.</p>
+<p><strong>This run says:</strong> It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees <code>10008 JetStream system temporarily unavailable</code> on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, on <strong>one condition</strong>: that stream's own replicas must still hold their own majority. Every measurement here darkens a whole region, so the surviving region's streams keep all three replicas inside one live cluster (<code>F9</code>/<code>F21</code>). Losing the <strong>meta</strong> group is a <strong>change</strong> freeze, not a <strong>write</strong> freeze -- that is the same fact <code>D03-R1</code> splits three ways. Losing <strong>all</strong> of one stream's own replicas while the meta group lives is measured once: on T4 the healthy region cannot read that stream (<code>F28</code>). Losing only <strong>some</strong> of a stream's replicas is a different question, and it is <strong>not measured here</strong>.</p>
 <p><em>Evidence:</em> <code>T1a</code>, <code>T1b</code>, <code>T1c</code>, <code>T1i</code>, <code>T1j</code>, <code>T1k</code>, <code>T1l</code>, <code>T1m</code>, <code>A1</code>, <code>A2</code>, <code>A10a</code>, <code>A10</code>, <code>A13</code>, <code>A14</code>, <code>A22</code>, <code>A23</code>, <code>A24</code>, <code>A24a</code>, <code>A25</code>, <code>B9</code>, <code>B10</code>, <code>B10a</code>, <code>C1</code>, <code>C2</code>, <code>C15</code>, <code>C16</code>, <code>C16a</code>, <code>C20</code>, <code>C12</code>, <code>D2</code>, <code>D19</code>, <code>D20</code>, <code>E15</code>, <code>E16</code>, <code>F1</code>, <code>F2</code>, <code>F5</code>, <code>F5a</code>, <code>F6a</code>, <code>F7a</code>, <code>F7</code>, <code>F10</code>, <code>F25</code>, <code>F15</code>, <code>F16</code>, <code>F16a</code>, <code>F20</code>, <code>F11</code>, <code>G10a</code>, <code>G15</code>, <code>H2</code>, <code>H4</code>, <code>H5</code></p>
 </div>
 <div class="card">

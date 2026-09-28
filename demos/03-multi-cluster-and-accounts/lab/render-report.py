@@ -64,7 +64,9 @@ REQS = {
    "same answer.** Creating a stream needs the meta group. Publishing into a "
    "stream that already exists does not, because that stream's replicas all "
    "sit inside one cluster. Reading the dark region's stream is a third "
-   "question again. Split that way: **T1**, **T3**, **T4** and **T5** let "
+   "question again, and its answer is **no** even when the vote survives: "
+   "on T4 the meta group lives through a dark ZA, and AU still cannot read "
+   "a stream whose copies are all in za (`F28`). Split that way: **T1**, **T3**, **T4** and **T5** let "
    "the surviving region create a stream; **T2** and **T6** do not, because "
    "in both the six servers are one meta group and a 3/3 split leaves nobody "
    "with a majority. But **every** topology measured kept accepting "
@@ -125,8 +127,10 @@ REQS = {
    "so the surviving region's streams keep all three replicas inside one "
    "live cluster (`F9`/`F21`). Losing the **meta** group is a **change** "
    "freeze, not a **write** freeze -- that is the same fact `D03-R1` splits "
-   "three ways. Losing a single stream's **own** replicas is a different "
-   "question, and it is **not measured here**."),
+   "three ways. Losing **all** of one stream's own replicas while the meta "
+   "group lives is measured once: on T4 the healthy region cannot read that "
+   "stream (`F28`). Losing only **some** of a stream's replicas is a "
+   "different question, and it is **not measured here**."),
  "D03-R6": (
    "**Gateway or leaf node** for two regions -- what does each one buy, and "
    "what does each one cost?",
@@ -204,7 +208,7 @@ R1_MATRIX = [
  ("T3 / C -- gateway + 1-node arbiter",
   "yes, both ways `C4` `C6`", "not measured", "not measured"),
  ("T4 / F -- gateway + 3-node arbiter",
-  "yes, both ways `F4` `F23`", "yes `F21` `F24`", "not measured"),
+  "yes, both ways `F4` `F23`", "yes `F21` `F24`", "**no**, meta group alive `F28`"),
  ("T5 / D -- hub and leaf",
   "yes, AU dark `D25`", "yes, AU dark `D26`", "not measured"),
  ("T5 / H -- + an account per region",

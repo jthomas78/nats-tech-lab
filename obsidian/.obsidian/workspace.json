@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "POC-Dictionaries/2. Research - Dictionary - Claude.md",
+                "file": "V3-Platform/Workspace/NATS  - Clusters.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2. Research - Dictionary - Claude"
+              "title": "NATS  - Clusters"
             }
           }
         ]
@@ -187,6 +187,11 @@
   },
   "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
+    "V3-Platform/Architecture/v3-platform-building-blocks.png",
+    "V3-Platform/Workspace/NATS  - Clusters.md",
+    "V3-Platform/Workspace",
+    "V3-Platform/Architecture/v3-platform-building-blocks.svg",
+    "POC-Dictionaries/2. Research - Dictionary - Claude.md",
     "V3-Platform/Architecture/Dictionary-POC/images/nats-stream-write-side-kv.png",
     "V3-Platform/Architecture/Dictionary-POC/NATS Multi-Region — Pattern Cards.pdf",
     "V3-Platform/Architecture/Dictionary-POC/images/gateway-double-capture-options.png",
@@ -209,8 +214,6 @@
     "V3-Platform/Architecture/Dictionary-POC/images/nats-network-topology.png",
     "V3-Platform/Architecture/Dictionary-POC/images/two-region-compose-map.png",
     "V3-Platform/Architecture/Dictionary-POC/images/two-region-deployment.png",
-    "V3-Platform/Architecture/Dictionary-POC/images/multi-region-control-plane-topology.png",
-    "V3-Platform/Architecture/Dictionary-POC/images/c4-linebooker-v3-deployment-production.png",
     "V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-L3-03-Requirements.md",
     "V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-L3-07-Requirements.md",
     "V3-Platform/Architecture/Dictionary-POC/Proposed-Linebooker-V3-L3-08-Requirements.md",
@@ -224,14 +227,11 @@
     "V3-Platform/Architecture/ADR/ADR-050-lab-organizations-git-certificate-change-log-provenance.md",
     "V3-Platform/Architecture/ADR/ADR-049-lab-organizations-cross-aggregate-concurrency.md",
     "V3-Platform/Architecture/ADR/ADR-048-lab-organizations-document-storage-nats-object-store.md",
-    "V3-Platform/Architecture/ADR/ADR-047-lab-organizations-transporter-vetting-temporal-saga.md",
-    "V3-Platform/Architecture/ADR/ADR-046-lab-organizations-transporter-aggregate-split.md",
     "V3-Platform/Architecture/ADR",
     "POC-Dictionaries/Summary/Diagrams 2",
     "V3-Platform/Architecture/Pricing/pricing-diesel-overlay.drawio",
     "V3-Platform/Architecture/Pricing/images",
     "V3-Platform/Architecture/Pricing",
-    "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay.mhtml",
-    "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay.html"
+    "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay.mhtml"
   ]
 }

@@ -411,7 +411,7 @@
 <!--/FIG-->
 
 <!--FIG f-->
-<svg viewBox="0 0 960 620" role="img" aria-label="T4 / F &mdash; a gateway plus a three-node arbiter cluster. Clusters za and au sit in two regions and a third cluster named arb sits in an independent site, all joined by gateways into one JetStream meta group of nine peers with a majority of five. All nine servers carry the same accounts, drawn as one yellow dashed box around every cluster. Freezing a whole region leaves six peers and writes continue. Freezing one arbiter node as well leaves exactly five and writes still continue, which is the slack the one-node arbiter does not have. Freezing one node further leaves four, the meta leader goes, and new streams are refused while publishes into existing streams keep working. All nine servers form one JetStream system with no domain name set, drawn as one orange dashed box.">
+<svg viewBox="0 0 960 620" role="img" aria-label="T4 / F &mdash; a gateway plus a three-node arbiter cluster. Clusters za and au sit in two regions and a third cluster named arb sits in an independent site, all joined by gateways into one JetStream meta group of nine peers with a majority of five. All nine servers carry the same accounts, drawn as one yellow dashed box around every cluster. Freezing a whole region leaves six peers and writes continue. Freezing one arbiter node as well leaves exactly five and writes still continue, which is the slack the one-node arbiter does not have. Freezing one node further leaves four, the meta leader goes, and new streams are refused while publishes into existing streams keep working. With ZA dark and the meta group still alive, AU can still read its own stream but cannot read a stream whose three copies are all in za. All nine servers form one JetStream system with no domain name set, drawn as one orange dashed box.">
   <defs>
     <marker id="ff-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
   </defs>
@@ -477,6 +477,7 @@
   <text class="ro g" x="30" y="542">F10  after thaw: size back to 9</text>
   <text class="ro h" x="30" y="560">F11  slack after losing one region: ONE node &mdash; T3 in the same state has none</text>
   <text class="ro" x="30" y="578">F13/F13a  one publish in region ZA, shared LB: 1 from ZA, 1 from AU &mdash; the arbiter did not change it</text>
+  <text class="ro r" x="30" y="596">F28  ZA dark, meta group ALIVE: AU still cannot read that ZA stream &mdash; F27: its own stream still reads</text>
 </svg>
 <!--/FIG-->
 <!--FIG h-->

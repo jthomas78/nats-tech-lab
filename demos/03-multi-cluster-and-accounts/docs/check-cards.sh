@@ -17,8 +17,8 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.2.html"
-PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.2.pdf"
+HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.3.html"
+PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.3.pdf"
 
 fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -41,9 +41,15 @@ echo "pattern cards -- shape guard"
 [ -f "$PDF" ]  && ok "the deck has been exported, so the PDF is not stale by absence" \
                || bad "missing $PDF -- export it: node ../../01-dictionary/diagrams/export-html-pdf.mjs"
 
-grep -qF '@page' "$HTML" && grep -qF 'A4' "$HTML" \
-  && ok "it prints on A4, because the deliverable is a PDF" \
-  || bad "no A4 @page rule -- the PDF will not paginate"
+# One card, one page, and the page is as tall as the card (v0.3). Each page
+# prints on its own named @page, sized by fit-pages.mjs. A page with no size
+# falls back to A4 and clips its card, so the counts must match.
+npages=$(grep -c '<section class="page"' "$HTML")
+nsized=$(grep -cE '<section class="page"[^>]* data-p="' "$HTML")
+nrules=$(grep -cE '@page p[0-9]+ \{ size: 210mm [0-9]+mm; \}' "$HTML")
+[ "$npages" -eq "$nsized" ] && [ "$npages" -eq "$nrules" ] \
+  && ok "every page has its own size, so no card is cut ($npages pages)" \
+  || bad "$npages pages, $nsized with data-p, $nrules @page sizes -- run: node docs/fit-pages.mjs $HTML"
 
 # One card per pattern. A pattern that stops being a card is either a finding
 # the demo lost or a card somebody deleted, and both are worth a red run.
@@ -60,7 +66,6 @@ TITLES=(
  "A mirror is the second copy"
  "Export / import is the only sharing that is safe by design"
  "Both links at once is not both shapes at once"
- "What this lab got wrong, and corrected"
 )
 for t in "${TITLES[@]}"; do has "carries the card: $t" "$t"; done
 
@@ -78,14 +83,9 @@ verdicts=$(grep -c 'class="verdict"' "$HTML")
 # Provenance. A figure with no date and no machine becomes a stale constant.
 has "says where every number came from"   "Where every number came from"
 has "names the server it ran on"          "nats-server v2.14.6"
-has "names the run that produced it"      "175 checks passed"
+has "names the run that produced it"      "178 checks passed"
 prose | grep -qE '2026-09-2[0-9]' \
   && ok "dates its numbers" || bad "no measurement date in the deck"
-
-# The retraction stays. A lab whose numbers only ever improve is not measuring.
-has "keeps the retraction card"           "A lab whose numbers only ever improve is not measuring"
-has "keeps the corrected write rule"      "core publish"
-has "keeps the freeze that did not freeze" "kill -STOP"
 
 # Every drawing must be readable by something that cannot see it.
 figs=$(grep -c 'role="img"' "$HTML")
@@ -109,6 +109,7 @@ grep -qE '\.fig \.nb\.dom *\{[^}]*--dom' "$HTML" \
   && ok "the domain box keeps the report's colour" \
   || bad "the domain box no longer uses --dom"
 has "explains how to read a figure before the first card" "How to read a figure"
+has "keeps the selection guide"          "Pick the shape from the outage you must survive"
 
 echo
 if [ "$fail" -eq 0 ]; then

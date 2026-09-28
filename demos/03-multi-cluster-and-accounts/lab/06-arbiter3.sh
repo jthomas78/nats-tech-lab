@@ -214,6 +214,31 @@ check F20 D03-R5 "shared LB SHARED_ODO, seen from AU: peers / leader region" \
 note  F20a D03-R9 "so a 3-node arbiter is still a VOTE and not a data centre" \
       "it buys one node of slack -- it did not take a copy, a KV or a consumer" C20a
 
+# --- THE READ SIDE, WITH A REGION DARK -- A20/A21 asked on nine peers ------
+# On T2 the meta group died with ZA too, so A21's failure had two causes. Here
+# the meta group survives a dark ZA (F22), so a failed read can only be the
+# stream's own Raft group: all three copies of SHARED_ODO sit in za (F17, F20).
+# F26 is the control: the same pull works before the freeze.
+nats_as 4241 lb consumer add SHARED_ODO AU_REMOTE --pull --deliver all \
+        --ack explicit --defaults >/dev/null 2>&1 || true
+for m in a b c; do nats_as 4241 au pub "evt.odo.v1" "$m" >/dev/null 2>&1; done
+for m in x y z; do nats_as 4231 lb pub "evt.shared.v1" "$m" >/dev/null 2>&1; done
+sleep 1
+check F26 D03-R1 "all regions up: AU pulls from the SHARED account's ZA stream" \
+      "ok" "$(fails_or_ok 4241 lb consumer next SHARED_ODO AU_REMOTE --count 1 --timeout 5s)"
+freeze za-1 za-2 za-3
+wait_dark 8231 8232 8233
+wait_live_leader 8241 '^t-(au|arb)' >/dev/null
+check F27 D03-R1 "ZA dark, meta group alive: AU pulls from its OWN region's stream" \
+      "ok" "$(fails_or_ok 4241 au consumer next ODOMETER AU_READER --count 1 --timeout 5s)" A20
+check F28 D03-R1 "ZA dark, meta group alive: AU pulls from the SHARED account's ZA stream" \
+      "fails" "$(fails_or_ok 4241 lb consumer next SHARED_ODO AU_REMOTE --count 1 --timeout 8s)" A21
+note  F28a D03-R1 "how that cross-region pull failed with the meta group still alive" \
+      "$(err_code 4241 lb consumer next SHARED_ODO AU_REMOTE --count 1 --timeout 8s)" A21a
+thaw za-1 za-2 za-3
+wait_meta_leader 8231 || true
+sleep 8
+
 note F11 D03-R5 "slack after losing one region" \
      "one node -- 6 of 9 against a majority of 5; T3 in the same state has none"
 note F12 D03-R1 "so T4 is no longer inferred" \
