@@ -17,8 +17,8 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards.html"
-PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards.pdf"
+HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.2.html"
+PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.2.pdf"
 
 fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -48,11 +48,15 @@ grep -qF '@page' "$HTML" && grep -qF 'A4' "$HTML" \
 # One card per pattern. A pattern that stops being a card is either a finding
 # the demo lost or a card somebody deleted, and both are worth a red run.
 TITLES=(
- "A gateway buys one name and sells your survival"
- "A leaf link buys a vote each and sells you a double copy"
- "The account is the wall. The domain is only a namespace."
- "An arbiter site buys the vote back"
+ "Five shapes, four variants, one letter each"
+ "A vote needs more than half, and servers vote, not sites"
  "is three questions"
+ "Placement decides where bytes sit, not who survives"
+ "A stream name is unique in one meta group and one account"
+ "A domain names a JetStream. It is not a wall."
+ "A gateway buys one name and sells your survival"
+ "An arbiter site buys the vote back"
+ "This lab's leaf link gives each region a vote, and a double copy"
  "A mirror is the second copy"
  "Export / import is the only sharing that is safe by design"
  "Both links at once is not both shapes at once"
@@ -91,7 +95,7 @@ labels=$(grep -c 'aria-label=' "$HTML")
 want "every figure has an aria-label" "$labels" "$figs"
 
 # The drawings follow REPORT.html's convention, so a boundary means the same
-# thing in both. The colours ARE the argument of cards 01-03: if the account box
+# thing in both. The colours ARE the argument of cards 05-06: if the account box
 # and the domain box ever become the same thing, the deck stops making its point.
 for cls in 'nb dom' 'nb acct' 'nb clu' 'nb clu dead'; do
   grep -qF "class=\"$cls\"" "$HTML" \

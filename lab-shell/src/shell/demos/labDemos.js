@@ -57,7 +57,7 @@ export const LAB_DEMOS = Object.freeze([
     findings: Object.freeze([
       Object.freeze({ label: 'Generated report', path: 'demos/03-multi-cluster-and-accounts/REPORT.md' }),
       Object.freeze({ label: 'Generated report, with diagrams', path: 'demos/03-multi-cluster-and-accounts/REPORT.html' }),
-      Object.freeze({ label: 'Pattern cards', path: 'demos/03-multi-cluster-and-accounts/docs/03-multi-cluster-and-accounts-pattern-cards.pdf' }),
+      Object.freeze({ label: 'Pattern cards', path: 'demos/03-multi-cluster-and-accounts/docs/03-multi-cluster-and-accounts-pattern-cards-v0.2.pdf' }),
     ]),
   }),
 ])
