@@ -9,7 +9,7 @@ No containers. One `nats-server` process per EC2 instance, run by `systemd`.
 This is the closest thing to demo 03, which ran nine bare processes on one Mac.
 
 - Companion: `nats-t5-ecs-runbook.md` — the same shape on ECS.
-- Phase order and gates: `demos/03-multi-cluster-and-accounts/docs/nats-migration-strategy.html`.
+- Phase order and gates: `demos/03-multi-cluster-and-accounts/docs/nats-migration-strategy-T1-to-T5.html`.
 - Evidence: `demos/03-multi-cluster-and-accounts/lab/04-hub-and-leaf.sh`,
   checks `D1`–`D15`.
 
@@ -742,7 +742,7 @@ the only thing that stops it.
 
 ## 10. What this runbook does **not** answer
 
-Carried forward from `demos/03-multi-cluster-and-accounts/docs/nats-migration-strategy.html`. These are honest gaps, not
+Carried forward from `demos/03-multi-cluster-and-accounts/docs/nats-migration-strategy-T1-to-T5.html`. These are honest gaps, not
 oversights.
 
 - **The hub as a real JetStream store.** Demo 03's T5 hub only relayed traffic.

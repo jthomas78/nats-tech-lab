@@ -6,7 +6,7 @@ T5 is a 3-server **hub** plus one 3-server **leaf cluster per region**. Nine NAT
 servers. Three separate JetStream systems, not one.
 
 This runbook is the *how to build it* companion to
-`demos/03-multi-cluster-and-accounts/docs/nats-migration-strategy.html`. That document says which phase to do when. This
+`demos/03-multi-cluster-and-accounts/docs/nats-migration-strategy-T1-to-T5.html`. That document says which phase to do when. This
 one says which AWS objects to make.
 
 Source of truth for the behaviour: `demos/03-multi-cluster-and-accounts/`,
@@ -479,7 +479,7 @@ only thing that stops it.
 
 ## 11. What this runbook does **not** answer
 
-Carried forward from `demos/03-multi-cluster-and-accounts/docs/nats-migration-strategy.html`. These are honest gaps, not
+Carried forward from `demos/03-multi-cluster-and-accounts/docs/nats-migration-strategy-T1-to-T5.html`. These are honest gaps, not
 oversights.
 
 - **The hub as a real JetStream store.** Demo 03's T5 hub only relayed traffic.
