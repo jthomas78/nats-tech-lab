@@ -266,14 +266,21 @@ that all come from `demos/03-multi-cluster-and-accounts/REPORT.md` — which is
 sharing or editing a deck, run:
 
 ```bash
-python3 tools/check-deck-numbers.py demos/03-multi-cluster-and-accounts/docs/nats-clustering-findings-v0.7.html
+python3 tools/check-deck-numbers.py demos/03-multi-cluster-and-accounts/docs/nats-clustering-findings-v0.9.html
 ```
 
-It changes nothing and exits non-zero when a number moved. It also lists the
+It changes nothing and exits non-zero when a number moved. It counts three
+things apart: **rig checks** (passed / failed), **procedure checks** (met /
+not met) and **procedure verdicts** (passed / failed / inconclusive). A 09
+switch run is not a topology. It also lists the
 per-run observations the deck cites (`A10a`, `F6a`, `F7a`, …) — those timings
 differ on every run, so a deck must describe them in words, never quote a
 number. Add a row to `MARKERS` in the script when the deck grows a topology
-slide.
+slide. After changing the checker, run its fixture tests:
+
+```bash
+python3 tools/test-check-deck-numbers.py
+```
 
 ### Tests — Ginkgo is the preferred runner
 
