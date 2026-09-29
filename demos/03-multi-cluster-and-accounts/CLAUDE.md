@@ -99,6 +99,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 | `06-arbiter3.sh` | T4 / F — gateway + 3-node arbiter cluster | 9 |
 | `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |
 | `08-hub-leaf-per-region.sh` | T5 / H — hub + two leaf clusters, an account per region | 9 |
+| `09-switch-t4-t5.sh` | T4 / S, T5 / S — switch in place, T4 → T5 and T5 → T4, same stores | 9 |
 | `_common.sh` | the shared harness — config builders, freeze/thaw, the checks |
 | `render-report.py` | turns `run/results.tsv` into `REPORT.md`, and with `--html` into `REPORT.html` |
 | `figures.html` | the nine topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
@@ -108,8 +109,16 @@ Rules for anything added here:
 - **The scripts do not use the six committed `.conf` files.** They write their
   own `t-*.conf` into `lab/run/` and delete them afterwards. See the `t-` prefix
   rule below — it is what stops a stray `pkill` reaching your real lab.
-- **`lab/run/` is gitignored and thrown away on every run.** Nothing in it is
-  evidence; `REPORT.md` and `REPORT.html` are.
+- **`lab/run/` is gitignored and thrown away on every run** — except
+  `lab/run/evidence/<stamp>/`, where `09` keeps each run's configs, logs,
+  manifests and stores. A stamp is never reused or deleted.
+- **Rig or procedure — every row has a KIND** (9th column of
+  `results.tsv`, `KIND` in `_common.sh`). A *rig* check asks whether the rig
+  did its job; its FAIL fails `run-all.sh`. A *procedure* check asks whether
+  a procedure under test met its requirement; its FAIL stays a FAIL but is
+  counted apart, because it is the answer, not a broken rig. A procedure run
+  ends with one `verdict` row. Never rewrite a failed procedure check to
+  expect the failure — keep the requirement, report the verdict.
 - **A check has an expected answer and passes only on an exact match.** If you
   cannot say in advance what the right answer is, record it as a `note`
   instead. A note is a measurement on the record, not a claim.
@@ -493,6 +502,19 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   the whole hub still leaves the region working (`H12`-`H14`). **A stream name
   resolves in a DOMAIN; an account only moves subjects.**
 
+- **Stop–reconfigure–restart between T4 and T5 fails, both ways** (measured
+  2026-09-28, `lab/09-switch-t4-t5.sh`, verdicts `SA39`, `SB39`, `SC57`).
+  T4 → T5: no independent meta groups (`SA9`, `SA28`); formed stream groups
+  kept taking acks (`SA20`–`SA25`), but the data was not readable through
+  `stream info`, which needs a meta leader — integrity **unverified**, not
+  disproved. T5 → T4: one shared group formed (`SB9`), but the ZA streams
+  were lost, in the clean-name run too (`SB10`, `SB20`), and their
+  directories were gone from disk. The cause of that removal is **not
+  proved** — do not write one down. `SC37` / `SC55` are a test side effect.
+  **The procedure is unsafe for existing data. It does not make T4 or T5 a
+  one-way choice** — no other procedure was tested. Evidence:
+  `lab/run/evidence/09-20260928-202654/`.
+
 ## Still open — do not claim these are settled
 
 - **`D03-R8`** — two accounts sharing a subject **on purpose**, via explicit
@@ -512,9 +534,12 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   to reach each other needs a packet filter, and it is the rig that would show
   reconnect and split-brain behaviour. Quorum arithmetic is the same either
   way; nothing else about a partition is measured here.
-- **Switching a live system between T4 and T5** (`D03-R11`, `D03-R12`,
-  defined 2026-09-28 in `README.md`). Every script builds from an empty
-  store, so nothing is known about converting in place. Do not describe
-  what a switch does to existing streams — not even as an inference.
+- **Any other way to move between T4 and T5** (`D03-R11`, `D03-R12`). Only
+  stop–reconfigure–restart is measured, and it failed. A site-at-a-time
+  conversion and a migration to separately built clusters are untested.
+- **Whether run A's data survived on disk.** Kept, never read back another
+  way. A follow-up diagnostic, separate from the verdict.
+- **Why T5 → T4 removed the ZA stream directories.** Read the kept logs and
+  stores before naming a cause.
 - **Cross-WAN read latency.** Placement of a stream, a consumer and a KV bucket
   is all measured. The cost in milliseconds is not.

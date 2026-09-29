@@ -393,7 +393,7 @@ function replay(list) {
     open: t => { const s = fill(t, st); if (!st.open.includes(s)) st.open.push(s); },
     sset: (k, v) => st.cur.items.set(k, v),
     shape: code => { st.shape = code; st.sets.set("shape", SHAPES[code]);
-      if (code === "T4" || code === "T5") c.open("Changing later between T4 and T5 on a live system." + UNTESTED + " Treat this choice as hard to undo."); },
+      if (code === "T4" || code === "T5") c.open("Changing later between T4 and T5 on a live system. The lab tested one way: stop every server, change the configs, start again on the same storage. It failed in both directions and lost or hid data (D03-R11, D03-R12). Do not use it on data you need. Other ways, such as moving to newly built clusters, were not tested. So this choice is not proven one-way, but plan the move before you need it."); },
   };
   let node = "q1_1";
   const steps = [];

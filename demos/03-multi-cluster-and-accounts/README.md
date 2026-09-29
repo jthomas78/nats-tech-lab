@@ -98,14 +98,38 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
 | **D03-R8** | Can two accounts share a subject **on purpose**, via export / import? | answered |
 | **D03-R9** | If we add an arbiter site, can real data land on it **by accident**? | answered |
 | **D03-R10** | If a system has a **gateway and a leaf link at the same time**, which one decides the JetStream shape? | answered |
-| **D03-R11** | Can a running **T4** be converted **in place** to **T5**, and keep its data? | open — defined 2026-09-28 |
-| **D03-R12** | Can a running **T5** be converted **in place** to **T4**, and keep its data? | open — defined 2026-09-28 |
+| **D03-R11** | Can a running **T4** be converted **in place** to **T5**, and keep its data? | **failed** for the one procedure tested — 2026-09-28 |
+| **D03-R12** | Can a running **T5** be converted **in place** to **T4**, and keep its data? | **failed** for the one procedure tested — 2026-09-28 |
 
 ### D03-R11 and D03-R12 — switching topology in place
 
-Every lab script builds its shape from nothing and throws it away, so
-nothing here says a live system can change shape. Until these two are
-measured, **treat the choice between T4 and T5 as hard to undo.**
+**Result, 2026-09-28, `nats-server 2.14.6`.** The tested stop–reconfigure–restart
+procedure failed in both directions. T4 → T5 did not establish independent
+metadata groups. T5 → T4 formed a shared group but failed to preserve the
+ZA streams, including in the clean-name case. **This procedure is unsafe for
+existing data.** Alternative conversion and migration procedures remain
+untested. A failed direct conversion does not make T4 or T5 a one-way
+architectural choice.
+
+| Run | Direction | Verdict | Rig | The checks that decide it |
+|---|---|---|---|---|
+| A | T4 → T5 | **failed** | held (`SA1`–`SA3`) | `SA9`, `SA28` — no independent meta groups. Formed stream groups kept taking acked publishes and consumers resumed (`SA20`–`SA25`). The stored data could not be read back (`SA10`, `SA13`, `SA16`, `SA19`), because the reader asks for `stream info` first, and that needs a meta leader. Data integrity is **unverified**, not disproved. |
+| B1 | T5 → T4, clean names | **failed** | held (`SB1`–`SB3`) | `SB9` — one shared group formed. `SB10`, `SB16` — the ZA streams could not be read back; `SB20`, `SB24` — no ack for new publishes. The ZA stream directories were gone from the kept stores. **Why** they were removed is not proved. AU and the KV bucket came through (`SB13`, `SB19`). |
+| B2 | T5 → T4, LB name collision | **failed** | held (`SC1`–`SC3`) | The same ZA loss as B1 (`SC10`, `SC16`, `SC19`). `SC37` and `SC55` are a side effect of the test's own keep-working step, not separate evidence about consumers. |
+
+The verdict rows are `SA39`, `SB39` and `SC57` in [`REPORT.md`](REPORT.md).
+The evidence — configs of both shapes, every log, the ID manifests and the
+stores — is kept, by hand, in `lab/run/evidence/09-20260928-202654/` (that
+folder is gitignored). The script now writes each run to its own stamped
+folder, checks the evidence was kept as a **rig** check, and writes the
+verdict row itself.
+
+**How the report keeps rig and procedure apart.** Every row has a kind. A
+*rig* check asks: did the rig build, seed and read back what it said? A rig
+failure makes the verdict *inconclusive*, and the script exits non-zero. A
+*procedure* check asks: did the switch keep the data and keep working? Its
+failure stays a FAIL — it is the answer, not a broken rig — so
+`run-all.sh` counts it apart and does not fail on it.
 
 **The question.** With application traffic paused and existing storage
 retained, can T4 be converted to T5, and T5 to T4, while preserving
@@ -150,8 +174,11 @@ does not show that switching shape is impossible.
   domains, and not for catch-up time at production volume.
 - The hub as a **real JetStream store**, not a pass-through (T5).
 - Leaf reconnect behaviour with **many** regions, not two.
-- **D03-R11 / D03-R12** — changing a live system between T4 and T5, in
-  either direction.
+- **D03-R11 / D03-R12** — only the stop–reconfigure–restart procedure is
+  measured, and it failed. Still open: any other conversion (for example one
+  site at a time), migration to separately built clusters, whether run A's
+  data survived on disk (it was kept, not read back another way), and the
+  mechanism behind B1's lost ZA streams.
 
 ## Where the evidence is
 

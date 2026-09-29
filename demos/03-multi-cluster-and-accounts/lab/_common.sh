@@ -374,10 +374,22 @@ results_reset() { : > "$RESULTS"; }
 # shows nothing. It is never a citation of a document -- only of another check
 # id measured in this same lab.
 
-# record <id> <requirement> <what it checks> <expected> <actual> <PASS|FAIL> [from]
+# The ninth column is the row's KIND:
+#   rig        -- the default. Did the rig build, run and measure correctly? A
+#                 rig FAIL means the run proves nothing, and run-all.sh exits
+#                 non-zero for it.
+#   procedure  -- did the PROCEDURE under test meet its requirement? A
+#                 procedure FAIL is a result, not a broken rig: the rig worked
+#                 and found that the procedure is unsafe. It stays a FAIL in
+#                 every table, and it does not make run-all.sh exit non-zero.
+# Set KIND=procedure around the checks that judge a procedure (09 does), and
+# back to rig after. Nothing else in the lab changes KIND.
+KIND=rig
+
+# record <id> <requirement> <what it checks> <expected> <actual> <PASS|FAIL|NOTE|VERDICT> [from]
 record() {
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$1" "$2" "$TOPOLOGY" "$3" "$4" "$5" "$6" "${7:--}" >> "$RESULTS"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$1" "$2" "$TOPOLOGY" "$3" "$4" "$5" "$6" "${7:--}" "$KIND" >> "$RESULTS"
 }
 
 # note <id> <requirement> <what was observed> <value> [from]
@@ -395,13 +407,28 @@ check() {
   local id="$1" req="$2" desc="$3" want="$4" got="$5" from="${6:--}" status="FAIL"
   [ "$want" = "$got" ] && status="PASS"
   record "$id" "$req" "$desc" "$want" "$got" "$status" "$from"
+  local tag=""
+  [ "$KIND" = procedure ] && tag=" (procedure)"
   if [ "$status" = "PASS" ]; then
-    printf '  \033[32mPASS\033[0m  %-8s %s\n            expected and got: %s\n' "$id" "$desc" "$got"
+    printf '  \033[32mPASS\033[0m  %-8s %s%s\n            expected and got: %s\n' "$id" "$desc" "$tag" "$got"
   else
-    printf '  \033[31mFAIL\033[0m  %-8s %s\n            expected: %s\n            got:      %s\n' \
-      "$id" "$desc" "$want" "$got"
+    printf '  \033[31mFAIL\033[0m  %-8s %s%s\n            expected: %s\n            got:      %s\n' \
+      "$id" "$desc" "$tag" "$want" "$got"
   fi
   [ "$from" != "-" ] && printf '            (same question as %s)\n' "$from"
+  return 0
+}
+
+# verdict <id> <requirement> <what was judged> <verdict words> <why>
+# The one-line answer for a PROCEDURE, worked out by the script from its own
+# rig and procedure checks. The words are fixed by the demo: "passed with a
+# measured interruption", "failed" or "inconclusive". <why> is written in the
+# Expected column, so a reader sees what the verdict rests on.
+verdict() {
+  local k="$KIND"; KIND=procedure
+  record "$1" "$2" "$3" "$5" "$4" "VERDICT"
+  KIND="$k"
+  printf '  \033[35mVERDICT\033[0m %-7s %s\n            %s\n            (%s)\n' "$1" "$3" "$4" "$5"
   return 0
 }
 

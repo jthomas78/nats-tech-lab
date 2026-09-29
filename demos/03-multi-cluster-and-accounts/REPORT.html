@@ -98,13 +98,25 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><th>Server</th><td><code>nats-server v2.14.6</code></td></tr>
 <tr><th>Client</th><td><code>0.4.0</code></td></tr>
 <tr><th>Machine</th><td>Darwin 25.4.0 arm64</td></tr>
-<tr><th>Checks</th><td><strong class="pass">178 passed</strong>, <strong class="note">0 failed</strong></td></tr>
-<tr><th>Recorded observations</th><td>52</td></tr>
+<tr><th>Rig checks</th><td><strong class="pass">187 passed</strong>, <strong class="note">0 failed</strong></td></tr>
+<tr><th>Procedure checks</th><td>50 met, <strong class="fail">53 not met</strong></td></tr>
+<tr><th>Procedure verdicts</th><td>3 &mdash; see the next section</td></tr>
+<tr><th>Recorded observations</th><td>72</td></tr>
 </tbody></table></div>
 <p>A <strong>check</strong> has an expected answer and passes only on an exact match. A <strong>note</strong> has no expected answer &mdash; it records what the machine did, so the number is on the record. A note can never fail, so it guards nothing.</p>
+<p>A <strong>rig check</strong> asks whether the rig did its job. A <strong>procedure check</strong> asks whether a procedure under test met its requirement. A failed procedure check is an answer, not a broken rig, so it is counted apart and does not fail the run.</p>
 <p>To reproduce the whole thing:</p>
 <pre>cd demos/03-multi-cluster-and-accounts/lab
 ./run-all.sh</pre>
+</section>
+<section class="sec">
+<h2>Procedure verdicts</h2>
+<p>Some scripts test an operating <strong>procedure</strong>, not a shape. Each such run ends with one verdict: <em>passed with a measured interruption</em>, <em>failed</em>, or <em>inconclusive</em> when the rig itself failed. The verdict is the answer. The checks behind it are in that shape&rsquo;s table below.</p>
+<div class="card"><table><thead><tr><th></th><th>Verdict</th><th>Req</th><th>Procedure</th><th>Run</th><th>Why</th></tr></thead><tbody>
+<tr><td class='mark fail'>◆</td><td class='fail'><strong>failed</strong></td><td><code>D03-R11</code></td><td>the stop-rewrite-restart procedure, t4 to t5</td><td>T4 / S -- switch in place, T4 to T5 <code>SA39</code></td><td>rig checks failed: 0; procedure checks not met: 11 of 29; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check)</td></tr>
+<tr><td class='mark fail'>◆</td><td class='fail'><strong>failed</strong></td><td><code>D03-R12</code></td><td>the stop-rewrite-restart procedure, t5 to t4</td><td>T5 / S -- switch in place, T5 to T4, clean names <code>SB39</code></td><td>rig checks failed: 0; procedure checks not met: 16 of 29; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check)</td></tr>
+<tr><td class='mark fail'>◆</td><td class='fail'><strong>failed</strong></td><td><code>D03-R12</code></td><td>the stop-rewrite-restart procedure, t5 to t4</td><td>T5 / S -- switch in place, T5 to T4, LB name collision <code>SC57</code></td><td>rig checks failed: 0; procedure checks not met: 26 of 45; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check)</td></tr>
+</tbody></table></div>
 </section>
 <section class="sec">
 <h2>The four accounts</h2>
@@ -120,16 +132,19 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 </section>
 <section class="sec">
 <h2>Per topology</h2>
-<div class="card"><table><thead><tr><th>Topology</th><th class="num">Checks</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Notes</th></tr></thead><tbody>
-<tr><td>T1 -- no link</td><td class='num'>12</td><td class='num pass'>12</td><td class='num note'>0</td><td class='num note'>1</td></tr>
-<tr><td>T2 / A -- gateway</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>5</td></tr>
-<tr><td>T2 / B -- gateway + per-cluster domain</td><td class='num'>15</td><td class='num pass'>15</td><td class='num note'>0</td><td class='num note'>8</td></tr>
-<tr><td>T2 / E -- export / import between accounts</td><td class='num'>17</td><td class='num pass'>17</td><td class='num note'>0</td><td class='num note'>3</td></tr>
-<tr><td>T3 / C -- gateway + arbiter</td><td class='num'>18</td><td class='num pass'>18</td><td class='num note'>0</td><td class='num note'>7</td></tr>
-<tr><td>T4 / F -- gateway + 3-node arbiter</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>9</td></tr>
-<tr><td>T5 / D -- hub and leaf</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>6</td></tr>
-<tr><td>T5 / H -- hub and leaf, account per region</td><td class='num'>15</td><td class='num pass'>15</td><td class='num note'>0</td><td class='num note'>7</td></tr>
-<tr><td>T6 / G -- gateway AND hub leaf</td><td class='num'>23</td><td class='num pass'>23</td><td class='num note'>0</td><td class='num note'>6</td></tr>
+<div class="card"><table><thead><tr><th>Topology</th><th class="num">Rig checks</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Notes</th><th class="num">Procedure met</th><th class="num">Not met</th><th>Verdict</th></tr></thead><tbody>
+<tr><td>T1 -- no link</td><td class='num'>12</td><td class='num pass'>12</td><td class='num note'>0</td><td class='num note'>1</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>T2 / A -- gateway</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>5</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>T2 / B -- gateway + per-cluster domain</td><td class='num'>15</td><td class='num pass'>15</td><td class='num note'>0</td><td class='num note'>8</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>T2 / E -- export / import between accounts</td><td class='num'>17</td><td class='num pass'>17</td><td class='num note'>0</td><td class='num note'>3</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>T3 / C -- gateway + arbiter</td><td class='num'>18</td><td class='num pass'>18</td><td class='num note'>0</td><td class='num note'>7</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>T4 / F -- gateway + 3-node arbiter</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>9</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>T4 / S -- switch in place, T4 to T5</td><td class='num'>3</td><td class='num pass'>3</td><td class='num note'>0</td><td class='num note'>6</td><td class='num'>18</td><td class='num fail'>11</td><td>failed</td></tr>
+<tr><td>T5 / D -- hub and leaf</td><td class='num'>26</td><td class='num pass'>26</td><td class='num note'>0</td><td class='num note'>6</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>T5 / H -- hub and leaf, account per region</td><td class='num'>15</td><td class='num pass'>15</td><td class='num note'>0</td><td class='num note'>7</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
+<tr><td>T5 / S -- switch in place, T5 to T4, LB name collision</td><td class='num'>3</td><td class='num pass'>3</td><td class='num note'>0</td><td class='num note'>8</td><td class='num'>19</td><td class='num fail'>26</td><td>failed</td></tr>
+<tr><td>T5 / S -- switch in place, T5 to T4, clean names</td><td class='num'>3</td><td class='num pass'>3</td><td class='num note'>0</td><td class='num note'>6</td><td class='num'>13</td><td class='num fail'>16</td><td>failed</td></tr>
+<tr><td>T6 / G -- gateway AND hub leaf</td><td class='num'>23</td><td class='num pass'>23</td><td class='num note'>0</td><td class='num note'>6</td><td class='num'>&mdash;</td><td class='num note'>&mdash;</td><td>&mdash;</td></tr>
 </tbody></table></div>
 </section>
 <section class="sec">
@@ -872,6 +887,89 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>so T4 is no longer inferred</td></tr>
 </tbody></table></div>
 </section>
+<section class="sec" id="topology-x">
+<h3>T4 / S -- switch in place, T4 to T5</h3>
+<div class="card"><table><thead><tr><th></th><th>Check</th><th>Req</th><th>From</th><th>Expected</th><th>Measured</th><th>Extra info</th></tr></thead><tbody>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA1</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>1 / 9</td><td class='mono'>1 / 9</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: T4: meta groups / size (one group of nine)</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA2</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>50 / 50 / 50</td><td class='mono'>50 / 50 / 50</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: acked publishes per stream (za@za.ODOMETER au@au.ODOMETER lb@za.SHARED_ODO)</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA3</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0</td><td class='mono'>floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: READER on every stream -- ack floor / pending / ack pending</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SA4</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>vehicle-1=A-k1-v3@7 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: KV t7-vehicles, key=value@revision</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SA5</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>1s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; stop: seconds from the first TERM until all nine exited</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SA6</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>third site: NONE after 97s; za: NONE after 194s; au: NONE after 290s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: seconds from t0 to a live meta leader</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SA7</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>za@za.ODOMETER 291s; au@au.ODOMETER 291s; lb@za.SHARED_ODO 291s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: seconds from t0 to the first acked publish (observed interruption, this procedure)</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SA8</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>43 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6231: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6232: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6241: connect: conn</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: [ERR]/[WRN] lines logged on the first start in the new shape</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA9</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>3 / 3 / 3 / 3</td><td class='mono'>1 / 9 / 9 / 9</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: T5: meta groups / size of third site, za, au (three of three)</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA10</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA11</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>za</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA12</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 31 / ack pending 0</td><td class='mono'>floor 20 / pending 31 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA13</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA14</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA15</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 31 / ack pending 0</td><td class='mono'>floor 20 / pending 31 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA16</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA17</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>za</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA18</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 31 / ack pending 0</td><td class='mono'>floor 20 / pending 31 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA19</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>vehicle-1=A-k1-v3@7 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5</td><td class='mono'>vehicle-1=unreadable vehicle-2=unreadable vehicle-3=unreadable vehicle-4=unreadable vehicle-5=unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: KV t7-vehicles -- every key's value@revision</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA20</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>10</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: za@za.ODOMETER -- new publishes acked</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA21</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>{"id":"A.za@za.ODOMETER.21","n":21}</td><td class='mono'>{"id":"A.za@za.ODOMETER.21","n":21}</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: za@za.ODOMETER -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA22</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>10</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: au@au.ODOMETER -- new publishes acked</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA23</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>{"id":"A.au@au.ODOMETER.21","n":21}</td><td class='mono'>{"id":"A.au@au.ODOMETER.21","n":21}</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: au@au.ODOMETER -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA24</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>10</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@za.SHARED_ODO -- new publishes acked</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA25</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>{"id":"A.lb@za.SHARED_ODO.21","n":21}</td><td class='mono'>{"id":"A.lb@za.SHARED_ODO.21","n":21}</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA26</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>A-k1-v4@8</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1)</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SA27</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>stop 2s; third site: NONE after 99s; za: NONE after 195s; au: NONE after 291s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; restart: stop seconds, then seconds from t0 to a live meta leader</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA28</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>3 / 3 / 3 / 3</td><td class='mono'>1 / 9 / 9 / 9</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: T5: meta groups / size of third site, za, au (three of three)</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA29</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA30</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>za</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA31</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 40 / ack pending 0</td><td class='mono'>floor 21 / pending 40 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA32</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA33</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA34</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 40 / ack pending 0</td><td class='mono'>floor 21 / pending 40 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA35</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA36</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>za</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SA37</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 40 / ack pending 0</td><td class='mono'>floor 21 / pending 40 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SA38</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>vehicle-1=A-k1-v4@8 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5</td><td class='mono'>vehicle-1=unreadable vehicle-2=unreadable vehicle-3=unreadable vehicle-4=unreadable vehicle-5=unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: KV t7-vehicles -- every key's value@revision</td></tr>
+<tr><td class='mark fail'>◆</td><td class='mono'>SA39</td><td><code>D03-R11</code></td><td class='mono'>&mdash;</td><td>rig checks failed: 0; procedure checks not met: 11 of 29; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check)</td><td class='mono'>failed</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><strong>verdict</strong> &middot; the stop-rewrite-restart procedure, t4 to t5</td></tr>
+</tbody></table></div>
+</section>
 <section class="sec" id="topology-d">
 <h3>T5 / D -- hub and leaf</h3>
 <figure>
@@ -1185,6 +1283,208 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>the verdict</td></tr>
 </tbody></table></div>
 </section>
+<section class="sec" id="topology-x">
+<h3>T5 / S -- switch in place, T5 to T4, LB name collision</h3>
+<div class="card"><table><thead><tr><th></th><th>Check</th><th>Req</th><th>From</th><th>Expected</th><th>Measured</th><th>Extra info</th></tr></thead><tbody>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC1</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>3 / 3 / 3 / 3</td><td class='mono'>3 / 3 / 3 / 3</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: T5: meta groups / size of third site, za, au (three of three)</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC2</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>50 / 50 / 50 / 50 / 50</td><td class='mono'>50 / 50 / 50 / 50 / 50</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: acked publishes per stream (za@za.ODOMETER au@au.ODOMETER lb@za.SHARED_ODO lb@za.ODOMETER lb@au.ODOMETER)</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC3</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0</td><td class='mono'>floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: READER on every stream -- ack floor / pending / ack pending</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SC4</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: KV t7-vehicles, key=value@revision</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SC5</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>2s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; stop: seconds from the first TERM until all nine exited</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SC6</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>one group: t-au-2 after 6s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: seconds from t0 to a live meta leader</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SC7</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>za@za.ODOMETER no ack; au@au.ODOMETER 67s; lb@za.SHARED_ODO no ack; lb@za.ODOMETER no ack; lb@au.ODOMETER 190s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: seconds from t0 to the first acked publish (observed interruption, this procedure)</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SC8</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>48 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6232: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6233: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6241: connect: conn</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: [ERR]/[WRN] lines logged on the first start in the new shape</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC9</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>1 / 9</td><td class='mono'>1 / 9</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: T4: meta groups / size (one group of nine)</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC10</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC11</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC12</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 30 / ack pending 0</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC13</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>match</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC14</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC15</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 31 / ack pending 0</td><td class='mono'>floor 20 / pending 31 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC16</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC17</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC18</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 30 / ack pending 0</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC19</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>differs: 50 acked, 51 stored, 50 missing, 51 extra</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC20</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC21</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 30 / ack pending 0</td><td class='mono'>floor 20 / pending 31 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC22</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>match</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@au.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC23</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@au.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC24</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 31 / ack pending 0</td><td class='mono'>floor 20 / pending 31 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@au.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC25</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5</td><td class='mono'>vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: KV t7-vehicles -- every key's value@revision</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SC26</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>ODOMETER / ODOMETER </td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; collision: streams in account LB seen from za / from au</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SC27</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>au, 51 / au, 51</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; collision: LB ODOMETER from za -- cluster, messages / from au -- cluster, messages</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC28</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: za@za.ODOMETER -- new publishes acked</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC29</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>{"id":"B2.za@za.ODOMETER.21","n":21}</td><td class='mono'>nothing</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: za@za.ODOMETER -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC30</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>10</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: au@au.ODOMETER -- new publishes acked</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC31</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>{"id":"B2.au@au.ODOMETER.21","n":21}</td><td class='mono'>{"id":"B2.au@au.ODOMETER.21","n":21}</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: au@au.ODOMETER -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC32</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@za.SHARED_ODO -- new publishes acked</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC33</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>{"id":"B2.lb@za.SHARED_ODO.21","n":21}</td><td class='mono'>nothing</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC34</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@za.ODOMETER -- new publishes acked</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC35</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>{"id":"B2.lb@za.ODOMETER.21","n":21}</td><td class='mono'>{"id":"B2.lb@au.ODOMETER.21","n":21}</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@za.ODOMETER -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC36</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>10</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@au.ODOMETER -- new publishes acked</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC37</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>{"id":"B2.lb@au.ODOMETER.21","n":21}</td><td class='mono'>{"id":"B2.lb@au.ODOMETER.22","n":22}</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@au.ODOMETER -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC38</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>B2-k1-v4@8</td><td class='mono'>B2-k1-v4@8</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1)</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SC39</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>stop 2s; one group: t-za-2 after 7s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; restart: stop seconds, then seconds from t0 to a live meta leader</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC40</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>1 / 9</td><td class='mono'>1 / 9</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: T4: meta groups / size (one group of nine)</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC41</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC42</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC43</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 29 / ack pending 0</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC44</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>match</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC45</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC46</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 40 / ack pending 0</td><td class='mono'>floor 21 / pending 40 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC47</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC48</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC49</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 29 / ack pending 0</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC50</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>differs: 50 acked, 61 stored, 50 missing, 61 extra</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC51</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC52</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 29 / ack pending 0</td><td class='mono'>floor 22 / pending 39 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC53</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>match</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@au.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC54</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@au.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SC55</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 40 / ack pending 0</td><td class='mono'>floor 22 / pending 39 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@au.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SC56</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>vehicle-1=B2-k1-v4@8 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5</td><td class='mono'>vehicle-1=B2-k1-v4@8 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: KV t7-vehicles -- every key's value@revision</td></tr>
+<tr><td class='mark fail'>◆</td><td class='mono'>SC57</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>rig checks failed: 0; procedure checks not met: 26 of 45; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check)</td><td class='mono'>failed</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><strong>verdict</strong> &middot; the stop-rewrite-restart procedure, t5 to t4</td></tr>
+</tbody></table></div>
+</section>
+<section class="sec" id="topology-x">
+<h3>T5 / S -- switch in place, T5 to T4, clean names</h3>
+<div class="card"><table><thead><tr><th></th><th>Check</th><th>Req</th><th>From</th><th>Expected</th><th>Measured</th><th>Extra info</th></tr></thead><tbody>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB1</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>3 / 3 / 3 / 3</td><td class='mono'>3 / 3 / 3 / 3</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: T5: meta groups / size of third site, za, au (three of three)</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB2</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>50 / 50 / 50</td><td class='mono'>50 / 50 / 50</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: acked publishes per stream (za@za.ODOMETER au@au.ODOMETER lb@za.SHARED_ODO)</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB3</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0</td><td class='mono'>floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: READER on every stream -- ack floor / pending / ack pending</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SB4</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'>before: KV t7-vehicles, key=value@revision</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SB5</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>1s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; stop: seconds from the first TERM until all nine exited</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SB6</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>one group: t-au-2 after 7s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: seconds from t0 to a live meta leader</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SB7</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>za@za.ODOMETER no ack; au@au.ODOMETER 68s; lb@za.SHARED_ODO no ack</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: seconds from t0 to the first acked publish (observed interruption, this procedure)</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SB8</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>45 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6231: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6241: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6243: connect: conn</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; switch: [ERR]/[WRN] lines logged on the first start in the new shape</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB9</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>1 / 9</td><td class='mono'>1 / 9</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: T4: meta groups / size (one group of nine)</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB10</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB11</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB12</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 30 / ack pending 0</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB13</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>match</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB14</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB15</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 31 / ack pending 0</td><td class='mono'>floor 20 / pending 31 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB16</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB17</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB18</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 20 / pending 30 / ack pending 0</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB19</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5</td><td class='mono'>vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after switch: KV t7-vehicles -- every key's value@revision</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB20</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: za@za.ODOMETER -- new publishes acked</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB21</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>{"id":"B1.za@za.ODOMETER.21","n":21}</td><td class='mono'>nothing</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: za@za.ODOMETER -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB22</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>10</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: au@au.ODOMETER -- new publishes acked</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB23</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>{"id":"B1.au@au.ODOMETER.21","n":21}</td><td class='mono'>{"id":"B1.au@au.ODOMETER.21","n":21}</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: au@au.ODOMETER -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB24</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>10</td><td class='mono'>0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@za.SHARED_ODO -- new publishes acked</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB25</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>{"id":"B1.lb@za.SHARED_ODO.21","n":21}</td><td class='mono'>nothing</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB26</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>B1-k1-v4@8</td><td class='mono'>B1-k1-v4@8</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1)</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>SB27</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>stop 2s; one group: t-za-1 after 7s</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; restart: stop seconds, then seconds from t0 to a live meta leader</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB28</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>1 / 9</td><td class='mono'>1 / 9</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: T4: meta groups / size (one group of nine)</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB29</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB30</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB31</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 29 / ack pending 0</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB32</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>match</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB33</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>au</td><td class='mono'>au</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- still in the cluster it was in before</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB34</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 40 / ack pending 0</td><td class='mono'>floor 21 / pending 40 / ack pending 0</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB35</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>match</td><td class='mono'>stream unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB36</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>za</td><td class='mono'>?</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- still in the cluster it was in before</td></tr>
+<tr><td class='mark fail'>✗</td><td class='mono'>SB37</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>floor 21 / pending 29 / ack pending 0</td><td class='mono'>unreadable</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending</td></tr>
+<tr><td class='mark pass'>✓</td><td class='mono'>SB38</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>vehicle-1=B1-k1-v4@8 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5</td><td class='mono'>vehicle-1=B1-k1-v4@8 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><em>procedure</em> &middot; after restart: KV t7-vehicles -- every key's value@revision</td></tr>
+<tr><td class='mark fail'>◆</td><td class='mono'>SB39</td><td><code>D03-R12</code></td><td class='mono'>&mdash;</td><td>rig checks failed: 0; procedure checks not met: 16 of 29; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check)</td><td class='mono'>failed</td><td class='extra'>&mdash;</td></tr>
+<tr><td></td><td colspan='6'><strong>verdict</strong> &middot; the stop-rewrite-restart procedure, t5 to t4</td></tr>
+</tbody></table></div>
+</section>
 <section class="sec" id="topology-g">
 <h3>T6 / G -- gateway AND hub leaf</h3>
 <figure>
@@ -1408,6 +1708,18 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <p><strong>This run says:</strong> The <strong>gateway</strong>, completely. Wiring both links on the same servers gives <strong>two</strong> JetStream systems, not three: the hub keeps its own group, and the gateway still fuses the two regions into one. Every benefit the leaf link has on its own then disappears -- the second stream of the same name in a shared account is refused again, the double capture collapses to one stored copy, and a dark region still freezes every create while the hub sits beside it, healthy, unable to lend a vote. Deleting the hub entirely changes nothing. A per-site domain is still illegal here and still half-blinds one region, exactly as it does with no hub at all. <strong>A leaf link added to a gateway buys no regional quorum.</strong> Be exact about that scope: the hub does keep a working JetStream system of its own -- it holds its own leader while a region is dark, a client on the hub still creates a stream, and killing the hub leaves the regions untouched. What the leaf link cannot do is lend a vote to the region that lost one.</p>
 <p><em>Evidence:</em> <code>G1</code>, <code>G2</code>, <code>G3</code>, <code>G8</code>, <code>G9</code>, <code>G10</code>, <code>G13</code>, <code>G14</code>, <code>G14a</code>, <code>G16</code>, <code>G17</code>, <code>G18</code>, <code>G24</code></p>
 </div>
+<div class="card">
+<h3>D03-R11</h3>
+<p><strong>Asks:</strong> Can a running <strong>T4</strong> be converted <strong>in place</strong> to <strong>T5</strong>, and keep its data?</p>
+<p><strong>This run says:</strong> <strong>Failed</strong>, for the one procedure tested: stop all nine servers, rewrite the configs, start them again on the same stores. The rig held -- the source shape was built, seeded and read back (the <code>before</code> rows). After the switch the three sites did <strong>not</strong> become three independent meta groups (<code>SA9</code>, <code>SA28</code>). Streams whose groups were already formed kept taking acked publishes, and their consumers resumed (<code>SA20</code>-<code>SA25</code>). But the stored data could not be read back through the path this check uses (<code>SA10</code>, <code>SA13</code>, <code>SA16</code>), because that path asks for <code>stream info</code> first, which needs a meta leader. So data integrity after this switch is <strong>unverified</strong>, not disproved. This says nothing about any other conversion or migration procedure.</p>
+<p><em>Evidence:</em> <code>SA1</code>, <code>SA2</code>, <code>SA3</code>, <code>SA4</code>, <code>SA5</code>, <code>SA6</code>, <code>SA7</code>, <code>SA8</code>, <code>SA9</code>, <code>SA10</code>, <code>SA11</code>, <code>SA12</code>, <code>SA13</code>, <code>SA14</code>, <code>SA15</code>, <code>SA16</code>, <code>SA17</code>, <code>SA18</code>, <code>SA19</code>, <code>SA20</code>, <code>SA21</code>, <code>SA22</code>, <code>SA23</code>, <code>SA24</code>, <code>SA25</code>, <code>SA26</code>, <code>SA27</code>, <code>SA28</code>, <code>SA29</code>, <code>SA30</code>, <code>SA31</code>, <code>SA32</code>, <code>SA33</code>, <code>SA34</code>, <code>SA35</code>, <code>SA36</code>, <code>SA37</code>, <code>SA38</code>, <code>SA39</code></p>
+</div>
+<div class="card">
+<h3>D03-R12</h3>
+<p><strong>Asks:</strong> Can a running <strong>T5</strong> be converted <strong>in place</strong> to <strong>T4</strong>, and keep its data?</p>
+<p><strong>This run says:</strong> <strong>Failed</strong>, for the one procedure tested, in both runs. The rig held. The nine servers did form one shared meta group (<code>SB9</code>, <code>SC9</code>), but the ZA streams did not survive it. Their acked data could not be read back (<code>SB10</code>, <code>SB16</code>, <code>SC10</code>, <code>SC16</code>), or did not match (<code>SC19</code>), and new publishes to them were not acked (<code>SB20</code>, <code>SB24</code>). That held in the clean-name run, so a stream name collision is not what caused it. The AU streams and the KV bucket came through (<code>SB13</code>, <code>SB19</code>). The ZA stream directories were gone from disk in the kept stores; why the server removed them is <strong>not proved</strong>. In the collision run, <code>SC37</code> and <code>SC55</code> fail because the keep-working step read from a stream whose twin had just vanished -- a side effect of the test, not separate evidence about consumers. <strong>This procedure is unsafe for existing data.</strong> A failed direct conversion does not make T4 or T5 a one-way architectural choice: other conversion and migration procedures are untested.</p>
+<p><em>Evidence:</em> <code>SB1</code>, <code>SB2</code>, <code>SB3</code>, <code>SB4</code>, <code>SB5</code>, <code>SB6</code>, <code>SB7</code>, <code>SB8</code>, <code>SB9</code>, <code>SB10</code>, <code>SB11</code>, <code>SB12</code>, <code>SB13</code>, <code>SB14</code>, <code>SB15</code>, <code>SB16</code>, <code>SB17</code>, <code>SB18</code>, <code>SB19</code>, <code>SB20</code>, <code>SB21</code>, <code>SB22</code>, <code>SB23</code>, <code>SB24</code>, <code>SB25</code>, <code>SB26</code>, <code>SB27</code>, <code>SB28</code>, <code>SB29</code>, <code>SB30</code>, <code>SB31</code>, <code>SB32</code>, <code>SB33</code>, <code>SB34</code>, <code>SB35</code>, <code>SB36</code>, <code>SB37</code>, <code>SB38</code>, <code>SC1</code>, <code>SC2</code>, <code>SC3</code>, <code>SC4</code>, <code>SC5</code>, <code>SC6</code>, <code>SC7</code>, <code>SC8</code>, <code>SC9</code>, <code>SC10</code>, <code>SC11</code>, <code>SC12</code>, <code>SC13</code>, <code>SC14</code>, <code>SC15</code>, <code>SC16</code>, <code>SC17</code>, <code>SC18</code>, <code>SC19</code>, <code>SC20</code>, <code>SC21</code>, <code>SC22</code>, <code>SC23</code>, <code>SC24</code>, <code>SC25</code>, <code>SC26</code>, <code>SC27</code>, <code>SC28</code>, <code>SC29</code>, <code>SC30</code>, <code>SC31</code>, <code>SC32</code>, <code>SC33</code>, <code>SC34</code>, <code>SC35</code>, <code>SC36</code>, <code>SC37</code>, <code>SC38</code>, <code>SC39</code>, <code>SC40</code>, <code>SC41</code>, <code>SC42</code>, <code>SC43</code>, <code>SC44</code>, <code>SC45</code>, <code>SC46</code>, <code>SC47</code>, <code>SC48</code>, <code>SC49</code>, <code>SC50</code>, <code>SC51</code>, <code>SC52</code>, <code>SC53</code>, <code>SC54</code>, <code>SC55</code>, <code>SC56</code>, <code>SB39</code>, <code>SC57</code></p>
+</div>
 </section>
 <section class="sec">
 <h2>Findings this rig added</h2>
@@ -1447,6 +1759,9 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <h2>Still open</h2>
 <p>These rows are <strong>not</strong> measured. Believe nothing in them. They are the list of what a later run has to build.</p>
 <div class="card"><table><thead><tr><th>What</th><th>Why it is still open</th></tr></thead><tbody>
+<tr><td>Any other way to move between T4 and T5</td><td>Only one procedure was tested: stop everything, rewrite, restart on the same stores. It failed both ways. A migration to new clusters, or a conversion one site at a time, is untested.</td></tr>
+<tr><td>Whether T4 data survived the switch to T5</td><td>The read path used here needs a meta leader, and the switched system had none. The data on disk was kept but not read back another way.</td></tr>
+<tr><td>Why T5 to T4 removed the ZA streams</td><td>The loss is measured. The mechanism is not. Reading the kept logs and stores is the next step, before any cause is written down.</td></tr>
 <tr><td><code>D03-R4</code> -- the cost of a cross-region read</td><td>Stream, consumer and KV placement are all measured. Latency is not. Nothing here says what a cross-WAN read costs in milliseconds.</td></tr>
 <tr><td>A real WAN partition, not a process stop</td><td>Every region loss here is <code>kill -STOP</code> on the processes. Both sides running but unable to reach each other is a different rig, and it is the one that would show reconnect and split-brain behaviour.</td></tr>
 <tr><td>Mirror lag and bandwidth</td><td>Both shapes now prove a mirror copies. Neither says how fast, or at what cost on the wire.</td></tr>
@@ -1467,6 +1782,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td><code>06-arbiter3.sh</code></td><td>T4 / F &mdash; gateway plus a 3-node arbiter</td><td class='num'>9</td></tr>
 <tr><td><code>07-gateway-and-hub.sh</code></td><td>T6 / G &mdash; a gateway AND a hub leaf link</td><td class='num'>9</td></tr>
 <tr><td><code>08-hub-leaf-per-region.sh</code></td><td>T5 / H &mdash; hub and leaf, an account per region</td><td class='num'>9</td></tr>
+<tr><td><code>09-switch-t4-t5.sh</code></td><td>T4 / S, T5 / S &mdash; switch in place, T4 to T5 and back, on the same stores</td><td class='num'>9</td></tr>
 </tbody></table></div>
 <p>Run one on its own the same way: <code>./01-gateway.sh</code>.</p>
 </section>

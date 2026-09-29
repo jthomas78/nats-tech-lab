@@ -7,10 +7,10 @@
 # original measurements in September 2026 were driven by hand through a
 # terminal and never captured. This is that rig, written down.
 #
-#   ./run-all.sh          run all nine, then write both reports
+#   ./run-all.sh          run every script, then write both reports
 #   ./run-all.sh report   re-render both reports from the last run's results
 #
-# Takes about 15 minutes. It starts and stops up to 9 nats-server processes at
+# Takes about 40 minutes -- 09 alone is about 25. It starts and stops up to 9 nats-server processes at
 # a time, all on 127.0.0.1, all with `t-` prefixed names.
 
 set -euo pipefail
@@ -21,7 +21,7 @@ RESULTS="$RUN_DIR/results.tsv"
 
 LABS=(00-islands.sh 01-gateway.sh 02-domain-over-gateway.sh 03-arbiter.sh
       04-hub-and-leaf.sh 05-export-import.sh 06-arbiter3.sh
-      07-gateway-and-hub.sh 08-hub-leaf-per-region.sh)
+      07-gateway-and-hub.sh 08-hub-leaf-per-region.sh 09-switch-t4-t5.sh)
 
 # Two editions of one report, from the same numbers. The HTML one adds the
 # nine hand-drawn topology figures from figures.html; the Markdown one does
@@ -61,16 +61,24 @@ done
 render
 echo
 echo "=========================================================="
-awk -F'\t' '$7=="PASS"{p++} $7=="FAIL"{f++} $7=="NOTE"{n++}
-  END{printf "  %d passed, %d failed, %d notes\n", p, f, n}' "$RESULTS"
+# Column 9 is the row's kind. A missing one is a rig row (older results).
+# A procedure row answers "did the procedure work?" -- its FAIL is the answer,
+# not a broken rig, so it is counted apart and never fails this script.
+awk -F'\t' '$9!="procedure" && $7=="PASS"{p++} $9!="procedure" && $7=="FAIL"{f++}
+  $9!="procedure" && $7=="NOTE"{n++}
+  $9=="procedure" && $7=="PASS"{pm++} $9=="procedure" && $7=="FAIL"{pn++}
+  END{printf "  rig checks:       %d passed, %d failed, %d notes\n", p, f, n
+      printf "  procedure checks: %d met, %d not met\n", pm, pn}' "$RESULTS"
+# A VERDICT row: $4 what was judged, $5 why (the counts), $6 the verdict words.
+awk -F'\t' '$7=="VERDICT"{printf "  PROCEDURE VERDICT %-5s %s %s -- %s\n                    (%s)\n", $1, $2, $4, toupper($6), $5}' "$RESULTS"
 echo "  report: demos/03-multi-cluster-and-accounts/REPORT.md"
 echo "          demos/03-multi-cluster-and-accounts/REPORT.html"
 echo "=========================================================="
 
 # check() records a FAIL row and still returns 0, so a script can finish
 # cleanly with failed checks in it. Count the rows, not just the exit codes.
-failed_checks=$(awk -F'\t' '$7=="FAIL"{n++} END{print n+0}' "$RESULTS")
+failed_checks=$(awk -F'\t' '$9!="procedure" && $7=="FAIL"{n++} END{print n+0}' "$RESULTS")
 if [ "$failed_checks" -ne 0 ]; then
-  echo "  !!! $failed_checks check(s) FAILED -- see $RESULTS" >&2
+  echo "  !!! $failed_checks rig check(s) FAILED -- see $RESULTS" >&2
 fi
 [ "$failed" -eq 0 ] && [ "$failed_checks" -eq 0 ]

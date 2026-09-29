@@ -11,7 +11,42 @@ Usage:  render-report.py run/results.tsv run/env.txt > ../REPORT.md
 import re, sys, collections
 
 COLS = ("id", "req", "topology", "desc", "expected", "actual", "status",
-        "from")
+        "from", "kind")
+
+# The ninth column, KIND, keeps two questions apart:
+#   rig        did the rig build, seed and measure what it said it would? A rig
+#              FAIL means the run proves nothing. Older results have no ninth
+#              column; they are all rig rows.
+#   procedure  did the PROCEDURE under test meet its requirement? A FAIL here
+#              is the answer, not a broken rig. It stays a FAIL in every table,
+#              and it is counted apart.
+# A VERDICT row (status VERDICT, kind procedure) is one run's verdict on its
+# procedure: "passed with a measured interruption", "failed" or "inconclusive".
+# In it, expected holds the reason (the counts) and actual holds the verdict.
+
+
+def is_proc(r):
+    return r.get("kind") == "procedure"
+
+
+def mark_of(r):
+    """(glyph, css class) for a row."""
+    if r["status"] == "VERDICT":
+        v = r["actual"]
+        return ("◆", "fail" if v == "failed" else
+                "note" if v == "inconclusive" else "pass")
+    return {"PASS": ("✓", "pass"), "FAIL": ("✗", "fail"),
+            "NOTE": ("○", "note")}.get(r["status"], ("", ""))
+
+
+def counts(rs):
+    """rig pass, rig fail, notes, procedure met, procedure not met."""
+    rp = sum(1 for r in rs if not is_proc(r) and r["status"] == "PASS")
+    rf = sum(1 for r in rs if not is_proc(r) and r["status"] == "FAIL")
+    n = sum(1 for r in rs if r["status"] == "NOTE")
+    pm = sum(1 for r in rs if is_proc(r) and r["status"] == "PASS")
+    pn = sum(1 for r in rs if is_proc(r) and r["status"] == "FAIL")
+    return rp, rf, n, pm, pn
 
 # NATS JetStream error codes, as measured in this lab. A bare five-digit code
 # tells a reader nothing, and looking it up online breaks the read, so every
@@ -186,6 +221,38 @@ REQS = {
    "holds its own leader while a region is dark, a client on the hub still "
    "creates a stream, and killing the hub leaves the regions untouched. What "
    "the leaf link cannot do is lend a vote to the region that lost one."),
+ "D03-R11": (
+   "Can a running **T4** be converted **in place** to **T5**, and keep its "
+   "data?",
+   "**Failed**, for the one procedure tested: stop all nine servers, rewrite "
+   "the configs, start them again on the same stores. The rig held -- the "
+   "source shape was built, seeded and read back (the `before` rows). After "
+   "the switch the three sites did **not** become three independent meta "
+   "groups (`SA9`, `SA28`). Streams whose groups were already formed kept "
+   "taking acked publishes, and their consumers resumed (`SA20`-`SA25`). But "
+   "the stored data could not be read back through the path this check uses "
+   "(`SA10`, `SA13`, `SA16`), because that path asks for `stream info` first, "
+   "which needs a meta leader. So data integrity after this switch is "
+   "**unverified**, not disproved. This says nothing about any other "
+   "conversion or migration procedure."),
+ "D03-R12": (
+   "Can a running **T5** be converted **in place** to **T4**, and keep its "
+   "data?",
+   "**Failed**, for the one procedure tested, in both runs. The rig held. The "
+   "nine servers did form one shared meta group (`SB9`, `SC9`), but the ZA "
+   "streams did not survive it. Their acked data could not be read back "
+   "(`SB10`, `SB16`, `SC10`, `SC16`), or did not match (`SC19`), and new "
+   "publishes to them were not acked (`SB20`, `SB24`). That held in the "
+   "clean-name run, so a stream name "
+   "collision is not what caused it. The AU streams and the KV bucket came "
+   "through (`SB13`, `SB19`). The ZA stream directories were gone from disk "
+   "in the kept stores; why the server removed them is **not proved**. In "
+   "the collision run, `SC37` and `SC55` fail because the keep-working step "
+   "read from a stream whose twin had just vanished -- a side effect of the "
+   "test, not separate evidence about consumers. **This procedure is unsafe "
+   "for existing data.** A failed direct conversion does not make T4 or T5 "
+   "a one-way architectural choice: other conversion and migration "
+   "procedures are untested."),
  "D03-R9": (
    "If we add an arbiter site, can real data land on it **by accident**?",
    "Not by accident -- but it is not fenced off either. Unplaced streams "
@@ -279,6 +346,16 @@ NEW = [
 ]
 
 OPEN = [
+ ("Any other way to move between T4 and T5",
+  "Only one procedure was tested: stop everything, rewrite, restart on the "
+  "same stores. It failed both ways. A migration to new clusters, or a "
+  "conversion one site at a time, is untested."),
+ ("Whether T4 data survived the switch to T5",
+  "The read path used here needs a meta leader, and the switched system had "
+  "none. The data on disk was kept but not read back another way."),
+ ("Why T5 to T4 removed the ZA streams",
+  "The loss is measured. The mechanism is not. Reading the kept logs and "
+  "stores is the next step, before any cause is written down."),
  ("`D03-R4` -- the cost of a cross-region read",
   "Stream, consumer and KV placement are all measured. Latency is not. "
   "Nothing here says what a cross-WAN read costs in milliseconds."),
@@ -559,18 +636,54 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
                  ("Client", "<code>%s</code>" % esc(env.get("nats-cli", "—"))),
                  ("Machine", esc(env.get("host", "—")))):
         o(f"<tr><th>{k}</th><td>{v}</td></tr>")
-    o(f'<tr><th>Checks</th><td><strong class="pass">{npass} passed</strong>, '
+    o(f'<tr><th>Rig checks</th><td><strong class="pass">{npass} passed</strong>, '
       f'<strong class="{"fail" if nfail else "note"}">{nfail} failed</strong>'
       f"</td></tr>")
+    pm = sum(1 for r in rows if is_proc(r) and r["status"] == "PASS")
+    pn = sum(1 for r in rows if is_proc(r) and r["status"] == "FAIL")
+    verdicts = [r for r in rows if r["status"] == "VERDICT"]
+    if pm or pn or verdicts:
+        o(f'<tr><th>Procedure checks</th><td>{pm} met, '
+          f'<strong class="{"fail" if pn else "note"}">{pn} not met</strong>'
+          f"</td></tr>")
+        o(f'<tr><th>Procedure verdicts</th><td>{len(verdicts)} &mdash; '
+          f'see the next section</td></tr>')
     o(f"<tr><th>Recorded observations</th><td>{nnote}</td></tr>")
     o("</tbody></table></div>")
     o("<p>A <strong>check</strong> has an expected answer and passes only on "
       "an exact match. A <strong>note</strong> has no expected answer &mdash; "
       "it records what the machine did, so the number is on the record. A "
       "note can never fail, so it guards nothing.</p>")
+    o("<p>A <strong>rig check</strong> asks whether the rig did its job. A "
+      "<strong>procedure check</strong> asks whether a procedure under test "
+      "met its requirement. A failed procedure check is an answer, not a "
+      "broken rig, so it is counted apart and does not fail the run.</p>")
     o("<p>To reproduce the whole thing:</p>")
     o("<pre>cd demos/03-multi-cluster-and-accounts/lab\n./run-all.sh</pre>")
     o("</section>")
+
+    # --- procedure verdicts ------------------------------------------------
+    if verdicts:
+        o('<section class="sec">')
+        o("<h2>Procedure verdicts</h2>")
+        o("<p>Some scripts test an operating <strong>procedure</strong>, not a "
+          "shape. Each such run ends with one verdict: <em>passed with a "
+          "measured interruption</em>, <em>failed</em>, or <em>inconclusive"
+          "</em> when the rig itself failed. The verdict is the answer. The "
+          "checks behind it are in that shape&rsquo;s table below.</p>")
+        o('<div class="card"><table><thead><tr><th></th><th>Verdict</th>'
+          "<th>Req</th><th>Procedure</th><th>Run</th><th>Why</th>"
+          "</tr></thead><tbody>")
+        for r in verdicts:
+            mark, cls = mark_of(r)
+            o(f"<tr><td class='mark {cls}'>{mark}</td>"
+              f"<td class='{cls}'><strong>{esc(r['actual'])}</strong></td>"
+              f"<td><code>{esc(r['req'])}</code></td>"
+              f"<td>{esc(r['desc'])}</td>"
+              f"<td>{esc(r['topology'])} <code>{esc(r['id'])}</code></td>"
+              f"<td>{esc(r['expected'])}</td></tr>")
+        o("</tbody></table></div>")
+        o("</section>")
 
     # --- the accounts, held still in every topology -------------------------
     # The topology is the variable. The account block is NOT -- it is byte for
@@ -617,19 +730,23 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     o('<section class="sec">')
     o("<h2>Per topology</h2>")
     o('<div class="card"><table><thead><tr>'
-      '<th>Topology</th><th class="num">Checks</th><th class="num">Passed</th>'
+      '<th>Topology</th><th class="num">Rig checks</th><th class="num">Passed</th>'
       '<th class="num">Failed</th><th class="num">Notes</th>'
-      "</tr></thead><tbody>")
+      '<th class="num">Procedure met</th><th class="num">Not met</th>'
+      "<th>Verdict</th></tr></thead><tbody>")
     for t in topos:
         rs = by_topo[t]
-        c = [r for r in rs if r["status"] in ("PASS", "FAIL")]
-        p = sum(1 for r in c if r["status"] == "PASS")
-        f = sum(1 for r in c if r["status"] == "FAIL")
-        n = sum(1 for r in rs if r["status"] == "NOTE")
-        o(f"<tr><td>{esc(t)}</td><td class='num'>{len(c)}</td>"
+        p, f, n, pm_, pn_ = counts(rs)
+        v = [r["actual"] for r in rs if r["status"] == "VERDICT"]
+        dash = "&mdash;"
+        o(f"<tr><td>{esc(t)}</td><td class='num'>{p + f}</td>"
           f"<td class='num pass'>{p}</td>"
           f"<td class='num {'fail' if f else 'note'}'>{f}</td>"
-          f"<td class='num note'>{n}</td></tr>")
+          f"<td class='num note'>{n}</td>"
+          f"<td class='num'>{pm_ if (pm_ or pn_) else dash}</td>"
+          f"<td class='num {'fail' if pn_ else 'note'}'>"
+          f"{pn_ if (pm_ or pn_) else dash}</td>"
+          f"<td>{esc(', '.join(v)) if v else dash}</td></tr>")
     o("</tbody></table></div>")
     o("</section>")
 
@@ -681,9 +798,7 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
           "<th></th><th>Check</th><th>Req</th><th>From</th><th>Expected</th>"
           "<th>Measured</th><th>Extra info</th></tr></thead><tbody>")
         for r in by_topo[t]:
-            mark, cls = {"PASS": ("✓", "pass"),
-                         "FAIL": ("✗", "fail"),
-                         "NOTE": ("○", "note")}.get(r["status"], ("", ""))
+            mark, cls = mark_of(r)
             exp = esc(r["expected"]) if r["status"] != "NOTE" else "&mdash;"
             act = esc(r["actual"])
             extra = err_extra(r)
@@ -697,7 +812,9 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
               f"<td>{exp}</td>"
               f"<td class='mono'>{act}</td>"
               f"<td class='extra'>{esc(extra) if extra else '&mdash;'}</td></tr>")
-            o(f"<tr><td></td><td colspan='6'>{esc(r['desc'])}</td></tr>")
+            tag = ("<strong>verdict</strong> &middot; " if r["status"] == "VERDICT"
+                   else "<em>procedure</em> &middot; " if is_proc(r) else "")
+            o(f"<tr><td></td><td colspan='6'>{tag}{esc(r['desc'])}</td></tr>")
         o("</tbody></table></div>")
         o("</section>")
 
@@ -784,7 +901,10 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
                      "T6 / G &mdash; a gateway AND a hub leaf link", 9),
                     ("08-hub-leaf-per-region.sh",
                      "T5 / H &mdash; hub and leaf, an account per region",
-                     9)):
+                     9),
+                    ("09-switch-t4-t5.sh",
+                     "T4 / S, T5 / S &mdash; switch in place, T4 to T5 and "
+                     "back, on the same stores", 9)):
         o(f"<tr><td><code>{s}</code></td><td>{t}</td>"
           f"<td class='num'>{n}</td></tr>")
     o("</tbody></table></div>")
@@ -817,6 +937,8 @@ def main():
             if not line:
                 continue
             parts = line.split("\t")
+            if len(parts) == len(COLS) - 1:
+                parts.append("rig")          # results from before KIND
             if len(parts) != len(COLS):
                 continue
             rows.append(dict(zip(COLS, parts)))
@@ -829,10 +951,9 @@ def main():
     except OSError:
         pass
 
-    checks = [r for r in rows if r["status"] in ("PASS", "FAIL")]
-    npass = sum(1 for r in checks if r["status"] == "PASS")
-    nfail = sum(1 for r in checks if r["status"] == "FAIL")
-    nnote = sum(1 for r in rows if r["status"] == "NOTE")
+    # The headline counts are RIG counts. Procedure rows are counted apart.
+    npass, nfail, nnote, pmet, pnot = counts(rows)
+    verdicts = [r for r in rows if r["status"] == "VERDICT"]
 
     # Topologies in TOPOLOGY order -- T1, T2, T3 and so on, with the variants
     # of one topology together and in letter order: T2 / A, T2 / B, T2 / E.
@@ -891,13 +1012,35 @@ def main():
     o(f"| Server | `nats-server {env.get('nats-server','—')}` |")
     o(f"| Client | `{env.get('nats-cli','—')}` |")
     o(f"| Machine | {env.get('host','—')} |")
-    o(f"| Checks | **{npass} passed, {nfail} failed** |")
+    o(f"| Rig checks | **{npass} passed, {nfail} failed** |")
+    if pmet or pnot or verdicts:
+        o(f"| Procedure checks | {pmet} met, **{pnot} not met** |")
+        o(f"| Procedure verdicts | {len(verdicts)} — see the next section |")
     o(f"| Recorded observations | {nnote} |")
     o("")
     o("A **check** has an expected answer and passes only on an exact match. "
       "A **note** has no expected answer — it records what the machine did so "
       "the number is on the record. Notes cannot pass or fail.")
     o("")
+    o("A **rig check** asks whether the rig did its job. A **procedure "
+      "check** asks whether a procedure under test met its requirement. A "
+      "failed procedure check is an answer, not a broken rig, so it is "
+      "counted apart and does not fail the run.")
+    o("")
+    if verdicts:
+        o("## Procedure verdicts")
+        o("")
+        o("Some scripts test an operating **procedure**, not a shape. Each "
+          "such run ends with one verdict: *passed with a measured "
+          "interruption*, *failed*, or *inconclusive* when the rig itself "
+          "failed. The checks behind it are in that shape's table below.")
+        o("")
+        o("| Verdict | Req | Procedure | Run | Why |")
+        o("|---|---|---|---|---|")
+        for r in verdicts:
+            o(f"| **{r['actual']}** | {r['req']} | {r['desc']} | "
+              f"{r['topology']} `{r['id']}` | {r['expected']} |")
+        o("")
 
     o("## The four accounts")
     o("")
@@ -933,15 +1076,16 @@ def main():
 
     o("## Per topology")
     o("")
-    o("| Topology | Checks | Passed | Failed | Notes |")
-    o("|---|---:|---:|---:|---:|")
+    o("| Topology | Rig checks | Passed | Failed | Notes | Procedure met "
+      "| Not met | Verdict |")
+    o("|---|---:|---:|---:|---:|---:|---:|---|")
     for t in topos:
         rs = by_topo[t]
-        c = [r for r in rs if r["status"] in ("PASS", "FAIL")]
-        p = sum(1 for r in c if r["status"] == "PASS")
-        f = sum(1 for r in c if r["status"] == "FAIL")
-        n = sum(1 for r in rs if r["status"] == "NOTE")
-        o(f"| {t} | {len(c)} | {p} | {f} | {n} |")
+        p, f, n, pm_, pn_ = counts(rs)
+        v = [r["actual"] for r in rs if r["status"] == "VERDICT"]
+        has = pm_ or pn_
+        o(f"| {t} | {p + f} | {p} | {f} | {n} | {pm_ if has else '—'} "
+          f"| {pn_ if has else '—'} | {', '.join(v) if v else '—'} |")
     o("")
 
     o("## The answers, requirement by requirement")
@@ -1017,12 +1161,15 @@ def main():
         o("| | Check | Req | From | Expected | Measured | Extra info |")
         o("|---|---|---|---|---|---|---|")
         for r in by_topo[t]:
-            mark = {"PASS": "✅", "FAIL": "❌", "NOTE": "📋"}.get(r["status"], "")
+            mark = {"PASS": "✅", "FAIL": "❌", "NOTE": "📋",
+                    "VERDICT": "◆"}.get(r["status"], "")
             exp = r["expected"] if r["status"] != "NOTE" else "—"
+            tag = ("**verdict** · " if r["status"] == "VERDICT"
+                   else "*procedure* · " if is_proc(r) else "")
             src = r.get("from", "-")
             src = "—" if src in ("", "-") else f"`{src}`"
             extra = err_extra(r) or "—"
-            o(f"| {mark} `{r['id']}` | {r['desc']} | {r['req']} | {src} | "
+            o(f"| {mark} `{r['id']}` | {tag}{r['desc']} | {r['req']} | {src} | "
               f"{exp} | **{r['actual']}** | {extra} |")
         o("")
 
@@ -1043,6 +1190,7 @@ def main():
     o("| `06-arbiter3.sh` | T4 / F — gateway plus a 3-node arbiter | 9 |")
     o("| `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |")
     o("| `08-hub-leaf-per-region.sh` | T5 / H — hub and leaf, an account per region | 9 |")
+    o("| `09-switch-t4-t5.sh` | T4 / S, T5 / S — switch in place, T4 to T5 and back, on the same stores | 9 |")
     o("")
     o("Run one on its own the same way: `./01-gateway.sh`.")
 
