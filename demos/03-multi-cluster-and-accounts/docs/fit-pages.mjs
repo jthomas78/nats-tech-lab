@@ -6,7 +6,7 @@
 // This script measures each `.page` at print width and rewrites the block
 // between the fit-pages markers in place. Run it before exporting the PDF.
 //
-//   node docs/fit-pages.mjs docs/03-multi-cluster-and-accounts-pattern-cards-v0.3.html
+//   node docs/fit-pages.mjs docs/03-multi-cluster-and-accounts-pattern-cards-v0.4.html
 import path from 'node:path'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'

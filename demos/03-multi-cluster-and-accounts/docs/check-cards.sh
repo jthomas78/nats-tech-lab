@@ -17,8 +17,8 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.3.html"
-PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.3.pdf"
+HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.4.html"
+PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.4.pdf"
 
 fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -64,7 +64,7 @@ TITLES=(
  "An arbiter site buys the vote back"
  "This lab's leaf link gives each region a vote, and a double copy"
  "A mirror is the second copy"
- "Export / import is the only sharing that is safe by design"
+ "Export / import: the explicit way across an account"
  "Both links at once is not both shapes at once"
 )
 for t in "${TITLES[@]}"; do has "carries the card: $t" "$t"; done
@@ -83,7 +83,7 @@ verdicts=$(grep -c 'class="verdict"' "$HTML")
 # Provenance. A figure with no date and no machine becomes a stale constant.
 has "says where every number came from"   "Where every number came from"
 has "names the server it ran on"          "nats-server v2.14.6"
-has "names the run that produced it"      "178 checks passed"
+has "names the run that produced it"      "196 rig checks passed"
 prose | grep -qE '2026-09-2[0-9]' \
   && ok "dates its numbers" || bad "no measurement date in the deck"
 
