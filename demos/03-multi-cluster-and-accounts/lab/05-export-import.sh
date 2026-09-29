@@ -106,7 +106,7 @@ check E2 D03-R8 "the importing account LB_AU stored it too, across the gateway" 
 check E3 D03-R8 "and it arrived PREFIXED -- LB_AU's raw-subject stream" \
       "0" "$(stream_msgs 4241 au RAW)"
 note  E3a D03-R8 "so the deliberate copy and the accidental one differ" \
-      "the importing side renames the subject, so the two sources can never be confused"
+      "the importing side renames the subject, so imported traffic sits on subjects of its own -- a namespace, not proof of origin"
 
 # --- The hole is one-way ----------------------------------------------------
 # LB_AU exports nothing. A publish there is its own business, and ZA's stream

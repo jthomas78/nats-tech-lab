@@ -399,15 +399,20 @@ OPEN = [
   "Only one procedure was tested: stop everything, rewrite, restart on the "
   "same stores. It failed both ways. A migration to new clusters, or a "
   "conversion one site at a time, is untested."),
- ("Whether T4 data survived the switch to T5",
-  "The read path used here needs a meta leader, and the switched system had "
-  "none. The data on disk was kept but not read back another way."),
- ("Why the ZA streams were lost going T5 to T4",
-  "The loss is measured. The mechanism is not. The kept INFO-level logs "
-  "show the order only: the ZA servers restored their streams from disk, "
-  "an AU server was elected meta leader, and the ZA servers reset their "
-  "meta log. No line names a removal. The next run keeps a stopped copy "
-  "of all nine stores before the switch and logs at debug level."),
+ ("Whether the switch is repeatable",
+  "Two runs, two different outcomes. On 2026-09-28 the T5 to T4 switch with "
+  "clean names lost the ZA streams. On 2026-09-29 the same switch kept all "
+  "the checked data, and T4 to T5 kept its data too, read back by Direct "
+  "Get. One immediate placement read (`SB18`) came back empty; that is an "
+  "unread placement, not evidence of movement or loss. Two runs do not show "
+  "safe, repeatable operation."),
+ ("Why T5 to T4 removed ZA replicas, and whether they can be recovered",
+  "In the collision run, za-1 and za-2 removed their ZA copies and za-3 "
+  "kept its copy. The streams were unavailable. The removals follow a "
+  "meta-log roll-back to the AU leader's, but za-3 rolled back too and kept "
+  "its copy, so the mechanism is not proved. Replica deletion is not "
+  "irrecoverable loss: recovery from the surviving files is untested. The "
+  "debug logs and stores are kept under `lab/run/evidence/`."),
  ("`D03-R4` -- the cost of a cross-region read",
   "Stream, consumer and KV placement are all measured. Latency is not. "
   "Nothing here says what a cross-WAN read costs in milliseconds."),

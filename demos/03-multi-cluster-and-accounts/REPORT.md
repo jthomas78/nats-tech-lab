@@ -225,8 +225,8 @@ Not a NATS fact -- a rig fact, and worth keeping. An early version of this harne
 | What | Why it is still open |
 |---|---|
 | Any other way to move between T4 and T5 | Only one procedure was tested: stop everything, rewrite, restart on the same stores. It failed both ways. A migration to new clusters, or a conversion one site at a time, is untested. |
-| Whether T4 data survived the switch to T5 | The read path used here needs a meta leader, and the switched system had none. The data on disk was kept but not read back another way. |
-| Why the ZA streams were lost going T5 to T4 | The loss is measured. The mechanism is not. The kept INFO-level logs show the order only: the ZA servers restored their streams from disk, an AU server was elected meta leader, and the ZA servers reset their meta log. No line names a removal. The next run keeps a stopped copy of all nine stores before the switch and logs at debug level. |
+| Whether the switch is repeatable | Two runs, two different outcomes. On 2026-09-28 the T5 to T4 switch with clean names lost the ZA streams. On 2026-09-29 the same switch kept all the checked data, and T4 to T5 kept its data too, read back by Direct Get. One immediate placement read (`SB18`) came back empty; that is an unread placement, not evidence of movement or loss. Two runs do not show safe, repeatable operation. |
+| Why T5 to T4 removed ZA replicas, and whether they can be recovered | In the collision run, za-1 and za-2 removed their ZA copies and za-3 kept its copy. The streams were unavailable. The removals follow a meta-log roll-back to the AU leader's, but za-3 rolled back too and kept its copy, so the mechanism is not proved. Replica deletion is not irrecoverable loss: recovery from the surviving files is untested. The debug logs and stores are kept under `lab/run/evidence/`. |
 | `D03-R4` -- the cost of a cross-region read | Stream, consumer and KV placement are all measured. Latency is not. Nothing here says what a cross-WAN read costs in milliseconds. |
 | A real WAN partition, not a process stop | Every region loss here is `kill -STOP` on the processes. Both sides running but unable to reach each other is a different rig, and it is the one that would show reconnect and split-brain behaviour. |
 | Mirror lag and bandwidth | Both shapes now prove a mirror copies. Neither says how fast, or at what cost on the wire. |
@@ -334,7 +334,7 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `E1` | one publish in LB_ZA: the owning account stored it | D03-R8 | — | 1 | **1** | — |
 | ✅ `E2` | the importing account LB_AU stored it too, across the gateway | D03-R8 | — | 1 | **1** | — |
 | ✅ `E3` | and it arrived PREFIXED -- LB_AU's raw-subject stream | D03-R8 | — | 0 | **0** | — |
-| 📋 `E3a` | so the deliberate copy and the accidental one differ | D03-R8 | — | — | **the importing side renames the subject, so the two sources can never be confused** | — |
+| 📋 `E3a` | so the deliberate copy and the accidental one differ | D03-R8 | — | — | **the importing side renames the subject, so imported traffic sits on subjects of its own -- a namespace, not proof of origin** | — |
 | ✅ `E4` | LB_AU publishes the same subject: ZA's stream is unchanged | D03-R8 | — | 1 | **1** | — |
 | ✅ `E5` | and LB_AU's own raw stream took that one | D03-R8 | — | 1 | **1** | — |
 | ✅ `E6` | LB_AU asks for stream info on ZA's ODOMETER | D03-R2 | — | fails | **fails** | — |

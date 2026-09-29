@@ -560,7 +560,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
   <text class="ro g" x="30" y="342">E1  one publish in ZA: the owning account stored it</text>
   <text class="ro g" x="30" y="360">E2  the importing account stored it too, across the gateway</text>
   <text class="ro g" x="30" y="378">E3  and it arrived PREFIXED &mdash; the raw-subject stream stays empty</text>
-  <text class="ro" x="30" y="396">E3a  the importer renames it, so the two sources can never be confused</text>
+  <text class="ro" x="30" y="396">E3a  the importer renames it: a namespace of its own, not proof of origin</text>
   <text class="ro g" x="30" y="414">E4/E5  the hole is ONE-WAY &mdash; AU's publish does not move ZA's stream</text>
   <text class="ro g" x="30" y="432">E6  LB_AU cannot even read stream info on ZA&apos;s ODOMETER</text>
   <text class="ro g" x="30" y="450">E7/E8  and it may reuse the name ODOMETER for a stream of its own</text>
@@ -578,7 +578,7 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <tr><td></td><td colspan='6'>the importing account LB_AU stored it too, across the gateway</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>E3</td><td><code>D03-R8</code></td><td class='mono'>&mdash;</td><td>0</td><td class='mono'>0</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>and it arrived PREFIXED -- LB_AU's raw-subject stream</td></tr>
-<tr><td class='mark note'>○</td><td class='mono'>E3a</td><td><code>D03-R8</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>the importing side renames the subject, so the two sources can never be confused</td><td class='extra'>&mdash;</td></tr>
+<tr><td class='mark note'>○</td><td class='mono'>E3a</td><td><code>D03-R8</code></td><td class='mono'>&mdash;</td><td>&mdash;</td><td class='mono'>the importing side renames the subject, so imported traffic sits on subjects of its own -- a namespace, not proof of origin</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>so the deliberate copy and the accidental one differ</td></tr>
 <tr><td class='mark pass'>✓</td><td class='mono'>E4</td><td><code>D03-R8</code></td><td class='mono'>&mdash;</td><td>1</td><td class='mono'>1</td><td class='extra'>&mdash;</td></tr>
 <tr><td></td><td colspan='6'>LB_AU publishes the same subject: ZA's stream is unchanged</td></tr>
@@ -1773,8 +1773,8 @@ pre { margin: 0; background: var(--nested); border: 1px solid var(--border); bor
 <p>These rows are <strong>not</strong> measured. Believe nothing in them. They are the list of what a later run has to build.</p>
 <div class="card"><table><thead><tr><th>What</th><th>Why it is still open</th></tr></thead><tbody>
 <tr><td>Any other way to move between T4 and T5</td><td>Only one procedure was tested: stop everything, rewrite, restart on the same stores. It failed both ways. A migration to new clusters, or a conversion one site at a time, is untested.</td></tr>
-<tr><td>Whether T4 data survived the switch to T5</td><td>The read path used here needs a meta leader, and the switched system had none. The data on disk was kept but not read back another way.</td></tr>
-<tr><td>Why the ZA streams were lost going T5 to T4</td><td>The loss is measured. The mechanism is not. The kept INFO-level logs show the order only: the ZA servers restored their streams from disk, an AU server was elected meta leader, and the ZA servers reset their meta log. No line names a removal. The next run keeps a stopped copy of all nine stores before the switch and logs at debug level.</td></tr>
+<tr><td>Whether the switch is repeatable</td><td>Two runs, two different outcomes. On 2026-09-28 the T5 to T4 switch with clean names lost the ZA streams. On 2026-09-29 the same switch kept all the checked data, and T4 to T5 kept its data too, read back by Direct Get. One immediate placement read (<code>SB18</code>) came back empty; that is an unread placement, not evidence of movement or loss. Two runs do not show safe, repeatable operation.</td></tr>
+<tr><td>Why T5 to T4 removed ZA replicas, and whether they can be recovered</td><td>In the collision run, za-1 and za-2 removed their ZA copies and za-3 kept its copy. The streams were unavailable. The removals follow a meta-log roll-back to the AU leader's, but za-3 rolled back too and kept its copy, so the mechanism is not proved. Replica deletion is not irrecoverable loss: recovery from the surviving files is untested. The debug logs and stores are kept under <code>lab/run/evidence/</code>.</td></tr>
 <tr><td><code>D03-R4</code> -- the cost of a cross-region read</td><td>Stream, consumer and KV placement are all measured. Latency is not. Nothing here says what a cross-WAN read costs in milliseconds.</td></tr>
 <tr><td>A real WAN partition, not a process stop</td><td>Every region loss here is <code>kill -STOP</code> on the processes. Both sides running but unable to reach each other is a different rig, and it is the one that would show reconnect and split-brain behaviour.</td></tr>
 <tr><td>Mirror lag and bandwidth</td><td>Both shapes now prove a mirror copies. Neither says how fast, or at what cost on the wire.</td></tr>
