@@ -100,6 +100,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 | `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |
 | `08-hub-leaf-per-region.sh` | T5 / H — hub + two leaf clusters, an account per region | 9 |
 | `09-switch-t4-t5.sh` | T4 / S, T5 / S — switch in place, T4 → T5 and T5 → T4, same stores | 9 |
+| `test-verdict.sh` | fixture tests for `09`'s verdict, evidence and exit-status rules — no servers, about 5 s |
 | `_common.sh` | the shared harness — config builders, freeze/thaw, the checks |
 | `render-report.py` | turns `run/results.tsv` into `REPORT.md`, and with `--html` into `REPORT.html` |
 | `figures.html` | the nine topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
@@ -119,6 +120,10 @@ Rules for anything added here:
   counted apart, because it is the answer, not a broken rig. A procedure run
   ends with one `verdict` row. Never rewrite a failed procedure check to
   expect the failure — keep the requirement, report the verdict.
+- **Run `lab/test-verdict.sh` after any change to `09`'s verdict, evidence
+  or exit logic, before a live run.** A live `09` takes about 25 minutes;
+  the fixtures take seconds. They source `09` (its guard stops it running)
+  and replace `lab_down` with a no-op, so they never touch a server.
 - **A check has an expected answer and passes only on an exact match.** If you
   cannot say in advance what the right answer is, record it as a `note`
   instead. A note is a measurement on the record, not a claim.
@@ -510,7 +515,11 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   disproved. T5 → T4: one shared group formed (`SB9`), but the ZA streams
   were lost, in the clean-name run too (`SB10`, `SB20`), and their
   directories were gone from disk. The cause of that removal is **not
-  proved** — do not write one down. `SC37` / `SC55` are a test side effect.
+  proved** — do not write one down. The kept logs are INFO level and name
+  no removal; a server's restored streams are not the meta leader's full
+  list. `SC37` / `SC55` are a test side effect. These verdicts were
+  **derived after the run** from its rows; the verdict and evidence-check
+  code has not yet run live.
   **The procedure is unsafe for existing data. It does not make T4 or T5 a
   one-way choice** — no other procedure was tested. Evidence:
   `lab/run/evidence/09-20260928-202654/`.

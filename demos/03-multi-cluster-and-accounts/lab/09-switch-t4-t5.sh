@@ -52,7 +52,8 @@
 #   2. Seed. Read the "before" state: each stream's cluster, each consumer's
 #      ack floor / pending / ack pending, each KV key's value@revision.
 #   3. STOP with TERM, and wait until each process is GONE: third site, then
-#      au, then za. t0 is the first TERM.
+#      au, then za. t0 is the first TERM. Copy all nine stopped stores to
+#      js-0-before-switch; no server ever opens that copy.
 #   4. Rewrite every config in place, same file names:
 #        T4 -> T5  jetstream gains a domain (za / au / hub), the gateway
 #                  block goes, region servers gain two leaf remotes, the
@@ -78,6 +79,14 @@
 #   9. RESTART the destination once (TERM all nine, start again, same
 #      configs) and repeat step 7 against the new expected state.
 #  10. Stop. Keep the configs, logs and stores in run/evidence/<stamp>/<run>/.
+#  11. Check the evidence is all there (a rig check), then write the verdict.
+#      A run that stops early still gets one -- inconclusive -- and keeps
+#      what logs and stores it had (logs-x-stopped, js-x-stopped).
+#
+#  Diagnostics, never checks: every server logs at debug level, and /jsz
+#  (meta group, stream assignments, raft groups) from all nine plus a list
+#  of store directories are saved before the stop, after the first start,
+#  after the probe and after the restart (jsz-*, store-dirs-*).
 #
 #  Notes, never checks: seconds from t0 to each process gone, to each meta
 #  leader, and to each first acked publish -- the OBSERVED interruption under
@@ -194,6 +203,10 @@ write_shape() {                 # $1 t4|t5
     region_conf za "$i" "$1"
     region_conf au "$i" "$1"
   done
+  # Debug-level logs, in BOTH shapes, so the lines around a stream's loss
+  # are on the record. It adds lines, not behaviour -- but it is a change
+  # from the 2026-09-28 run, which logged at INFO.
+  for f in "$RUN_DIR"/t-*.conf; do echo 'debug: true' >> "$f"; done
   mkdir -p "$EVID/conf-$1"
   cp "$RUN_DIR"/t-*.conf "$EVID/conf-$1/"
 }
@@ -293,6 +306,22 @@ shape_want() { [ "$1" = t4 ] && echo "1 / 9" || echo "3 / 3 / 3 / 3"; }
 shape_desc() {
   [ "$1" = t4 ] && echo "T4: meta groups / size (one group of nine)" \
                 || echo "T5: meta groups / size of third site, za, au (three of three)"
+}
+
+# Diagnostics, never checks. They exist so a loss can be traced after the
+# run: what each server says about the meta group, stream assignments and
+# raft groups, and which store directories exist, phase by phase.
+snap_meta() {                   # $1 phase -- /jsz from all nine servers
+  local d="$EVID/jsz-$1" p
+  mkdir -p "$d"
+  for p in $(ALL_HTTP); do
+    curl -fs --max-time 5 \
+      "http://127.0.0.1:$p/jsz?accounts=true&streams=true&consumers=true&config=true&raft=true" \
+      > "$d/$p.json" 2>/dev/null || echo '{"unreachable":true}' > "$d/$p.json"
+  done
+}
+store_dirs() {                  # $1 phase -- every directory under run/js
+  ( cd "$RUN_DIR" && find js -type d | sort ) > "$EVID/store-dirs-$1.txt"
 }
 
 save_logs() {                   # $1 phase
@@ -498,7 +527,58 @@ evidence_state() {
     ls "$EVID/$d"/*.log >/dev/null 2>&1 || miss+="$d; "
   done
   [ -d "$EVID/js" ] || miss+="stores; "
-  echo "${miss:+missing: ${miss%; }}${miss:-complete}"
+  [ -d "$EVID/js-0-before-switch" ] || miss+="stores before the switch; "
+  for d in "jsz-0-before" "jsz-1-after-start" "jsz-2-after-probe" "jsz-3-after-restart"; do
+    [ "$(ls "$EVID/$d"/*.json 2>/dev/null | wc -l | tr -d ' ')" = 9 ] || miss+="$d; "
+  done
+  if [ -n "$miss" ]; then echo "missing: ${miss%; }"; else echo "complete"; fi
+}
+
+# The verdict words, from this run's counts. Pure, so test-verdict.sh can
+# drive it with fixtures. $1 rig fails  $2 procedure fails  $3 procedure checks
+#   inconclusive  the rig failed, or no procedure check ran at all -- the run
+#                 proves nothing either way
+#   failed        the rig held, and at least one procedure check was not met
+#   passed ...    the rig held, and every procedure check was met; the
+#                 interruption is the switch notes, not a pass mark
+decide_verdict() {
+  if   [ "$1" -gt 0 ] || [ "$3" -eq 0 ]; then echo "inconclusive"
+  elif [ "$2" -gt 0 ];                   then echo "failed"
+  else                                        echo "passed with a measured interruption"; fi
+}
+
+# Step 11: the evidence check, then the verdict. Needs RUN FROM TO EVID
+# STREAMS REQ and the three counters.
+finish_run() {
+  KIND=rig
+  nid; rcheck "$ID" "$REQ" "evidence: manifests, both shapes' configs, logs of every phase, the stores" \
+        "complete" "$(evidence_state)"
+  nid; verdict "$ID" "$REQ" "the stop-rewrite-restart procedure, $FROM to $TO" \
+        "$(decide_verdict "$RIG_FAIL" "$PROC_FAIL" "$PROC_N")" \
+        "rig checks failed: $RIG_FAIL; procedure checks not met: $PROC_FAIL of $PROC_N"
+  { [ "$RIG_FAIL" -eq 0 ] && [ "$PROC_N" -gt 0 ]; } || RIG_BROKEN+="$RUN "
+  IN_RUN=""
+}
+
+# A run that stops before its verdict -- Ctrl-C, a kill, a script error --
+# still gets one: inconclusive, with the step it reached. The rows it did
+# record stand. The servers go down first, then whatever logs and stores
+# exist are moved into the evidence folder (logs-x-stopped, js-x-stopped),
+# so the next lab_init cannot wipe them. Then the script exits non-zero.
+stopped() {
+  local rc=$? why="$1"
+  trap - EXIT INT TERM
+  case "$why" in INT) rc=130 ;; TERM) rc=143 ;; esac
+  lab_down
+  if [ -n "$IN_RUN" ]; then
+    save_logs "x-stopped"
+    [ -d "$RUN_DIR/js" ] && mv "$RUN_DIR/js" "$EVID/js-x-stopped"
+    nid; verdict "$ID" "$REQ" "the stop-rewrite-restart procedure, $FROM to $TO" "inconclusive" \
+          "the run stopped ($why) at step $STEP, before its verdict; the rows above it stand; partial evidence kept in logs-x-stopped, js-x-stopped"
+    IN_RUN=""; RIG_BROKEN+="$RUN "
+    [ "$rc" -eq 0 ] && rc=1
+  fi
+  exit "$rc"
 }
 
 # ---------------------------------------------------------------------------
@@ -516,10 +596,14 @@ run_switch() {
   local s key port user stream subj clu n t_ok got secs probe_t="" ok
 
   lab_init
+  # lab_init's trap only brings the servers down; this one also records why
+  trap 'stopped EXIT' EXIT; trap 'stopped INT' INT; trap 'stopped TERM' TERM
+  IN_RUN="$RUN"; STEP=0
   mkdir -p "$EVID"
   banner "$TOPOLOGY"
   set_streams
 
+  STEP=1
   # --- 1. The source shape ---------------------------------------------------
   write_shape "$FROM"
   start_shape
@@ -527,6 +611,7 @@ run_switch() {
   sleep 10
   nid; rcheck "$ID" "$REQ" "before: $(shape_desc "$FROM")" "$(shape_want "$FROM")" "$(shape_now "$FROM")"
 
+  STEP=2
   # --- 2. Seed and read the reference state ---------------------------------
   seed
   before_state
@@ -536,7 +621,9 @@ run_switch() {
         "$(for s in "${STREAMS[@]}"; do printf 'floor %s / pending %s / ack pending 0; ' "$SEED_ACK" $((SEED_N-SEED_ACK)); done | sed 's/; $//')" \
         "$(for s in "${STREAMS[@]}"; do printf '%s; ' "$(cat "$EVID/cons-${s%% *}")"; done | sed 's/; $//')"
   nid; note "$ID" "$REQ" "before: KV $KV_BUCKET, key=value@revision" "$KV_EXPECT"
+  snap_meta 0-before; store_dirs 0-before
 
+  STEP=3
   # --- 3. Stop ---------------------------------------------------------------
   # From here to step 10, every row judges the procedure, not the rig.
   KIND=procedure
@@ -545,14 +632,21 @@ run_switch() {
   save_logs "1-$FROM"           # after the stop, so the shutdown lines are in
   nid; note "$ID" "$REQ" "stop: seconds from the first TERM until all nine exited" \
         "${STOP_SECS}s${STOP_HARD:+ -- had to SIGKILL: $STOP_HARD}"
+  # A copy of all nine stores, taken while every server is stopped. The
+  # originals go on into the switch; this copy is never opened by a server.
+  cp -Rp "$RUN_DIR/js" "$EVID/js-0-before-switch"
+  store_dirs 1-stopped
 
+  STEP=4
   # --- 4. Rewrite, 5. start ---------------------------------------------------
   write_shape "$TO"
   start_shape
   [ -n "$NOT_UP" ] && { nid; note "$ID" "$REQ" "switch: servers that never answered /varz" "$NOT_UP"; }
   wait_leaders "$TO"
   nid; note "$ID" "$REQ" "switch: seconds from t0 to a live meta leader" "$LEADER_T"
+  snap_meta 1-after-start; store_dirs 2-after-start   # adds ~1-2s before the probe
 
+  STEP=6
   # --- 6. The probe: the first acked publish per stream -----------------------
   for s in "${STREAMS[@]}"; do
     read -r key port user stream subj clu <<<"$s"
@@ -566,11 +660,13 @@ run_switch() {
   done
   nid; note "$ID" "$REQ" "switch: seconds from t0 to the first acked publish (observed interruption, this procedure)" \
         "${probe_t%; }"
+  snap_meta 2-after-probe; store_dirs 3-after-probe
   save_logs "2-$TO"
   nid; note "$ID" "$REQ" "switch: [ERR]/[WRN] lines logged on the first start in the new shape" \
         "$(log_trouble "2-$TO")"
   [ "$TO" = t5 ] && sleep 5     # leaf interest, for anything crossing the hub
 
+  STEP=7
   # --- 7. Verify --------------------------------------------------------------
   verify_all "after switch" "$TO" "$SEED_ACK"
 
@@ -581,6 +677,7 @@ run_switch() {
           "$(stream_cluster 4231 lb ODOMETER), $(stream_msgs 4231 lb ODOMETER) / $(stream_cluster 4241 lb ODOMETER), $(stream_msgs 4241 lb ODOMETER)"
   fi
 
+  STEP=8
   # --- 8. Keep working --------------------------------------------------------
   for s in "${STREAMS[@]}"; do
     read -r key port user stream subj clu <<<"$s"
@@ -603,6 +700,7 @@ run_switch() {
   KV_EXPECT="$(echo "$KV_EXPECT" | sed -E "s/vehicle-1=[^ ]*/vehicle-1=$RUN-k1-v4@$(( n + 1 ))/")"
   echo "$KV_EXPECT" > "$EVID/kv-after-work"
 
+  STEP=9
   # --- 9. Restart the destination once ---------------------------------------
   T0=$(date +%s)
   stop_shape
@@ -612,41 +710,39 @@ run_switch() {
   nid; note "$ID" "$REQ" "restart: stop seconds, then seconds from t0 to a live meta leader" \
         "stop ${STOP_SECS}s${STOP_HARD:+ (SIGKILL: $STOP_HARD)}; $LEADER_T${NOT_UP:+; never answered: $NOT_UP}"
   sleep 5
+  snap_meta 3-after-restart; store_dirs 4-after-restart
   verify_all "after restart" "$TO" "$((SEED_ACK+1))"
 
+  STEP=10
   # --- 10. Keep the evidence --------------------------------------------------
   stop_shape
   save_logs "3-restart"
   mv "$RUN_DIR/js" "$EVID/js"
-  KIND=rig
-  nid; rcheck "$ID" "$REQ" "evidence: manifests, both shapes' configs, logs of every phase, the stores" \
-        "complete" "$(evidence_state)"
 
-  # --- 11. The verdict ---------------------------------------------------------
-  # inconclusive  the rig failed, so the run proves nothing either way
-  # failed        the rig held, and at least one procedure check was not met
-  # passed ...    the rig held, and every procedure check was met; the
-  #               interruption is the switch notes above, not a pass mark
-  local words
-  if   [ "$RIG_FAIL" -gt 0 ];  then words="inconclusive"
-  elif [ "$PROC_FAIL" -gt 0 ]; then words="failed"
-  else                              words="passed with a measured interruption"; fi
-  nid; verdict "$ID" "$REQ" "the stop-rewrite-restart procedure, $FROM to $TO" "$words" \
-        "rig checks failed: $RIG_FAIL; procedure checks not met: $PROC_FAIL of $PROC_N"
-  [ "$RIG_FAIL" -eq 0 ] || RIG_BROKEN+="$RUN "
+  # --- 11. Evidence check and verdict -----------------------------------------
+  STEP=11
+  finish_run
   banner "$TOPOLOGY -- done"
 }
 
-RIG_BROKEN=""
+# A failed procedure is an answer, so it exits 0. Only a broken rig, a run
+# with no procedure checks, or a run that stopped early does not.
+end_status() {
+  if [ -n "$RIG_BROKEN" ]; then
+    printf '\n  rig failed in run(s): %s-- those verdicts are inconclusive\n' "$RIG_BROKEN"
+    exit 1
+  fi
+  exit 0
+}
+
+# Sourced (by test-verdict.sh): define everything above, run nothing.
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
+
+RIG_BROKEN=""; IN_RUN=""
 STAMP="09-$(date +%Y%m%d-%H%M%S)"   # one folder per whole run; never reused, never deleted
 mkdir -p "$RUN_DIR/evidence/$STAMP"
 cp "${BASH_SOURCE[0]}" "$RUN_DIR/evidence/$STAMP/"
 run_switch A  SA t4 arb 54 D03-R11 "T4 / S -- switch in place, T4 to T5"
 run_switch B1 SB t5 hub 55 D03-R12 "T5 / S -- switch in place, T5 to T4, clean names"
 run_switch B2 SC t5 hub 55 D03-R12 "T5 / S -- switch in place, T5 to T4, LB name collision"
-
-# A failed procedure is an answer, so it exits 0. Only a broken rig does not.
-if [ -n "$RIG_BROKEN" ]; then
-  printf '\n  rig failed in run(s): %s-- those verdicts are inconclusive\n' "$RIG_BROKEN"
-  exit 1
-fi
+end_status

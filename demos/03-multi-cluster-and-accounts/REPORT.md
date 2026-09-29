@@ -22,6 +22,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 | Rig checks | **187 passed, 0 failed** |
 | Procedure checks | 50 met, **53 not met** |
 | Procedure verdicts | 3 — see the next section |
+| Evidence check | **not run live** — the verdicts were derived after the run; see the next section |
 | Recorded observations | 72 |
 
 A **check** has an expected answer and passes only on an exact match. A **note** has no expected answer — it records what the machine did so the number is on the record. Notes cannot pass or fail.
@@ -31,6 +32,8 @@ A **rig check** asks whether the rig did its job. A **procedure check** asks whe
 ## Procedure verdicts
 
 Some scripts test an operating **procedure**, not a shape. Each such run ends with one verdict: *passed with a measured interruption*, *failed*, or *inconclusive* when the rig itself failed. The checks behind it are in that shape's table below.
+
+> **Derived after the run.** These verdicts were derived after the run, from the rows it recorded. The run itself predates the verdict and evidence-check code. So that code has not yet run live, and the rig check counts above include no evidence check for these runs. The evidence was kept by hand.
 
 | Verdict | Req | Procedure | Run | Why |
 |---|---|---|---|---|
@@ -168,7 +171,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** Can a running **T4** be converted **in place** to **T5**, and keep its data?
 
-**This run says:** **Failed**, for the one procedure tested: stop all nine servers, rewrite the configs, start them again on the same stores. The rig held -- the source shape was built, seeded and read back (the `before` rows). After the switch the three sites did **not** become three independent meta groups (`SA9`, `SA28`). Streams whose groups were already formed kept taking acked publishes, and their consumers resumed (`SA20`-`SA25`). But the stored data could not be read back through the path this check uses (`SA10`, `SA13`, `SA16`), because that path asks for `stream info` first, which needs a meta leader. So data integrity after this switch is **unverified**, not disproved. This says nothing about any other conversion or migration procedure.
+**This run says:** **Failed**, for the one procedure tested: stop all nine servers, rewrite the configs, start them again on the same stores. The rig held -- the source shape was built, seeded and read back (the `before` rows). After the switch the three sites did **not** become three independent meta groups (`SA9`, `SA28`). Streams whose groups were already formed kept taking acked publishes, and their consumers resumed (`SA20`-`SA25`). But the stored data could not be read back through the path this check uses (`SA10`, `SA13`, `SA16`), because that path asks for `stream info` first, which needs a meta leader. So data integrity after this switch is **unverified**, not disproved. This says nothing about any other conversion or migration procedure. The verdict was derived after the run, from its rows; the evidence check has not yet run live.
 
 *Evidence:* `SA1`, `SA2`, `SA3`, `SA4`, `SA5`, `SA6`, `SA7`, `SA8`, `SA9`, `SA10`, `SA11`, `SA12`, `SA13`, `SA14`, `SA15`, `SA16`, `SA17`, `SA18`, `SA19`, `SA20`, `SA21`, `SA22`, `SA23`, `SA24`, `SA25`, `SA26`, `SA27`, `SA28`, `SA29`, `SA30`, `SA31`, `SA32`, `SA33`, `SA34`, `SA35`, `SA36`, `SA37`, `SA38`, `SA39`
 
@@ -176,7 +179,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** Can a running **T5** be converted **in place** to **T4**, and keep its data?
 
-**This run says:** **Failed**, for the one procedure tested, in both runs. The rig held. The nine servers did form one shared meta group (`SB9`, `SC9`), but the ZA streams did not survive it. Their acked data could not be read back (`SB10`, `SB16`, `SC10`, `SC16`), or did not match (`SC19`), and new publishes to them were not acked (`SB20`, `SB24`). That held in the clean-name run, so a stream name collision is not what caused it. The AU streams and the KV bucket came through (`SB13`, `SB19`). The ZA stream directories were gone from disk in the kept stores; why the server removed them is **not proved**. In the collision run, `SC37` and `SC55` fail because the keep-working step read from a stream whose twin had just vanished -- a side effect of the test, not separate evidence about consumers. **This procedure is unsafe for existing data.** A failed direct conversion does not make T4 or T5 a one-way architectural choice: other conversion and migration procedures are untested.
+**This run says:** **Failed**, for the one procedure tested, in both runs. The rig held. The nine servers did form one shared meta group (`SB9`, `SC9`), but the ZA streams did not survive it. Their acked data could not be read back (`SB10`, `SB16`, `SC10`, `SC16`), or did not match (`SC19`), and new publishes to them were not acked (`SB20`, `SB24`). That held in the clean-name run, so a stream name collision is not what caused it. The AU streams and the KV bucket came through (`SB13`, `SB19`). The ZA stream directories were gone from disk in the kept stores. What removed them, and why, is **not proved**: the INFO-level logs name no removal. In the collision run, `SC37` and `SC55` fail because the keep-working step read from a stream whose twin had just vanished -- a side effect of the test, not separate evidence about consumers. **This procedure is unsafe for existing data.** A failed direct conversion does not make T4 or T5 a one-way architectural choice: other conversion and migration procedures are untested. The verdict was derived after the run, from its rows; the evidence check has not yet run live.
 
 *Evidence:* `SB1`, `SB2`, `SB3`, `SB4`, `SB5`, `SB6`, `SB7`, `SB8`, `SB9`, `SB10`, `SB11`, `SB12`, `SB13`, `SB14`, `SB15`, `SB16`, `SB17`, `SB18`, `SB19`, `SB20`, `SB21`, `SB22`, `SB23`, `SB24`, `SB25`, `SB26`, `SB27`, `SB28`, `SB29`, `SB30`, `SB31`, `SB32`, `SB33`, `SB34`, `SB35`, `SB36`, `SB37`, `SB38`, `SC1`, `SC2`, `SC3`, `SC4`, `SC5`, `SC6`, `SC7`, `SC8`, `SC9`, `SC10`, `SC11`, `SC12`, `SC13`, `SC14`, `SC15`, `SC16`, `SC17`, `SC18`, `SC19`, `SC20`, `SC21`, `SC22`, `SC23`, `SC24`, `SC25`, `SC26`, `SC27`, `SC28`, `SC29`, `SC30`, `SC31`, `SC32`, `SC33`, `SC34`, `SC35`, `SC36`, `SC37`, `SC38`, `SC39`, `SC40`, `SC41`, `SC42`, `SC43`, `SC44`, `SC45`, `SC46`, `SC47`, `SC48`, `SC49`, `SC50`, `SC51`, `SC52`, `SC53`, `SC54`, `SC55`, `SC56`, `SB39`, `SC57`
 
@@ -226,7 +229,7 @@ Not a NATS fact -- a rig fact, and worth keeping. An early version of this harne
 |---|---|
 | Any other way to move between T4 and T5 | Only one procedure was tested: stop everything, rewrite, restart on the same stores. It failed both ways. A migration to new clusters, or a conversion one site at a time, is untested. |
 | Whether T4 data survived the switch to T5 | The read path used here needs a meta leader, and the switched system had none. The data on disk was kept but not read back another way. |
-| Why T5 to T4 removed the ZA streams | The loss is measured. The mechanism is not. Reading the kept logs and stores is the next step, before any cause is written down. |
+| Why the ZA streams were lost going T5 to T4 | The loss is measured. The mechanism is not. The kept INFO-level logs show the order only: the ZA servers restored their streams from disk, an AU server was elected meta leader, and the ZA servers reset their meta log. No line names a removal. The next run keeps a stopped copy of all nine stores before the switch and logs at debug level. |
 | `D03-R4` -- the cost of a cross-region read | Stream, consumer and KV placement are all measured. Latency is not. Nothing here says what a cross-WAN read costs in milliseconds. |
 | A real WAN partition, not a process stop | Every region loss here is `kill -STOP` on the processes. Both sides running but unable to reach each other is a different rig, and it is the one that would show reconnect and split-brain behaviour. |
 | Mirror lag and bandwidth | Both shapes now prove a mirror copies. Neither says how fast, or at what cost on the wire. |

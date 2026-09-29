@@ -48,6 +48,33 @@ def counts(rs):
     pn = sum(1 for r in rs if is_proc(r) and r["status"] == "FAIL")
     return rp, rf, n, pm, pn
 
+
+# A VERDICT row written after the run, from its rows, by a one-off script --
+# not by 09 during the run. Its "why" says the run predates the evidence
+# check. The reader must see that before the verdict, not in a footnote.
+RETRO_MARK = "predates the evidence check"
+RETRO_TEXT = ("These verdicts were derived after the run, from the rows it "
+              "recorded. The run itself predates the verdict and "
+              "evidence-check code. So that code has not yet run live, and "
+              "the rig check counts above include no evidence check for "
+              "these runs. The evidence was kept by hand.")
+
+
+def is_retro(r):
+    return r["status"] == "VERDICT" and RETRO_MARK in r["expected"]
+
+
+# A run with procedure rows but no VERDICT row did not reach its verdict.
+NO_VERDICT = "no verdict — run did not finish"
+
+
+def verdict_cell(rs):
+    """The verdict words for one topology's rows, or NO_VERDICT, or None."""
+    v = [r["actual"] for r in rs if r["status"] == "VERDICT"]
+    if v:
+        return ", ".join(v)
+    return NO_VERDICT if any(is_proc(r) for r in rs) else None
+
 # NATS JetStream error codes, as measured in this lab. A bare five-digit code
 # tells a reader nothing, and looking it up online breaks the read, so every
 # code printed in a table carries its meaning beside it.
@@ -234,7 +261,8 @@ REQS = {
    "(`SA10`, `SA13`, `SA16`), because that path asks for `stream info` first, "
    "which needs a meta leader. So data integrity after this switch is "
    "**unverified**, not disproved. This says nothing about any other "
-   "conversion or migration procedure."),
+   "conversion or migration procedure. The verdict was derived after the "
+   "run, from its rows; the evidence check has not yet run live."),
  "D03-R12": (
    "Can a running **T5** be converted **in place** to **T4**, and keep its "
    "data?",
@@ -246,13 +274,15 @@ REQS = {
    "clean-name run, so a stream name "
    "collision is not what caused it. The AU streams and the KV bucket came "
    "through (`SB13`, `SB19`). The ZA stream directories were gone from disk "
-   "in the kept stores; why the server removed them is **not proved**. In "
+   "in the kept stores. What removed them, and why, is **not proved**: "
+   "the INFO-level logs name no removal. In "
    "the collision run, `SC37` and `SC55` fail because the keep-working step "
    "read from a stream whose twin had just vanished -- a side effect of the "
    "test, not separate evidence about consumers. **This procedure is unsafe "
    "for existing data.** A failed direct conversion does not make T4 or T5 "
    "a one-way architectural choice: other conversion and migration "
-   "procedures are untested."),
+   "procedures are untested. The verdict was derived after the run, from "
+   "its rows; the evidence check has not yet run live."),
  "D03-R9": (
    "If we add an arbiter site, can real data land on it **by accident**?",
    "Not by accident -- but it is not fenced off either. Unplaced streams "
@@ -353,9 +383,12 @@ OPEN = [
  ("Whether T4 data survived the switch to T5",
   "The read path used here needs a meta leader, and the switched system had "
   "none. The data on disk was kept but not read back another way."),
- ("Why T5 to T4 removed the ZA streams",
-  "The loss is measured. The mechanism is not. Reading the kept logs and "
-  "stores is the next step, before any cause is written down."),
+ ("Why the ZA streams were lost going T5 to T4",
+  "The loss is measured. The mechanism is not. The kept INFO-level logs "
+  "show the order only: the ZA servers restored their streams from disk, "
+  "an AU server was elected meta leader, and the ZA servers reset their "
+  "meta log. No line names a removal. The next run keeps a stopped copy "
+  "of all nine stores before the switch and logs at debug level."),
  ("`D03-R4` -- the cost of a cross-region read",
   "Stream, consumer and KV placement are all measured. Latency is not. "
   "Nothing here says what a cross-WAN read costs in milliseconds."),
@@ -577,6 +610,7 @@ td.mark { width: 22px; text-align: center; }
 td.mono { font-family: var(--mono); color: var(--text); }
 td.extra { font-size: 12px; color: var(--muted); }
 .pass { color: var(--good); } .fail { color: var(--bad); } .note { color: var(--dim); }
+.caveat { border-left: 3px solid var(--warn); background: var(--panel); padding: 10px 14px; margin: 0 0 12px; border-radius: 0 4px 4px 0; }
 
 ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
 li b { color: var(--text); font-weight: 600; }
@@ -648,6 +682,10 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
           f"</td></tr>")
         o(f'<tr><th>Procedure verdicts</th><td>{len(verdicts)} &mdash; '
           f'see the next section</td></tr>')
+        if any(is_retro(r) for r in verdicts):
+            o('<tr><th>Evidence check</th><td><strong style="color:var(--warn)">'
+              'not run live</strong> &mdash; the verdicts were derived after '
+              'the run; see the next section</td></tr>')
     o(f"<tr><th>Recorded observations</th><td>{nnote}</td></tr>")
     o("</tbody></table></div>")
     o("<p>A <strong>check</strong> has an expected answer and passes only on "
@@ -671,6 +709,9 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
           "measured interruption</em>, <em>failed</em>, or <em>inconclusive"
           "</em> when the rig itself failed. The verdict is the answer. The "
           "checks behind it are in that shape&rsquo;s table below.</p>")
+        if any(is_retro(r) for r in verdicts):
+            o('<div class="caveat"><strong>Derived after the run.</strong> '
+              f"{esc(RETRO_TEXT)}</div>")
         o('<div class="card"><table><thead><tr><th></th><th>Verdict</th>'
           "<th>Req</th><th>Procedure</th><th>Run</th><th>Why</th>"
           "</tr></thead><tbody>")
@@ -737,7 +778,7 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     for t in topos:
         rs = by_topo[t]
         p, f, n, pm_, pn_ = counts(rs)
-        v = [r["actual"] for r in rs if r["status"] == "VERDICT"]
+        v = verdict_cell(rs)
         dash = "&mdash;"
         o(f"<tr><td>{esc(t)}</td><td class='num'>{p + f}</td>"
           f"<td class='num pass'>{p}</td>"
@@ -746,7 +787,7 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
           f"<td class='num'>{pm_ if (pm_ or pn_) else dash}</td>"
           f"<td class='num {'fail' if pn_ else 'note'}'>"
           f"{pn_ if (pm_ or pn_) else dash}</td>"
-          f"<td>{esc(', '.join(v)) if v else dash}</td></tr>")
+          f"<td>{esc(v) if v else dash}</td></tr>")
     o("</tbody></table></div>")
     o("</section>")
 
@@ -1016,6 +1057,9 @@ def main():
     if pmet or pnot or verdicts:
         o(f"| Procedure checks | {pmet} met, **{pnot} not met** |")
         o(f"| Procedure verdicts | {len(verdicts)} — see the next section |")
+        if any(is_retro(r) for r in verdicts):
+            o("| Evidence check | **not run live** — the verdicts were derived "
+              "after the run; see the next section |")
     o(f"| Recorded observations | {nnote} |")
     o("")
     o("A **check** has an expected answer and passes only on an exact match. "
@@ -1035,6 +1079,9 @@ def main():
           "interruption*, *failed*, or *inconclusive* when the rig itself "
           "failed. The checks behind it are in that shape's table below.")
         o("")
+        if any(is_retro(r) for r in verdicts):
+            o(f"> **Derived after the run.** {RETRO_TEXT}")
+            o("")
         o("| Verdict | Req | Procedure | Run | Why |")
         o("|---|---|---|---|---|")
         for r in verdicts:
@@ -1082,10 +1129,10 @@ def main():
     for t in topos:
         rs = by_topo[t]
         p, f, n, pm_, pn_ = counts(rs)
-        v = [r["actual"] for r in rs if r["status"] == "VERDICT"]
+        v = verdict_cell(rs)
         has = pm_ or pn_
         o(f"| {t} | {p + f} | {p} | {f} | {n} | {pm_ if has else '—'} "
-          f"| {pn_ if has else '—'} | {', '.join(v) if v else '—'} |")
+          f"| {pn_ if has else '—'} | {v or '—'} |")
     o("")
 
     o("## The answers, requirement by requirement")
