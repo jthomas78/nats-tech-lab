@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NATS setup guide v0.2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #131416; --panel: #1a1e23; --panel-2: #20252b; --stroke: #4a515b; --line: #2c3138;
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #8b929b;
+  --accent: #006fff; --accent-soft: rgba(0, 111, 255, 0.14);
+  --good: #27c07f; --good-soft: rgba(39, 192, 127, 0.12);
+  --warn: #f0b429; --warn-line: #9a7b1e; --warn-soft: rgba(240, 180, 41, 0.10);
+  --font: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- top bar ---------- */
+.bar { display: flex; align-items: center; gap: 24px; padding: 14px 28px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.bar h1 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.steps { display: flex; gap: 4px; flex: 1; justify-content: center; list-style: none; margin: 0; padding: 0; }
+.steps li { padding: 4px 12px; border-radius: 14px; color: var(--dim); font-weight: 500; white-space: nowrap; }
+.steps li.done { color: var(--muted); }
+.steps li.done::before { content: "✓ "; color: var(--good); }
+.steps li.now { background: var(--accent-soft); color: var(--text); }
+.bar-actions { display: flex; gap: 8px; }
+.ghost { background: none; border: 1px solid var(--stroke); border-radius: 6px; padding: 5px 12px; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.ghost:hover { color: var(--text); border-color: var(--muted); }
+
+/* ---------- three columns ---------- */
+.app { display: grid; grid-template-columns: 300px minmax(0, 1fr) 380px; min-height: calc(100vh - 57px); }
+.app.final { grid-template-columns: 300px minmax(0, 1fr); }
+.app.final .setup { display: none; }
+.side { border-right: 1px solid var(--line); padding: 22px 20px; overflow-y: auto; }
+.setup { border-left: 1px solid var(--line); border-right: 0; background: var(--panel); }
+.side h2 { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+
+/* history */
+.hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.hist .grp { margin: 12px 0 4px; color: var(--dim); font-size: 12px; font-weight: 600; }
+.hist .grp:first-child { margin-top: 0; }
+.hist button { width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 8px; display: grid; gap: 1px; }
+.hist button:hover { background: var(--panel-2); }
+.hist .q { color: var(--dim); font-size: 12px; line-height: 17px; }
+.hist .a { color: var(--text); font-weight: 500; }
+.hist .edit { color: var(--accent); font-size: 12px; opacity: 0; }
+.hist button:hover .edit, .hist button:focus-visible .edit { opacity: 1; }
+.empty { color: var(--dim); }
+
+/* ---------- the question ---------- */
+.stage { padding: 56px 64px; display: flex; justify-content: center; }
+.card { width: 100%; max-width: 720px; }
+.where { color: var(--accent); font-weight: 600; margin: 0 0 10px; }
+.card h2 { margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.015em; text-wrap: balance; }
+.card .help { margin: 14px 0 0; color: var(--muted); font-size: 15px; line-height: 24px; max-width: 62ch; }
+.conflict h2 { color: var(--warn); }
+.opts { display: flex; flex-direction: column; gap: 10px; margin-top: 32px; }
+.opt { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 4px 16px; text-align: left; background: var(--panel); border: 1px solid var(--stroke); border-radius: 8px; padding: 16px 18px; }
+.opt:hover { border-color: var(--accent); background: var(--panel-2); }
+.opt .k { grid-row: span 2; font-size: 17px; font-weight: 600; }
+.opt .l { font-size: 15px; font-weight: 500; }
+.opt .d { color: var(--muted); }
+.opt.no-k { grid-template-columns: 1fr; }
+.opt.no-k .k { display: none; }
+.unsure { margin-top: 14px; background: none; border: 0; color: var(--muted); padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; }
+.unsure:hover { color: var(--text); }
+.namer { display: flex; gap: 10px; margin-top: 28px; }
+.namer input { flex: 1; background: var(--panel); border: 1px solid var(--stroke); border-radius: 8px; padding: 12px 14px; font-size: 15px; }
+.namer button { background: var(--accent); border: 0; border-radius: 8px; padding: 0 20px; font-weight: 600; color: #fff; }
+.namer button:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- setup so far / result ---------- */
+.sec { margin-bottom: 20px; }
+.sec h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--dim); }
+.sec ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.sec li { padding-left: 14px; position: relative; }
+.sec li::before { content: ""; position: absolute; left: 0; top: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+.sec li.risk::before { background: var(--warn); }
+.stream-name { font-weight: 600; color: var(--text); margin: 8px 0 4px; }
+.open { border: 1px solid var(--warn-line); background: var(--warn-soft); border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; }
+.open h3 { color: var(--warn); margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.open ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+
+.report { max-width: 820px; width: 100%; }
+.report > h2 { font-size: 28px; line-height: 36px; margin: 0; letter-spacing: -0.015em; }
+.report .lede { color: var(--muted); font-size: 15px; line-height: 24px; margin: 12px 0 28px; max-width: 62ch; }
+.report .open { padding: 16px 18px; }
+.report .open h3 { font-size: 15px; }
+.report .open li { font-size: 14px; line-height: 22px; }
+.report .sec { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+.report .sec h3 { font-size: 13px; color: var(--muted); }
+.report .sec li { font-size: 14px; line-height: 22px; }
+.rules li::before { background: var(--accent); }
+.never li::before { background: var(--warn); }
+.report-actions { display: flex; gap: 10px; margin-top: 8px; }
+
+@media (max-width: 1100px) {
+  .app, .app.final { grid-template-columns: 1fr; }
+  .side { border: 0; border-bottom: 1px solid var(--line); }
+  .stage { padding: 32px 16px; }
+  .steps { display: none; }
+}
+a { color: #4d9dff; text-decoration: underline; text-underline-offset: 2px; }
+.sources li::before { background: var(--accent); }
+
+/* ---------- print reference: every question, used for the PDF ---------- */
+.ref { display: none; padding: 0 28px 28px; max-width: 900px; }
+.ref > h2 { font-size: 24px; line-height: 32px; margin: 0 0 8px; letter-spacing: -0.015em; }
+.ref .lede { color: var(--muted); font-size: 14px; line-height: 22px; margin: 0 0 20px; max-width: 70ch; }
+.ref h3.stage-h { break-after: avoid; margin: 22px 0 10px; font-size: 13px; font-weight: 600; color: var(--accent); }
+.ref .node { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; break-inside: avoid; }
+.ref .node.conflict { border-color: var(--warn-line); }
+.ref .node h4 { margin: 0; font-size: 14px; line-height: 21px; font-weight: 600; }
+.ref .node h4 .id { color: var(--dim); font-weight: 500; margin-right: 8px; }
+.ref .node .help { color: var(--muted); margin: 4px 0 0; }
+.ref .ro { margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); }
+.ref .ro .l { font-weight: 600; }
+.ref .ro .d { color: var(--muted); }
+.ref .ro ul { margin: 4px 0 0; padding-left: 16px; }
+.ref .ro .to { color: var(--accent); font-size: 12px; }
+.ref .sec { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; break-inside: avoid; }
+
+@media print {
+  @page { size: A4; margin: 0; }
+  body:not(.has-result) .ref { padding: 12mm 14mm; max-width: none; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  html { background: var(--bg); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .bar-actions, .report-actions, .setup, .hist .edit { display: none !important; }
+  body:not(.has-result) .bar, body:not(.has-result) .app { display: none !important; }
+  body:not(.has-result) .ref { display: block; }
+  .app, .app.final { display: block; min-height: 0; }
+  .stage { padding: 16px 0; display: block; }
+  .side { border: 0; padding: 16px 0 0; }
+  .app > .side:first-child { order: 2; }
+  .report .sec, .open { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1>Pick a NATS setup for two regions</h1>
+  <ol class="steps" id="steps"></ol>
+  <div class="bar-actions">
+    <a class="ghost" href="nats-topology-decision-tree-v1.0.html">View the full map</a>
+    <button class="ghost" id="restart" type="button">Start over</button>
+  </div>
+</header>
+<main class="app" id="app">
+  <aside class="side" aria-labelledby="hist-h"><h2 id="hist-h">Your answers</h2><div id="hist"></div></aside>
+  <section class="stage" id="stage" aria-live="polite"></section>
+  <aside class="side setup" aria-labelledby="setup-h"><h2 id="setup-h">Your setup so far</h2><div id="setup"></div></aside>
+</main>
+<section class="ref" id="ref" aria-label="Every question, for print"></section>
+
+<script>
+"use strict";
+/*
+ * Every answer comes from demo 03's measured results (REPORT.md, findings v1.0,
+ * pattern cards v0.4). v0.2 supersedes v0.1. Answers the lab did not test add
+ * an open item.
+ * State is only the list of answers; the page replays it from the start.
+ */
+const STAGES = [["1", "Accounts"], ["2", "Shape"], ["3a", "Where streams live"], ["3b", "Copies"], ["4", "Link settings"]];
+const SHAPES = {
+  T1: "T1 · No link. Each region stands alone.",
+  T2: "T2 · Gateway. Stream changes pause while a region is dark. Messages keep flowing into streams whose own servers are up.",
+  T4: "T4 · Gateway with a tie-breaker site. Either region can go dark and changes go on. Streams stored in the dark region still stop (F28).",
+  T5: "T5 · Leaf link. Each region runs on its own.",
+};
+const UNTESTED = " This was not tested in the lab.";
+const MOVE = "Moving later between T4 and T5. The lab tested one way: stop every server, change the configs, start again on the same storage. " +
+  "In two runs (2026-09-28 and 2026-09-29) it has not shown safe, repeatable operation (D03-R11, D03-R12). " +
+  "T4 to T5 did not form separate vote groups either time; on 2026-09-29 the checked data was kept. " +
+  "T5 to T4 gave different results on the two days. With a stream name in both regions, some ZA copies were removed and the streams could not be read; whether they can be recovered, and why they were removed, is not known. " +
+  "Other ways, such as moving to newly built clusters, were not tested. It is not proven one-way. Choose before the data lands, and plan the move before you need it.";
+
+function toStage4(st) {
+  if (st.shape === "T1") return "result";
+  return st.shape === "T5" ? "q4_3" : "q4_1";
+}
+
+const N = {
+  /* ---------- stage 1 ---------- */
+  q1_1: { stage: "1", short: "More than one customer?",
+    q: "Do you serve more than one customer?",
+    help: "A customer here is a separate business whose data must never be seen by another.",
+    opts: [
+      { k: "Yes", l: "Give each customer its own account", d: "Each customer is walled off from the others.",
+        fx: c => c.set("acc.cust", "One account per customer. Answer the rest for one customer."), next: "q1_2" },
+      { k: "No", l: "One customer", d: "Carry on.", next: "q1_2" },
+    ],
+    unsure: { fx: c => { c.set("acc.cust", "One account per customer, to be safe."); c.open("Confirm whether more than one customer will use the system."); }, next: "q1_2" } },
+  q1_2: { stage: "1", short: "Each region keeps its data private?",
+    q: "Must each region keep its data private from the other region?",
+    help: "An account is a wall. Apps in one account cannot see another account's data unless you share it on purpose.",
+    opts: [
+      { k: "Yes", l: "One account per region", d: "Each region owns its data.",
+        fx: c => c.set("acc.model", "One account per region. Each region owns its data."), next: "q1_4" },
+      { k: "No", l: "One shared account", d: "Both regions see the same data.",
+        fx: c => { c.set("acc.model", "One shared account for both regions."); c.st.sharedAcc = true; }, next: "q1_3" },
+    ],
+    unsure: { fx: c => { c.set("acc.model", "One account per region, to be safe."); c.open("Confirm whether each region may see the other region's data."); }, next: "q1_4" } },
+  q1_3: { stage: "1", short: "Same stream name in both regions?",
+    q: "Must both regions make a stream with the same name?",
+    help: "A stream is a stored log of messages, such as all orders. In one shared account there is only one set of stream names.",
+    opts: [
+      { k: "Yes", l: "Both regions need the same name", d: "This clashes. You will pick a way out next.", next: "q1_3c" },
+      { k: "No", l: "Each stream has one home region", d: "The other region reads it over the link.",
+        fx: c => c.set("acc.names", "Each stream has one home region. The other region reads it over the link."), next: "q1_4" },
+    ] },
+  q1_3c: { stage: "1", conflict: true, short: "Name clash: way out",
+    q: "These answers clash. Pick a way out.",
+    help: "In one shared account, two streams cannot have the same name. Over a gateway the second one is refused. Over a leaf link both are made, and if both listen to the same subjects every message is stored twice without a warning.",
+    opts: [
+      { l: "Switch to one account per region", d: "Each region makes its own stream with the same name.",
+        fx: c => { c.set("acc.model", "One account per region. Each region owns its data."); c.st.sharedAcc = false; }, next: "q1_4" },
+      { l: "Keep one account, and put the region in the name", d: "For example orders-east and orders-west.",
+        fx: c => c.set("acc.names", "Stream names carry the region, for example orders-east and orders-west."), next: "q1_4" },
+    ] },
+  q1_4: { stage: "1", short: "One account reads another's data?",
+    q: "Must one account read some of another account's data?",
+    help: "You can share chosen messages from one account to another. The other account gets new messages, not the stored history. NATS also documents a copy of a whole stream across accounts. That needs extra set-up, and this lab did not test it.",
+    opts: [
+      { k: "Yes", l: "Share chosen messages on purpose", d: "Only what you pick crosses the wall.",
+        fx: c => { c.set("acc.share", "Share chosen messages from one account to another, on purpose.");
+          c.set("acc.prefix", "Give shared messages a prefix of their own. The prefix keeps them apart. It does not prove who sent them. Reserve it with publish permissions (E3a)."); }, next: "q1_5" },
+      { k: "No", l: "Share nothing", d: "The wall holds.",
+        fx: c => c.set("acc.share", "Accounts share nothing."), next: "q2_1" },
+    ] },
+  q1_5: { stage: "1", short: "Sharing both ways?",
+    q: "Must the sharing go both ways?",
+    opts: [
+      { k: "Yes", l: "Share in each direction", d: "Set up sharing both ways.",
+        fx: c => { c.set("acc.share2", "Sharing goes both ways."); c.open("Two-way sharing between accounts." + UNTESTED); }, next: "q2_1" },
+      { k: "No", l: "Share one way", d: "Nothing flows back.",
+        fx: c => c.set("acc.share2", "Sharing goes one way only."), next: "q2_1" },
+    ] },
+
+  /* ---------- stage 2 ---------- */
+  q2_1: { stage: "2", short: "Regions share any data?",
+    q: "Must the two regions share any data at all?",
+    opts: [
+      { k: "Yes", l: "Link the regions", d: "The next questions pick the kind of link.", next: "q2_2" },
+      { k: "No", l: "No link", d: "Each region stands alone. You are done after this.",
+        fx: c => c.shape("T1"), next: "result" },
+    ] },
+  q2_2: { stage: "2", short: "Changes while a region is dark?",
+    q: "If one region goes dark, must the other region still create or change streams?",
+    help: "Dark means down or cut off. Sending messages into a stream that already exists keeps working only while that stream's own servers still have a majority. A stream stored in the dark region stops. This question is only about making or changing streams.",
+    opts: [
+      { k: "Yes", l: "Each region needs its own vote", d: "Changes need a majority of servers to agree.", next: "q2_3" },
+      { k: "No", l: "A pause in changes is fine", d: "Use a gateway: one shared system.",
+        fx: c => c.shape("T2"), next: "s_name" },
+    ],
+    unsure: { fx: c => c.open("Confirm whether stream changes must keep working while a region is dark."), next: "q2_3" } },
+  q2_3: { stage: "2", short: "One name, same stream everywhere?",
+    q: "Must one stream name mean the same stream in both regions?",
+    help: "With a shared system, orders is one stream wherever you ask for it. With separate systems, each region has its own orders. Separate systems can each store a live message, but that is not a backup: a region that was dark does not catch up on what it missed.",
+    opts: [
+      { k: "Yes", l: "Keep one shared set of names", d: "The next question checks if that is possible.", next: "q2_4" },
+      { k: "No", l: "Each region keeps its own names", d: "Use a leaf link: each region runs on its own.",
+        fx: c => c.shape("T5"), next: "s_name" },
+    ] },
+  q2_4: { stage: "2", short: "A third site?",
+    q: "Is there a third site, with its own power and network?",
+    help: "With two equal regions, neither side has a majority alone. A small third site breaks the tie.",
+    opts: [
+      { k: "Yes", l: "Use it as a tie-breaker", d: "Three servers there.", next: "q2_5" },
+      { k: "No", l: "No third site", d: "You must give one thing up. You pick next.", next: "q2_4c" },
+    ] },
+  q2_4c: { stage: "2", conflict: true, short: "No third site: give up",
+    q: "Without a third site, you cannot have both. Pick one to give up.",
+    help: "Two regions cannot both keep making changes during an outage and also share one set of names.",
+    opts: [
+      { l: "Give up changes during an outage", d: "Gateway. Names stay shared. Changes pause while a region is dark.",
+        fx: c => c.shape("T2"), next: "s_name" },
+      { l: "Give up shared names", d: "Leaf link. Each region keeps working and keeps its own names.",
+        fx: c => c.shape("T5"), next: "s_name" },
+    ] },
+  q2_5: { stage: "2", short: "Changes can wait on the third site?",
+    q: "Can every stream change wait for the link to the third site?",
+    help: "With a tie-breaker, each change needs a vote from across the link, so changes are only as fast as that link.",
+    opts: [
+      { k: "Yes", l: "Use the tie-breaker site", d: "Either region can go dark and changes go on.",
+        fx: c => { c.shape("T4"); c.set("link.tie", "Keep apps off the tie-breaker site. An app connected there stores its streams there."); c.open("How long a change waits on the link to the third site." + UNTESTED); }, next: "s_name" },
+      { k: "No", l: "Changes cannot wait", d: "Use a leaf link: each region runs on its own.",
+        fx: c => { c.shape("T5"); c.open("Link speed between the regions." + UNTESTED); }, next: "s_name" },
+    ] },
+
+  /* ---------- stage 3: per stream ---------- */
+  s_name: { stage: "3a", name: true, short: "Stream",
+    q: "Name one stream you plan to have.",
+    help: "A stream is a stored log of messages, such as orders or vehicle positions. You answer the next questions once for each stream." },
+  q3_1: { stage: "3a", per: true, short: "Written by one region only?",
+    q: "Does only one region write to {s}?",
+    opts: [
+      { k: "Yes", l: "Put it in that region", d: "Its home is where it is written.",
+        fx: c => c.sset("place", "Lives in the region that writes it."), next: "q3_2" },
+      { k: "No", l: "Both regions write to it", d: "Make one stream per region.",
+        fx: c => { c.sset("place", "One stream per region, each written locally."); c.open("{s}: each region's stream stops while its home region is dark."); }, next: "q3_2" },
+    ] },
+  q3_2: { stage: "3a", per: true, short: "Created from the other region?",
+    q: "Could the app that creates {s} be connected to the other region?",
+    help: "A stream is stored where the creating app is connected, unless you name the region.",
+    opts: [
+      { k: "Yes", l: "Always name the region", d: "Otherwise it lands in the wrong region.",
+        fx: c => c.sset("create", "Always name the region when you create it."), next: "q3_4" },
+      { k: "No", l: "The default is fine", d: "It lands next to the app.",
+        fx: c => c.sset("create", "Created by an app in its home region. The default placement is fine."), next: "q3_4" },
+    ],
+    unsure: { fx: c => c.sset("create", "Always name the region when you create it, to be safe."), next: "q3_4" } },
+  q3_4: { stage: "3b", per: true, short: "Read while its home is dark?",
+    q: "Must the other region read {s} while its home region is dark?",
+    help: "A tie-breaker keeps changes working, but it does not bring back data stored in the dark region. Only a copy does.",
+    opts: [
+      { k: "Yes", l: "Keep a copy in the other region", d: "The next questions set up the copy.", next: "q3_5" },
+      { k: "No", l: "No copy", d: "The other region reads it over the link while both are up.",
+        fx: c => c.sset("copy", "No copy. The other region reads it over the link while both regions are up."), next: "s_more" },
+    ],
+    unsure: { fx: c => c.open("{s}: confirm whether the other region must read it during an outage."), next: "q3_5" } },
+  q3_5: { stage: "3b", per: true, short: "Reader in another account?",
+    q: "Is the reader in a different account from the one that holds {s}?",
+    opts: [
+      { k: "Yes", l: "Share its messages", d: "The tested way. A copy that names only the stream copies the reader's own stream of that name, without an error.",
+        fx: c => { c.sset("copy", "Share its messages to the reader's account. Do not copy it by stream name alone (E17, E18).");
+          c.open("{s}: shared messages stop while its home region is dark. The reader has no copy and no history.");
+          c.open("{s}: if the reader needs a real copy, NATS documents one across accounts: export the JetStream API, import it, and name it in the copy's external API setting." + UNTESTED); }, next: "s_more" },
+      { k: "No", l: "Keep a copy in the reader's region", d: "A read-only copy.",
+        fx: c => { c.sset("copy", "A read-only copy in the reader's region.");
+          if (c.st.shape === "T5") c.sset("copy2", "The copy crosses the leaf link. Tell it where to look on the other side, or it copies nothing without an error."); },
+        next: "q3_7" },
+    ] },
+  q3_7: { stage: "3b", per: true, short: "Copy up to date within a set time?",
+    q: "Must the copy of {s} be up to date within a set time?",
+    opts: [
+      { k: "Yes", l: "Test it first", d: "How far a copy falls behind was not tested.",
+        fx: c => c.open("{s}: how far the copy falls behind." + UNTESTED + " Test it before you rely on it."), next: "q3_8" },
+      { k: "No", l: "Some delay is fine", d: "The copy pauses while its source is dark.",
+        fx: c => c.sset("lag", "The copy may fall behind, and pauses while its source is dark."), next: "q3_8" },
+    ] },
+  q3_8: { stage: "3b", per: true, short: "Copy takes writes during an outage?",
+    q: "Must the copy of {s} take new data while its home region is dark?",
+    opts: [
+      { k: "Yes", l: "Writes must go on", d: "This lab does not answer that. A copy is read-only.",
+        fx: c => c.open("{s}: taking new data during an outage is not answered by this lab. A copy is read-only. This needs its own design."), next: "s_more" },
+      { k: "No", l: "Read-only is enough", d: "Count its messages to prove it works.",
+        fx: c => c.sset("check", "Count the copy's messages to prove it works. A wrong copy gives no error."), next: "s_more" },
+    ] },
+  s_more: { stage: "3b", short: "Another stream?",
+    q: "Do you have another stream to place?",
+    opts: [
+      { k: "Yes", l: "Add another stream", d: "Answer the stream questions again.", next: "s_name" },
+      { k: "No", l: "That is all of them", d: "Go on to link settings.",
+        fx: c => { if (c.st.shape === "T5" && c.st.sharedAcc) {
+            c.set("link.dup", "One account spans both regions over the leaf link. Give each region's streams their own subjects.");
+            c.open("One account spans both regions over a leaf link. If a stream in each region listens to the same subjects, every message is stored twice without a warning. Give each stream its own subjects, or use one account per region.");
+          } },
+        next: toStage4 },
+    ] },
+
+  /* ---------- stage 4 ---------- */
+  q4_1: { stage: "4", short: "Domain name?",
+    q: "Will you give JetStream a domain name?",
+    help: "A domain is a name for one JetStream system. On a gateway, both regions are one system. A domain is not a security wall. Accounts are.",
+    opts: [
+      { k: "Yes", l: "Use the same name on every server", d: "Different names split the regions and one side goes blind.",
+        fx: c => c.set("link.domain", "The same JetStream domain name on every server."), next: "result" },
+      { k: "No", l: "Leave it unset", d: "Both regions share one system.",
+        fx: c => c.set("link.domain", "No JetStream domain name. Both regions share one system."), next: "result" },
+    ] },
+  q4_3: { stage: "4", short: "System traffic crosses the link?",
+    q: "Will system traffic cross the leaf link?",
+    help: "Your operator usually decides this. System traffic lets each side see the other side's servers.",
+    opts: [
+      { k: "Yes", l: "Name a domain on each side", d: "The domain stops the two sides merging into one system. It is still not a security wall.",
+        fx: c => c.set("link.domain", "A different JetStream domain name on each side of the leaf link. It keeps the systems apart. It is not a security wall."), next: "q4_4" },
+      { k: "No", l: "Nothing to set", d: "Each side stays separate.",
+        fx: c => c.set("link.domain", "System traffic stays on its own side. Each side stays separate."), next: "q4_4" },
+    ],
+    unsure: { fx: c => { c.set("link.domain", "A different JetStream domain name on each side, to be safe."); c.open("Ask the operator whether system traffic will cross the leaf link."); }, next: "q4_4" } },
+  q4_4: { stage: "4", short: "Reach the other side's streams by name?",
+    q: "Must one side reach the other side's streams by name?",
+    help: "A copy across a leaf link between different domains needs this. A copy across a gateway does not.",
+    opts: [
+      { k: "Yes", l: "Name a domain on each side", d: "Then address the other side by its name.",
+        fx: c => c.set("link.reach", "A domain name on each side. Address the other side by its name."), next: "result" },
+      { k: "No", l: "A domain is optional", d: "The sides stay apart anyway.",
+        fx: c => c.set("link.reach", "No cross-side access by name is needed."), next: "result" },
+    ] },
+};
+
+const RULES = [
+  ["Check the leader twice.", "After a failure, the status page can show an old leader for a while. Check again before you act."],
+  ["A named leader is not ready.", "The status page can name a new leader before changes work (F6a). Ready means a real change worked. Retry, and record the wait."],
+  ["Count the messages.", "A send can report success when nothing was stored."],
+  ["Check every copy by counting.", "A wrong or empty copy gives no error."],
+  ["A prefix is not proof of origin.", "It keeps imported messages apart. Reserve it with publish permissions."],
+];
+const NEVER = [
+  "A single-server tie-breaker (T3). It leaves no room for one more failure.",
+  "A gateway and a leaf link together (T6). It acts as a plain gateway.",
+];
+const GAPS = [
+  "A real network cut, with both regions alive but unable to reach each other.",
+  "Loss of only some servers in a region.",
+  "Any way to move between T4 and T5 other than the one tested. The tested way has not shown safe, repeatable operation.",
+  "Why moving T5 to T4 removed ZA copies, and whether they can be recovered.",
+  "A copy of a stream across accounts, set up as NATS documents it.",
+  "The hub as the main store for both regions, under real load, and what its loss costs.",
+  "How far a copy falls behind at production volume.",
+];
+const SOURCES = [
+  ["Lab report, generated by lab/run-all.sh", "../REPORT.html"],
+  ["Findings deck v1.0", "nats-clustering-findings-v1.0.pdf"],
+  ["Pattern cards v0.4", "03-multi-cluster-and-accounts-pattern-cards-v0.4.pdf"],
+  ["NATS docs: JetStream across accounts", "https://docs.nats.io/reference/2.12/jetstream/cross-account-subjects"],
+  ["NATS docs: leaf nodes and JetStream domains", "https://docs.nats.io/learn/topologies/leaf-nodes"],
+  ["NATS docs: leaf node remotes", "https://docs.nats.io/reference/config/leafnodes/remotes"],
+];
+
+/* ---------- state ---------- */
+const KEY = "nats-setup-guide-v0.2";
+let answers = [];
+try { answers = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (_) { answers = []; }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(answers)); } catch (_) {} }
+
+function fill(t, st) { return t.replace(/\{s\}/g, st.cur ? st.cur.name : "this stream"); }
+
+function replay(list) {
+  const st = { sets: new Map(), open: [], streams: [], cur: null, shape: null, sharedAcc: false };
+  const c = {
+    st,
+    set: (k, v) => st.sets.set(k, v),
+    open: t => { const s = fill(t, st); if (!st.open.includes(s)) st.open.push(s); },
+    sset: (k, v) => st.cur.items.set(k, v),
+    shape: code => { st.shape = code; st.sets.set("shape", SHAPES[code]);
+      if (code === "T4" || code === "T5") c.open(MOVE); },
+  };
+  let node = "q1_1";
+  const steps = [];
+  for (const a of list) {
+    const n = N[node];
+    if (!n) break;
+    if (n.name) {
+      st.cur = { name: a.value, items: new Map() };
+      st.streams.push(st.cur);
+      steps.push({ node, label: a.value, stream: st.cur.name });
+      node = "q3_1";
+      continue;
+    }
+    const opt = a.opt === "unsure" ? n.unsure : n.opts[a.opt];
+    if (!opt) break;
+    if (opt.fx) opt.fx(c);
+    const label = a.opt === "unsure" ? "Not sure" : (opt.k ? opt.k + " · " : "") + opt.l;
+    steps.push({ node, label, stream: n.per ? st.cur.name : null });
+    node = typeof opt.next === "function" ? opt.next(st) : opt.next;
+  }
+  return { st, node, steps };
+}
+
+/* ---------- small DOM helper (textContent only; stream names are user input) ---------- */
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(kid));
+  return el;
+}
+
+function answer(a) { answers.push(a); save(); render(); window.scrollTo(0, 0); document.getElementById("stage").focus(); }
+function rewind(i) { answers = answers.slice(0, i); save(); render(); }
+
+/* ---------- views ---------- */
+function stepsBar(node) {
+  const cur = node === "result" ? "done" : N[node].stage;
+  const idx = STAGES.findIndex(s => s[0] === cur);
+  const ol = document.getElementById("steps");
+  ol.replaceChildren(...STAGES.map(([id, name], i) =>
+    h("li", { class: cur === "done" || i < idx ? "done" : i === idx ? "now" : "", "aria-current": i === idx ? "step" : false }, name)));
+}
+
+function history(steps) {
+  const box = document.getElementById("hist");
+  if (!steps.length) { box.replaceChildren(h("p", { class: "empty" }, "Your answers appear here. Select one to change it.")); return; }
+  const ul = h("ul", { class: "hist" });
+  let lastGroup = "";
+  steps.forEach((s, i) => {
+    const n = N[s.node];
+    const group = s.stream ? "Stream: " + s.stream : "Stage " + n.stage + " · " + STAGES.find(x => x[0] === n.stage)[1];
+    if (group !== lastGroup) { ul.append(h("li", { class: "grp" }, group)); lastGroup = group; }
+    ul.append(h("li", {}, h("button", { type: "button", onclick: () => rewind(i), "aria-label": "Change: " + n.short },
+      h("span", { class: "q" }, n.short), h("span", { class: "a" }, s.label), h("span", { class: "edit" }, "Change"))));
+  });
+  box.replaceChildren(ul);
+}
+
+function list(items, cls) { return h("ul", {}, items.map(t => h("li", { class: cls || "" }, t))); }
+
+function summary(st, big) {
+  const g = k => st.sets.get(k);
+  const pick = keys => keys.map(g).filter(Boolean);
+  const out = [];
+  if (st.open.length) out.push(h("div", { class: "open" },
+    h("h3", {}, st.open.length === 1 ? "1 open item" : st.open.length + " open items"), list(st.open)));
+  const acc = pick(["acc.cust", "acc.model", "acc.names", "acc.share", "acc.prefix", "acc.share2"]);
+  if (acc.length) out.push(h("div", { class: "sec" }, h("h3", {}, "Accounts"), list(acc)));
+  if (g("shape")) out.push(h("div", { class: "sec" }, h("h3", {}, "Shape"), list([g("shape")])));
+  if (st.streams.length) out.push(h("div", { class: "sec" }, h("h3", {}, "Streams"),
+    st.streams.map(s => [h("div", { class: "stream-name" }, s.name), list([...s.items.values()])])));
+  const links = pick(["link.tie", "link.domain", "link.reach", "link.dup"]);
+  if (links.length) out.push(h("div", { class: "sec" }, h("h3", {}, "Link settings"), list(links)));
+  if (!out.length && !big) out.push(h("p", { class: "empty" }, "Nothing decided yet."));
+  return out;
+}
+
+function questionView(node, st) {
+  const n = N[node];
+  const stageName = STAGES.find(s => s[0] === n.stage)[1];
+  const where = n.per ? "Stage " + n.stage + " · " + stageName + " · " + st.cur.name : "Stage " + n.stage + " · " + stageName;
+  const card = h("div", { class: "card" + (n.conflict ? " conflict" : "") },
+    h("p", { class: "where" }, where),
+    h("h2", { id: "qh", tabindex: "-1" }, fill(n.q, st)),
+    n.help ? h("p", { class: "help" }, fill(n.help, st)) : null);
+  if (n.name) {
+    const input = h("input", { type: "text", maxlength: "40", placeholder: "for example: orders", "aria-labelledby": "qh" });
+    const go = h("button", { type: "submit", disabled: "" }, "Add stream");
+    input.addEventListener("input", () => { go.disabled = !input.value.trim(); });
+    card.append(h("form", { class: "namer", onsubmit: ev => { ev.preventDefault(); const v = input.value.trim(); if (v) answer({ value: v }); } }, input, go));
+    setTimeout(() => input.focus(), 0);
+  } else {
+    card.append(h("div", { class: "opts" }, n.opts.map((o, i) =>
+      h("button", { type: "button", class: "opt" + (o.k ? "" : " no-k"), onclick: () => answer({ opt: i }) },
+        h("span", { class: "k" }, o.k || ""), h("span", { class: "l" }, o.l), h("span", { class: "d" }, fill(o.d, st))))));
+    if (n.unsure) card.append(h("button", { type: "button", class: "unsure", onclick: () => answer({ opt: "unsure" }) },
+      "Not sure — take the safer answer and add an open item"));
+  }
+  return card;
+}
+
+function reportView(st) {
+  const n = st.open.length;
+  const lede = n
+    ? "This setup fits your answers, but " + (n === 1 ? "one item is" : n + " items are") + " still open. Settle them before you build."
+    : "This setup fits your answers. Nothing is left open from your answers, but the lab still has gaps. They are listed below.";
+  return h("div", { class: "report" },
+    h("h2", { id: "qh", tabindex: "-1" }, n ? "Your setup, with open items" : "Your setup"),
+    h("p", { class: "lede" }, lede),
+    summary(st, true),
+    h("div", { class: "sec rules" }, h("h3", {}, "Rules for every setup"), list(RULES.map(r => r[0] + " " + r[1]))),
+    h("div", { class: "sec never" }, h("h3", {}, "Never pick these"), list(NEVER, "risk")),
+    h("div", { class: "sec never" }, h("h3", {}, "The lab has not tested these yet"), list(GAPS, "risk")),
+    sourcesView(),
+    h("div", { class: "report-actions" },
+      h("button", { type: "button", class: "ghost", onclick: () => window.print() }, "Print or save as PDF"),
+      h("button", { type: "button", class: "ghost", onclick: () => rewind(answers.length - 1) }, "Back one step")));
+}
+
+function render() {
+  const { st, node, steps } = replay(answers);
+  if (steps.length < answers.length) { answers = answers.slice(0, steps.length); save(); }
+  const done = node === "result";
+  stepsBar(node);
+  history(steps);
+  document.getElementById("app").classList.toggle("final", done);
+  document.body.classList.toggle("has-result", done);
+  document.getElementById("stage").replaceChildren(done ? reportView(st) : questionView(node, st));
+  document.getElementById("setup").replaceChildren(...summary(st, false));
+  const qh = document.getElementById("qh");
+  if (qh && document.activeElement && document.activeElement.closest("#stage, #hist")) qh.focus({ preventScroll: true });
+}
+
+/* ---------- print reference: every question and what each answer sets ---------- */
+function sourcesView() {
+  return h("div", { class: "sec sources" }, h("h3", {}, "Sources"),
+    h("ul", {}, SOURCES.map(([t, u]) => h("li", {}, h("a", { href: u }, t)))));
+}
+
+function effects(opt) {
+  const out = [];
+  let cond = false;
+  const st = { cur: { name: "this stream", items: new Map() }, sets: new Map(),
+    get shape() { cond = true; return "T5"; }, get sharedAcc() { return true; }, set sharedAcc(v) {} };
+  const say = t => out.push((cond ? "Only if the shape is T5: " : "") + t.replace(/\{s\}/g, "this stream"));
+  const c = { st, set: (k, v) => say(v), sset: (k, v) => say(v), open: t => say("Open item: " + t),
+    shape: code => say("Shape: " + SHAPES[code]) };
+  if (opt.fx) opt.fx(c);
+  return out;
+}
+
+function referenceView() {
+  const ids = {};
+  const count = {};
+  for (const [key, n] of Object.entries(N)) { count[n.stage] = (count[n.stage] || 0) + 1; ids[key] = "Q" + n.stage + "." + count[n.stage]; }
+  const target = next => typeof next === "function"
+    ? "Next: link settings. T2 and T4 go to " + ids.q4_1 + ", T5 to " + ids.q4_3 + ", T1 to your setup."
+    : next === "result" ? "Next: your setup." : "Next: " + ids[next] + " · " + N[next].short;
+  const out = [
+    h("h2", {}, "Pick a NATS setup for two regions · v0.2"),
+    h("p", { class: "lede" }, "Every question in the guide, every answer, and what each answer adds to your setup. " +
+      "Use the HTML page to answer them one at a time. v0.2 supersedes v0.1. Each claim comes from the demo 03 lab report, " +
+      "measured 2026-09-28 and 2026-09-29 on one machine, nats-server 2.14.6. An open item marks what the lab did not settle."),
+  ];
+  for (const [sid, sname] of STAGES) {
+    out.push(h("h3", { class: "stage-h" }, "Stage " + sid + " · " + sname));
+    for (const [key, n] of Object.entries(N)) {
+      if (n.stage !== sid) continue;
+      const q = n.q.replace(/\{s\}/g, "this stream");
+      const node = h("div", { class: "node" + (n.conflict ? " conflict" : "") },
+        h("h4", {}, h("span", { class: "id" }, ids[key]), q),
+        n.help ? h("p", { class: "help" }, n.help.replace(/\{s\}/g, "this stream")) : null);
+      if (n.name) node.append(h("div", { class: "ro" }, h("span", { class: "to" }, "Type a stream name. Next: " + ids.q3_1 + ", asked once for each stream.")));
+      const opts = (n.opts || []).map(o => [(o.k ? o.k + " · " : "") + o.l, o.d, o]);
+      if (n.unsure) opts.push(["Not sure", "Take the safer answer and add an open item.", n.unsure]);
+      for (const [label, d, o] of opts) {
+        const fx = effects(o);
+        node.append(h("div", { class: "ro" },
+          h("span", { class: "l" }, label), " ", h("span", { class: "d" }, d.replace(/\{s\}/g, "this stream")),
+          fx.length ? h("ul", {}, fx.map(t => h("li", {}, t))) : null,
+          h("div", { class: "to" }, target(o.next))));
+      }
+      out.push(node);
+    }
+  }
+  out.push(h("h3", { class: "stage-h" }, "For every setup"),
+    h("div", { class: "sec" }, h("h3", {}, "Moving between T4 and T5"), list([MOVE], "risk")),
+    h("div", { class: "sec rules" }, h("h3", {}, "Rules for every setup"), list(RULES.map(r => r[0] + " " + r[1]))),
+    h("div", { class: "sec never" }, h("h3", {}, "Never pick these"), list(NEVER, "risk")),
+    h("div", { class: "sec never" }, h("h3", {}, "The lab has not tested these yet"), list(GAPS, "risk")),
+    sourcesView());
+  document.getElementById("ref").replaceChildren(...out);
+}
+
+referenceView();
+document.getElementById("stage").setAttribute("tabindex", "-1");
+document.getElementById("restart").addEventListener("click", () => { answers = []; save(); render(); });
+render();
+</script>
+</body>
+</html>
