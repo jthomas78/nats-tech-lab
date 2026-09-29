@@ -482,7 +482,7 @@
           <div class="lbl" style="color:var(--red)">Not copied at all</div>
           <ul>
             <li><b>Anything in <code>au</code>.</b> A gateway routes; it does not copy. That needs a mirror.</li>
-            <li><b>Ephemeral consumers</b> &#8212; R1, in memory, and they die with their server.</li>
+            <li><b>Ephemeral consumers, by default</b> &#8212; on a limits-policy stream with no replica count set, an ephemeral is R1 and dies with its server. Set a replica count to replicate it; on other retention policies it takes the stream's count. <a href="https://github.com/nats-io/nats-server/blob/v2.14.6/server/consumer.go#L401-L410">source</a></li>
           </ul>
         </div>
       </div>
@@ -1023,7 +1023,7 @@
       <div class="panel pro">
         <div class="lbl">A whole region dies &#8212; and the answer flips</div>
         <ul>
-          <li>ZA dies holding the meta leader. <b>T3 keeps 4 of 7, T4 keeps 6 of 9</b> &#8212; still a majority, so the survivors elect one and AU creates <b>new</b> streams. <code>C5a</code>, <code>C6</code>, <code>F4</code></li>
+          <li>ZA dies. <b>T3 keeps 4 of 7, T4 keeps 6 of 9</b> &#8212; still a majority, so the survivors elect a leader and AU creates <b>new</b> streams. <code>C5</code>, <code>C6</code>, <code>F22</code>, <code>F23</code></li>
           <li>The leader's <b>address</b> never mattered. Only the count does.</li>
           <li><b>ZA's data is still gone</b>, even with the vote alive. <code>F28</code></li>
           <li>On slide 06 the same loss leaves 3 of 6 and freezes both. <b>That is what the third site buys.</b> <code>A10</code></li>
@@ -1143,7 +1143,7 @@
           <li><b>H gives each regional account its own remote.</b> The hub then captures and mirrors each region &#8212; it removes ZA / AU cross-capture, not capture at the hub. <code>H8</code>, <code>H11</code></li>
           <li><b>Capture is not replication.</b> The hub captures only while the link is up (<code>H8a</code>). A mirror copies what the source already holds (<code>D8</code>). Catch-up after an outage was not measured.</li>
           <li><b>A shared hub is not a shared account.</b> Both regions reach the same three hub servers and still cannot see each other. <code>H6a</code>, <code>H9</code>, <code>H9a</code></li>
-          <li><b>The mirror trap is unchanged.</b> Name-only &rarr; 0 copied; with <code>external.api</code> &rarr; 2. The account was never the problem &#8212; <code>external.api</code> names a <b>domain</b>. <code>H10</code>, <code>H11</code>, <code>H11a</code></li>
+          <li><b>The mirror trap is unchanged.</b> Name-only &rarr; 0 copied; with <code>external.api</code> &rarr; 2. The account was never the problem &#8212; here <code>external.api</code> names a <b>domain</b> API prefix. It can also name an API imported from another account; that was not configured here. <code>H10</code>, <code>H11</code>, <code>H11a</code></li>
         </ul>
       </div>
     </div>
@@ -1504,7 +1504,7 @@
       <div class="lbl">The runs</div>
       <table>
         <tr><th style="width:22%">Source</th><th style="width:15%">Measured</th><th style="width:19%">On</th><th>What it produced</th></tr>
-        <tr><td><b>Demo 03</b> — <code>lab/run-all.sh</code></td><td>2026-09-28 13:40 SAST</td><td>nats-server 2.14.6 · Darwin 25.4.0 arm64</td><td>196 rig checks passed, 0 failed, 71 notes, across 9 topologies. Meta group sizes, 10008 / 10058 / 10005 refusals, mirror behaviour, all six findings.</td></tr>
+        <tr><td><b>Demo 03</b> — <code>lab/run-all.sh</code></td><td>2026-09-28 13:40 SAST</td><td>nats-server 2.14.6 · Darwin 25.4.0 arm64</td><td>Report totals: 196 rig checks passed, 0 failed, 71 notes &#8212; 178 and 52 from 9 topologies, 18 and 19 from the switch run. Meta group sizes, 10008 / 10058 / 10005 refusals, mirror behaviour, all six findings.</td></tr>
         <tr><td><b>Demo 03</b> — <code>lab/09-switch-t4-t5.sh</code></td><td>2026-09-29 09:39 SAST &#183; 2026-09-28</td><td>nats-server 2.14.6 · Darwin 25.4.0 arm64</td><td>83 procedure checks met, 18 not met, 3 procedure verdicts. 09-29 verdicts ran live; 09-28 verdicts derived afterwards. Slide 14.</td></tr>
         <tr><td><b>Demo 02</b> — multi-region lab scripts</td><td>2026-09-09 &amp; 2026-09-11</td><td>nats-server 2.14 in Docker, one host</td><td>Replicas 1 vs 3, the account wall across a gateway, WAN cut = change freeze only (10 &rarr; 15 messages acked), subject overlap 10065.</td></tr>
         <tr><td><b>Demo 04</b> — <code>cqrs rehydrate</code></td><td>2026-09-16</td><td>nats-server 2.14.3 in Docker, on a laptop</td><td>10 001 events on one vehicle, best of three runs each way: 25 ms without a snapshot, 1.1 ms with one.</td></tr>
@@ -1525,7 +1525,7 @@
         <ul>
           <li><b>Demo 03, all nine topologies:</b> <code>demos/03-multi-cluster-and-accounts/lab/run-all.sh</code> — builds every shape from nothing and regenerates <code>REPORT.md</code> and <code>REPORT.html</code>. Both are generated; neither is hand-edited.</li>
           <li><b>Demo 02, replicas and the account wall:</b> <code>demos/02-multi-region/lab/01-the-wall.sh</code>, <code>02-replicas.sh</code>, <code>03-odometer.sh</code>.</li>
-          <li><b>Demo 04, rehydration:</b> <code>cqrs seed -vehicle V1 -n 10000</code>, then <code>cqrs rehydrate -snapshot=false</code>; wait about 20 seconds for the asynchronous snapshotter, then <code>cqrs rehydrate -snapshot=true</code>.</li>
+          <li><b>Demo 04, rehydration:</b> <code>cqrs seed -vehicle V1 -n 10000</code>, then <code>cqrs rehydrate -vehicle V1 -snapshot=false</code>; wait about 20 seconds for the asynchronous snapshotter, then <code>cqrs rehydrate -vehicle V1 -snapshot=true</code>. Full setup: <code>demos/04-jetstream-cqrs/README.md</code>.</li>
           <li><b>A caution that applies to all three:</b> never fake a WAN cut with <code>docker network disconnect</code> — it drops published host ports, and an early run wrongly reported that both regions had died.</li>
         </ul>
       </div>

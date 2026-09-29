@@ -189,11 +189,11 @@
   .page[data-p="3"]{ page: p3; }
   @page p4 { size: 210mm 465mm; }
   .page[data-p="4"]{ page: p4; }
-  @page p5 { size: 210mm 447mm; }
+  @page p5 { size: 210mm 451mm; }
   .page[data-p="5"]{ page: p5; }
   @page p6 { size: 210mm 421mm; }
   .page[data-p="6"]{ page: p6; }
-  @page p7 { size: 210mm 432mm; }
+  @page p7 { size: 210mm 441mm; }
   .page[data-p="7"]{ page: p7; }
   @page p8 { size: 210mm 438mm; }
   .page[data-p="8"]{ page: p8; }
@@ -209,7 +209,7 @@
   .page[data-p="13"]{ page: p13; }
   @page p14 { size: 210mm 482mm; }
   .page[data-p="14"]{ page: p14; }
-  @page p15 { size: 210mm 314mm; }
+  @page p15 { size: 210mm 319mm; }
   .page[data-p="15"]{ page: p15; }
   @page p16 { size: 210mm 534mm; }
   .page[data-p="16"]{ page: p16; }
@@ -958,9 +958,11 @@
       <li><b>Placement belongs to a stream</b>, not to an account. Two streams in one account can sit in
         two clusters: <code>--cluster za</code> and <code>--cluster au</code> from the same client both
         work (<code>E13</code>, <code>E14</code>).</li>
-      <li>It is decided <b>once, at create time</b>. A stream config can name a cluster or tags
-        <span class="ev d">documented</span>. This lab tested <code>--cluster</code> only; tags were not
-        tested.</li>
+      <li>This lab set the <b>initial placement</b>, at create time. A stream config can name a cluster
+        or tags <span class="ev d">documented</span>. This lab tested <code>--cluster</code> only; tags were
+        not tested. NATS also documents changing placement later, which moves the replicas
+        <span class="ev d">documented</span> (<a href="https://docs.nats.io/learn/clustering/placement">docs:
+        placement</a>). <b>Moving a stream was not tested here.</b></li>
       <li>With no placement, the stream lands in the client's own cluster. The meta leader records the
         choice; <b>where the meta leader sits does not pick the cluster</b> <span class="ev i">inferred</span>
         &mdash; no check moved the leader to test it.</li>
@@ -1252,7 +1254,9 @@
         its own <span class="ev i">inferred</span>.</li>
       <li>A stream name resolves <b>in the local domain</b> (<code>H7a</code>). To reach another JetStream,
         name its API: <code>external.api = $JS.za.API</code> (<code>D8</code>, <code>H11</code>).
-        <code>external.api</code> names a domain, not an account (<code>H11a</code>).</li>
+        <code>external.api</code> is a JetStream API prefix. In this lab the prefix names a domain, and
+        binding an account per region changed nothing (<code>H11a</code>). The prefix can also name an API
+        imported from another account <span class="ev d">documented</span>; that was not configured here.</li>
       <li>Leave out <code>external.api</code> and a mirror either copies nothing (<code>D7</code>) or
         silently copies a <b>local</b> stream of the same name (<code>D9a</code>). No error either way
         (<code>D7a</code>).</li>
@@ -1786,8 +1790,8 @@
       <li>A mirror is a stream that copies another stream, one way. The copy is read-only.</li>
       <li>A bare source name is looked up <b>in the asking side</b>: its own JetStream and its own account
         (<code>H7a</code>, <code>E18a</code>). Card 05 is the same fact seen from the other end.</li>
-      <li><code>mirror.external.api</code> tells the mirror which JetStream to ask. It names a
-        <b>domain</b>, not an account (<code>H11a</code>). No gateway, no shared vote.</li>
+      <li><code>mirror.external.api</code> tells the mirror which JetStream API to ask. In this lab it
+        names a <b>domain</b> prefix (<code>H11a</code>). No gateway, no shared vote.</li>
       <li>A <b>name-only</b> mirror cannot cross an <b>account</b> (<code>E17</code>, <code>E18</code>). NATS
         documents a cross-account mirror: the owner exports its JetStream API, the other account imports it,
         and the mirror names it in <code>external.api</code> <span class="ev d">documented</span>
@@ -2276,8 +2280,9 @@
       </ul></div>
     <div class="panel con"><div class="lbl">Choose the arbiter shape (card 08) when</div>
       <ul>
-        <li>One stream name per account, everywhere, is worth more than regional independence. Of the
-          shapes here, only T4 keeps that shared namespace and still creates with either region dark.</li>
+        <li>One stream name per account, everywhere, is worth more than regional independence. T3 and T4
+          both keep that shared namespace and still create with either region dark (<code>C4</code>,
+          <code>C6</code>, <code>F4</code>, <code>F23</code>). T4 also survives one more server lost.</li>
         <li>You have a real third location, not a third zone in one region.</li>
         <li>You can live with every stream change waiting on the WAN <span class="ev i">inferred</span>.</li>
       </ul></div>
