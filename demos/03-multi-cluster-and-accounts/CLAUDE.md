@@ -507,25 +507,36 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   the whole hub still leaves the region working (`H12`-`H14`). **A stream name
   resolves in a DOMAIN; an account only moves subjects.**
 
-- **Stop–reconfigure–restart between T4 and T5 fails, both ways** (measured
-  2026-09-28, `lab/09-switch-t4-t5.sh`, verdicts `SA39`, `SB39`, `SC57`).
-  T4 → T5: no independent meta groups (`SA9`, `SA28`); formed stream groups
-  kept taking acks (`SA20`–`SA25`), but the data was not readable through
-  `nats stream get` — integrity **unverified**, not disproved. The reason
-  is measured (scratch cluster, 2026-09-29): with no meta leader,
-  STREAM.MSG.GET answers 10008, while Direct Get and `stream info` still
-  answer. 09 now reads back by Direct Get at the manifest's sequences, and
-  proves that reader before the switch (rig checks). T5 → T4: one shared group formed (`SB9`), but the ZA streams
-  were lost, in the clean-name run too (`SB10`, `SB20`), and their
-  directories were gone from disk. The cause of that removal is **not
-  proved** — do not write one down. The kept logs are INFO level and name
-  no removal; a server's restored streams are not the meta leader's full
-  list. `SC37` / `SC55` are a test side effect. These verdicts were
-  **derived after the run** from its rows; the verdict and evidence-check
-  code has not yet run live.
-  **The procedure is unsafe for existing data. It does not make T4 or T5 a
-  one-way choice** — no other procedure was tested. Evidence:
-  `lab/run/evidence/09-20260928-202654/`.
+- **Stop–reconfigure–restart between T4 and T5 has not shown safe,
+  repeatable operation** (`lab/09-switch-t4-t5.sh`, two runs, 2026-09-28 and
+  2026-09-29; the report's IDs are the second run's, verdicts `SA41`,
+  `SB41`, `SC59`). Keep both dates — the later run does not replace the
+  earlier one.
+  - **T4 → T5:** failed to establish independent meta groups both times.
+    After the switch every site still reports nine-member meta membership
+    and no site elects a meta leader (`SA10`, `SA28`) — not a working shared
+    group either. On 2026-09-29 the tested data was **preserved**: every
+    message, consumer position and KV key matched by Direct Get
+    (`SA11`–`SA20`, `SA30`–`SA39`). Report topology and data separately.
+    On 2026-09-28 the data was unreadable because that reader used
+    STREAM.MSG.GET, which answers 10008 with no meta leader (Direct Get and
+    `stream info` still answer).
+  - **T5 → T4, clean names — outcomes differ by run.** 2026-09-28: the ZA
+    streams were lost and their directories gone. 2026-09-29: all data
+    matched; the one unmet check, `SB18`, is an **unread** placement, not a
+    wrong one. Do not call it a loss.
+  - **T5 → T4, collision:** replica deletion observed — za-2 and za-1
+    removed their ZA copies, za-3 kept its; streams unavailable, `SC42` /
+    `SC48` inconclusive. Deletion is **not** irrecoverable loss: recovery is
+    untested. Both regional `ODOMETER` lookups resolved to the **same
+    surviving AU stream** (`SC36`, `SC51`); that probe advanced the AU
+    consumer by one (`SC38`, `SC56`) — a test side effect.
+  - **Why replicas were removed is not proved** — do not write a cause
+    down. The removals follow a meta-log roll-back to the AU leader's, but
+    za-3 rolled back too and kept its copy.
+  - **It does not make T4 or T5 a one-way choice** — no other procedure was
+    tested. Evidence: `lab/run/evidence/09-20260928-202654/` and
+    `lab/run/evidence/09-20260929-093944/`.
 
 ## Still open — do not claim these are settled
 
@@ -549,9 +560,8 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
 - **Any other way to move between T4 and T5** (`D03-R11`, `D03-R12`). Only
   stop–reconfigure–restart is measured, and it failed. A site-at-a-time
   conversion and a migration to separately built clusters are untested.
-- **Whether run A's data survived on disk.** Kept, never read back another
-  way. A follow-up diagnostic, separate from the verdict.
-- **Why T5 → T4 removed the ZA stream directories.** Read the kept logs and
-  stores before naming a cause.
+- **Why T5 → T4 removed ZA replicas**, and — a separate question — **whether
+  the surviving files can be recovered.** Read the kept debug logs, stores
+  and the exact server source before naming a cause.
 - **Cross-WAN read latency.** Placement of a stream, a consumer and a KV bucket
   is all measured. The cost in milliseconds is not.

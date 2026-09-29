@@ -98,57 +98,61 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
 | **D03-R8** | Can two accounts share a subject **on purpose**, via export / import? | answered |
 | **D03-R9** | If we add an arbiter site, can real data land on it **by accident**? | answered |
 | **D03-R10** | If a system has a **gateway and a leaf link at the same time**, which one decides the JetStream shape? | answered |
-| **D03-R11** | Can a running **T4** be converted **in place** to **T5**, and keep its data? | **failed** for the one procedure tested — 2026-09-28 |
-| **D03-R12** | Can a running **T5** be converted **in place** to **T4**, and keep its data? | **failed** for the one procedure tested — 2026-09-28 |
+| **D03-R11** | Can a running **T4** be converted **in place** to **T5**, and keep its data? | **failed** for the one procedure tested — 2026-09-28, 2026-09-29 |
+| **D03-R12** | Can a running **T5** be converted **in place** to **T4**, and keep its data? | **failed** for the one procedure tested, not repeatable — 2026-09-28, 2026-09-29 |
 
 ### D03-R11 and D03-R12 — switching topology in place
 
-**Result, 2026-09-28, `nats-server 2.14.6`.** The tested stop–reconfigure–restart
-procedure failed in both directions. T4 → T5 did not establish independent
-metadata groups. T5 → T4 formed a shared group but failed to preserve the
-ZA streams, including in the clean-name case. **This procedure is unsafe for
-existing data.** Alternative conversion and migration procedures remain
-untested. A failed direct conversion does not make T4 or T5 a one-way
+**Result, two runs, `nats-server 2.14.6`.** The tested
+stop–reconfigure–restart procedure has **not shown safe, repeatable
+operation.** T4 → T5 failed to establish independent metadata groups on both
+dates; the second run verified that the tested data was preserved. T5 → T4
+gave different outcomes on the two dates: the clean-name conversion removed
+the ZA stream data on 2026-09-28, but preserved it on 2026-09-29, with one
+placement read left unresolved. The collision case showed replica deletion,
+unavailable streams, and both regional lookups resolving to the other
+region's stream. **The deletion mechanism and whether the data can be
+recovered are not proved.** Alternative conversion and migration procedures
+remain untested. A failed direct conversion does not make T4 or T5 a one-way
 architectural choice.
+
+**Run of 2026-09-29** — the check IDs below. Evidence:
+`lab/run/evidence/09-20260929-093944/`. The verdict rows (`SA41`, `SB41`,
+`SC59`) and the evidence checks (`SA40`, `SB40`, `SC58`) ran live.
 
 | Run | Direction | Verdict | Rig | The checks that decide it |
 |---|---|---|---|---|
-| A | T4 → T5 | **failed** | held (`SA1`–`SA3`) | `SA9`, `SA28` — no independent meta groups. Formed stream groups kept taking acked publishes and consumers resumed (`SA20`–`SA25`). The stored data could not be read back (`SA10`, `SA13`, `SA16`, `SA19`). The reader used `nats stream get`, and that call fails with error 10008 when there is no meta leader (measured on a scratch cluster, 2026-09-29). Data integrity is **unverified**, not disproved. |
-| B1 | T5 → T4, clean names | **failed** | held (`SB1`–`SB3`) | `SB9` — one shared group formed. `SB10`, `SB16` — the ZA streams could not be read back; `SB20`, `SB24` — no ack for new publishes. The ZA stream directories were gone from the kept stores. **What** removed them, and why, is not proved. AU and the KV bucket came through (`SB13`, `SB19`). |
-| B2 | T5 → T4, LB name collision | **failed** | held (`SC1`–`SC3`) | The same ZA loss as B1 (`SC10`, `SC16`, `SC19`). `SC37` and `SC55` are a side effect of the test's own keep-working step, not separate evidence about consumers. |
+| A | T4 → T5 | **failed** — topology | held, reader proved (`SA1`–`SA5`) | **Topology not established:** after the switch and after a restart every site still reported nine-member meta membership, and no site elected a meta leader in 289 s (`SA7`, `SA10`, `SA28`, `SA29`). **Data preserved**, for what was checked: every message, consumer position and KV key matched by Direct Get (`SA11`–`SA20`, `SA30`–`SA39`); formed stream groups kept taking acks and consumers resumed (`SA21`–`SA27`). |
+| B1 | T5 → T4, clean names | **failed** — one unmet verification | held (`SB1`–`SB5`) | One shared group formed (`SB10`, `SB29`). Every message, consumer position and KV key matched after the switch and after the restart (`SB11`–`SB20`, `SB30`–`SB39`). `SB18`: the placement of `lb@za.SHARED_ODO` came back **unread** right after the switch — not wrong; it read `za` after the restart (`SB37`). This does **not** repeat 2026-09-28's ZA loss. |
+| B2 | T5 → T4, LB name collision | **failed** | held (`SC1`–`SC5`) | **Replica deletion observed:** at the first T4 start za-2, then za-1, removed their copies of every ZA stream; za-3 kept its copy. The ZA streams took no new acks (`SC29`, `SC33`, `SC35`), their consumers were unreadable (`SC13`, `SC19`, `SC22`), and after the restart no replica answered for two of them (`SC42`, `SC48`) — integrity **inconclusive**. Files remain on za-3; recovery is untested, so irrecoverable loss is **not** established. **Lookup collision:** from the keep-working step on, both regional `ODOMETER` lookups resolved to the same surviving AU stream (`SC36`, `SC51`). **Test side effect:** that probe acked an AU message through the ZA name, moving the AU consumer on by one (`SC38`, `SC56`). |
 
-> **Derived after the run.** The verdict rows `SA39`, `SB39` and `SC57` in
-> [`REPORT.md`](REPORT.md) were worked out after the run, from the rows it
-> recorded. That run predates the verdict and evidence-check code, so that
-> code has not yet run live, and the rig counts for those runs include no
-> evidence check. The code is tested with fixtures only
-> (`lab/test-verdict.sh`).
+**Run of 2026-09-28** — kept for comparison, not replaced. Its check IDs
+were numbered by an older script and are not in `REPORT.md`; its evidence
+(and its verdict rows, derived after the run) is in
+`lab/run/evidence/09-20260928-202654/`.
 
-The evidence — configs of both shapes, every log, the ID manifests and the
-stores — is kept, by hand, in `lab/run/evidence/09-20260928-202654/` (that
-folder is gitignored). The script now writes each run to its own stamped
-folder, checks the evidence was kept as a **rig** check, and writes the
-verdict row itself. A run that stops early gets an *inconclusive* verdict
-and keeps the logs and stores it had.
+| Run | Direction | Verdict | What it showed |
+|---|---|---|---|
+| A | T4 → T5 | **failed** | No independent meta groups. Formed stream groups kept taking acks. The data could not be read back: that reader used STREAM.MSG.GET, which answers 10008 with no meta leader. Integrity **unverified**, not disproved. |
+| B1 | T5 → T4, clean names | **failed** | One shared group formed, but the ZA streams could not be read back, took no new acks, and their directories were gone from the kept stores. AU and the KV bucket came through. |
+| B2 | T5 → T4, LB name collision | **failed** | The same ZA loss as B1. Two consumer failures were a side effect of the test's keep-working step. |
 
-**What the kept B1 logs show, and do not show.** They show the order of
-events only. The ZA servers restored their streams from disk. An AU server
-was then elected meta leader, and the ZA servers reset their meta log. The
-ZA stream directories were gone afterwards. The logs are at INFO level, and
-no line names a removal. A server's restored streams are its local storage,
-not the meta leader's full list of streams, so these logs do not show what
-the leader knew. The cause stays **not proved**. The next run logs at debug
-level, keeps a stopped copy of all nine stores before the switch, and saves
-`/jsz` (meta group, stream assignments, raft groups) from every server at
-four points. `/jsz` is what each server reports; it is not a full record of
-metadata decisions or of why something was deleted.
+**What the 2026-09-29 debug logs show, and do not show.** In B2, each ZA
+server that removed its copies did so within a fraction of a second after it
+rolled its meta log back to the new AU meta leader's. za-3 rolled back too,
+and kept its copy. So the roll-back alone does not explain the removal. The
+cause stays **not proved**. `/jsz` is what each server reports; it is not a
+full record of metadata decisions or of why something was deleted.
 
-**How the next run reads data back.** By Direct Get, at the sequence
-numbers the manifest names. Direct Get is answered by the stream's own
-replicas, so it needs no meta leader. It is read-only: no consumer and no
-ack. The reader is proved on the source shape first, as two rig checks. If
-no replica answers after the switch, the row is a NOTE — *data integrity
-inconclusive* — not a data-loss FAIL, and the run cannot pass.
+**How the run reads data back.** By Direct Get, at the sequence numbers the
+manifest names. Direct Get is answered by the stream's own replicas, so it
+needs no meta leader. It is read-only: no consumer and no ack. The reader is
+proved on the source shape first, as two rig checks. If no replica answers
+after the switch, the row is a NOTE — *data integrity inconclusive* — not a
+data-loss FAIL, and the run cannot pass. Each run writes its evidence to its
+own stamped folder, checks it was kept as a **rig** check, and writes the
+verdict row itself. A run that stops early gets an *inconclusive* verdict and
+keeps the logs and stores it had.
 
 **How the report keeps rig and procedure apart.** Every row has a kind. A
 *rig* check asks: did the rig build, seed and read back what it said? A rig
@@ -202,9 +206,10 @@ does not show that switching shape is impossible.
 - Leaf reconnect behaviour with **many** regions, not two.
 - **D03-R11 / D03-R12** — only the stop–reconfigure–restart procedure is
   measured, and it failed. Still open: any other conversion (for example one
-  site at a time), migration to separately built clusters, whether run A's
-  data survived on disk (it was kept, not read back another way), and the
-  mechanism behind B1's lost ZA streams.
+  site at a time), migration to separately built clusters, **why** T5 → T4
+  removed ZA replicas (on 2026-09-28 in the clean-name run, on 2026-09-29 only
+  in the collision run), and — a separate question — whether the surviving
+  files can be recovered.
 
 ## Where the evidence is
 

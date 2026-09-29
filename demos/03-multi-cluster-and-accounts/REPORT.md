@@ -19,11 +19,10 @@ cd demos/03-multi-cluster-and-accounts/lab
 | Server | `nats-server v2.14.6` |
 | Client | `0.4.0` |
 | Machine | Darwin 25.4.0 arm64 |
-| Rig checks | **187 passed, 0 failed** |
-| Procedure checks | 50 met, **53 not met** |
+| Rig checks | **196 passed, 0 failed** |
+| Procedure checks | 83 met, **18 not met** |
 | Procedure verdicts | 3 — see the next section |
-| Evidence check | **not run live** — the verdicts were derived after the run; see the next section |
-| Recorded observations | 72 |
+| Recorded observations | 71 |
 
 A **check** has an expected answer and passes only on an exact match. A **note** has no expected answer — it records what the machine did so the number is on the record. Notes cannot pass or fail.
 
@@ -33,13 +32,11 @@ A **rig check** asks whether the rig did its job. A **procedure check** asks whe
 
 Some scripts test an operating **procedure**, not a shape. Each such run ends with one verdict: *passed with a measured interruption*, *failed*, or *inconclusive* when the rig itself failed. The checks behind it are in that shape's table below.
 
-> **Derived after the run.** These verdicts were derived after the run, from the rows it recorded. The run itself predates the verdict and evidence-check code. So that code has not yet run live, and the rig check counts above include no evidence check for these runs. The evidence was kept by hand.
-
 | Verdict | Req | Procedure | Run | Why |
 |---|---|---|---|---|
-| **failed** | D03-R11 | the stop-rewrite-restart procedure, t4 to t5 | T4 / S -- switch in place, T4 to T5 `SA39` | rig checks failed: 0; procedure checks not met: 11 of 29; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check) |
-| **failed** | D03-R12 | the stop-rewrite-restart procedure, t5 to t4 | T5 / S -- switch in place, T5 to T4, clean names `SB39` | rig checks failed: 0; procedure checks not met: 16 of 29; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check) |
-| **failed** | D03-R12 | the stop-rewrite-restart procedure, t5 to t4 | T5 / S -- switch in place, T5 to T4, LB name collision `SC57` | rig checks failed: 0; procedure checks not met: 26 of 45; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check) |
+| **failed** | D03-R11 | the stop-rewrite-restart procedure, t4 to t5 | T4 / S -- switch in place, T4 to T5 `SA41` | rig checks failed: 0; procedure checks not met: 2 of 29; read-backs no replica answered (integrity inconclusive): 0 |
+| **failed** | D03-R12 | the stop-rewrite-restart procedure, t5 to t4 | T5 / S -- switch in place, T5 to T4, clean names `SB41` | rig checks failed: 0; procedure checks not met: 1 of 29; read-backs no replica answered (integrity inconclusive): 0 |
+| **failed** | D03-R12 | the stop-rewrite-restart procedure, t5 to t4 | T5 / S -- switch in place, T5 to T4, LB name collision `SC59` | rig checks failed: 0; procedure checks not met: 15 of 43; read-backs no replica answered (integrity inconclusive): 2 |
 
 ## The four accounts
 
@@ -66,11 +63,11 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 | T2 / E -- export / import between accounts | 17 | 17 | 0 | 3 | — | — | — |
 | T3 / C -- gateway + arbiter | 18 | 18 | 0 | 7 | — | — | — |
 | T4 / F -- gateway + 3-node arbiter | 26 | 26 | 0 | 9 | — | — | — |
-| T4 / S -- switch in place, T4 to T5 | 3 | 3 | 0 | 6 | 18 | 11 | failed |
+| T4 / S -- switch in place, T4 to T5 | 6 | 6 | 0 | 5 | 27 | 2 | failed |
 | T5 / D -- hub and leaf | 26 | 26 | 0 | 6 | — | — | — |
 | T5 / H -- hub and leaf, account per region | 15 | 15 | 0 | 7 | — | — | — |
-| T5 / S -- switch in place, T5 to T4, LB name collision | 3 | 3 | 0 | 8 | 19 | 26 | failed |
-| T5 / S -- switch in place, T5 to T4, clean names | 3 | 3 | 0 | 6 | 13 | 16 | failed |
+| T5 / S -- switch in place, T5 to T4, LB name collision | 6 | 6 | 0 | 9 | 28 | 15 | failed |
+| T5 / S -- switch in place, T5 to T4, clean names | 6 | 6 | 0 | 5 | 28 | 1 | failed |
 | T6 / G -- gateway AND hub leaf | 23 | 23 | 0 | 6 | — | — | — |
 
 ## The answers, requirement by requirement
@@ -171,17 +168,17 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** Can a running **T4** be converted **in place** to **T5**, and keep its data?
 
-**This run says:** **Failed**, for the one procedure tested: stop all nine servers, rewrite the configs, start them again on the same stores. The rig held -- the source shape was built, seeded and read back (the `before` rows). After the switch the three sites did **not** become three independent meta groups (`SA9`, `SA28`). Streams whose groups were already formed kept taking acked publishes, and their consumers resumed (`SA20`-`SA25`). But the stored data could not be read back through the path this check used (`SA10`, `SA13`, `SA16`). That path was `nats stream get` (STREAM.MSG.GET), which answers 10008 when there is no meta leader -- measured on a scratch cluster on 2026-09-29. `stream info` itself did answer (`SA11`). So data integrity after this switch is **unverified**, not disproved. The script now reads back by Direct Get, which needs no meta leader. This says nothing about any other conversion or migration procedure. The verdict was derived after the run, from its rows; the evidence check has not yet run live.
+**This run says:** **Failed**, for the one procedure tested: stop all nine servers, rewrite the configs, start them again on the same stores. Two runs, same topology result. The rig held and the reader was proved on the source shape (`SA1`-`SA5`). After the switch, and again after a restart, every site still reported a nine-member meta membership, and no site elected a meta leader in 289 s (`SA7`, `SA10`, `SA28`, `SA29`). So the target shape -- three independent meta groups -- was **not established**. That is not a working shared group either: nothing led it. The data is a separate answer. On 2026-09-29 every seeded message, the consumers' positions and the KV state were read back by Direct Get and matched, after the switch and after the restart (`SA11`-`SA20`, `SA30`-`SA39`), and the already-formed stream groups kept taking acked publishes (`SA21`-`SA27`). Preservation is established for what was checked. On 2026-09-28 the same data could not be read back, because that run's reader (STREAM.MSG.GET) answers 10008 with no meta leader; its integrity was unverified, not disproved. This says nothing about any other conversion or migration procedure.
 
-*Evidence:* `SA1`, `SA2`, `SA3`, `SA4`, `SA5`, `SA6`, `SA7`, `SA8`, `SA9`, `SA10`, `SA11`, `SA12`, `SA13`, `SA14`, `SA15`, `SA16`, `SA17`, `SA18`, `SA19`, `SA20`, `SA21`, `SA22`, `SA23`, `SA24`, `SA25`, `SA26`, `SA27`, `SA28`, `SA29`, `SA30`, `SA31`, `SA32`, `SA33`, `SA34`, `SA35`, `SA36`, `SA37`, `SA38`, `SA39`
+*Evidence:* `SA1`, `SA2`, `SA3`, `SA4`, `SA5`, `SA6`, `SA7`, `SA8`, `SA9`, `SA10`, `SA11`, `SA12`, `SA13`, `SA14`, `SA15`, `SA16`, `SA17`, `SA18`, `SA19`, `SA20`, `SA21`, `SA22`, `SA23`, `SA24`, `SA25`, `SA26`, `SA27`, `SA28`, `SA29`, `SA30`, `SA31`, `SA32`, `SA33`, `SA34`, `SA35`, `SA36`, `SA37`, `SA38`, `SA39`, `SA40`, `SA41`
 
 ### D03-R12
 
 **Asks:** Can a running **T5** be converted **in place** to **T4**, and keep its data?
 
-**This run says:** **Failed**, for the one procedure tested, in both runs. The rig held. The nine servers did form one shared meta group (`SB9`, `SC9`), but the ZA streams did not survive it. Their acked data could not be read back (`SB10`, `SB16`, `SC10`, `SC16`), or did not match (`SC19`), and new publishes to them were not acked (`SB20`, `SB24`). That held in the clean-name run, so a stream name collision is not what caused it. The AU streams and the KV bucket came through (`SB13`, `SB19`). The ZA stream directories were gone from disk in the kept stores. What removed them, and why, is **not proved**: the INFO-level logs name no removal. In the collision run, `SC37` and `SC55` fail because the keep-working step read from a stream whose twin had just vanished -- a side effect of the test, not separate evidence about consumers. **This procedure is unsafe for existing data.** A failed direct conversion does not make T4 or T5 a one-way architectural choice: other conversion and migration procedures are untested. The verdict was derived after the run, from its rows; the evidence check has not yet run live.
+**This run says:** **Failed**, for the one procedure tested, and **not repeatable**: the same clean-name conversion gave different outcomes on two dates. The rig held on both. **Clean names, 2026-09-28:** one shared meta group formed, but the ZA streams could not be read back, took no new acks, and their directories were gone from the kept stores. **Clean names, 2026-09-29:** one shared group formed (`SB10`, `SB29`) and every message, consumer position and KV key matched after the switch and after the restart (`SB11`-`SB20`, `SB30`-`SB39`). Its one unmet check, `SB18`, is an **unread** placement right after the switch -- the value came back empty, not wrong, and read `za` after the restart (`SB37`). It is an unmet verification, not evidence of loss. **Name collision, 2026-09-29:** replica deletion was observed. At the first T4 start two of the three ZA servers removed their copies of every ZA stream (za-2, then za-1, 3 s apart); za-3 kept its copy. With one copy of three, those streams took no new acks (`SC29`, `SC33`, `SC35`) and their consumers could not be read (`SC13`, `SC19`, `SC22`). After the restart no replica answered a read of two of them (`SC42`, `SC48`) -- integrity **inconclusive**, not lost: files remain on za-3, and recovery is untested. The LB account holds an `ODOMETER` in each region. After the switch the two regional lookups still saw two streams (`SC28`); from the keep-working step on, **both resolved to the same surviving AU stream** (`SC36`, `SC51`). That probe acked an AU message through the ZA name, which moved the AU consumer on by one (`SC38`, `SC56`) -- a side effect of the test, not evidence about consumers. **Why the replicas were removed is not proved.** In the debug logs each removal follows the ZA server rolling its meta log back to the new AU meta leader's, but za-3 rolled back too and kept its copy. **The procedure has not shown safe, repeatable operation.** A failed direct conversion does not make T4 or T5 a one-way architectural choice: other conversion and migration procedures are untested.
 
-*Evidence:* `SB1`, `SB2`, `SB3`, `SB4`, `SB5`, `SB6`, `SB7`, `SB8`, `SB9`, `SB10`, `SB11`, `SB12`, `SB13`, `SB14`, `SB15`, `SB16`, `SB17`, `SB18`, `SB19`, `SB20`, `SB21`, `SB22`, `SB23`, `SB24`, `SB25`, `SB26`, `SB27`, `SB28`, `SB29`, `SB30`, `SB31`, `SB32`, `SB33`, `SB34`, `SB35`, `SB36`, `SB37`, `SB38`, `SC1`, `SC2`, `SC3`, `SC4`, `SC5`, `SC6`, `SC7`, `SC8`, `SC9`, `SC10`, `SC11`, `SC12`, `SC13`, `SC14`, `SC15`, `SC16`, `SC17`, `SC18`, `SC19`, `SC20`, `SC21`, `SC22`, `SC23`, `SC24`, `SC25`, `SC26`, `SC27`, `SC28`, `SC29`, `SC30`, `SC31`, `SC32`, `SC33`, `SC34`, `SC35`, `SC36`, `SC37`, `SC38`, `SC39`, `SC40`, `SC41`, `SC42`, `SC43`, `SC44`, `SC45`, `SC46`, `SC47`, `SC48`, `SC49`, `SC50`, `SC51`, `SC52`, `SC53`, `SC54`, `SC55`, `SC56`, `SB39`, `SC57`
+*Evidence:* `SB1`, `SB2`, `SB3`, `SB4`, `SB5`, `SB6`, `SB7`, `SB8`, `SB9`, `SB10`, `SB11`, `SB12`, `SB13`, `SB14`, `SB15`, `SB16`, `SB17`, `SB18`, `SB19`, `SB20`, `SB21`, `SB22`, `SB23`, `SB24`, `SB25`, `SB26`, `SB27`, `SB28`, `SB29`, `SB30`, `SB31`, `SB32`, `SB33`, `SB34`, `SB35`, `SB36`, `SB37`, `SB38`, `SB39`, `SB40`, `SB41`, `SC1`, `SC2`, `SC3`, `SC4`, `SC5`, `SC6`, `SC7`, `SC8`, `SC9`, `SC10`, `SC11`, `SC12`, `SC13`, `SC14`, `SC15`, `SC16`, `SC17`, `SC18`, `SC19`, `SC20`, `SC21`, `SC22`, `SC23`, `SC24`, `SC25`, `SC26`, `SC27`, `SC28`, `SC29`, `SC30`, `SC31`, `SC32`, `SC33`, `SC34`, `SC35`, `SC36`, `SC37`, `SC38`, `SC39`, `SC40`, `SC41`, `SC42`, `SC43`, `SC44`, `SC45`, `SC46`, `SC47`, `SC48`, `SC49`, `SC50`, `SC51`, `SC52`, `SC53`, `SC54`, `SC55`, `SC56`, `SC57`, `SC58`, `SC59`
 
 ## Findings this rig added
 
@@ -432,42 +429,44 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `SA1` | before: T4: meta groups / size (one group of nine) | D03-R11 | — | 1 / 9 | **1 / 9** | — |
 | ✅ `SA2` | before: acked publishes per stream (za@za.ODOMETER au@au.ODOMETER lb@za.SHARED_ODO) | D03-R11 | — | 50 / 50 / 50 | **50 / 50 / 50** | — |
 | ✅ `SA3` | before: READER on every stream -- ack floor / pending / ack pending | D03-R11 | — | floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0 | **floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0** | — |
-| 📋 `SA4` | before: KV t7-vehicles, key=value@revision | D03-R11 | — | — | **vehicle-1=A-k1-v3@7 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5** | — |
-| 📋 `SA5` | *procedure* · stop: seconds from the first TERM until all nine exited | D03-R11 | — | — | **1s** | — |
-| 📋 `SA6` | *procedure* · switch: seconds from t0 to a live meta leader | D03-R11 | — | — | **third site: NONE after 97s; za: NONE after 194s; au: NONE after 290s** | — |
-| 📋 `SA7` | *procedure* · switch: seconds from t0 to the first acked publish (observed interruption, this procedure) | D03-R11 | — | — | **za@za.ODOMETER 291s; au@au.ODOMETER 291s; lb@za.SHARED_ODO 291s** | — |
-| 📋 `SA8` | *procedure* · switch: [ERR]/[WRN] lines logged on the first start in the new shape | D03-R11 | — | — | **43 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6231: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6232: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6241: connect: conn** | — |
-| ❌ `SA9` | *procedure* · after switch: T5: meta groups / size of third site, za, au (three of three) | D03-R11 | — | 3 / 3 / 3 / 3 | **1 / 9 / 9 / 9** | — |
-| ❌ `SA10` | *procedure* · after switch: za@za.ODOMETER -- every acked ID and payload, in order | D03-R11 | — | match | **stream unreadable** | — |
-| ✅ `SA11` | *procedure* · after switch: za@za.ODOMETER -- still in the cluster it was in before | D03-R11 | — | za | **za** | — |
-| ✅ `SA12` | *procedure* · after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
-| ❌ `SA13` | *procedure* · after switch: au@au.ODOMETER -- every acked ID and payload, in order | D03-R11 | — | match | **stream unreadable** | — |
-| ✅ `SA14` | *procedure* · after switch: au@au.ODOMETER -- still in the cluster it was in before | D03-R11 | — | au | **au** | — |
-| ✅ `SA15` | *procedure* · after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
-| ❌ `SA16` | *procedure* · after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R11 | — | match | **stream unreadable** | — |
-| ✅ `SA17` | *procedure* · after switch: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R11 | — | za | **za** | — |
-| ✅ `SA18` | *procedure* · after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
-| ❌ `SA19` | *procedure* · after switch: KV t7-vehicles -- every key's value@revision | D03-R11 | — | vehicle-1=A-k1-v3@7 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5 | **vehicle-1=unreadable vehicle-2=unreadable vehicle-3=unreadable vehicle-4=unreadable vehicle-5=unreadable** | — |
-| ✅ `SA20` | *procedure* · keep working: za@za.ODOMETER -- new publishes acked | D03-R11 | — | 10 | **10** | — |
-| ✅ `SA21` | *procedure* · keep working: za@za.ODOMETER -- READER resumes at the first un-acked message | D03-R11 | — | {"id":"A.za@za.ODOMETER.21","n":21} | **{"id":"A.za@za.ODOMETER.21","n":21}** | — |
-| ✅ `SA22` | *procedure* · keep working: au@au.ODOMETER -- new publishes acked | D03-R11 | — | 10 | **10** | — |
-| ✅ `SA23` | *procedure* · keep working: au@au.ODOMETER -- READER resumes at the first un-acked message | D03-R11 | — | {"id":"A.au@au.ODOMETER.21","n":21} | **{"id":"A.au@au.ODOMETER.21","n":21}** | — |
-| ✅ `SA24` | *procedure* · keep working: lb@za.SHARED_ODO -- new publishes acked | D03-R11 | — | 10 | **10** | — |
-| ✅ `SA25` | *procedure* · keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message | D03-R11 | — | {"id":"A.lb@za.SHARED_ODO.21","n":21} | **{"id":"A.lb@za.SHARED_ODO.21","n":21}** | — |
-| ❌ `SA26` | *procedure* · keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1) | D03-R11 | — | A-k1-v4@8 | **unreadable** | — |
-| 📋 `SA27` | *procedure* · restart: stop seconds, then seconds from t0 to a live meta leader | D03-R11 | — | — | **stop 2s; third site: NONE after 99s; za: NONE after 195s; au: NONE after 291s** | — |
-| ❌ `SA28` | *procedure* · after restart: T5: meta groups / size of third site, za, au (three of three) | D03-R11 | — | 3 / 3 / 3 / 3 | **1 / 9 / 9 / 9** | — |
-| ❌ `SA29` | *procedure* · after restart: za@za.ODOMETER -- every acked ID and payload, in order | D03-R11 | — | match | **stream unreadable** | — |
-| ✅ `SA30` | *procedure* · after restart: za@za.ODOMETER -- still in the cluster it was in before | D03-R11 | — | za | **za** | — |
-| ✅ `SA31` | *procedure* · after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
-| ❌ `SA32` | *procedure* · after restart: au@au.ODOMETER -- every acked ID and payload, in order | D03-R11 | — | match | **stream unreadable** | — |
-| ✅ `SA33` | *procedure* · after restart: au@au.ODOMETER -- still in the cluster it was in before | D03-R11 | — | au | **au** | — |
-| ✅ `SA34` | *procedure* · after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
-| ❌ `SA35` | *procedure* · after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R11 | — | match | **stream unreadable** | — |
-| ✅ `SA36` | *procedure* · after restart: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R11 | — | za | **za** | — |
-| ✅ `SA37` | *procedure* · after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
-| ❌ `SA38` | *procedure* · after restart: KV t7-vehicles -- every key's value@revision | D03-R11 | — | vehicle-1=A-k1-v4@8 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5 | **vehicle-1=unreadable vehicle-2=unreadable vehicle-3=unreadable vehicle-4=unreadable vehicle-5=unreadable** | — |
-| ◆ `SA39` | **verdict** · the stop-rewrite-restart procedure, t4 to t5 | D03-R11 | — | rig checks failed: 0; procedure checks not met: 11 of 29; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check) | **failed** | — |
+| ✅ `SA4` | before: every stream read back by Direct Get -- every acked ID and payload, in order | D03-R11 | — | za@za.ODOMETER match; au@au.ODOMETER match; lb@za.SHARED_ODO match | **za@za.ODOMETER match; au@au.ODOMETER match; lb@za.SHARED_ODO match** | — |
+| ✅ `SA5` | before: KV t7-vehicles read back by Direct Get -- key=value@revision | D03-R11 | — | vehicle-1=A-k1-v3@7 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5 | **vehicle-1=A-k1-v3@7 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5** | — |
+| 📋 `SA6` | *procedure* · stop: seconds from the first TERM until all nine exited | D03-R11 | — | — | **1s** | — |
+| 📋 `SA7` | *procedure* · switch: seconds from t0 to a live meta leader | D03-R11 | — | — | **third site: NONE after 97s; za: NONE after 193s; au: NONE after 289s** | — |
+| 📋 `SA8` | *procedure* · switch: seconds from t0 to the first acked publish (observed interruption, this procedure) | D03-R11 | — | — | **za@za.ODOMETER 289s; au@au.ODOMETER 289s; lb@za.SHARED_ODO 289s** | — |
+| 📋 `SA9` | *procedure* · switch: [ERR]/[WRN] lines logged on the first start in the new shape | D03-R11 | — | — | **40 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6231: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6241: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6243: connect: conn** | — |
+| ❌ `SA10` | *procedure* · after switch: T5: meta groups / size of third site, za, au (three of three) | D03-R11 | — | 3 / 3 / 3 / 3 | **1 / 9 / 9 / 9** | — |
+| ✅ `SA11` | *procedure* · after switch: za@za.ODOMETER -- every acked ID and payload, in order | D03-R11 | — | match | **match** | — |
+| ✅ `SA12` | *procedure* · after switch: za@za.ODOMETER -- still in the cluster it was in before | D03-R11 | — | za | **za** | — |
+| ✅ `SA13` | *procedure* · after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
+| ✅ `SA14` | *procedure* · after switch: au@au.ODOMETER -- every acked ID and payload, in order | D03-R11 | — | match | **match** | — |
+| ✅ `SA15` | *procedure* · after switch: au@au.ODOMETER -- still in the cluster it was in before | D03-R11 | — | au | **au** | — |
+| ✅ `SA16` | *procedure* · after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
+| ✅ `SA17` | *procedure* · after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R11 | — | match | **match** | — |
+| ✅ `SA18` | *procedure* · after switch: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R11 | — | za | **za** | — |
+| ✅ `SA19` | *procedure* · after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
+| ✅ `SA20` | *procedure* · after switch: KV t7-vehicles -- every key's value@revision | D03-R11 | — | vehicle-1=A-k1-v3@7 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5 | **vehicle-1=A-k1-v3@7 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5** | — |
+| ✅ `SA21` | *procedure* · keep working: za@za.ODOMETER -- new publishes acked | D03-R11 | — | 10 | **10** | — |
+| ✅ `SA22` | *procedure* · keep working: za@za.ODOMETER -- READER resumes at the first un-acked message | D03-R11 | — | {"id":"A.za@za.ODOMETER.21","n":21} | **{"id":"A.za@za.ODOMETER.21","n":21}** | — |
+| ✅ `SA23` | *procedure* · keep working: au@au.ODOMETER -- new publishes acked | D03-R11 | — | 10 | **10** | — |
+| ✅ `SA24` | *procedure* · keep working: au@au.ODOMETER -- READER resumes at the first un-acked message | D03-R11 | — | {"id":"A.au@au.ODOMETER.21","n":21} | **{"id":"A.au@au.ODOMETER.21","n":21}** | — |
+| ✅ `SA25` | *procedure* · keep working: lb@za.SHARED_ODO -- new publishes acked | D03-R11 | — | 10 | **10** | — |
+| ✅ `SA26` | *procedure* · keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message | D03-R11 | — | {"id":"A.lb@za.SHARED_ODO.21","n":21} | **{"id":"A.lb@za.SHARED_ODO.21","n":21}** | — |
+| ✅ `SA27` | *procedure* · keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1) | D03-R11 | — | A-k1-v4@8 | **A-k1-v4@8** | — |
+| 📋 `SA28` | *procedure* · restart: stop seconds, then seconds from t0 to a live meta leader | D03-R11 | — | — | **stop 1s; third site: NONE after 98s; za: NONE after 194s; au: NONE after 289s** | — |
+| ❌ `SA29` | *procedure* · after restart: T5: meta groups / size of third site, za, au (three of three) | D03-R11 | — | 3 / 3 / 3 / 3 | **1 / 9 / 9 / 9** | — |
+| ✅ `SA30` | *procedure* · after restart: za@za.ODOMETER -- every acked ID and payload, in order | D03-R11 | — | match | **match** | — |
+| ✅ `SA31` | *procedure* · after restart: za@za.ODOMETER -- still in the cluster it was in before | D03-R11 | — | za | **za** | — |
+| ✅ `SA32` | *procedure* · after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
+| ✅ `SA33` | *procedure* · after restart: au@au.ODOMETER -- every acked ID and payload, in order | D03-R11 | — | match | **match** | — |
+| ✅ `SA34` | *procedure* · after restart: au@au.ODOMETER -- still in the cluster it was in before | D03-R11 | — | au | **au** | — |
+| ✅ `SA35` | *procedure* · after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
+| ✅ `SA36` | *procedure* · after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R11 | — | match | **match** | — |
+| ✅ `SA37` | *procedure* · after restart: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R11 | — | za | **za** | — |
+| ✅ `SA38` | *procedure* · after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R11 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
+| ✅ `SA39` | *procedure* · after restart: KV t7-vehicles -- every key's value@revision | D03-R11 | — | vehicle-1=A-k1-v4@8 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5 | **vehicle-1=A-k1-v4@8 vehicle-2=A-k2-v1@2 vehicle-3=A-k3-v1@3 vehicle-4=A-k4-v1@4 vehicle-5=A-k5-v1@5** | — |
+| ✅ `SA40` | evidence: manifests, both shapes' configs, logs of every phase, the stores | D03-R11 | — | complete | **complete** | — |
+| ◆ `SA41` | **verdict** · the stop-rewrite-restart procedure, t4 to t5 | D03-R11 | — | rig checks failed: 0; procedure checks not met: 2 of 29; read-backs no replica answered (integrity inconclusive): 0 | **failed** | — |
 
 ### T5 / D -- hub and leaf
 
@@ -540,60 +539,62 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `SC1` | before: T5: meta groups / size of third site, za, au (three of three) | D03-R12 | — | 3 / 3 / 3 / 3 | **3 / 3 / 3 / 3** | — |
 | ✅ `SC2` | before: acked publishes per stream (za@za.ODOMETER au@au.ODOMETER lb@za.SHARED_ODO lb@za.ODOMETER lb@au.ODOMETER) | D03-R12 | — | 50 / 50 / 50 / 50 / 50 | **50 / 50 / 50 / 50 / 50** | — |
 | ✅ `SC3` | before: READER on every stream -- ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0 | **floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0** | — |
-| 📋 `SC4` | before: KV t7-vehicles, key=value@revision | D03-R12 | — | — | **vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5** | — |
-| 📋 `SC5` | *procedure* · stop: seconds from the first TERM until all nine exited | D03-R12 | — | — | **2s** | — |
-| 📋 `SC6` | *procedure* · switch: seconds from t0 to a live meta leader | D03-R12 | — | — | **one group: t-au-2 after 6s** | — |
-| 📋 `SC7` | *procedure* · switch: seconds from t0 to the first acked publish (observed interruption, this procedure) | D03-R12 | — | — | **za@za.ODOMETER no ack; au@au.ODOMETER 67s; lb@za.SHARED_ODO no ack; lb@za.ODOMETER no ack; lb@au.ODOMETER 190s** | — |
-| 📋 `SC8` | *procedure* · switch: [ERR]/[WRN] lines logged on the first start in the new shape | D03-R12 | — | — | **48 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6232: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6233: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6241: connect: conn** | — |
-| ✅ `SC9` | *procedure* · after switch: T4: meta groups / size (one group of nine) | D03-R12 | — | 1 / 9 | **1 / 9** | — |
-| ❌ `SC10` | *procedure* · after switch: za@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **stream unreadable** | — |
-| ❌ `SC11` | *procedure* · after switch: za@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
-| ❌ `SC12` | *procedure* · after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0 | **unreadable** | — |
-| ✅ `SC13` | *procedure* · after switch: au@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
-| ✅ `SC14` | *procedure* · after switch: au@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
-| ✅ `SC15` | *procedure* · after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
-| ❌ `SC16` | *procedure* · after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R12 | — | match | **stream unreadable** | — |
-| ❌ `SC17` | *procedure* · after switch: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
-| ❌ `SC18` | *procedure* · after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0 | **unreadable** | — |
-| ❌ `SC19` | *procedure* · after switch: lb@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **differs: 50 acked, 51 stored, 50 missing, 51 extra** | — |
-| ❌ `SC20` | *procedure* · after switch: lb@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **au** | — |
-| ❌ `SC21` | *procedure* · after switch: lb@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
-| ✅ `SC22` | *procedure* · after switch: lb@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
-| ✅ `SC23` | *procedure* · after switch: lb@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
-| ✅ `SC24` | *procedure* · after switch: lb@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
-| ✅ `SC25` | *procedure* · after switch: KV t7-vehicles -- every key's value@revision | D03-R12 | — | vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5 | **vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5** | — |
-| 📋 `SC26` | *procedure* · collision: streams in account LB seen from za / from au | D03-R12 | — | — | **ODOMETER / ODOMETER ** | — |
-| 📋 `SC27` | *procedure* · collision: LB ODOMETER from za -- cluster, messages / from au -- cluster, messages | D03-R12 | — | — | **au, 51 / au, 51** | — |
-| ❌ `SC28` | *procedure* · keep working: za@za.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **0** | — |
-| ❌ `SC29` | *procedure* · keep working: za@za.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.za@za.ODOMETER.21","n":21} | **nothing** | — |
-| ✅ `SC30` | *procedure* · keep working: au@au.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **10** | — |
-| ✅ `SC31` | *procedure* · keep working: au@au.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.au@au.ODOMETER.21","n":21} | **{"id":"B2.au@au.ODOMETER.21","n":21}** | — |
-| ❌ `SC32` | *procedure* · keep working: lb@za.SHARED_ODO -- new publishes acked | D03-R12 | — | 10 | **0** | — |
-| ❌ `SC33` | *procedure* · keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.lb@za.SHARED_ODO.21","n":21} | **nothing** | — |
-| ❌ `SC34` | *procedure* · keep working: lb@za.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **0** | — |
-| ❌ `SC35` | *procedure* · keep working: lb@za.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.lb@za.ODOMETER.21","n":21} | **{"id":"B2.lb@au.ODOMETER.21","n":21}** | — |
-| ✅ `SC36` | *procedure* · keep working: lb@au.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **10** | — |
-| ❌ `SC37` | *procedure* · keep working: lb@au.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.lb@au.ODOMETER.21","n":21} | **{"id":"B2.lb@au.ODOMETER.22","n":22}** | — |
-| ✅ `SC38` | *procedure* · keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1) | D03-R12 | — | B2-k1-v4@8 | **B2-k1-v4@8** | — |
-| 📋 `SC39` | *procedure* · restart: stop seconds, then seconds from t0 to a live meta leader | D03-R12 | — | — | **stop 2s; one group: t-za-2 after 7s** | — |
-| ✅ `SC40` | *procedure* · after restart: T4: meta groups / size (one group of nine) | D03-R12 | — | 1 / 9 | **1 / 9** | — |
-| ❌ `SC41` | *procedure* · after restart: za@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **stream unreadable** | — |
-| ❌ `SC42` | *procedure* · after restart: za@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
-| ❌ `SC43` | *procedure* · after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 29 / ack pending 0 | **unreadable** | — |
-| ✅ `SC44` | *procedure* · after restart: au@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
-| ✅ `SC45` | *procedure* · after restart: au@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
-| ✅ `SC46` | *procedure* · after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
-| ❌ `SC47` | *procedure* · after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R12 | — | match | **stream unreadable** | — |
-| ❌ `SC48` | *procedure* · after restart: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
-| ❌ `SC49` | *procedure* · after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 29 / ack pending 0 | **unreadable** | — |
-| ❌ `SC50` | *procedure* · after restart: lb@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **differs: 50 acked, 61 stored, 50 missing, 61 extra** | — |
-| ❌ `SC51` | *procedure* · after restart: lb@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **au** | — |
-| ❌ `SC52` | *procedure* · after restart: lb@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 29 / ack pending 0 | **floor 22 / pending 39 / ack pending 0** | — |
-| ✅ `SC53` | *procedure* · after restart: lb@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
-| ✅ `SC54` | *procedure* · after restart: lb@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
-| ❌ `SC55` | *procedure* · after restart: lb@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 40 / ack pending 0 | **floor 22 / pending 39 / ack pending 0** | — |
-| ✅ `SC56` | *procedure* · after restart: KV t7-vehicles -- every key's value@revision | D03-R12 | — | vehicle-1=B2-k1-v4@8 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5 | **vehicle-1=B2-k1-v4@8 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5** | — |
-| ◆ `SC57` | **verdict** · the stop-rewrite-restart procedure, t5 to t4 | D03-R12 | — | rig checks failed: 0; procedure checks not met: 26 of 45; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check) | **failed** | — |
+| ✅ `SC4` | before: every stream read back by Direct Get -- every acked ID and payload, in order | D03-R12 | — | za@za.ODOMETER match; au@au.ODOMETER match; lb@za.SHARED_ODO match; lb@za.ODOMETER match; lb@au.ODOMETER match | **za@za.ODOMETER match; au@au.ODOMETER match; lb@za.SHARED_ODO match; lb@za.ODOMETER match; lb@au.ODOMETER match** | — |
+| ✅ `SC5` | before: KV t7-vehicles read back by Direct Get -- key=value@revision | D03-R12 | — | vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5 | **vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5** | — |
+| 📋 `SC6` | *procedure* · stop: seconds from the first TERM until all nine exited | D03-R12 | — | — | **2s** | — |
+| 📋 `SC7` | *procedure* · switch: seconds from t0 to a live meta leader | D03-R12 | — | — | **one group: t-au-3 after 7s** | — |
+| 📋 `SC8` | *procedure* · switch: seconds from t0 to the first acked publish (observed interruption, this procedure) | D03-R12 | — | — | **za@za.ODOMETER no ack; au@au.ODOMETER 74s; lb@za.SHARED_ODO no ack; lb@za.ODOMETER no ack; lb@au.ODOMETER 266s** | — |
+| 📋 `SC9` | *procedure* · switch: [ERR]/[WRN] lines logged on the first start in the new shape | D03-R12 | — | — | **92 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6231: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6233: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6242: connect: conn** | — |
+| ✅ `SC10` | *procedure* · after switch: T4: meta groups / size (one group of nine) | D03-R12 | — | 1 / 9 | **1 / 9** | — |
+| ✅ `SC11` | *procedure* · after switch: za@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SC12` | *procedure* · after switch: za@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ❌ `SC13` | *procedure* · after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0 | **unreadable** | — |
+| ✅ `SC14` | *procedure* · after switch: au@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SC15` | *procedure* · after switch: au@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
+| ✅ `SC16` | *procedure* · after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
+| ✅ `SC17` | *procedure* · after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SC18` | *procedure* · after switch: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ❌ `SC19` | *procedure* · after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0 | **unreadable** | — |
+| ✅ `SC20` | *procedure* · after switch: lb@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SC21` | *procedure* · after switch: lb@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ❌ `SC22` | *procedure* · after switch: lb@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0 | **unreadable** | — |
+| ✅ `SC23` | *procedure* · after switch: lb@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SC24` | *procedure* · after switch: lb@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
+| ✅ `SC25` | *procedure* · after switch: lb@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
+| ✅ `SC26` | *procedure* · after switch: KV t7-vehicles -- every key's value@revision | D03-R12 | — | vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5 | **vehicle-1=B2-k1-v3@7 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5** | — |
+| 📋 `SC27` | *procedure* · collision: streams in account LB seen from za / from au | D03-R12 | — | — | **ODOMETER / ODOMETER ** | — |
+| 📋 `SC28` | *procedure* · collision: LB ODOMETER from za -- cluster, messages / from au -- cluster, messages | D03-R12 | — | — | **za, 50 / au, 51** | — |
+| ❌ `SC29` | *procedure* · keep working: za@za.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **0** | — |
+| ❌ `SC30` | *procedure* · keep working: za@za.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.za@za.ODOMETER.21","n":21} | **nothing** | — |
+| ✅ `SC31` | *procedure* · keep working: au@au.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **10** | — |
+| ✅ `SC32` | *procedure* · keep working: au@au.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.au@au.ODOMETER.21","n":21} | **{"id":"B2.au@au.ODOMETER.21","n":21}** | — |
+| ❌ `SC33` | *procedure* · keep working: lb@za.SHARED_ODO -- new publishes acked | D03-R12 | — | 10 | **0** | — |
+| ❌ `SC34` | *procedure* · keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.lb@za.SHARED_ODO.21","n":21} | **nothing** | — |
+| ❌ `SC35` | *procedure* · keep working: lb@za.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **0** | — |
+| ❌ `SC36` | *procedure* · keep working: lb@za.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.lb@za.ODOMETER.21","n":21} | **{"id":"B2.lb@au.ODOMETER.21","n":21}** | — |
+| ✅ `SC37` | *procedure* · keep working: lb@au.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **10** | — |
+| ❌ `SC38` | *procedure* · keep working: lb@au.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B2.lb@au.ODOMETER.21","n":21} | **{"id":"B2.lb@au.ODOMETER.22","n":22}** | — |
+| ✅ `SC39` | *procedure* · keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1) | D03-R12 | — | B2-k1-v4@8 | **B2-k1-v4@8** | — |
+| 📋 `SC40` | *procedure* · restart: stop seconds, then seconds from t0 to a live meta leader | D03-R12 | — | — | **stop 1s; one group: t-au-1 after 7s** | — |
+| ✅ `SC41` | *procedure* · after restart: T4: meta groups / size (one group of nine) | D03-R12 | — | 1 / 9 | **1 / 9** | — |
+| 📋 `SC42` | *procedure* · after restart: za@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | — | **unreadable: no replica answered Direct Get at seq 1 of 50 (0 read) -- data integrity inconclusive** | — |
+| ✅ `SC43` | *procedure* · after restart: za@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ❌ `SC44` | *procedure* · after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 29 / ack pending 0 | **unreadable** | — |
+| ✅ `SC45` | *procedure* · after restart: au@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SC46` | *procedure* · after restart: au@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
+| ✅ `SC47` | *procedure* · after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
+| 📋 `SC48` | *procedure* · after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R12 | — | — | **unreadable: no replica answered Direct Get at seq 1 of 50 (0 read) -- data integrity inconclusive** | — |
+| ✅ `SC49` | *procedure* · after restart: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ❌ `SC50` | *procedure* · after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 29 / ack pending 0 | **unreadable** | — |
+| ❌ `SC51` | *procedure* · after restart: lb@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **differs: 50 acked, 51 read, 50 missing, 51 extra** | — |
+| ✅ `SC52` | *procedure* · after restart: lb@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ❌ `SC53` | *procedure* · after restart: lb@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 29 / ack pending 0 | **unreadable** | — |
+| ✅ `SC54` | *procedure* · after restart: lb@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SC55` | *procedure* · after restart: lb@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
+| ❌ `SC56` | *procedure* · after restart: lb@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 40 / ack pending 0 | **floor 22 / pending 39 / ack pending 0** | — |
+| ✅ `SC57` | *procedure* · after restart: KV t7-vehicles -- every key's value@revision | D03-R12 | — | vehicle-1=B2-k1-v4@8 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5 | **vehicle-1=B2-k1-v4@8 vehicle-2=B2-k2-v1@2 vehicle-3=B2-k3-v1@3 vehicle-4=B2-k4-v1@4 vehicle-5=B2-k5-v1@5** | — |
+| ✅ `SC58` | evidence: manifests, both shapes' configs, logs of every phase, the stores | D03-R12 | — | complete | **complete** | — |
+| ◆ `SC59` | **verdict** · the stop-rewrite-restart procedure, t5 to t4 | D03-R12 | — | rig checks failed: 0; procedure checks not met: 15 of 43; read-backs no replica answered (integrity inconclusive): 2 | **failed** | — |
 
 ### T5 / S -- switch in place, T5 to T4, clean names
 
@@ -602,42 +603,44 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `SB1` | before: T5: meta groups / size of third site, za, au (three of three) | D03-R12 | — | 3 / 3 / 3 / 3 | **3 / 3 / 3 / 3** | — |
 | ✅ `SB2` | before: acked publishes per stream (za@za.ODOMETER au@au.ODOMETER lb@za.SHARED_ODO) | D03-R12 | — | 50 / 50 / 50 | **50 / 50 / 50** | — |
 | ✅ `SB3` | before: READER on every stream -- ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0 | **floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0; floor 20 / pending 30 / ack pending 0** | — |
-| 📋 `SB4` | before: KV t7-vehicles, key=value@revision | D03-R12 | — | — | **vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5** | — |
-| 📋 `SB5` | *procedure* · stop: seconds from the first TERM until all nine exited | D03-R12 | — | — | **1s** | — |
-| 📋 `SB6` | *procedure* · switch: seconds from t0 to a live meta leader | D03-R12 | — | — | **one group: t-au-2 after 7s** | — |
-| 📋 `SB7` | *procedure* · switch: seconds from t0 to the first acked publish (observed interruption, this procedure) | D03-R12 | — | — | **za@za.ODOMETER no ack; au@au.ODOMETER 68s; lb@za.SHARED_ODO no ack** | — |
-| 📋 `SB8` | *procedure* · switch: [ERR]/[WRN] lines logged on the first start in the new shape | D03-R12 | — | — | **45 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6231: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6241: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6243: connect: conn** | — |
-| ✅ `SB9` | *procedure* · after switch: T4: meta groups / size (one group of nine) | D03-R12 | — | 1 / 9 | **1 / 9** | — |
-| ❌ `SB10` | *procedure* · after switch: za@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **stream unreadable** | — |
-| ❌ `SB11` | *procedure* · after switch: za@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
-| ❌ `SB12` | *procedure* · after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0 | **unreadable** | — |
-| ✅ `SB13` | *procedure* · after switch: au@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
-| ✅ `SB14` | *procedure* · after switch: au@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
-| ✅ `SB15` | *procedure* · after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
-| ❌ `SB16` | *procedure* · after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R12 | — | match | **stream unreadable** | — |
-| ❌ `SB17` | *procedure* · after switch: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
-| ❌ `SB18` | *procedure* · after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 30 / ack pending 0 | **unreadable** | — |
-| ✅ `SB19` | *procedure* · after switch: KV t7-vehicles -- every key's value@revision | D03-R12 | — | vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5 | **vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5** | — |
-| ❌ `SB20` | *procedure* · keep working: za@za.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **0** | — |
-| ❌ `SB21` | *procedure* · keep working: za@za.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B1.za@za.ODOMETER.21","n":21} | **nothing** | — |
-| ✅ `SB22` | *procedure* · keep working: au@au.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **10** | — |
-| ✅ `SB23` | *procedure* · keep working: au@au.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B1.au@au.ODOMETER.21","n":21} | **{"id":"B1.au@au.ODOMETER.21","n":21}** | — |
-| ❌ `SB24` | *procedure* · keep working: lb@za.SHARED_ODO -- new publishes acked | D03-R12 | — | 10 | **0** | — |
-| ❌ `SB25` | *procedure* · keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B1.lb@za.SHARED_ODO.21","n":21} | **nothing** | — |
-| ✅ `SB26` | *procedure* · keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1) | D03-R12 | — | B1-k1-v4@8 | **B1-k1-v4@8** | — |
-| 📋 `SB27` | *procedure* · restart: stop seconds, then seconds from t0 to a live meta leader | D03-R12 | — | — | **stop 2s; one group: t-za-1 after 7s** | — |
-| ✅ `SB28` | *procedure* · after restart: T4: meta groups / size (one group of nine) | D03-R12 | — | 1 / 9 | **1 / 9** | — |
-| ❌ `SB29` | *procedure* · after restart: za@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **stream unreadable** | — |
-| ❌ `SB30` | *procedure* · after restart: za@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
-| ❌ `SB31` | *procedure* · after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 29 / ack pending 0 | **unreadable** | — |
-| ✅ `SB32` | *procedure* · after restart: au@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
-| ✅ `SB33` | *procedure* · after restart: au@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
-| ✅ `SB34` | *procedure* · after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
-| ❌ `SB35` | *procedure* · after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R12 | — | match | **stream unreadable** | — |
-| ❌ `SB36` | *procedure* · after restart: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
-| ❌ `SB37` | *procedure* · after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 29 / ack pending 0 | **unreadable** | — |
-| ✅ `SB38` | *procedure* · after restart: KV t7-vehicles -- every key's value@revision | D03-R12 | — | vehicle-1=B1-k1-v4@8 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5 | **vehicle-1=B1-k1-v4@8 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5** | — |
-| ◆ `SB39` | **verdict** · the stop-rewrite-restart procedure, t5 to t4 | D03-R12 | — | rig checks failed: 0; procedure checks not met: 16 of 29; evidence archived by hand to run/evidence/09-20260928-202654 (this run predates the evidence check) | **failed** | — |
+| ✅ `SB4` | before: every stream read back by Direct Get -- every acked ID and payload, in order | D03-R12 | — | za@za.ODOMETER match; au@au.ODOMETER match; lb@za.SHARED_ODO match | **za@za.ODOMETER match; au@au.ODOMETER match; lb@za.SHARED_ODO match** | — |
+| ✅ `SB5` | before: KV t7-vehicles read back by Direct Get -- key=value@revision | D03-R12 | — | vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5 | **vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5** | — |
+| 📋 `SB6` | *procedure* · stop: seconds from the first TERM until all nine exited | D03-R12 | — | — | **2s** | — |
+| 📋 `SB7` | *procedure* · switch: seconds from t0 to a live meta leader | D03-R12 | — | — | **one group: t-au-2 after 7s** | — |
+| 📋 `SB8` | *procedure* · switch: seconds from t0 to the first acked publish (observed interruption, this procedure) | D03-R12 | — | — | **za@za.ODOMETER 10s; au@au.ODOMETER 10s; lb@za.SHARED_ODO 10s** | — |
+| 📋 `SB9` | *procedure* · switch: [ERR]/[WRN] lines logged on the first start in the new shape | D03-R12 | — | — | **43 lines -- [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6232: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6233: connect: connection refused [ERR] Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:6242: connect: conn** | — |
+| ✅ `SB10` | *procedure* · after switch: T4: meta groups / size (one group of nine) | D03-R12 | — | 1 / 9 | **1 / 9** | — |
+| ✅ `SB11` | *procedure* · after switch: za@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SB12` | *procedure* · after switch: za@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ✅ `SB13` | *procedure* · after switch: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
+| ✅ `SB14` | *procedure* · after switch: au@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SB15` | *procedure* · after switch: au@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
+| ✅ `SB16` | *procedure* · after switch: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
+| ✅ `SB17` | *procedure* · after switch: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ❌ `SB18` | *procedure* · after switch: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R12 | — | za | **?** | — |
+| ✅ `SB19` | *procedure* · after switch: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 20 / pending 31 / ack pending 0 | **floor 20 / pending 31 / ack pending 0** | — |
+| ✅ `SB20` | *procedure* · after switch: KV t7-vehicles -- every key's value@revision | D03-R12 | — | vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5 | **vehicle-1=B1-k1-v3@7 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5** | — |
+| ✅ `SB21` | *procedure* · keep working: za@za.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **10** | — |
+| ✅ `SB22` | *procedure* · keep working: za@za.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B1.za@za.ODOMETER.21","n":21} | **{"id":"B1.za@za.ODOMETER.21","n":21}** | — |
+| ✅ `SB23` | *procedure* · keep working: au@au.ODOMETER -- new publishes acked | D03-R12 | — | 10 | **10** | — |
+| ✅ `SB24` | *procedure* · keep working: au@au.ODOMETER -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B1.au@au.ODOMETER.21","n":21} | **{"id":"B1.au@au.ODOMETER.21","n":21}** | — |
+| ✅ `SB25` | *procedure* · keep working: lb@za.SHARED_ODO -- new publishes acked | D03-R12 | — | 10 | **10** | — |
+| ✅ `SB26` | *procedure* · keep working: lb@za.SHARED_ODO -- READER resumes at the first un-acked message | D03-R12 | — | {"id":"B1.lb@za.SHARED_ODO.21","n":21} | **{"id":"B1.lb@za.SHARED_ODO.21","n":21}** | — |
+| ✅ `SB27` | *procedure* · keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1) | D03-R12 | — | B1-k1-v4@8 | **B1-k1-v4@8** | — |
+| 📋 `SB28` | *procedure* · restart: stop seconds, then seconds from t0 to a live meta leader | D03-R12 | — | — | **stop 2s; one group: t-au-1 after 7s** | — |
+| ✅ `SB29` | *procedure* · after restart: T4: meta groups / size (one group of nine) | D03-R12 | — | 1 / 9 | **1 / 9** | — |
+| ✅ `SB30` | *procedure* · after restart: za@za.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SB31` | *procedure* · after restart: za@za.ODOMETER -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ✅ `SB32` | *procedure* · after restart: za@za.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
+| ✅ `SB33` | *procedure* · after restart: au@au.ODOMETER -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SB34` | *procedure* · after restart: au@au.ODOMETER -- still in the cluster it was in before | D03-R12 | — | au | **au** | — |
+| ✅ `SB35` | *procedure* · after restart: au@au.ODOMETER -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
+| ✅ `SB36` | *procedure* · after restart: lb@za.SHARED_ODO -- every acked ID and payload, in order | D03-R12 | — | match | **match** | — |
+| ✅ `SB37` | *procedure* · after restart: lb@za.SHARED_ODO -- still in the cluster it was in before | D03-R12 | — | za | **za** | — |
+| ✅ `SB38` | *procedure* · after restart: lb@za.SHARED_ODO -- READER's ack floor / pending / ack pending | D03-R12 | — | floor 21 / pending 40 / ack pending 0 | **floor 21 / pending 40 / ack pending 0** | — |
+| ✅ `SB39` | *procedure* · after restart: KV t7-vehicles -- every key's value@revision | D03-R12 | — | vehicle-1=B1-k1-v4@8 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5 | **vehicle-1=B1-k1-v4@8 vehicle-2=B1-k2-v1@2 vehicle-3=B1-k3-v1@3 vehicle-4=B1-k4-v1@4 vehicle-5=B1-k5-v1@5** | — |
+| ✅ `SB40` | evidence: manifests, both shapes' configs, logs of every phase, the stores | D03-R12 | — | complete | **complete** | — |
+| ◆ `SB41` | **verdict** · the stop-rewrite-restart procedure, t5 to t4 | D03-R12 | — | rig checks failed: 0; procedure checks not met: 1 of 29; read-backs no replica answered (integrity inconclusive): 0 | **failed** | — |
 
 ### T6 / G -- gateway AND hub leaf
 
