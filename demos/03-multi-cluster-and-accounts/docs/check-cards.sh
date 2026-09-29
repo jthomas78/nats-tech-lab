@@ -17,8 +17,8 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.4.html"
-PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.4.pdf"
+HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.5.html"
+PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.5.pdf"
 
 fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -66,6 +66,7 @@ TITLES=(
  "A mirror is the second copy"
  "Export / import: the explicit way across an account"
  "Both links at once is not both shapes at once"
+ "Stop, rewrite, restart is not a way to switch shapes"
 )
 for t in "${TITLES[@]}"; do has "carries the card: $t" "$t"; done
 
