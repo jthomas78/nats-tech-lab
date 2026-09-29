@@ -113,7 +113,7 @@ architectural choice.
 
 | Run | Direction | Verdict | Rig | The checks that decide it |
 |---|---|---|---|---|
-| A | T4 → T5 | **failed** | held (`SA1`–`SA3`) | `SA9`, `SA28` — no independent meta groups. Formed stream groups kept taking acked publishes and consumers resumed (`SA20`–`SA25`). The stored data could not be read back (`SA10`, `SA13`, `SA16`, `SA19`), because the reader asks for `stream info` first, and that needs a meta leader. Data integrity is **unverified**, not disproved. |
+| A | T4 → T5 | **failed** | held (`SA1`–`SA3`) | `SA9`, `SA28` — no independent meta groups. Formed stream groups kept taking acked publishes and consumers resumed (`SA20`–`SA25`). The stored data could not be read back (`SA10`, `SA13`, `SA16`, `SA19`). The reader used `nats stream get`, and that call fails with error 10008 when there is no meta leader (measured on a scratch cluster, 2026-09-29). Data integrity is **unverified**, not disproved. |
 | B1 | T5 → T4, clean names | **failed** | held (`SB1`–`SB3`) | `SB9` — one shared group formed. `SB10`, `SB16` — the ZA streams could not be read back; `SB20`, `SB24` — no ack for new publishes. The ZA stream directories were gone from the kept stores. **What** removed them, and why, is not proved. AU and the KV bucket came through (`SB13`, `SB19`). |
 | B2 | T5 → T4, LB name collision | **failed** | held (`SC1`–`SC3`) | The same ZA loss as B1 (`SC10`, `SC16`, `SC19`). `SC37` and `SC55` are a side effect of the test's own keep-working step, not separate evidence about consumers. |
 
@@ -140,7 +140,15 @@ not the meta leader's full list of streams, so these logs do not show what
 the leader knew. The cause stays **not proved**. The next run logs at debug
 level, keeps a stopped copy of all nine stores before the switch, and saves
 `/jsz` (meta group, stream assignments, raft groups) from every server at
-four points.
+four points. `/jsz` is what each server reports; it is not a full record of
+metadata decisions or of why something was deleted.
+
+**How the next run reads data back.** By Direct Get, at the sequence
+numbers the manifest names. Direct Get is answered by the stream's own
+replicas, so it needs no meta leader. It is read-only: no consumer and no
+ack. The reader is proved on the source shape first, as two rig checks. If
+no replica answers after the switch, the row is a NOTE — *data integrity
+inconclusive* — not a data-loss FAIL, and the run cannot pass.
 
 **How the report keeps rig and procedure apart.** Every row has a kind. A
 *rig* check asks: did the rig build, seed and read back what it said? A rig

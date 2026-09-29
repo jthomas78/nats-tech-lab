@@ -257,10 +257,13 @@ REQS = {
    "the switch the three sites did **not** become three independent meta "
    "groups (`SA9`, `SA28`). Streams whose groups were already formed kept "
    "taking acked publishes, and their consumers resumed (`SA20`-`SA25`). But "
-   "the stored data could not be read back through the path this check uses "
-   "(`SA10`, `SA13`, `SA16`), because that path asks for `stream info` first, "
-   "which needs a meta leader. So data integrity after this switch is "
-   "**unverified**, not disproved. This says nothing about any other "
+   "the stored data could not be read back through the path this check used "
+   "(`SA10`, `SA13`, `SA16`). That path was `nats stream get` "
+   "(STREAM.MSG.GET), which answers 10008 when there is no meta leader -- "
+   "measured on a scratch cluster on 2026-09-29. `stream info` itself did "
+   "answer (`SA11`). So data integrity after this switch is "
+   "**unverified**, not disproved. The script now reads back by Direct "
+   "Get, which needs no meta leader. This says nothing about any other "
    "conversion or migration procedure. The verdict was derived after the "
    "run, from its rows; the evidence check has not yet run live."),
  "D03-R12": (

@@ -72,6 +72,11 @@
 #        - every consumer: same ack floor, pending = manifest - floor,
 #          nothing waiting for an ack
 #        - every KV key: same value@revision
+#      Messages and KV values are read by Direct Get at the sequences the
+#      manifest names -- read-only, and needing no meta leader. Step 2 proves
+#      that reader on the source shape (two rig checks). A read no replica
+#      answers is a NOTE, "data integrity inconclusive", never a FAIL, and it
+#      stops the verdict being "passed".
 #   8. KEEP WORKING: 10 more acked publishes per stream; resume READER --
 #      the next message must be manifest line 21; update vehicle-1 -- its
 #      revision must be the bucket's last sequence + 1. Write the NEW
@@ -361,29 +366,66 @@ acked_pub() {
   return 1
 }
 
-# Every stored message, in sequence order, as <Nats-Msg-Id> TAB <payload>.
-dump_stream() {                 # $1 port  $2 user  $3 stream
-  local info first last seq
-  info="$(nats_as "$1" "$2" stream info "$3" --json 2>/dev/null)" || return 1
-  first="$(jq -r '.state.first_seq' <<<"$info")"
-  last="$(jq -r '.state.last_seq' <<<"$info")"
-  [ "$last" -ge 1 ] 2>/dev/null || return 0
-  for ((seq=first; seq<=last; seq++)); do
-    nats_as "$1" "$2" stream get "$3" "$seq" --json 2>/dev/null \
-      | jq -r '[ ([ .hdrs // "" | @base64d | scan("Nats-Msg-Id: ([^\r\n]*)") | .[0] ] | .[0] // "-"),
-                 (.data // "" | @base64d) ] | @tsv' 2>/dev/null
-  done
+# Reading back uses Direct Get ($JS.API.DIRECT.GET.<stream>), not
+# `nats stream get`. The reason is measured: with no meta leader,
+# STREAM.MSG.GET answers 10008 "JetStream system temporarily unavailable",
+# while Direct Get is answered by the stream's own replicas (nats-server
+# 2.14.6, scratch probe 2026-09-29; the 10008 is jetstream_api.go's
+# isLeaderless check). Run A of 2026-09-28 lost its read-back to exactly that.
+# Direct Get needs allow_direct, which `nats stream add --defaults` and
+# `nats kv add` set. It is read-only: no consumer, no ack. Any in-sync replica
+# may answer, and the answer does not say which.
+#
+# One Direct Get. Prints <seq> TAB <Nats-Msg-Id or -> TAB <payload>, or
+# "status <code ...>" when a replica answered without a message (404: no such
+# message). Returns 1, printing nothing, when no replica answered at all.
+direct_get() {                  # $1 port  $2 user  $3 subject  $4 request body
+  local out
+  out="$(nats_as "$1" "$2" req --timeout 3s "$3" "$4" 2>&1)" || true
+  awk '
+    !inbody && /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]( |$)/ {
+      line = substr($0, 10)
+      if (line ~ /^Received with rtt/) { got = 1; next }
+      if (!got) next
+      if (line == "")                 { inbody = 1; next }
+      if (line ~ /^Status: /)         st  = substr(line, 9)
+      if (line ~ /^Description: /)    st  = st " " substr(line, 14)
+      if (line ~ /^Nats-Msg-Id: /)    id  = substr(line, 14)
+      if (line ~ /^Nats-Sequence: /)  seq = substr(line, 16)
+      next
+    }
+    inbody && $0 != "" { body = body (nb++ ? "\n" : "") $0 }
+    END {
+      if (!got) exit 1
+      if (st != "") { print "status " st; exit 0 }
+      printf "%s\t%s\t%s\n", seq, (id == "" ? "-" : id), body
+    }' <<<"$out"
 }
 
 # "match", or what is wrong. Matches ID AND payload, in order -- never a count.
+# Asks for sequences 1..N, N = the manifest's length, then N+1 to catch an
+# extra message. It never asks the stream how long it is, so it needs no
+# stream info and no meta leader. Stops at the first sequence no replica
+# answers: "unreadable ..." means the data was not seen, not that it is gone.
 verify_msgs() {                 # $1 key  $2 port  $3 user  $4 stream  $5 phase
-  local man got missing extra
+  local man got n seq r missing extra
   man="$(manifest "$1")"; got="$EVID/got-$1-$5.tsv"
-  dump_stream "$2" "$3" "$4" > "$got" || { echo "stream unreadable"; return; }
+  : > "$got"
+  n="$(lines_of "$man")"
+  for ((seq=1; seq<=n+1; seq++)); do
+    if ! r="$(direct_get "$2" "$3" "\$JS.API.DIRECT.GET.$4" "{\"seq\":$seq}")"; then
+      echo "unreadable: no replica answered Direct Get at seq $seq of $n ($((seq-1)) read)"
+      return
+    fi
+    case "$r" in
+      status\ *) ;;             # a replica answered: no message at this seq
+      *) printf '%s\n' "${r#*$'\t'}" >> "$got" ;;
+    esac
+  done
   if cmp -s "$man" "$got"; then echo "match"; return; fi
   missing="$(comm -23 <(sort "$man") <(sort "$got") | wc -l | tr -d ' ')"
   extra="$(comm -13 <(sort "$man") <(sort "$got") | wc -l | tr -d ' ')"
-  echo "differs: $(lines_of "$man") acked, $(lines_of "$got") stored, $missing missing, $extra extra"
+  echo "differs: $n acked, $(lines_of "$got") read, $missing missing, $extra extra"
 }
 
 cons_state() {                  # $1 port  $2 user  $3 stream
@@ -393,12 +435,20 @@ cons_state() {                  # $1 port  $2 user  $3 stream
   echo "${s:-unreadable}"
 }
 
+# key=value@revision for each key, by Direct Get last-by-subject (see above):
+# "missing" when a replica answered with no value, "unreadable" when none did.
 kv_state() {
-  local k s out=""
+  local k r s out=""
   for k in 1 2 3 4 5; do
-    s="$(nats_as 4241 au stream get "KV_$KV_BUCKET" --last-for "\$KV.$KV_BUCKET.vehicle-$k" --json 2>/dev/null \
-         | jq -r '"\(.data | @base64d)@\(.seq)"' 2>/dev/null)"
-    out+="vehicle-$k=${s:-unreadable} "
+    if ! r="$(direct_get 4241 au "\$JS.API.DIRECT.GET.KV_$KV_BUCKET.\$KV.$KV_BUCKET.vehicle-$k" "")"; then
+      s=unreadable
+    else
+      case "$r" in
+        status\ *) s=missing ;;
+        *) s="${r##*$'\t'}@${r%%$'\t'*}" ;;
+      esac
+    fi
+    out+="vehicle-$k=$s "
   done
   echo "${out% }"
 }
@@ -478,7 +528,7 @@ verify_all() {
   for s in "${STREAMS[@]}"; do
     read -r key port user stream subj clu <<<"$s"
     man="$(manifest "$key")"
-    nid; pcheck "$ID" "$REQ" "$phase: $key -- every acked ID and payload, in order" \
+    nid; icheck "$ID" "$REQ" "$phase: $key -- every acked ID and payload, in order" \
           "match" "$(verify_msgs "$key" "$port" "$user" "$stream" "$phase")"
     nid; pcheck "$ID" "$REQ" "$phase: $key -- still in the cluster it was in before" \
           "$(cat "$EVID/cluster-$key")" "$(stream_cluster "$port" "$user" "$stream")"
@@ -486,7 +536,7 @@ verify_all() {
           "floor $floor / pending $(( $(lines_of "$man") - floor )) / ack pending 0" \
           "$(cons_state "$port" "$user" "$stream")"
   done
-  nid; pcheck "$ID" "$REQ" "$phase: KV $KV_BUCKET -- every key's value@revision" \
+  nid; icheck "$ID" "$REQ" "$phase: KV $KV_BUCKET -- every key's value@revision" \
         "$KV_EXPECT" "$(kv_state)"
 }
 
@@ -512,6 +562,18 @@ pcheck() {
   PROC_N=$((PROC_N+1))
   [ "$4" = "$5" ] || PROC_FAIL=$((PROC_FAIL+1))
 }
+# A read-back after the switch. When no replica answered, the data was not
+# seen -- that is not evidence it is gone. So it is a NOTE, "data integrity
+# inconclusive", counted in UNREAD, and never a procedure FAIL. The
+# before-switch rig check proves the same reader works on this rig.
+icheck() {
+  case "$5" in
+    *unreadable*)
+      note "$1" "$2" "$3" "$5 -- data integrity inconclusive"
+      UNREAD=$((UNREAD+1)) ;;
+    *) pcheck "$@" ;;
+  esac
+}
 
 # "complete", or what is missing. Run after the stores are moved in.
 evidence_state() {
@@ -536,14 +598,18 @@ evidence_state() {
 
 # The verdict words, from this run's counts. Pure, so test-verdict.sh can
 # drive it with fixtures. $1 rig fails  $2 procedure fails  $3 procedure checks
+# $4 read-backs no replica answered
 #   inconclusive  the rig failed, or no procedure check ran at all -- the run
-#                 proves nothing either way
+#                 proves nothing either way; or every procedure check was met but
+#                 some data could not be read back, so it cannot pass
 #   failed        the rig held, and at least one procedure check was not met
-#   passed ...    the rig held, and every procedure check was met; the
-#                 interruption is the switch notes, not a pass mark
+#   passed ...    the rig held, every procedure check was met and every
+#                 read-back was answered; the interruption is the switch
+#                 notes, not a pass mark
 decide_verdict() {
   if   [ "$1" -gt 0 ] || [ "$3" -eq 0 ]; then echo "inconclusive"
   elif [ "$2" -gt 0 ];                   then echo "failed"
+  elif [ "${4:-0}" -gt 0 ];              then echo "inconclusive"
   else                                        echo "passed with a measured interruption"; fi
 }
 
@@ -554,8 +620,8 @@ finish_run() {
   nid; rcheck "$ID" "$REQ" "evidence: manifests, both shapes' configs, logs of every phase, the stores" \
         "complete" "$(evidence_state)"
   nid; verdict "$ID" "$REQ" "the stop-rewrite-restart procedure, $FROM to $TO" \
-        "$(decide_verdict "$RIG_FAIL" "$PROC_FAIL" "$PROC_N")" \
-        "rig checks failed: $RIG_FAIL; procedure checks not met: $PROC_FAIL of $PROC_N"
+        "$(decide_verdict "$RIG_FAIL" "$PROC_FAIL" "$PROC_N" "$UNREAD")" \
+        "rig checks failed: $RIG_FAIL; procedure checks not met: $PROC_FAIL of $PROC_N; read-backs no replica answered (integrity inconclusive): $UNREAD"
   { [ "$RIG_FAIL" -eq 0 ] && [ "$PROC_N" -gt 0 ]; } || RIG_BROKEN+="$RUN "
   IN_RUN=""
 }
@@ -589,7 +655,7 @@ stopped() {
 # $4 third site name (arb|hub)  $5 its port digits (54|55)  $6 requirement
 run_switch() {
   RUN="$1"; P="$2"; FROM="$3"; THIRD="$4"; TP="$5"; REQ="$6"; CN=0
-  KIND=rig; RIG_FAIL=0; PROC_FAIL=0; PROC_N=0
+  KIND=rig; RIG_FAIL=0; PROC_FAIL=0; PROC_N=0; UNREAD=0
   if [ "$FROM" = t4 ]; then TO=t5; else TO=t4; fi
   TOPOLOGY="$7"
   EVID="$RUN_DIR/evidence/$STAMP/$RUN"
@@ -620,7 +686,15 @@ run_switch() {
   nid; rcheck "$ID" "$REQ" "before: READER on every stream -- ack floor / pending / ack pending" \
         "$(for s in "${STREAMS[@]}"; do printf 'floor %s / pending %s / ack pending 0; ' "$SEED_ACK" $((SEED_N-SEED_ACK)); done | sed 's/; $//')" \
         "$(for s in "${STREAMS[@]}"; do printf '%s; ' "$(cat "$EVID/cons-${s%% *}")"; done | sed 's/; $//')"
-  nid; note "$ID" "$REQ" "before: KV $KV_BUCKET, key=value@revision" "$KV_EXPECT"
+  # The reader itself, proved on this rig before the switch: every acked ID
+  # and payload by Direct Get, and the KV as seed() wrote it (revisions 1-7).
+  nid; rcheck "$ID" "$REQ" "before: every stream read back by Direct Get -- every acked ID and payload, in order" \
+        "$(for s in "${STREAMS[@]}"; do printf '%s match; ' "${s%% *}"; done | sed 's/; $//')" \
+        "$(for s in "${STREAMS[@]}"; do read -r key port user stream _ <<<"$s"
+             printf '%s %s; ' "$key" "$(verify_msgs "$key" "$port" "$user" "$stream" before)"; done | sed 's/; $//')"
+  nid; rcheck "$ID" "$REQ" "before: KV $KV_BUCKET read back by Direct Get -- key=value@revision" \
+        "vehicle-1=$RUN-k1-v3@7 vehicle-2=$RUN-k2-v1@2 vehicle-3=$RUN-k3-v1@3 vehicle-4=$RUN-k4-v1@4 vehicle-5=$RUN-k5-v1@5" \
+        "$KV_EXPECT"
   snap_meta 0-before; store_dirs 0-before
 
   STEP=3
@@ -694,7 +768,7 @@ run_switch() {
   nats_as 4241 au kv put "$KV_BUCKET" vehicle-1 "$RUN-k1-v4" >/dev/null 2>&1
   sleep 1
   got="$(kv_state | tr ' ' '\n' | grep '^vehicle-1=' | cut -d= -f2)"
-  nid; pcheck "$ID" "$REQ" "keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1)" \
+  nid; icheck "$ID" "$REQ" "keep working: vehicle-1 update -- value@revision (bucket's last sequence + 1)" \
         "$RUN-k1-v4@$(( n + 1 ))" "$got"
   # The NEW expected state: what the restart is compared against.
   KV_EXPECT="$(echo "$KV_EXPECT" | sed -E "s/vehicle-1=[^ ]*/vehicle-1=$RUN-k1-v4@$(( n + 1 ))/")"

@@ -50,7 +50,7 @@ if [ "${1:-}" = child ]; then
   # $1 run  $2 prefix  $3 what happens
   fake_run() {
     RUN="$1"; P="$2"; FROM=t4; TO=t5; REQ=D03-R11; CN=0
-    KIND=rig; RIG_FAIL=0; PROC_FAIL=0; PROC_N=0
+    KIND=rig; RIG_FAIL=0; PROC_FAIL=0; PROC_N=0; UNREAD=0
     TOPOLOGY="fixture $1"
     EVID="$RUN_DIR/evidence/$STAMP/$RUN"
     mkdir -p "$EVID" "$RUN_DIR/log" "$RUN_DIR/js/za-1"
@@ -66,6 +66,12 @@ if [ "${1:-}" = child ]; then
     STEP=3; KIND=procedure
     case "$3" in
       no-procedure) ;;
+      unreadable)
+        nid; icheck "$ID" "$REQ" "after switch: every acked ID" "match" "unreadable: no replica answered Direct Get at seq 1 of 3 (0 read)"
+        nid; icheck "$ID" "$REQ" "after switch: KV" "k=v@1" "k=v@1" ;;
+      unreadable-and-fail)
+        nid; icheck "$ID" "$REQ" "after switch: every acked ID" "match" "unreadable: no replica answered Direct Get at seq 1 of 3 (0 read)"
+        nid; icheck "$ID" "$REQ" "after switch: KV" "k=v@1" "k=v@9" ;;
       preservation-fail)
         nid; pcheck "$ID" "$REQ" "after switch: every acked ID" "match" "differs"
         nid; pcheck "$ID" "$REQ" "after switch: KV" "k=v@1" "k=v@1" ;;
@@ -83,6 +89,43 @@ if [ "${1:-}" = child ]; then
     STEP=11
     finish_run
   }
+
+  # direct_get's parser, fed the replies `nats req` (natscli 0.4.0) printed
+  # against nats-server 2.14.6 on 2026-09-29: a message, a KV value, a 404,
+  # and no responders.
+  if [ "$CASE" = parse ]; then
+    trap - EXIT
+    nats_as() { printf '%s\n' "$FAKE_REPLY"; }
+    for FAKE_REPLY in \
+'09:29:47 Sending request on "$JS.API.DIRECT.GET.ODOMETER"
+09:29:47 Received with rtt 820.042µs
+09:29:47 Nats-Sequence: 1
+09:29:47 Nats-Time-Stamp: 2026-09-29T07:29:41.161659Z
+09:29:47 Nats-Msg-Id: A.x.1
+09:29:47 Nats-Stream: ODOMETER
+09:29:47 Nats-Subject: evt.odo.v1
+09:29:47
+{"id":"A.x.1","n":1}' \
+'09:29:47 Sending request on "$JS.API.DIRECT.GET.KV_t7-vehicles.$KV.t7-vehicles.vehicle-1"
+09:29:47 Received with rtt 365.583µs
+09:29:47 Nats-Time-Stamp: 2026-09-29T07:29:47.676411Z
+09:29:47 Nats-Stream: KV_t7-vehicles
+09:29:47 Nats-Subject: $KV.t7-vehicles.vehicle-1
+09:29:47 Nats-Sequence: 7
+09:29:47
+A-k1-v3' \
+'09:29:47 Sending request on "$JS.API.DIRECT.GET.ODOMETER"
+09:29:47 Received with rtt 169.208µs
+09:29:47 Status: 404
+09:29:47 Description: Message Not Found
+09:29:47
+nil body' \
+'09:29:48 Sending request on "$JS.API.DIRECT.GET.NOPE"
+09:29:48 No responders are available'; do
+      direct_get 1 u s b || echo "no answer"
+    done
+    exit 0
+  fi
 
   case "$CASE" in
     two-runs) fake_run A SA preservation-fail; fake_run B1 SB success ;;
@@ -137,6 +180,20 @@ expect "interrupted: why names the step" "yes" \
 
 run_case script-error      "inconclusive" 2 1
 has "script error: stores kept" "$ROOT/script-error/evidence/fixture/A/js-x-stopped/za-1/f"
+
+run_case unreadable        "inconclusive" 0 1
+expect "unreadable: a NOTE, not a FAIL" "NOTE" \
+  "$(awk -F'\t' '$4 ~ /every acked ID/{print $7}' "$ROOT/unreadable/results.tsv")"
+expect "unreadable: note says inconclusive" "yes" \
+  "$(grep -q 'data integrity inconclusive' "$ROOT/unreadable/results.tsv" && echo yes || echo no)"
+run_case unreadable-and-fail "failed"     0 1
+
+printf 'parse\n'
+PARSED="$(bash "$HERE/test-verdict.sh" child parse "$ROOT" 2>&1)"
+expect "message"        "1	A.x.1	{\"id\":\"A.x.1\",\"n\":1}" "$(sed -n 1p <<<"$PARSED")"
+expect "kv value"       "7	-	A-k1-v3"                     "$(sed -n 2p <<<"$PARSED")"
+expect "404"            "status 404 Message Not Found"        "$(sed -n 3p <<<"$PARSED")"
+expect "no responders"  "no answer"                           "$(sed -n 4p <<<"$PARSED")"
 
 run_case two-runs          "passed with a measured interruption" 0 2
 expect "two runs: first run's verdict" "failed" \

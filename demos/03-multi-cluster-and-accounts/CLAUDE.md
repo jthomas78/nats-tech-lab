@@ -511,8 +511,11 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   2026-09-28, `lab/09-switch-t4-t5.sh`, verdicts `SA39`, `SB39`, `SC57`).
   T4 → T5: no independent meta groups (`SA9`, `SA28`); formed stream groups
   kept taking acks (`SA20`–`SA25`), but the data was not readable through
-  `stream info`, which needs a meta leader — integrity **unverified**, not
-  disproved. T5 → T4: one shared group formed (`SB9`), but the ZA streams
+  `nats stream get` — integrity **unverified**, not disproved. The reason
+  is measured (scratch cluster, 2026-09-29): with no meta leader,
+  STREAM.MSG.GET answers 10008, while Direct Get and `stream info` still
+  answer. 09 now reads back by Direct Get at the manifest's sequences, and
+  proves that reader before the switch (rig checks). T5 → T4: one shared group formed (`SB9`), but the ZA streams
   were lost, in the clean-name run too (`SB10`, `SB20`), and their
   directories were gone from disk. The cause of that removal is **not
   proved** — do not write one down. The kept logs are INFO level and name
