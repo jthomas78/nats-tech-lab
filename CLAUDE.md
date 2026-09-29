@@ -266,7 +266,7 @@ that all come from `demos/03-multi-cluster-and-accounts/REPORT.md` — which is
 sharing or editing a deck, run:
 
 ```bash
-python3 tools/check-deck-numbers.py demos/03-multi-cluster-and-accounts/docs/nats-clustering-findings-v0.9.html
+python3 tools/check-deck-numbers.py demos/03-multi-cluster-and-accounts/docs/nats-clustering-findings-v1.0.html
 ```
 
 It changes nothing and exits non-zero when a number moved. It counts three
