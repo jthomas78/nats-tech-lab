@@ -207,7 +207,7 @@
   .page[data-p="12"]{ page: p12; }
   @page p13 { size: 210mm 391mm; }
   .page[data-p="13"]{ page: p13; }
-  @page p14 { size: 210mm 441mm; }
+  @page p14 { size: 210mm 482mm; }
   .page[data-p="14"]{ page: p14; }
   @page p15 { size: 210mm 314mm; }
   .page[data-p="15"]{ page: p15; }
@@ -224,7 +224,7 @@
   <h1 class="cover">One Namespace,<br>or One <span class="hl">Vote</span><br>Each</h1>
   <p class="cover-sub">Thirteen cards from nine runnable topologies. Cards 01 to 06 build the words, simple
     first: the map, Raft, placement, accounts and domains. Cards 07 to 12 use those words on each shape.
-    Card 13 tests one way to move between two of them.</p>
+    Card 13 tests one procedure for moving between two of them.</p>
 
   <div class="cover-q">
     <div class="lbl">The question every card serves</div>
@@ -2053,7 +2053,7 @@
     <ul>
       <li><b>A leaf beside the gateway is coexistence, not a conversion.</b> It changes nothing
         (<code>G24</code>). A domain per site on the gateway breaks it (<code>G19</code>&ndash;<code>G22</code>).</li>
-      <li><b>Switching T4 &harr; T5 in place is card 13.</b> The one procedure tested failed in every case.
+      <li><b>Switching T4 &harr; T5 in place is card 13.</b> The one procedure tested did not establish safe conversion.
         Other procedures are untested, so the choice is not one-way.</li>
       <li>If the goal is a third site that votes, join it with a <b>gateway</b>, not a leaf. That is card
         08, and it is measured.</li>
@@ -2087,7 +2087,7 @@
   <div class="chead"><span>Moving</span><span class="r">Card 13 / 13</span></div>
   <div class="titleblock">
     <div class="num">13</div><div class="fam-lbl">Moving &mdash; T4 / S and T5 / S, switch in place &middot; D03-R11 &middot; D03-R12</div>
-    <h2>Stop, rewrite, restart is not a way to switch shapes</h2>
+    <h2>The tested stop&ndash;rewrite&ndash;restart procedure did not establish safe conversion</h2>
     <p class="lede">One procedure was tested, both ways between T4 and T5: stop all nine servers, rewrite the
       configs, start them again on the same stores. It ran in three cases, on 2026-09-28 and again on
       2026-09-29. <b>It failed in every case, both days.</b> This card is about that one procedure, not
@@ -2095,7 +2095,7 @@
   </div>
   <div class="decision">
     <div class="lbl">Decision</div>
-    <p>Choose T4 or T5 <b>before the data lands</b>. If you must move later, do not do it with this
+    <p>Choose T4 or T5 <b>before the data lands</b>. If you must move later, do not rely on the tested
       procedure. Another way may work, but nobody has tested one.</p>
   </div>
 
@@ -2199,8 +2199,12 @@
         untested. <span class="ev p">proposed</span> Build the new shape beside the old one, copy each stream
         across, move clients region by region, remove the old link last. <b>Nobody has run this.</b></li>
       <li><b>It does not say why the ZA replicas were removed.</b> The cause is not proved.</li>
-      <li><b>A removed replica is not proved data loss.</b> Files remain on za-3. Whether they can be
-        recovered is untested.</li>
+      <li><b>Three different things, and only two were seen.</b> <i>Replica removal</i> was seen: za-2
+        and za-1 removed their copies. <i>Unavailable data</i> was seen: those streams took no writes, and
+        after the restart no replica answered for two of them (<code>SC42</code>, <code>SC48</code>).
+        <i>Irrecoverable loss</i> is neither proved nor disproved.</li>
+      <li><b>A surviving copy proves nothing by itself.</b> Files remain on za-3. That does not show the data
+        in them is whole, and it does not show they can be brought back. Neither was tested.</li>
       <li><b>One failure is the test's own.</b> The probe acked through the ZA name, so AU's reader moved on
         by one (<code>SC38</code>, <code>SC56</code>). That is a side effect of the lab, not of NATS.</li>
       <li><b>Provenance.</b> The 2026-09-29 verdicts were judged live. The 2026-09-28 verdicts were derived
@@ -2211,7 +2215,9 @@
   <div class="grid2">
     <div class="panel pro"><div class="lbl">What held</div>
       <ul>
-        <li><b>The rig.</b> Every rig check passed in every case. The failures are the procedure's.</li>
+        <li><b>The rig checks.</b> All passed in every case: no checked setup or harness requirement
+          failed. That does not make every failed check the conversion's. One came from the test probe
+          (<code>SC38</code>, <code>SC56</code>).</li>
         <li><b>AU</b>, and every stream stored there, in both T5 &rarr; T4 cases, both days.</li>
         <li>On 2026-09-29, <b>the data in A and B1</b>: messages, reader positions and KV keys
           (<code>SA11</code>&ndash;<code>SA39</code>, <code>SB11</code>&ndash;<code>SB39</code>).</li>
@@ -2219,15 +2225,19 @@
     <div class="panel con"><div class="lbl">What broke</div>
       <ul>
         <li><b>T4 &rarr; T5 never reached T5</b>, on either day (<code>SA10</code>, <code>SA29</code>).</li>
-        <li><b>T5 &rarr; T4 is not repeatable.</b> B1 lost the ZA streams one day and kept them the next.</li>
-        <li><b>A name in both regions collides</b> in T4, and ZA's copies went away (<code>SC36</code>,
-          <code>SC51</code>, <code>SC42</code>).</li>
+        <li><b>T5 &rarr; T4 is not repeatable.</b> In B1 the ZA streams were gone one day, and matched
+          the next.</li>
+        <li><b>A name in both regions collides</b> in T4 (<code>SC36</code>, <code>SC51</code>). ZA's
+          replicas were removed, and those streams became unavailable (<code>SC29</code>,
+          <code>SC42</code>).</li>
       </ul></div>
   </div>
 
   <div class="verdict"><span class="pill">Verdict</span>
-    <p><b>Do not switch T4 and T5 by stop, rewrite, restart.</b> Pick the shape first. Before any move to T4,
-      make every stream name unique across regions in each shared account.</p>
+    <p><b>Do not rely on the tested stop&ndash;rewrite&ndash;restart procedure to switch T4 and T5.</b> Pick
+      the shape first. Before any attempt to merge into T4, resolve same-name streams in each shared
+      account &mdash; but unique names did not make it safe: B1 had clean names, and on 2026-09-28 its ZA
+      streams were gone.</p>
     <span class="side">SA1&ndash;SA41 &middot; SB1&ndash;SB41 &middot; SC1&ndash;SC59 &middot; Card 13</span></div>
 </section>
 

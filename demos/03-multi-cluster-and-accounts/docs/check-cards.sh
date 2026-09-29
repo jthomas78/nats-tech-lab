@@ -66,7 +66,7 @@ TITLES=(
  "A mirror is the second copy"
  "Export / import: the explicit way across an account"
  "Both links at once is not both shapes at once"
- "Stop, rewrite, restart is not a way to switch shapes"
+ "procedure did not establish safe conversion"
 )
 for t in "${TITLES[@]}"; do has "carries the card: $t" "$t"; done
 
