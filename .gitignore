@@ -47,3 +47,7 @@ demos/02-multi-region/odometer/odometer
 # the CLI it builds beside its source. All rebuilt or rewritten on every run.
 demos/04-jetstream-cqrs/deploy/.run/
 demos/04-jetstream-cqrs/cqrs/cqrs
+
+# Demo 05's run state — generated passwords, NKey seeds, PID file and logs.
+# Holds secrets, so it must never be committed.
+demos/05-identity-and-permissions/.run/

@@ -362,3 +362,15 @@ It lifts demo 02's odometer domain and adds the write side demo 02 has not got:
 a command checked against the state the log already holds, rehydrated **with
 and without a snapshot** so the cost of each is a measured number. Its `nats`
 CLI contexts all start `lab4-`.
+
+### Running demo 05
+
+**`demos/05-identity-and-permissions/` has its own `CLAUDE.md`. Read that, not
+this file, for anything inside that folder.** It is a sealed unit — one bare
+`nats-server` on the host (`127.0.0.1:4522`, monitor `8522`), the host `nats`
+CLI and shell scripts. No Docker, no Go, no UI, no operator mode. Role:
+showcase — NATS authentication and authorization, terminal first.
+
+Two rules worth knowing from outside: every `nats` command there passes
+`--no-context`, and generated passwords and seeds live in its gitignored
+`.run/`, never in a config file.

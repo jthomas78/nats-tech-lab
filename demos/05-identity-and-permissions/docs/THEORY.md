@@ -1,0 +1,109 @@
+# Demo 05 — theory, and the plan for every exercise
+
+Written from two pages of the NATS docs, read 2026-09-30:
+
+- **[AUTHN]** <https://docs.nats.io/learn/security/authentication-basics>
+- **[AUTHZ]** <https://docs.nats.io/learn/security/authorization>
+
+Everything below is **what the docs say**, in our own words. It is a
+prediction until an exercise measures it. What was actually measured is in
+[`OBSERVATIONS.md`](OBSERVATIONS.md).
+
+## The two questions
+
+| | Authentication | Authorization |
+|---|---|---|
+| Asks | Who are you? | What may you do? |
+| Checked | once, when the connection opens | on every publish and every subscribe |
+| On failure | the connection is refused and closed | the one operation is refused; the connection stays open |
+| Client sees | `Authorization Violation`, and the connect fails | a permissions error, **possibly later** than the call that caused it |
+
+Note the naming trap: NATS reports a failed **authentication** as
+`Authorization Violation`, and the config block for users is called
+`authorization { }` even when it holds no permissions at all.
+
+## Exercise 01 — who gets in? *(built, measured)*
+
+- No `authorization` block → every client is admitted. [AUTHN]
+- `authorization { users: [ {user, password} ] }` → one identity per entry.
+- A wrong password, an unknown user and no credentials give the client the
+  **same** error. The server log tells them apart. [AUTHN]
+- The server warns at start-up when passwords are in plaintext. [AUTHN]
+- Lab choice (not from the docs): passwords come from `$D05_...` environment
+  variables, so no config file holds a secret.
+
+## Exercise 02 — separate publish and subscribe limits *(planned)*
+
+- Each user has a `permissions` block with independent `publish` and
+  `subscribe` lists. [AUTHZ]
+- Shape to build: `order-svc` may publish `orders.>` and nothing else;
+  `analytics-reader` may subscribe `orders.>` and publish nothing.
+- Denials to show: `analytics-reader` publishing an order; `order-svc`
+  subscribing to orders.
+- Positive control: the allowed path delivers in the same run.
+- What to capture: the client's permissions error, the server log line, and
+  that the denied message is **not delivered**. The docs say a denied publish
+  is dropped and the connection kept. [AUTHZ]
+
+## Exercise 03 — allow, deny, wildcards, defaults, empty lists *(planned)*
+
+Claims from [AUTHZ] to test one at a time:
+
+1. Writing an `allow` list denies everything not on it.
+2. When a subject matches both `allow` and `deny`, **deny wins**.
+3. `*` matches one token, `>` matches one or more trailing tokens.
+4. An **empty** list is read as *no restriction*, not *deny all*. To deny
+   everything, write `deny: [">"]`.
+5. `default_permissions` applies only to users with no `permissions` block
+   of their own. A user's own block **replaces** the default; the two are not
+   merged.
+6. A literal subscription to a denied subject fails loudly. A **wildcard**
+   subscription that overlaps a deny is accepted, and the denied subjects are
+   filtered out at delivery, silently.
+
+Claim 6 is the one most likely to surprise. It needs a positive control on a
+sibling subject to prove the subscription is live.
+
+## Exercise 04 — request / reply under limits *(planned)*
+
+- A requester subscribes to a private inbox (`_INBOX.>`) before it sends the
+  request. With subscribe denied, the reply has nowhere to go and the
+  request **times out** — silently, not with an error. [AUTHZ]
+- A responder needs permission to publish the reply. `allow_responses` gives
+  exactly that, one reply per request, without a broad publish grant. [AUTHZ]
+- Scenario: `analytics-reader` asks `order-svc` for an order summary on
+  `orders.summary`.
+- A timeout alone proves nothing. Show the same request succeeding with the
+  inbox allowed, then failing with it denied, then read the server log.
+
+## Exercise 05 — token and NKey, against the password *(planned)*
+
+- **Token:** one shared secret for the whole server. No per-user identity, so
+  no per-user permissions. [AUTHN]
+- **NKey:** the server stores only a public key. The client signs a nonce
+  (a one-time random value) with its private seed, so no secret crosses the
+  wire. An NKey user entry cannot also carry a password. [AUTHN]
+- Tools to verify on this machine: `nats auth nkey gen`, `nats auth nkey show`,
+  `nats ... --nkey <file>`. Seeds go in `.run/`, never in Git.
+
+## Exercise 06 — bcrypt, and what it does not do *(planned)*
+
+- `nats server passwd` turns a password into a bcrypt hash (a one-way,
+  deliberately slow scramble) for the config file. [AUTHN]
+  Installed CLI: `-p/--pass`, `-c/--cost` (default 11), `-g/--generate`.
+- The client still **sends the real password**. The server hashes what it
+  receives and compares. So bcrypt protects the config file at rest, and
+  nothing on the wire. [AUTHN]
+- **TLS** protects the wire. This demo explains the split; it does not set up
+  TLS. That is a later demo.
+- To verify: the plaintext warning goes away; login still works; start-up and
+  connect cost at different `--cost` values.
+
+## Boundaries — for later demos
+
+- **Accounts** — separate subject spaces on one server. Demo 03 uses them.
+- **Operator mode / JWTs / `nsc`** — decentralised identity. Demos 01 and 02.
+- **Auth callout** — an external service decides who gets in.
+- **`no_auth_user`** — lets unauthenticated clients in as a named user. The
+  docs warn it can undo a lock-down; worth one line in exercise 01's notes
+  when it is measured. [AUTHN]

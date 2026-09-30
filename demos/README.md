@@ -18,3 +18,4 @@ with no frontend is still a demo; it simply has no plugin to source.
 | `02-multi-region` | — | — | — | Multi-Region Cluster Mechanics |
 | `03-multi-cluster-and-accounts` | — | — | — | Multi-Cluster Topologies and Accounts |
 | `04-jetstream-cqrs` | frontend | build | 20401 | JetStream as an Event Source, with CQRS |
+| `05-identity-and-permissions` | — | — | — | Identity and Permissions |
