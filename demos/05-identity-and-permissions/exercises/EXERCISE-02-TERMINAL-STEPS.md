@@ -1,9 +1,8 @@
 # Exercise 02 — what may each user do? Step by step
 
-> **Status: draft. Not yet run by the author in the real demo.**
-> The commands and the answers below were checked once on a scratch server
-> (2026-09-30, nats-server v2.14.6, nats CLI 0.4.0). The README still says
-> exercise 02 is *planned* until `OBSERVATIONS.md` has a real run.
+> **Status: run by hand once (2026-10-01).** Measured results are in
+> [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md). There is no
+> `ex02-check.sh` yet.
 
 Exercise 01 answered "who are you?" (**authentication**). Exercise 02 answers
 "what may you do?" (**authorization**). Both users now get in. The server then

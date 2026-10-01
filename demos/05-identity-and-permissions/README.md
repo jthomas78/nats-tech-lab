@@ -33,7 +33,7 @@ the NATS docs. The rest of the [security section](https://docs.nats.io/learn/sec
 | `D05-R2` | A user with the correct password is admitted, and its messages are delivered. | 01b | **measured** |
 | `D05-R3` | A wrong password, an unknown user and no credentials are all refused, and the client cannot tell which of the three it was. | 01b | **measured** |
 | `D05-R4` | A refused client's messages never reach a subscriber. | 01b | **measured** |
-| `D05-R5` | Each user can be limited separately on publish and on subscribe. | 02 | planned |
+| `D05-R5` | Each user can be limited separately on publish and on subscribe. | 02 | **measured** (by hand, once) |
 | `D05-R6` | Allow, deny, wildcards, default permissions and empty lists behave as the docs say. | 03 | planned |
 | `D05-R7` | Request / reply works under limits: the requester's inbox and the responder's reply. | 04 | planned |
 | `D05-R8` | A shared token and an NKey are compared against the password approach. | 05 | planned |
@@ -41,7 +41,7 @@ the NATS docs. The rest of the [security section](https://docs.nats.io/learn/sec
 | `D05-R10` | Another person runs this README with no help and sees every exercise work. | all | not started |
 | `D05-R11` | A pattern cards deck closes the demo (playbook stage 04). | — | not started |
 
-**measured** = run, and recorded in [`docs/OBSERVATIONS.md`](docs/OBSERVATIONS.md)
+**measured** = run, and recorded in [`exercises/EXERCISE_OBSERVATIONS.md`](exercises/EXERCISE_OBSERVATIONS.md)
 with the date and tool versions. **planned** = not built, not verified. An
 "expected" line below is a **prediction** until its observation is recorded.
 
@@ -74,7 +74,7 @@ nothing off this machine may reach it.
 | # | Question | State |
 |---|---|---|
 | 01 | Who gets in? Open server, then username / password (right, wrong, missing). | **built, measured** |
-| 02 | Can each user publish and subscribe only where it should? | planned |
+| 02 | Can each user publish and subscribe only where it should? | **built by hand, measured once** (no check script yet) |
 | 03 | How do allow, deny, wildcards, defaults and empty lists combine? | planned |
 | 04 | What does request / reply need: inbox subscribe, and `allow_responses`? | planned |
 | 05 | How do a shared token and an NKey compare with a password? | planned |
@@ -228,7 +228,16 @@ lab/down.sh
 
 `lab/down.sh --clean` also deletes `.run/`, including the passwords.
 
-## Exercises 02 – 06
+## Exercise 02
+
+Done by hand, in the terminal. The steps are in
+[`exercises/EXERCISE-02-TERMINAL-STEPS.md`](exercises/EXERCISE-02-TERMINAL-STEPS.md).
+The measured result is in
+[`exercises/EXERCISE_OBSERVATIONS.md`](exercises/EXERCISE_OBSERVATIONS.md). The
+finding: a side you do not list stays open, so list both sides. It has no
+`ex02-check.sh` yet.
+
+## Exercises 03 – 06
 
 **Planned — not implemented, not verified.** The outline is in
 [`docs/THEORY.md`](docs/THEORY.md). Each will follow the same shape as 01:

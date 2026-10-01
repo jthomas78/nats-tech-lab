@@ -7,7 +7,7 @@ Written from two pages of the NATS docs, read 2026-09-30:
 
 Everything below is **what the docs say**, in our own words. It is a
 prediction until an exercise measures it. What was actually measured is in
-[`OBSERVATIONS.md`](OBSERVATIONS.md).
+[`EXERCISE_OBSERVATIONS.md`](../exercises/EXERCISE_OBSERVATIONS.md).
 
 ## The two questions
 

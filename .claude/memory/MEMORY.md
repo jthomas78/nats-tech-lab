@@ -57,7 +57,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [demo03_three_node_arbiter_buys_one_node_of_slack](demo03_three_node_arbiter_buys_one_node_of_slack.md) — **[demo 03]** T4 (9 peers, majority 5) survives a region plus one node; T3 (7 peers, majority 4) has no slack
 
 ## Demo 05 — identity and permissions (exercise 01 measured 2026-09-30)
-- [demo05_state_and_handover](demo05_state_and_handover.md) — **[demo 05] START HERE** — ex 01 built + 16/16 twice; ex 02–06 planned only; always `--no-context`
+- [demo05_state_and_handover](demo05_state_and_handover.md) — **[demo 05] START HERE** — ex 01 built + measured; ex 02 by hand, measured once; 03–06 planned; always `--no-context`
 
 ## Reference material
 - [aws_console_as_shell_app](aws_console_as_shell_app.md) — AWS Console as app-shell mental model; documented MFE discovery pattern + where our contribution points go further

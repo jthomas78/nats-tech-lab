@@ -29,7 +29,7 @@ not exist yet.
   <https://docs.nats.io/learn/security/authentication-basics> and
   <https://docs.nats.io/learn/security/authorization>.
   Every behavior claim is then checked against the installed tools and
-  recorded in `docs/OBSERVATIONS.md` with the tool versions.
+  recorded in `exercises/EXERCISE_OBSERVATIONS.md` with the tool versions.
 
 Progression: **terminal exploration → repeatable scripts → (later) the lab
 shell**. All three stay in this folder. Terminal is the first usable form.
@@ -102,16 +102,16 @@ user. This is the easiest mistake to make in this demo.
 | Everything one exercise needs, in one flat folder | `exercises/` |
 | — server configs | `exercises/exNN-nats-*.conf` |
 | — numbered terminal steps | `exercises/EXERCISE-NN-TERMINAL-STEPS.md` |
+| — measured results, with versions | `exercises/EXERCISE_OBSERVATIONS.md` |
 | — the exercise's check script | `exercises/exNN-check.sh` |
 | Shared tools (secrets, up, down, lib) | `lab/` |
 | Theory, from the two source pages | `docs/THEORY.md` |
-| Measured results, with versions | `docs/OBSERVATIONS.md` |
 | Run state, secrets, logs (gitignored) | `.run/` |
 
 ## Quality rules
 
 - **Prediction is not a result.** A README "expected" line is labelled
-  *prediction* until `docs/OBSERVATIONS.md` has the real output, the date and
+  *prediction* until `exercises/EXERCISE_OBSERVATIONS.md` has the real output, the date and
   the versions. Never mark an exercise verified that was not run.
 - **A silent subscriber proves nothing.** Every denial is shown next to a
   positive control that did get through, on the same server, in the same run.
@@ -135,4 +135,5 @@ The demo is not complete until, under the playbook:
    exit test);
 3. the pattern cards deck exists (`pattern-cards` skill, stage 04).
 
-Only exercise 01 exists today.
+Exercise 01 is built and measured, with a check script. Exercise 02 is
+measured once by hand; it has no check script yet.

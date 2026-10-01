@@ -11,7 +11,7 @@ and password). Every `nats` command passes `--no-context`, so the CLI cannot
 pick up another demo's saved settings.
 
 A "Predict" line is a prediction until you have run the step. Measured results
-are in [`OBSERVATIONS.md`](../docs/OBSERVATIONS.md).
+are in [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md).
 
 ---
 
