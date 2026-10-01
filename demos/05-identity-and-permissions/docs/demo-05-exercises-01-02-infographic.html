@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo 05 Exercises 01-02</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #8b929b;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+@page { size: 1123px 1900px; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); }
+body { color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.wrap { width: 1123px; margin: 0 auto; padding: 28px 22px 26px; display: flex; flex-direction: column; gap: 18px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 2px 0 4px; font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -0.01em; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; }
+.sub { margin: 0; color: var(--muted); max-width: 80ch; }
+.pill { display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--evtl); border: 1px solid var(--evtl); border-radius: 3px; padding: 0 6px; margin-left: 8px; vertical-align: 2px; }
+code { font-family: var(--mono); font-size: 11px; background: rgba(222,224,227,.08); border-radius: 3px; padding: 0 4px; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; }
+figure svg { display: block; width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+.sec { display: flex; flex-direction: column; gap: 8px; }
+.sec-head { display: flex; align-items: baseline; gap: 10px; }
+.num { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .08em; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 11px 14px 12px; display: flex; flex-direction: column; gap: 5px; }
+.card .k { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+.card .v { color: var(--text); font-weight: 600; }
+.card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 18px; }
+pre { margin: 0; font-family: var(--mono); font-size: 11px; line-height: 17px; color: var(--text); background: #101316; border: 1px solid var(--border); border-radius: 3px; padding: 8px 10px; overflow: hidden; white-space: pre; }
+pre .dim { color: var(--dim); } pre .hole { color: var(--evtl); } pre .ok { color: var(--store); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stat { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 10px 14px; }
+.stat .n { font-size: 26px; line-height: 30px; font-weight: 600; color: var(--store); letter-spacing: -0.01em; }
+.stat .l { color: var(--muted); font-size: 12px; line-height: 17px; }
+.foot { color: var(--dim); font-size: 11px; line-height: 17px; border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* svg */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: .5; }
+.ok   { fill: none; stroke: var(--store); stroke-width: 1; }
+.no   { fill: none; stroke: var(--bad); stroke-width: 1; }
+.hole { fill: rgba(240,180,41,.08); stroke: var(--evtl); stroke-width: 1.3; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: .07em; }
+.t-ok { fill: var(--store); } .t-no { fill: var(--bad); } .t-hole { fill: var(--evtl); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Demo 05 · Identity and permissions · Exercises 01 and 02 <span class="pill">Demo not finished</span></div>
+  <h1>Let a client in. Then limit what it may do.</h1>
+  <p class="sub">The question: can we admit a client while limiting exactly what it may publish and subscribe to? Two NATS users, <code>order-svc</code> (writes orders) and <code>analytics-reader</code> (reads them), on one bare server. Everything below was run in a terminal and re-run as a check script.</p>
+</header>
+
+<section class="sec">
+  <div class="sec-head"><span class="num">00</span><h2>Two ideas. Keep them apart.</h2></div>
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1040 148" role="img" aria-label="A client connects to a NATS server. First the server asks who are you, which is authentication, checked once when the connection opens. Then the server asks what may you do, which is authorization, checked on every publish and every subscribe, before a subject is reached.">
+        <defs>
+          <marker id="z-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#4d94ff"/></marker>
+        </defs>
+        <rect class="n" x="0" y="30" width="140" height="62" rx="3"/>
+        <text class="lbl" x="14" y="56">client</text>
+        <text class="lbl2" x="14" y="74">nats CLI</text>
+        <line class="flow" x1="140" y1="61" x2="229" y2="61" marker-end="url(#z-sync)"/>
+        <rect class="n" x="230" y="30" width="250" height="62" rx="3"/>
+        <text class="lbl" x="244" y="56">AUTHENTICATION</text>
+        <text class="lbl2" x="244" y="74">who are you?</text>
+        <line class="flow" x1="480" y1="61" x2="569" y2="61" marker-end="url(#z-sync)"/>
+        <rect class="n" x="570" y="30" width="250" height="62" rx="3"/>
+        <text class="lbl" x="584" y="56">AUTHORIZATION</text>
+        <text class="lbl2" x="584" y="74">what may you do?</text>
+        <line class="flow" x1="820" y1="61" x2="909" y2="61" marker-end="url(#z-sync)"/>
+        <rect class="n" x="910" y="30" width="130" height="62" rx="3"/>
+        <text class="lbl" x="924" y="56">orders.&gt;</text>
+        <text class="lbl2" x="924" y="74">a subject</text>
+        <text class="lbl2" x="230" y="118">checked once, when it connects</text>
+        <text class="lbl2" x="570" y="118">checked on every publish and subscribe</text>
+      </svg>
+    </div>
+    <figcaption><b>Exercise 01</b> is the first box: who gets in. <b>Exercise 02</b> is the second: what each one may do once inside.</figcaption>
+  </figure>
+</section>
+
+<section class="sec">
+  <div class="sec-head"><span class="num">01</span><h2>Exercise 01 — who gets in?</h2></div>
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1040 236" role="img" aria-label="Four connection attempts to a server with passwords. A wrong password, no credentials, and an unknown user all get the same client error, Authorization Violation, and nothing reaches the listener. The correct password is admitted and its message is delivered.">
+        <defs>
+          <marker id="y-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#4d94ff"/></marker>
+          <marker id="y-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#f87171"/></marker>
+        </defs>
+        <text class="grp" x="0" y="12">THE TRY</text>
+        <text class="grp" x="370" y="12">THE CLIENT IS TOLD</text>
+        <text class="grp" x="740" y="12">THE LISTENER SEES</text>
+
+        <rect class="n" x="0" y="26" width="300" height="40" rx="3"/>
+        <text class="lbl" x="12" y="43">wrong password</text><text class="lbl2" x="12" y="58">order-svc, bad password</text>
+        <line class="err" x1="300" y1="46" x2="369" y2="46" marker-end="url(#y-bad)"/>
+        <rect class="no" x="370" y="26" width="300" height="40" rx="3"/>
+        <text class="lbl t-no" x="382" y="43">Authorization Violation</text><text class="lbl2" x="382" y="58">same words every time</text>
+        <line class="err" x1="670" y1="46" x2="739" y2="46" marker-end="url(#y-bad)"/>
+        <rect class="n" x="740" y="26" width="300" height="40" rx="3"/>
+        <text class="lbl" x="752" y="43">nothing arrives</text><text class="lbl2" x="752" y="58">the listener stays silent</text>
+
+        <rect class="n" x="0" y="78" width="300" height="40" rx="3"/>
+        <text class="lbl" x="12" y="95">no credentials</text><text class="lbl2" x="12" y="110">no user, no password</text>
+        <line class="err" x1="300" y1="98" x2="369" y2="98" marker-end="url(#y-bad)"/>
+        <rect class="no" x="370" y="78" width="300" height="40" rx="3"/>
+        <text class="lbl t-no" x="382" y="95">Authorization Violation</text><text class="lbl2" x="382" y="110">same words every time</text>
+        <line class="err" x1="670" y1="98" x2="739" y2="98" marker-end="url(#y-bad)"/>
+        <rect class="n" x="740" y="78" width="300" height="40" rx="3"/>
+        <text class="lbl" x="752" y="95">nothing arrives</text><text class="lbl2" x="752" y="110">the listener stays silent</text>
+
+        <rect class="n" x="0" y="130" width="300" height="40" rx="3"/>
+        <text class="lbl" x="12" y="147">unknown user</text><text class="lbl2" x="12" y="162">mallory</text>
+        <line class="err" x1="300" y1="150" x2="369" y2="150" marker-end="url(#y-bad)"/>
+        <rect class="no" x="370" y="130" width="300" height="40" rx="3"/>
+        <text class="lbl t-no" x="382" y="147">Authorization Violation</text><text class="lbl2" x="382" y="162">same words every time</text>
+        <line class="err" x1="670" y1="150" x2="739" y2="150" marker-end="url(#y-bad)"/>
+        <rect class="n" x="740" y="130" width="300" height="40" rx="3"/>
+        <text class="lbl" x="752" y="147">nothing arrives</text><text class="lbl2" x="752" y="162">the listener stays silent</text>
+
+        <rect class="n" x="0" y="182" width="300" height="40" rx="3"/>
+        <text class="lbl" x="12" y="199">correct password</text><text class="lbl2" x="12" y="214">order-svc</text>
+        <line class="flow" x1="300" y1="202" x2="369" y2="202" marker-end="url(#y-sync)"/>
+        <rect class="ok" x="370" y="182" width="300" height="40" rx="3"/>
+        <text class="lbl t-ok" x="382" y="199">admitted</text><text class="lbl2" x="382" y="214">publish accepted, exit 0</text>
+        <line class="flow" x1="670" y1="202" x2="739" y2="202" marker-end="url(#y-sync)"/>
+        <rect class="ok" x="740" y="182" width="300" height="40" rx="3"/>
+        <text class="lbl t-ok" x="752" y="199">delivered</text><text class="lbl2" x="752" y="214">exactly 1 message arrives</text>
+      </svg>
+    </div>
+    <figcaption><b>Why the three failures look the same:</b> the server tells the client only “Authorization Violation”, so an attacker cannot learn which user names exist. The server log, which the operator reads, does name the user. With no <code>authorization</code> block at all (01a), every client gets in.</figcaption>
+  </figure>
+</section>
+
+<section class="sec">
+  <div class="sec-head"><span class="num">02</span><h2>Exercise 02 — the open side</h2></div>
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1040 372" role="img" aria-label="A table of six actions by two users, in two configurations. When each user lists only one side, the reader can still publish and the sender can still subscribe, with no error and no log line. When each user lists both sides, those two actions are denied, and two more actions outside the allow lists are denied too.">
+        <text class="grp" x="0" y="12">WHAT THE USER TRIES</text>
+        <text class="grp" x="400" y="12">A · EACH USER LISTS ONE SIDE</text>
+        <text class="grp" x="720" y="12">B · EACH USER LISTS BOTH SIDES</text>
+
+        <!-- row labels -->
+        <rect class="n" x="0" y="26"  width="380" height="44" rx="3"/><text class="lbl" x="12" y="45"  >order-svc publishes</text><text class="lbl2" x="12" y="60"  >orders.created</text>
+        <rect class="n" x="0" y="80"  width="380" height="44" rx="3"/><text class="lbl" x="12" y="99"  >analytics-reader publishes</text><text class="lbl2" x="12" y="114" >orders.created</text>
+        <rect class="n" x="0" y="134" width="380" height="44" rx="3"/><text class="lbl" x="12" y="153" >order-svc subscribes</text><text class="lbl2" x="12" y="168" >orders.&gt;</text>
+        <rect class="n" x="0" y="188" width="380" height="44" rx="3"/><text class="lbl" x="12" y="207" >analytics-reader subscribes</text><text class="lbl2" x="12" y="222" >orders.&gt;</text>
+        <rect class="n" x="0" y="242" width="380" height="44" rx="3"/><text class="lbl" x="12" y="261" >order-svc publishes</text><text class="lbl2" x="12" y="276" >invoices.created</text>
+        <rect class="n" x="0" y="296" width="380" height="44" rx="3"/><text class="lbl" x="12" y="315" >analytics-reader subscribes</text><text class="lbl2" x="12" y="330" >invoices.&gt;</text>
+
+        <!-- column A -->
+        <rect class="ok"   x="400" y="26"  width="300" height="44" rx="3"/><text class="lbl t-ok" x="412" y="45">allowed</text><text class="lbl2" x="412" y="60">positive control</text>
+        <rect class="hole" x="400" y="80"  width="300" height="44" rx="3"/><text class="lbl t-hole" x="412" y="99">ALLOWED — the hole</text><text class="lbl2" x="412" y="114">no error, no log line</text>
+        <rect class="hole" x="400" y="134" width="300" height="44" rx="3"/><text class="lbl t-hole" x="412" y="153">ALLOWED — the hole</text><text class="lbl2" x="412" y="168">no error, no log line</text>
+        <rect class="ok"   x="400" y="188" width="300" height="44" rx="3"/><text class="lbl t-ok" x="412" y="207">allowed</text><text class="lbl2" x="412" y="222">positive control</text>
+        <rect class="no"   x="400" y="242" width="300" height="44" rx="3"/><text class="lbl t-no" x="412" y="261">denied</text><text class="lbl2" x="412" y="276">the listed side is still limited</text>
+        <rect class="no"   x="400" y="296" width="300" height="44" rx="3"/><text class="lbl t-no" x="412" y="315">denied</text><text class="lbl2" x="412" y="330">the listed side is still limited</text>
+
+        <!-- column B -->
+        <rect class="ok" x="720" y="26"  width="320" height="44" rx="3"/><text class="lbl t-ok" x="732" y="45">allowed</text><text class="lbl2" x="732" y="60">the listener gets the message</text>
+        <rect class="no" x="720" y="80"  width="320" height="44" rx="3"/><text class="lbl t-no" x="732" y="99">denied</text><text class="lbl2" x="732" y="114">Permissions Violation for Publish</text>
+        <rect class="no" x="720" y="134" width="320" height="44" rx="3"/><text class="lbl t-no" x="732" y="153">denied</text><text class="lbl2" x="732" y="168">Permissions Violation for Subscription</text>
+        <rect class="ok" x="720" y="188" width="320" height="44" rx="3"/><text class="lbl t-ok" x="732" y="207">allowed</text><text class="lbl2" x="732" y="222">positive control</text>
+        <rect class="no" x="720" y="242" width="320" height="44" rx="3"/><text class="lbl t-no" x="732" y="261">denied</text><text class="lbl2" x="732" y="276">Permissions Violation for Publish</text>
+        <rect class="no" x="720" y="296" width="320" height="44" rx="3"/><text class="lbl t-no" x="732" y="315">denied</text><text class="lbl2" x="732" y="330">Permissions Violation for Subscription</text>
+
+        <text class="lbl2" x="400" y="362">A: 0 logged for the holes, 2 for denials</text>
+        <text class="lbl2" x="720" y="362">B: the server logged exactly 4 violations.</text>
+      </svg>
+    </div>
+    <figcaption><b>The finding:</b> a side a user does not list is <b>open</b>. List only <code>publish</code> and the user can still subscribe to anything. List only <code>subscribe</code> and it can still publish anything. NATS gives no error and writes no log line. The fix is to list both sides, with <code>deny: "&gt;"</code> on the side that should do nothing (<code>&gt;</code> means every subject).</figcaption>
+  </figure>
+
+  <div class="grid2">
+    <div class="card">
+      <span class="k">A · before — <code>order-svc</code> lists one side</span>
+<pre><span class="ok">publish:   { allow: "orders.&gt;" }</span>
+<span class="hole">subscribe: (not listed → open)</span></pre>
+    </div>
+    <div class="card">
+      <span class="k">B · after — <code>order-svc</code> lists both sides</span>
+<pre><span class="ok">publish:   { allow: "orders.&gt;" }</span>
+<span class="ok">subscribe: { deny: "&gt;" }</span></pre>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="sec-head"><span class="num">03</span><h2>Read a denial in three places</h2></div>
+  <div class="grid3">
+    <div class="card">
+      <span class="k">1 · The client</span>
+      <span class="v">What the sender is told</span>
+<pre>Permissions Violation
+ for Publish to
+ "invoices.created"</pre>
+      <p>A subscribe error comes <b>after</b> <code>Subscribing on …</code> is printed. Do not trust the exit code alone.</p>
+    </div>
+    <div class="card">
+      <span class="k">2 · The server log</span>
+      <span class="v">What the operator sees</span>
+<pre>[ERR] "$G/user:order-svc"
+ - Publish Violation
+ - Subject "invoices.created"</pre>
+      <p>It names the user and the subject. <code>$G</code> is the global account, the only one in this demo.</p>
+    </div>
+    <div class="card">
+      <span class="k">3 · The delivery</span>
+      <span class="v">What really got through</span>
+<pre>listener: 1 message
+  from-order-svc
+(nothing from the reader)</pre>
+      <p>A silent listener alone proves nothing. A control message that <b>did</b> arrive proves the listener works.</p>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="sec-head"><span class="num">04</span><h2>How sure are we?</h2></div>
+  <div class="stats">
+    <div class="stat"><div class="n">16</div><div class="l">checks in <code>ex01-check.sh</code>, all pass</div></div>
+    <div class="stat"><div class="n">24</div><div class="l">checks in <code>ex02-check.sh</code>, all pass</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">runs of each script, same result</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">servers left running; port 4522 proven free</div></div>
+  </div>
+</section>
+
+<div class="foot">
+  <b>Measured</b> on 2026-10-01 · nats-server v2.14.6 · nats CLI 0.4.0 · macOS, one machine. Exercise 02 was first walked by hand, then frozen into the script. Evidence and exact outputs: <code>exercises/EXERCISE_OBSERVATIONS.md</code>. Both users send passwords in plain text on loopback; bcrypt and TLS are exercise 06.<br>
+  <b>Not done yet:</b> exercises 03–06 (allow and deny together, request and reply, token and NKey, bcrypt and TLS), a stranger's walkthrough, and the pattern cards. <b>This page is a recap, not a pattern card.</b>
+</div>
+
+</div>
+</body>
+</html>

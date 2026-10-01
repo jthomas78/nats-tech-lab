@@ -67,10 +67,11 @@ server log names the user.
 - **Date / machine:** 2026-10-01, the author's Mac (Darwin 25.4.0), SAST
 - **Versions:** nats-server v2.14.6 · nats CLI 0.4.0
 - **Command:** the manual steps in `EXERCISE-02-TERMINAL-STEPS.md`, Steps 1–15,
-  typed by the author in three terminals. There is **no `ex02-check.sh` yet**.
-- **Runs:** 1 by the author. Step 6 was also repeated by Claude on a scratch
-  server (port 4599, same config, test passwords) on 2026-10-01: same result.
-  So this exercise is **measured once**, by hand.
+  typed by the author in three terminals. `exercises/ex02-check.sh` was written
+  afterwards from these results (see the check script note below the tables).
+- **Runs:** the manual steps ran once, by the author. Step 6 was also repeated
+  by Claude on a scratch server (port 4599, same config, test passwords) on
+  2026-10-01: same result. The check script then ran 3 times, ALL PASS.
 
 Part 02a — `ex02-nats-permissions-one-sided.conf` (one side listed per user):
 
@@ -93,9 +94,14 @@ Part 02b — `ex02-nats-permissions.conf` (both sides listed, `deny: ">"` on the
 | Step 14 `analytics-reader` sub `invoices.>` | denied | `Subscribing on invoices.>`, then `Permissions Violation for Subscription to "invoices.>"` | `[ERR] ... "$G/user:analytics-reader" - Subscription Violation - Subject "invoices.>", SID 1` | — | measured ✓ |
 
 **Check script, `exercises/ex02-check.sh`** (2026-10-01, nats-server v2.14.6,
-nats CLI 0.4.0): 21 checks, ALL PASS, 3 runs. It re-measures the table above on
+nats CLI 0.4.0): 24 checks, ALL PASS, 3 runs. It re-measures the table above on
 a fresh server each time. In 02a it proves the hole (reader publish delivered,
-sender subscribe delivered, zero violations logged). In 02b it proves the four
+sender subscribe delivered, zero violations logged). It also measures, for the
+first time, the two 02a actions that were not in the by-hand run:
+`order-svc` pub `invoices.created` and `analytics-reader` sub `invoices.>`.
+**Both are denied in 02a**, as predicted: a side that is listed is limited by
+its allow list. Only the side that is not listed is open; it logged exactly 2
+violations. In 02b it proves the four
 denials on three channels (client error, server log, delivery) and counts
 exactly 4 violations in a clean log. It ends by proving the server is gone and
 port 4522 is free. The first run of the script was written from the by-hand

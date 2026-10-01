@@ -53,6 +53,17 @@ check A4 "hole: order-svc could subscribe and received the reader's message" gre
 check A5 "no Permissions Violation told to any client" bash -c "! grep -q 'Permissions Violation' <<<\"\$1\$2\$(cat '$out_sa')\"" _ "$r_order" "$r_reader"
 violations=$(grep -c 'Violation' "$D05_LOG")
 check A6 "server logged zero violations (the hole is silent)" [ "$violations" -eq 0 ]
+
+# The listed side is still limited by its allow list. Only the unlisted side is open.
+r_a_out=$(as_order pub invoices.created 'a-invoice')
+r_a_rsub=$(as_reader sub 'invoices.>' --wait 2s)
+sleep 0.5
+check A7 "order-svc publish to invoices.created: client told Permissions Violation for Publish" \
+  grep -q 'Permissions Violation for Publish to "invoices.created"' <<<"$r_a_out"
+check A8 "analytics-reader subscribe to invoices.>: client told Permissions Violation for Subscription" \
+  grep -q 'Permissions Violation for Subscription to "invoices.>"' <<<"$r_a_rsub"
+check A9 "server logged both, and only those 2 violations" \
+  bash -c "[ \"\$(grep -c 'Violation' '$D05_LOG')\" -eq 2 ] && grep -q 'order-svc.*Publish Violation - Subject \"invoices.created\"' '$D05_LOG' && grep -q 'analytics-reader.*Subscription Violation - Subject \"invoices.>\"' '$D05_LOG'"
 cp "$D05_LOG" "$D05_RUN/ex02a-server.log"
 "$D05_DIR/lab/down.sh" >/dev/null
 
