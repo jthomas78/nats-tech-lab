@@ -1,8 +1,8 @@
 # Exercise 02 — what may each user do? Step by step
 
-> **Status: run by hand once (2026-10-01).** Measured results are in
-> [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md). There is no
-> `ex02-check.sh` yet.
+> **Status: run by hand (2026-10-01), then turned into a check.** Measured
+> results are in [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md). To run
+> the same steps as a script: `exercises/ex02-check.sh`.
 
 Exercise 01 answered "who are you?" (**authentication**). Exercise 02 answers
 "what may you do?" (**authorization**). Both users now get in. The server then
@@ -37,7 +37,7 @@ source .run/secrets.env
 **Terminal A:**
 
 ```bash
-nats-server -c exercises/ex02-nats-permissions-one-sided.conf
+nats-server -c exercises/config/ex02-nats-permissions-one-sided.conf
 ```
 
 **Purpose:** start the server with one-sided permissions.
@@ -104,7 +104,7 @@ nats --no-context -s nats://127.0.0.1:4522 --user order-svc --password "$D05_ORD
 **Terminal A:**
 
 ```bash
-nats-server -c exercises/ex02-nats-permissions.conf
+nats-server -c exercises/config/ex02-nats-permissions.conf
 ```
 
 **Purpose:** start the server with both sides set.

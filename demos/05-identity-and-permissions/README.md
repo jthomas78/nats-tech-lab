@@ -33,7 +33,7 @@ the NATS docs. The rest of the [security section](https://docs.nats.io/learn/sec
 | `D05-R2` | A user with the correct password is admitted, and its messages are delivered. | 01b | **measured** |
 | `D05-R3` | A wrong password, an unknown user and no credentials are all refused, and the client cannot tell which of the three it was. | 01b | **measured** |
 | `D05-R4` | A refused client's messages never reach a subscriber. | 01b | **measured** |
-| `D05-R5` | Each user can be limited separately on publish and on subscribe. | 02 | **measured** (by hand, once) |
+| `D05-R5` | Each user can be limited separately on publish and on subscribe. | 02 | **measured** (by hand, then `ex02-check.sh`, 3 runs) |
 | `D05-R6` | Allow, deny, wildcards, default permissions and empty lists behave as the docs say. | 03 | planned |
 | `D05-R7` | Request / reply works under limits: the requester's inbox and the responder's reply. | 04 | planned |
 | `D05-R8` | A shared token and an NKey are compared against the password approach. | 05 | planned |
@@ -74,7 +74,7 @@ nothing off this machine may reach it.
 | # | Question | State |
 |---|---|---|
 | 01 | Who gets in? Open server, then username / password (right, wrong, missing). | **built, measured** |
-| 02 | Can each user publish and subscribe only where it should? | **built by hand, measured once** (no check script yet) |
+| 02 | Can each user publish and subscribe only where it should? | **built, measured** (by hand, then a check script) |
 | 03 | How do allow, deny, wildcards, defaults and empty lists combine? | planned |
 | 04 | What does request / reply need: inbox subscribe, and `allow_responses`? | planned |
 | 05 | How do a shared token and an NKey compare with a password? | planned |
@@ -102,7 +102,7 @@ are asked for.
 Terminal A:
 
 ```bash
-nats-server -c exercises/ex01-nats-no-auth.conf
+nats-server -c exercises/config/ex01-nats-no-auth.conf
 ```
 
 Terminal B:
@@ -145,11 +145,11 @@ environment, and refuses to start without them:
 source .run/secrets.env
 ```
 
-Terminal A — look at [`exercises/ex01-nats-users-auth.conf`](exercises/ex01-nats-users-auth.conf)
+Terminal A — look at [`exercises/config/ex01-nats-users-auth.conf`](exercises/config/ex01-nats-users-auth.conf)
 first, then:
 
 ```bash
-nats-server -c exercises/ex01-nats-users-auth.conf
+nats-server -c exercises/config/ex01-nats-users-auth.conf
 ```
 
 Look for the warning `Plaintext passwords detected, use nkeys or bcrypt`.
@@ -234,8 +234,13 @@ Done by hand, in the terminal. The steps are in
 [`exercises/EXERCISE-02-TERMINAL-STEPS.md`](exercises/EXERCISE-02-TERMINAL-STEPS.md).
 The measured result is in
 [`exercises/EXERCISE_OBSERVATIONS.md`](exercises/EXERCISE_OBSERVATIONS.md). The
-finding: a side you do not list stays open, so list both sides. It has no
-`ex02-check.sh` yet.
+finding: a side you do not list stays open, so list both sides.
+
+The same steps, with a PASS / FAIL line per check, and nothing left running:
+
+```bash
+exercises/ex02-check.sh
+```
 
 ## Exercises 03 – 06
 

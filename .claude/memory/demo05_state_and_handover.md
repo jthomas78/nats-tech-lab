@@ -1,6 +1,6 @@
 ---
 name: demo05-state-and-handover
-description: "[demo 05] State as of 2026-10-01: exercise 01 built and measured (check script, 16/16); exercise 02 walked by hand and measured once, no check script; exercises 03-06 planned only."
+description: "[demo 05] State as of 2026-10-01: exercises 01 (16 checks) and 02 (21 checks) built, measured, with check scripts; exercises 03-06 planned only."
 metadata:
   type: project
 ---
@@ -18,9 +18,10 @@ State of `demos/05-identity-and-permissions/` on 2026-10-01, branch
 - Exercise 01 = baseline + username/password. `exercises/ex01-check.sh` ALL
   PASS, 16 checks, 3 runs (nats-server v2.14.6, nats CLI 0.4.0). Not re-run
   since the move into `exercises/`.
-- Exercise 02 = permissions. The user walked Steps 1–15 by hand on 2026-10-01;
-  recorded as measured once. Finding: a side a user does not list is open, so
-  list both sides (`deny: ">"` on the unused one). No `ex02-check.sh` yet.
+- Exercise 02 = permissions. The user walked Steps 1–15 by hand on 2026-10-01.
+  Then `exercises/ex02-check.sh` was written from it: 21 checks, ALL PASS, 3
+  runs. Finding: a side a user does not list is open, so list both sides
+  (`deny: ">"` on the unused one).
 - Exercises renumbered to 01–06 (Codex's 7 steps: steps 1 and 2 are both
   exercise 01).
 - Not done: exercises 03–06, an `ex02-check.sh`, a stranger's walkthrough

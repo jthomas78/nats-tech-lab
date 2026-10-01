@@ -2,7 +2,7 @@
 
 D05_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 D05_RUN="$D05_DIR/.run"
-D05_CONFIGS="$D05_DIR/exercises"
+D05_CONFIGS="$D05_DIR/exercises/config"
 D05_PID="$D05_RUN/nats-server.pid"
 D05_LOG="$D05_RUN/server.log"
 D05_SECRETS="$D05_RUN/secrets.env"

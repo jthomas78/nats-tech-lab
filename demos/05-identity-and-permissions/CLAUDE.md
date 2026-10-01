@@ -100,7 +100,7 @@ user. This is the easiest mistake to make in this demo.
 |---|---|
 | Lab-shell intro, requirements, walkthrough | `README.md` |
 | Everything one exercise needs, in one flat folder | `exercises/` |
-| — server configs | `exercises/exNN-nats-*.conf` |
+| — server configs | `exercises/config/exNN-nats-*.conf` |
 | — numbered terminal steps | `exercises/EXERCISE-NN-TERMINAL-STEPS.md` |
 | — measured results, with versions | `exercises/EXERCISE_OBSERVATIONS.md` |
 | — the exercise's check script | `exercises/exNN-check.sh` |
@@ -135,5 +135,5 @@ The demo is not complete until, under the playbook:
    exit test);
 3. the pattern cards deck exists (`pattern-cards` skill, stage 04).
 
-Exercise 01 is built and measured, with a check script. Exercise 02 is
-measured once by hand; it has no check script yet.
+Exercises 01 and 02 are built and measured, each with a check script
+(`exercises/ex01-check.sh`, `exercises/ex02-check.sh`).

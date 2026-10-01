@@ -21,7 +21,7 @@ are in [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md).
 **Terminal A:**
 
 ```bash
-nats-server -c exercises/ex01-nats-no-auth.conf
+nats-server -c exercises/config/ex01-nats-no-auth.conf
 ```
 
 **Purpose:** start the open server on `127.0.0.1:4522`.
@@ -88,7 +88,7 @@ source .run/secrets.env
 **Terminal A:**
 
 ```bash
-nats-server -c exercises/ex01-nats-users-auth.conf
+nats-server -c exercises/config/ex01-nats-users-auth.conf
 ```
 
 **Purpose:** start the locked server.

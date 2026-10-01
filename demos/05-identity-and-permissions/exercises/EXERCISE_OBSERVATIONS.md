@@ -46,7 +46,7 @@ real output in a run listed here. Anything else says **inferred** or
 Also measured, outside the script:
 
 - **An unset password variable stops the server.** With
-  `D05_ORDER_SVC_PASSWORD` unset, `nats-server -c exercises/ex01-nats-users-auth.conf -t`
+  `D05_ORDER_SVC_PASSWORD` unset, `nats-server -c exercises/config/ex01-nats-users-auth.conf -t`
   exits 1: `variable reference for 'D05_ORDER_SVC_PASSWORD' on line 21 can not
   be found`. Fail-closed.
 - **The passwords never reach the server log.** `grep` for both values in
@@ -92,8 +92,17 @@ Part 02b — `ex02-nats-permissions.conf` (both sides listed, `deny: ">"` on the
 | Step 13 `order-svc` sub `orders.>` | denied | `Subscribing on orders.>`, **then** `Permissions Violation for Subscription to "orders.>"` | `[ERR] ... "$G/user:order-svc" - Subscription Violation - Subject "orders.>", SID 1` | — | measured ✓ — Step 6, now closed |
 | Step 14 `analytics-reader` sub `invoices.>` | denied | `Subscribing on invoices.>`, then `Permissions Violation for Subscription to "invoices.>"` | `[ERR] ... "$G/user:analytics-reader" - Subscription Violation - Subject "invoices.>", SID 1` | — | measured ✓ |
 
-Not measured: the exit codes of the denied commands (not read in this run), and
-a count of `[ERR]` lines across a clean run (the log held the earlier typo line).
+**Check script, `exercises/ex02-check.sh`** (2026-10-01, nats-server v2.14.6,
+nats CLI 0.4.0): 21 checks, ALL PASS, 3 runs. It re-measures the table above on
+a fresh server each time. In 02a it proves the hole (reader publish delivered,
+sender subscribe delivered, zero violations logged). In 02b it proves the four
+denials on three channels (client error, server log, delivery) and counts
+exactly 4 violations in a clean log. It ends by proving the server is gone and
+port 4522 is free. The first run of the script was written from the by-hand
+results above; none of its greps needed changing.
+
+Not measured: the exit codes of the denied commands. The script prints them but
+does not assert them, because the error arrives after the command returns.
 
 **Gotchas hit:**
 
