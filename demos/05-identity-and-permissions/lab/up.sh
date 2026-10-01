@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Start the demo 05 server in the background with one config.
-#   lab/up.sh ex01-a-open
-#   lab/up.sh ex01-b-users
+#   lab/up.sh ex01-nats-no-auth
+#   lab/up.sh ex01-nats-users-auth
 # Log: .run/server.log (watch it with: tail -f .run/server.log)
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
-name=${1:?usage: lab/up.sh <config name, e.g. ex01-b-users>}
+name=${1:?usage: lab/up.sh <config name, e.g. ex01-nats-users-auth>}
 conf="$D05_CONFIGS/$name.conf"
 [[ -f "$conf" ]] || { echo "no such config: $conf" >&2; exit 1; }
 

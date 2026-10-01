@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Exercise 01, end to end, with PASS / FAIL per check. Leaves nothing running.
-#   lab/ex01-check.sh
+#   exercises/ex01-check.sh
 # Every denial is judged next to a positive control from the same run, and
 # from two sides: what the client reported, and what the server logged.
 set -uo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lab/lib.sh"
 
 fails=0
 pass() { echo "PASS  $1  $2"; }
@@ -24,7 +24,7 @@ echo
 
 # --- 01a: open server ------------------------------------------------------
 echo "== 01a  no authentication"
-"$D05_DIR/lab/up.sh" ex01-a-open >/dev/null || { echo "01a server did not start" >&2; exit 1; }
+"$D05_DIR/lab/up.sh" ex01-nats-no-auth >/dev/null || { echo "01a server did not start" >&2; exit 1; }
 
 out_a="$D05_RUN/ex01a-sub.out"
 d05_nats sub 'orders.>' --count 1 --wait 5s > "$out_a" 2>&1 & sub=$!
@@ -36,7 +36,7 @@ check A1 "anonymous publish reached an anonymous subscriber" grep -q 'anonymous-
 
 # --- 01b: users with passwords ---------------------------------------------
 echo "== 01b  username / password"
-"$D05_DIR/lab/up.sh" ex01-b-users >/dev/null || { echo "01b server did not start" >&2; exit 1; }
+"$D05_DIR/lab/up.sh" ex01-nats-users-auth >/dev/null || { echo "01b server did not start" >&2; exit 1; }
 source "$D05_SECRETS"
 
 check B0 "server warned about plaintext passwords" grep -q 'Plaintext passwords detected' "$D05_LOG"

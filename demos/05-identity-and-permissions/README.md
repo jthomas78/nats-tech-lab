@@ -102,7 +102,7 @@ are asked for.
 Terminal A:
 
 ```bash
-nats-server -c configs/ex01-a-open.conf
+nats-server -c exercises/ex01-nats-no-auth.conf
 ```
 
 Terminal B:
@@ -145,11 +145,11 @@ environment, and refuses to start without them:
 source .run/secrets.env
 ```
 
-Terminal A — look at [`configs/ex01-b-users.conf`](configs/ex01-b-users.conf)
+Terminal A — look at [`exercises/ex01-nats-users-auth.conf`](exercises/ex01-nats-users-auth.conf)
 first, then:
 
 ```bash
-nats-server -c configs/ex01-b-users.conf
+nats-server -c exercises/ex01-nats-users-auth.conf
 ```
 
 Look for the warning `Plaintext passwords detected, use nkeys or bcrypt`.
@@ -209,13 +209,13 @@ learn whether a user name exists. The operator, reading the server log, can.
 The same steps, with a PASS / FAIL line per check, and nothing left running:
 
 ```bash
-lab/ex01-check.sh
+exercises/ex01-check.sh
 ```
 
 To run a server in the background instead of in Terminal A:
 
 ```bash
-lab/up.sh ex01-b-users
+lab/up.sh ex01-nats-users-auth
 ```
 
 ```bash

@@ -33,6 +33,8 @@ not exist yet.
 
 Progression: **terminal exploration → repeatable scripts → (later) the lab
 shell**. All three stay in this folder. Terminal is the first usable form.
+The rule, its reason and its exceptions are in `demo-playbook.html` (repo
+root), stage `03`, Activities.
 
 ## What this demo is NOT
 
@@ -45,8 +47,9 @@ build it here:
 - full TLS exercises (exercise 06 explains TLS; it does not configure it)
 - clusters, gateways, leaf nodes, JetStream
 - a frontend or a lab-shell menu entry — **not in this task**. When one comes,
-  it reuses `shared/unifi-theme/` and `shared/ui-shell/`, and calls the same
-  `lab/` scripts. It never re-implements an exercise.
+  it reuses `shared/unifi-theme/` and `shared/ui-shell/`, and reuses the
+  checks already verified in `exercises/` and the shared tools in `lab/`. It
+  never re-implements an exercise.
 
 Do not modify any other demo from here.
 
@@ -96,8 +99,11 @@ user. This is the easiest mistake to make in this demo.
 | What | Where |
 |---|---|
 | Lab-shell intro, requirements, walkthrough | `README.md` |
-| Server configs, one per exercise step | `configs/exNN-x-*.conf` |
-| Scripts (setup, run, check, teardown) | `lab/` |
+| Everything one exercise needs, in one flat folder | `exercises/` |
+| — server configs | `exercises/exNN-nats-*.conf` |
+| — numbered terminal steps | `exercises/EXERCISE-NN-TERMINAL-STEPS.md` |
+| — the exercise's check script | `exercises/exNN-check.sh` |
+| Shared tools (secrets, up, down, lib) | `lab/` |
 | Theory, from the two source pages | `docs/THEORY.md` |
 | Measured results, with versions | `docs/OBSERVATIONS.md` |
 | Run state, secrets, logs (gitignored) | `.run/` |

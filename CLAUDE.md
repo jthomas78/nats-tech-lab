@@ -75,6 +75,14 @@ Two rules from the playbook that bite outside it:
 workflow — deck location, export command, card shape, provenance, retraction,
 guard spec — is the `pattern-cards` skill. Read it before closing a phase.
 
+### How a demo's exercises are built: terminal first
+
+For new exercises, build by hand in a terminal first, then turn the steps into
+a repeatable check. An app or lab-shell page comes last, and only if the demo
+needs one. The rule and its exceptions are in `demo-playbook.html`, stage `03`
+(Activities). Demos 01–04 keep their shape. Demo 05 keeps each exercise's steps,
+configs and check script together in `exercises/`; see its own `CLAUDE.md`.
+
 ## Repository Layout
 
 Read the tree with `ls` — it changes faster than this file. Not visible from the

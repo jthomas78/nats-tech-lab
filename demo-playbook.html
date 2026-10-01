@@ -167,6 +167,23 @@
   .tag.show{color:var(--cyan);border-color:var(--cyan)}
   .tag.val{color:var(--amber);border-color:var(--amber)}
   .tag.both{color:var(--tx2)}
+  /* ---------- activities at a glance ---------- */
+  .act{display:block;width:100%;height:auto;margin-top:12px}
+  .act .hd{fill:var(--panel);stroke:var(--line2);stroke-width:1}
+  .act .bx{fill:var(--panel2);stroke:var(--line2);stroke-width:1}
+  .act .bar{fill:var(--c);stroke:none}
+  .act .out{fill:none;stroke:var(--c,var(--stroke));stroke-width:1;stroke-dasharray:4 3;stroke-opacity:.7}
+  .act .hn{font-size:16px;font-weight:800;fill:var(--c)}
+  .act .ht{font-size:12px;font-weight:700;fill:var(--tx)}
+  .act .st{font-size:10.5px;font-weight:700;fill:var(--c)}
+  .act .lb{font-size:10.5px;font-weight:600;fill:var(--tx)}
+  .act .dt{font-size:9.5px;fill:var(--tx2)}
+  .act .hop{fill:none;stroke:#8b929b;stroke-width:1.3}
+  .act .sync{fill:none;stroke:#3b8bff;stroke-width:1.6}
+  .act .evtl{fill:none;stroke:#f5b13d;stroke-width:1.4;stroke-dasharray:5 4}
+  .act .ev{font-size:9.5px;fill:var(--amber);letter-spacing:.1em}
+  .act .lg{fill:var(--panel2);stroke:var(--line);stroke-width:1}
+  .act .gh{font-size:9.5px;fill:var(--tx3);letter-spacing:.16em}
 </style>
 </head>
 <body>
@@ -203,13 +220,13 @@
       <div class="fam"><span class="sw" style="background:var(--purple)"></span>02 Design &middot; the smallest rig that can answer it</div>
       <div class="fam"><span class="sw" style="background:var(--green)"></span>04 Learn &middot; the card, and the next question</div>
     </div>
-    <div class="cover-meta"><span>9 pages &middot; 4 stage cards &middot; 2 demo roles</span><span>Version 1.0</span></div>
+    <div class="cover-meta"><span>10 pages &middot; 4 stage cards &middot; 2 demo roles</span><span>Version 1.0</span></div>
   </div>
 </section>
 
 <!-- ===================== 02 LIFECYCLE ===================== -->
 <section class="page dense" style="--fam:var(--blue)">
-  <div class="chead"><span>Demo playbook</span><span class="r">The demo lifecycle &middot; 02 / 09</span></div>
+  <div class="chead"><span>Demo playbook</span><span class="r">The demo lifecycle &middot; 02 / 10</span></div>
 
   <div class="titleblock" style="grid-template-columns:1fr">
     <div class="fam-lbl">The shape of the work</div>
@@ -299,12 +316,12 @@
       the development playbook's <b>08 Learn</b>, renumbered because there is nothing between them.
       <b>A demo is not a delivery</b> &mdash; four stages says so more plainly than a gap ever did.</p></div>
 
-  <div class="pfoot"><span>The demo lifecycle</span><span>02 / 09</span></div>
+  <div class="pfoot"><span>The demo lifecycle</span><span>02 / 10</span></div>
 </section>
 
 <!-- ===================== 03 THE TWO ROLES ===================== -->
 <section class="page dense" style="--fam:var(--amber)">
-  <div class="chead"><span>Demo playbook</span><span class="r">The two roles &middot; 03 / 09</span></div>
+  <div class="chead"><span>Demo playbook</span><span class="r">The two roles &middot; 03 / 10</span></div>
 
   <div class="titleblock" style="grid-template-columns:1fr">
     <div class="fam-lbl">Declare this at stage 01</div>
@@ -371,12 +388,12 @@
     two&#8209;day validation grows a UI, then a second service, and is now an unowned product nobody
     validated anything with.</p>
 
-  <div class="pfoot"><span>The two roles</span><span>03 / 09</span></div>
+  <div class="pfoot"><span>The two roles</span><span>03 / 10</span></div>
 </section>
 
 <!-- ===================== 04 STAGE 01 ===================== -->
 <section class="page dense" style="--fam:var(--blue)">
-  <div class="chead"><span>Demo playbook</span><span class="r">Stage 01 / 04 &middot; page 04 / 09</span></div>
+  <div class="chead"><span>Demo playbook</span><span class="r">Stage 01 / 04 &middot; page 04 / 10</span></div>
   <div class="rail">
     <span class="on">01 Define</span><span>02 Design</span><span>03 Validate</span><span>04 Learn</span>
   </div>
@@ -438,12 +455,12 @@
   <p class="trap"><b>COMMON TRAP &middot;</b> Starting at stage 03 because the rig is fun to build. The
     goal then only exists in a commit message, and has to be archaeologically recovered later.</p>
 
-  <div class="pfoot"><span>Stage 01 &middot; Define the question</span><span>04 / 09</span></div>
+  <div class="pfoot"><span>Stage 01 &middot; Define the question</span><span>04 / 10</span></div>
 </section>
 
 <!-- ===================== 05 STAGE 02 ===================== -->
 <section class="page dense" style="--fam:var(--purple)">
-  <div class="chead"><span>Demo playbook</span><span class="r">Stage 02 / 04 &middot; page 05 / 09</span></div>
+  <div class="chead"><span>Demo playbook</span><span class="r">Stage 02 / 04 &middot; page 05 / 10</span></div>
   <div class="rail">
     <span>01 Define</span><span class="on">02 Design</span><span>03 Validate</span><span>04 Learn</span>
   </div>
@@ -505,12 +522,12 @@
   <p class="trap"><b>COMMON TRAP &middot;</b> Building the rig on the real thing. If the question needs a
     freeze, a kill or a delete, it needs a throwaway copy &mdash; never the lab somebody is still using.</p>
 
-  <div class="pfoot"><span>Stage 02 &middot; Design the rig</span><span>05 / 09</span></div>
+  <div class="pfoot"><span>Stage 02 &middot; Design the rig</span><span>05 / 10</span></div>
 </section>
 
 <!-- ===================== 06 STAGE 03 ===================== -->
 <section class="page dense" style="--fam:var(--cyan)">
-  <div class="chead"><span>Demo playbook</span><span class="r">Stage 03 / 04 &middot; page 06 / 09</span></div>
+  <div class="chead"><span>Demo playbook</span><span class="r">Stage 03 / 04 &middot; page 06 / 10</span></div>
   <div class="rail">
     <span>01 Define</span><span>02 Design</span><span class="on">03 Validate</span><span>04 Learn</span>
   </div>
@@ -534,12 +551,16 @@
     <ul>
       <li><b>Build the rig, and get the happy path working first.</b> You cannot read a failure if you have
         never seen the success.</li>
-      <li><b>Then break it deliberately.</b> Freeze a region, kill a leader, cut the link, revoke the
-        credential. Record the exact error code and message, not a paraphrase.</li>
+      <li><b>Build by hand in a terminal, then make it a repeatable check.</b> For new exercises this is the
+        default: one concept per step, a prediction before each run, because the terminal shows the exact error
+        text a check must look for. An app or lab&#8209;shell page comes last, only if the demo needs one, and
+        reuses the checks already verified. A demo with no human audience may start at the check. Demos
+        01&ndash;04 keep their shape.</li>
+      <li><b>Then break it deliberately.</b> Freeze a region, kill a leader, revoke a credential. Record the
+        exact error, not a paraphrase.</li>
       <li><b>Run each measurement more than once.</b> A result that changes between runs is not a finding
         &mdash; either explain it or exclude it and say you excluded it.</li>
-      <li><b>Record the date, the machine and the tool versions</b> next to every number. A number without
-        them cannot be trusted a month later.</li>
+      <li><b>Record the date, the machine and the tool versions</b> next to every number.</li>
       <li><b>Write the gotchas as you walk into them.</b> A trap you hit yourself is worth more than one you
         read about, and it is the part nobody else can reproduce for you.</li>
       <li><b>If the role includes showcase, a stranger must be able to run it.</b> Stage 03 is not complete
@@ -576,12 +597,12 @@
   <p class="trap"><b>COMMON TRAP &middot;</b> Letting the rig quietly become permanent. A throwaway that was
     never reviewed for error handling, secrets or support is now something you own.</p>
 
-  <div class="pfoot"><span>Stage 03 &middot; Validate &mdash; build the slice and measure it</span><span>06 / 09</span></div>
+  <div class="pfoot"><span>Stage 03 &middot; Validate &mdash; build the slice and measure it</span><span>06 / 10</span></div>
 </section>
 
 <!-- ===================== 07 STAGE 04 ===================== -->
 <section class="page dense" style="--fam:var(--green)">
-  <div class="chead"><span>Demo playbook</span><span class="r">Stage 04 / 04 &middot; page 07 / 09</span></div>
+  <div class="chead"><span>Demo playbook</span><span class="r">Stage 04 / 04 &middot; page 07 / 10</span></div>
   <div class="rail">
     <span>01 Define</span><span>02 Design</span><span>03 Validate</span><span class="on">04 Learn</span>
   </div>
@@ -641,12 +662,252 @@
   <p class="trap"><b>COMMON TRAP &middot;</b> Stopping at stage 03 because the answer is now obvious to you.
     It is obvious to you because you ran it. To everybody else the demo does not exist.</p>
 
-  <div class="pfoot"><span>Stage 04 &middot; Learn &mdash; the card, and the next question</span><span>07 / 09</span></div>
+  <div class="pfoot"><span>Stage 04 &middot; Learn &mdash; the card, and the next question</span><span>07 / 10</span></div>
 </section>
 
-<!-- ===================== 08 THE CLOSING ARTIFACT ===================== -->
+<!-- ===================== 08 THE ACTIVITIES AT A GLANCE ===================== -->
+<section class="page dense" style="--fam:var(--blue)">
+  <div class="chead"><span>Demo playbook</span><span class="r">Activities at a glance &middot; 08 / 10</span></div>
+
+  <div class="titleblock" style="grid-template-columns:1fr">
+    <div class="fam-lbl">Every stage, in order</div>
+    <h2>The activities at a glance</h2>
+    <p class="lede">Each column is one stage. Read it from top to bottom. Pages 04 to 07 explain every box in
+      words; this page shows only the order.</p>
+  </div>
+
+  <svg class="act" viewBox="0 0 800 752" role="img" aria-label="The activities of all four demo stages, each as a column read top to bottom. Stage 01 Define the question has four activities and leaves a README. Stage 02 Design the rig has five and leaves the CLAUDE.md, ports, diagram and proposed ADRs. Stage 03 Validate has nine: happy path first, build by hand, turn it into a check, break it on purpose, measure more than once, record the context, write down the gotchas, a stranger runs it, tear down and prove it. It leaves a running demo with findings. Stage 04 Learn has four and leaves the pattern cards deck. A dashed arrow runs from stage 04 back to stage 01 for the next question.">
+<defs>
+<marker id="v-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#8b929b"/></marker>
+<marker id="v-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+<marker id="v-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+</defs>
+<g style="--c:var(--blue)">
+<rect class="hd" x="0" y="34" width="176" height="44" rx="3"/>
+<rect class="bar" x="0" y="34" width="3" height="44"/>
+<text class="hn" x="14" y="61">01</text>
+<text class="ht" x="46" y="61">Define the question</text>
+<line class="hop" x1="88" y1="78" x2="88" y2="99" marker-end="url(#v-hop)"/>
+<rect class="bx" x="0" y="100" width="176" height="54" rx="3"/>
+<rect class="bar" x="0" y="100" width="3" height="54"/>
+<text class="st" x="14" y="122">1</text>
+<text class="lb" x="30" y="122">One primary question</text>
+<text class="dt" x="30" y="139">Pass or fail answer.</text>
+<line class="hop" x1="88" y1="154" x2="88" y2="165" marker-end="url(#v-hop)"/>
+<rect class="bx" x="0" y="166" width="176" height="54" rx="3"/>
+<rect class="bar" x="0" y="166" width="3" height="54"/>
+<text class="st" x="14" y="188">2</text>
+<text class="lb" x="30" y="188">Declare the role</text>
+<text class="dt" x="30" y="205">Showcase, validation, both.</text>
+<line class="hop" x1="88" y1="220" x2="88" y2="231" marker-end="url(#v-hop)"/>
+<rect class="bx" x="0" y="232" width="176" height="54" rx="3"/>
+<rect class="bar" x="0" y="232" width="3" height="54"/>
+<text class="st" x="14" y="254">3</text>
+<text class="lb" x="30" y="254">Give every need an ID</text>
+<text class="dt" x="30" y="271">D03-R1, D03-R2 and so on.</text>
+<line class="hop" x1="88" y1="286" x2="88" y2="297" marker-end="url(#v-hop)"/>
+<rect class="bx" x="0" y="298" width="176" height="54" rx="3"/>
+<rect class="bar" x="0" y="298" width="3" height="54"/>
+<text class="st" x="14" y="320">4</text>
+<text class="lb" x="30" y="320">Name the logistics slice</text>
+<text class="dt" x="30" y="337">Readable by a business person.</text>
+<line class="hop" x1="88" y1="352" x2="88" y2="365" marker-end="url(#v-hop)"/>
+<rect class="out" x="0" y="366" width="176" height="40" rx="3"/>
+<text class="lb" x="12" y="384">README.md</text>
+<text class="dt" x="12" y="398">Question, role, ranked IDs.</text>
+</g>
+<g style="--c:var(--purple)">
+<rect class="hd" x="208" y="34" width="176" height="44" rx="3"/>
+<rect class="bar" x="208" y="34" width="3" height="44"/>
+<text class="hn" x="222" y="61">02</text>
+<text class="ht" x="254" y="61">Design the rig</text>
+<line class="hop" x1="296" y1="78" x2="296" y2="99" marker-end="url(#v-hop)"/>
+<rect class="bx" x="208" y="100" width="176" height="54" rx="3"/>
+<rect class="bar" x="208" y="100" width="3" height="54"/>
+<text class="st" x="222" y="122">1</text>
+<text class="lb" x="238" y="122">Vary one thing</text>
+<text class="dt" x="238" y="139">Hold everything else still.</text>
+<line class="hop" x1="296" y1="154" x2="296" y2="165" marker-end="url(#v-hop)"/>
+<rect class="bx" x="208" y="166" width="176" height="54" rx="3"/>
+<rect class="bar" x="208" y="166" width="3" height="54"/>
+<text class="st" x="222" y="188">2</text>
+<text class="lb" x="238" y="188">Smallest rig that works</text>
+<text class="dt" x="238" y="205">Write down why it is enough.</text>
+<line class="hop" x1="296" y1="220" x2="296" y2="231" marker-end="url(#v-hop)"/>
+<rect class="bx" x="208" y="232" width="176" height="54" rx="3"/>
+<rect class="bar" x="208" y="232" width="3" height="54"/>
+<text class="st" x="222" y="254">3</text>
+<text class="lb" x="238" y="254">Design the break first</text>
+<text class="dt" x="238" y="271">Cut, kill, revoke.</text>
+<line class="hop" x1="296" y1="286" x2="296" y2="297" marker-end="url(#v-hop)"/>
+<rect class="bx" x="208" y="298" width="176" height="54" rx="3"/>
+<rect class="bar" x="208" y="298" width="3" height="54"/>
+<text class="st" x="222" y="320">4</text>
+<text class="lb" x="238" y="320">Name the collisions</text>
+<text class="dt" x="238" y="337">Ports, contexts, stores, names.</text>
+<line class="hop" x1="296" y1="352" x2="296" y2="363" marker-end="url(#v-hop)"/>
+<rect class="bx" x="208" y="364" width="176" height="54" rx="3"/>
+<rect class="bar" x="208" y="364" width="3" height="54"/>
+<text class="st" x="222" y="386">5</text>
+<text class="lb" x="238" y="386">Propose the ADRs</text>
+<text class="dt" x="238" y="403">Options open. Stage 03 closes.</text>
+<line class="hop" x1="296" y1="418" x2="296" y2="431" marker-end="url(#v-hop)"/>
+<rect class="out" x="208" y="432" width="176" height="40" rx="3"/>
+<text class="lb" x="220" y="450">CLAUDE.md, ports, diagram</text>
+<text class="dt" x="220" y="464">Proposed ADRs.</text>
+</g>
+<g style="--c:var(--cyan)">
+<rect class="hd" x="416" y="34" width="176" height="44" rx="3"/>
+<rect class="bar" x="416" y="34" width="3" height="44"/>
+<text class="hn" x="430" y="61">03</text>
+<text class="ht" x="462" y="61">Validate</text>
+<line class="hop" x1="504" y1="78" x2="504" y2="99" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="100" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="100" width="3" height="54"/>
+<text class="st" x="430" y="122">1</text>
+<text class="lb" x="446" y="122">Happy path first</text>
+<text class="dt" x="446" y="139">See success before failure.</text>
+<line class="hop" x1="504" y1="154" x2="504" y2="165" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="166" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="166" width="3" height="54"/>
+<text class="st" x="430" y="188">2</text>
+<text class="lb" x="446" y="188">Build by hand</text>
+<text class="dt" x="446" y="205">One concept a step. Predict.</text>
+<line class="hop" x1="504" y1="220" x2="504" y2="231" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="232" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="232" width="3" height="54"/>
+<text class="st" x="430" y="254">3</text>
+<text class="lb" x="446" y="254">Turn it into a check</text>
+<text class="dt" x="446" y="271">PASS or FAIL. App page: last.</text>
+<line class="hop" x1="504" y1="286" x2="504" y2="297" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="298" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="298" width="3" height="54"/>
+<text class="st" x="430" y="320">4</text>
+<text class="lb" x="446" y="320">Break it on purpose</text>
+<text class="dt" x="446" y="337">Record the exact error.</text>
+<line class="hop" x1="504" y1="352" x2="504" y2="363" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="364" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="364" width="3" height="54"/>
+<text class="st" x="430" y="386">5</text>
+<text class="lb" x="446" y="386">Measure more than once</text>
+<text class="dt" x="446" y="403">Unstable? Explain or exclude.</text>
+<line class="hop" x1="504" y1="418" x2="504" y2="429" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="430" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="430" width="3" height="54"/>
+<text class="st" x="430" y="452">6</text>
+<text class="lb" x="446" y="452">Record the context</text>
+<text class="dt" x="446" y="469">Date, machine, tool versions.</text>
+<line class="hop" x1="504" y1="484" x2="504" y2="495" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="496" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="496" width="3" height="54"/>
+<text class="st" x="430" y="518">7</text>
+<text class="lb" x="446" y="518">Write down the gotchas</text>
+<text class="dt" x="446" y="535">Write them as you hit them.</text>
+<line class="hop" x1="504" y1="550" x2="504" y2="561" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="562" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="562" width="3" height="54"/>
+<text class="st" x="430" y="584">8</text>
+<text class="lb" x="446" y="584">A stranger runs it</text>
+<text class="dt" x="446" y="601">Needed when role has showcase.</text>
+<line class="hop" x1="504" y1="616" x2="504" y2="627" marker-end="url(#v-hop)"/>
+<rect class="bx" x="416" y="628" width="176" height="54" rx="3"/>
+<rect class="bar" x="416" y="628" width="3" height="54"/>
+<text class="st" x="430" y="650">9</text>
+<text class="lb" x="446" y="650">Tear down and prove it</text>
+<text class="dt" x="446" y="667">Then decide what code stays.</text>
+<line class="hop" x1="504" y1="682" x2="504" y2="695" marker-end="url(#v-hop)"/>
+<rect class="out" x="416" y="696" width="176" height="40" rx="3"/>
+<text class="lb" x="428" y="714">Running demo, findings</text>
+<text class="dt" x="428" y="728">Measured or inferred. Down.</text>
+</g>
+<g style="--c:var(--green)">
+<rect class="hd" x="624" y="34" width="176" height="44" rx="3"/>
+<rect class="bar" x="624" y="34" width="3" height="44"/>
+<text class="hn" x="638" y="61">04</text>
+<text class="ht" x="670" y="61">Learn</text>
+<line class="hop" x1="712" y1="78" x2="712" y2="99" marker-end="url(#v-hop)"/>
+<rect class="bx" x="624" y="100" width="176" height="54" rx="3"/>
+<rect class="bar" x="624" y="100" width="3" height="54"/>
+<text class="st" x="638" y="122">1</text>
+<text class="lb" x="654" y="122">Close the ADRs</text>
+<text class="dt" x="654" y="139">Options, choice, evidence.</text>
+<line class="hop" x1="712" y1="154" x2="712" y2="165" marker-end="url(#v-hop)"/>
+<rect class="bx" x="624" y="166" width="176" height="54" rx="3"/>
+<rect class="bar" x="624" y="166" width="3" height="54"/>
+<text class="st" x="638" y="188">2</text>
+<text class="lb" x="654" y="188">Build the pattern cards</text>
+<text class="dt" x="654" y="205">Cards cite the ADRs.</text>
+<line class="hop" x1="712" y1="220" x2="712" y2="231" marker-end="url(#v-hop)"/>
+<rect class="bx" x="624" y="232" width="176" height="54" rx="3"/>
+<rect class="bar" x="624" y="232" width="3" height="54"/>
+<text class="st" x="638" y="254">3</text>
+<text class="lb" x="654" y="254">Retract what was wrong</text>
+<text class="dt" x="654" y="271">Mark it in place.</text>
+<line class="hop" x1="712" y1="286" x2="712" y2="297" marker-end="url(#v-hop)"/>
+<rect class="bx" x="624" y="298" width="176" height="54" rx="3"/>
+<rect class="bar" x="624" y="298" width="3" height="54"/>
+<text class="st" x="638" y="320">4</text>
+<text class="lb" x="654" y="320">Write the next question</text>
+<text class="dt" x="654" y="337">Hand it to stage 01.</text>
+<line class="hop" x1="712" y1="352" x2="712" y2="365" marker-end="url(#v-hop)"/>
+<rect class="out" x="624" y="366" width="176" height="40" rx="3"/>
+<text class="lb" x="636" y="384">Cards deck .html and .pdf</text>
+<text class="dt" x="636" y="398">Closed ADRs, next question.</text>
+</g>
+<line class="sync" x1="176" y1="56" x2="207" y2="56" marker-end="url(#v-sync)"/>
+<line class="sync" x1="384" y1="56" x2="415" y2="56" marker-end="url(#v-sync)"/>
+<line class="sync" x1="592" y1="56" x2="623" y2="56" marker-end="url(#v-sync)"/>
+<path class="evtl" d="M712 34 L712 18 L88 18 L88 33" marker-end="url(#v-evtl)"/>
+<text class="ev" x="400" y="10" text-anchor="middle">NEXT QUESTION GOES TO STAGE 01 OF THE NEXT DEMO</text>
+<rect class="lg" x="0" y="520" width="384" height="124" rx="4"/>
+<text class="gh" x="14" y="540">HOW TO READ IT</text>
+<line class="hop" x1="14" y1="562" x2="54" y2="562" marker-end="url(#v-hop)"/>
+<text class="dt" x="66" y="565">Next activity in the same stage</text>
+<line class="sync" x1="14" y1="582" x2="54" y2="582" marker-end="url(#v-sync)"/>
+<text class="dt" x="66" y="585">One stage hands over to the next</text>
+<line class="evtl" x1="14" y1="602" x2="54" y2="602" marker-end="url(#v-evtl)"/>
+<text class="dt" x="66" y="605">The loop back to stage 01</text>
+<rect class="out" x="14" y="615" width="40" height="14" rx="2"/>
+<text class="dt" x="66" y="625">What the stage leaves behind</text>
+</svg>
+
+
+  <svg class="act" viewBox="0 0 800 138" role="img" aria-label="How a new exercise is built, in three steps. Step 1, terminal exploration by hand, one concept a step. Step 2, repeatable checks that script the verified steps. Step 3, an app or lab-shell page, optional, reusing the verified checks. Two options: a demo with no human audience may start at step 2, and a demo that needs no app stops at step 2.">
+<defs>
+<marker id="w-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#3b8bff"/></marker>
+<marker id="w-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="#f5b13d"/></marker>
+</defs>
+<text class="gh" x="0" y="10">HOW A NEW EXERCISE IS BUILT &middot; STAGE 03, THE SECOND ACTIVITY</text>
+<g style="--c:var(--cyan)">
+<rect class="bx" x="0" y="20" width="240" height="64" rx="3"/><rect class="bar" x="0" y="20" width="3" height="64"/>
+<text class="st" x="14" y="41">1</text><text class="lb" x="30" y="41">Terminal exploration</text>
+<text class="dt" x="30" y="58">By hand. One concept a step.</text><text class="dt" x="30" y="72">Predict, run, read the exact error.</text>
+<rect class="bx" x="280" y="20" width="240" height="64" rx="3"/><rect class="bar" x="280" y="20" width="3" height="64"/>
+<text class="st" x="294" y="41">2</text><text class="lb" x="310" y="41">Repeatable checks</text>
+<text class="dt" x="310" y="58">Script the steps you verified.</text><text class="dt" x="310" y="72">PASS or FAIL for each check.</text>
+<rect class="bx" x="560" y="20" width="240" height="64" rx="3"/><rect class="bar" x="560" y="20" width="3" height="64"/>
+<text class="st" x="574" y="41">3</text><text class="lb" x="590" y="41">App or lab-shell page</text>
+<text class="dt" x="590" y="58">Optional. Only if the demo needs one.</text><text class="dt" x="590" y="72">Reuses the verified checks.</text>
+</g>
+<line class="sync" x1="240" y1="52" x2="279" y2="52" marker-end="url(#w-sync)"/>
+<line class="sync" x1="520" y1="52" x2="559" y2="52" marker-end="url(#w-sync)"/>
+<line class="evtl" x1="400" y1="104" x2="400" y2="86" marker-end="url(#w-evtl)"/>
+<rect class="out" x="280" y="104" width="240" height="32" rx="3" style="--c:var(--amber)"/>
+<text class="dt" x="292" y="118">Option: no human audience.</text><text class="dt" x="292" y="130">Start here.</text>
+<line class="evtl" x1="680" y1="104" x2="680" y2="86" marker-end="url(#w-evtl)"/>
+<rect class="out" x="560" y="104" width="240" height="32" rx="3" style="--c:var(--amber)"/>
+<text class="dt" x="572" y="118">Option: no app needed.</text><text class="dt" x="572" y="130">Stop at step 2.</text>
+</svg>
+
+  <p class="trap"><b>READ IT WITH THE TEXT &middot;</b> A box is a reminder, not the rule. The reason for each
+    step, and what an AI may and may not do in it, stays on the stage page.</p>
+
+  <div class="pfoot"><span>Activities at a glance</span><span>08 / 10</span></div>
+</section>
+
+<!-- ===================== 09 THE CLOSING ARTIFACT ===================== -->
 <section class="page dense" style="--fam:var(--green)">
-  <div class="chead"><span>Demo playbook</span><span class="r">The closing artifact &middot; 08 / 09</span></div>
+  <div class="chead"><span>Demo playbook</span><span class="r">The closing artifact &middot; 09 / 10</span></div>
 
   <div class="titleblock" style="grid-template-columns:1fr">
     <div class="fam-lbl">One artifact per demo, and what feeds it</div>
@@ -721,12 +982,12 @@
     of them. If a card cannot name its finding or its ADR, it is an opinion wearing a card's clothes &mdash;
     label it as judgement or cut it.</p>
 
-  <div class="pfoot"><span>The closing artifact</span><span>08 / 09</span></div>
+  <div class="pfoot"><span>The closing artifact</span><span>09 / 10</span></div>
 </section>
 
 <!-- ===================== 09 WORKED EXAMPLE + RIGHT-SIZING ===================== -->
 <section class="page dense" style="--fam:var(--amber)">
-  <div class="chead"><span>Demo playbook</span><span class="r">Using this guide &middot; 09 / 09</span></div>
+  <div class="chead"><span>Demo playbook</span><span class="r">Using this guide &middot; 10 / 10</span></div>
 
   <div class="titleblock" style="grid-template-columns:1fr">
     <div class="fam-lbl">Worked example &middot; and what to cut</div>
@@ -788,7 +1049,7 @@
   <p class="trap"><b>COMMON TRAP &middot;</b> Treating the four stages as four documents. They are four
     questions. A small demo can answer all four inside one <code>README.md</code> and one card deck.</p>
 
-  <div class="pfoot"><span>Using this guide</span><span>09 / 09</span></div>
+  <div class="pfoot"><span>Using this guide</span><span>10 / 10</span></div>
 </section>
 
 </body>

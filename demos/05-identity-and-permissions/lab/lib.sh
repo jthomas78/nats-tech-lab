@@ -2,7 +2,7 @@
 
 D05_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 D05_RUN="$D05_DIR/.run"
-D05_CONFIGS="$D05_DIR/configs"
+D05_CONFIGS="$D05_DIR/exercises"
 D05_PID="$D05_RUN/nats-server.pid"
 D05_LOG="$D05_RUN/server.log"
 D05_SECRETS="$D05_RUN/secrets.env"
@@ -21,7 +21,7 @@ d05_port_busy() {
 }
 
 # The PID in the PID file, but only if that process is a nats-server started
-# from THIS folder's configs. Anything else is somebody else's process.
+# from THIS folder's exercises/ configs. Anything else is somebody else's process.
 d05_our_pid() {
   [[ -f "$D05_PID" ]] || return 1
   local pid

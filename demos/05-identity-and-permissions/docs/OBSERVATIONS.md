@@ -27,7 +27,7 @@ real output in a run listed here. Anything else says **inferred** or
 
 - **Date / machine:** 2026-09-30, the author's Mac (Darwin 25.4.0)
 - **Versions:** nats-server v2.14.6 · nats CLI 0.4.0
-- **Command:** `lab/ex01-check.sh`
+- **Command:** `exercises/ex01-check.sh`
 - **Runs:** 3, all **ALL PASS**, 16 of 16 checks, identical
 
 | Check | Prediction | Client reported | Server logged | Delivered? | Verdict |
@@ -46,7 +46,7 @@ real output in a run listed here. Anything else says **inferred** or
 Also measured, outside the script:
 
 - **An unset password variable stops the server.** With
-  `D05_ORDER_SVC_PASSWORD` unset, `nats-server -c configs/ex01-b-users.conf -t`
+  `D05_ORDER_SVC_PASSWORD` unset, `nats-server -c exercises/ex01-nats-users-auth.conf -t`
   exits 1: `variable reference for 'D05_ORDER_SVC_PASSWORD' on line 21 can not
   be found`. Fail-closed.
 - **The passwords never reach the server log.** `grep` for both values in
