@@ -51,7 +51,27 @@
 #                      thaw (rig), with the unacked write's fate as a note
 #          ML148-ML158 the same for au: ML156 verdict S6
 #   Every return also has a "meta term unchanged during recovery" check, added later with a
-#   `b` suffix: ML54b, ML71b, ML88b, ML106b, ML132b. It counts in its S4 verdict.
+#   `b` suffix: ML54b, ML71b, ML88b, ML106b, ML132b.
+#
+#   Classifier revision (classify-10.py, 2026-10-05). Each return R (ML51,
+#   ML68, ML85, ML103, ML129) now reports three outcomes apart:
+#     ML<R>a   rig    before the thaw: the region's three processes are stopped (ps T)
+#     ML<R>b   rig    baseline: the live servers agree on one leader and term (raftz),
+#                     and the frozen ones do not answer
+#     ML<R>c   rig    after the thaw: the three processes resumed
+#     ML<R+3>c note   group no-leader intervals (polling resolution given), servers
+#                     that saw no leader while one was LEADER, CANDIDATE readings
+#     ML<R+7>a verdict experiment: valid | invalid | inconclusive
+#     ML<R+7>b verdict recovery:   recovered | not recovered | inconclusive
+#     ML<R+7>c verdict stability:  stable | disturbed | unknown (D03-R16's
+#                     same-leader, same-term requirement, assessed apart)
+#   The combined S4 verdict at ML<R+7> is RETIRED from this revision: an
+#   election during a valid recovery is a disturbance, not a failed recovery.
+#   It is not reused. Older runs keep their ML<R+7> rows.
+#   Step 6's own thaw (ML146, ML157) gets the same stop/resume checks
+#   (ML146b/c, ML157b/c) and the leadership outcome as a note (ML146d, ML157d).
+#   ML116 and ML117 read /raftz: NONE now means a valid answer with no
+#   leader. An unreachable or invalid hub monitor no longer reads as NONE.
 #
 # EXIT STATUS: non-zero only for a failed RIG check. A failed procedure check
 # is the answer, not a broken rig -- it stays FAIL in the rows and the summary.
@@ -514,6 +534,68 @@ meta_term() {
   probe 8541 'raftz?group=_meta_' | jq -r '.["$SYS"]._meta_.term // "?"' 2>/dev/null || echo "?"
 }
 
+# --- leadership through a return: classify-10.py -----------------------------
+# Every reading names its source server and reads leader AND term from one
+# /raftz answer. A frozen server is expected not to answer; that is not a
+# failure. Observations land in $OBS_DIR and are kept with the evidence.
+
+CLASSIFY="$LAB_DIR/classify-10.py"
+OBS_DIR="$RUN_DIR/obs"
+
+# "t-za-1=8231 t-za-2=8232 ..." for short names $@.
+pairs() { local s; for s in "$@"; do printf 't-%s=%s ' "$s" "$(http_of "$s")"; done; }
+# "t-za-1,t-za-2,..." for short names $@.
+names() { local s out=""; for s in "$@"; do out="$out,t-$s"; done; echo "${out#,}"; }
+# Short names of the servers in cluster $1, and of those not in it.
+in_cluster()  { local s; for s in "${SERVERS[@]}"; do [ "${s%-*}" = "$1" ] && printf '%s ' "$s"; done; }
+not_cluster() { local s; for s in "${SERVERS[@]}"; do [ "${s%-*}" = "$1" ] || printf '%s ' "$s"; done; }
+
+# Process state, not monitor silence: how many of cluster $1's processes are
+# stopped (ps state T), and how many exist and are NOT stopped. A process that
+# is gone counts as neither, so a dead server cannot pass as resumed.
+stopped_count() {
+  local s st n=0
+  for s in $(in_cluster "$1"); do
+    st="$(ps -o stat= -p "$(pid_of "$s")" 2>/dev/null || true)"
+    [[ "$st" == T* ]] && n=$((n+1))
+  done
+  echo "$n"
+}
+resumed_count() {
+  local s st n=0
+  for s in $(in_cluster "$1"); do
+    st="$(ps -o stat= -p "$(pid_of "$s")" 2>/dev/null || true)"
+    [ -n "$st" ] && [[ "$st" != T* ]] && n=$((n+1))
+  done
+  echo "$n"
+}
+
+# One token per hub server: the leader it names, NONE (a valid answer with no
+# leader), UNREACHABLE or INVALID.
+# shellcheck disable=SC2046
+hub_kinds() { python3 "$CLASSIFY" kinds $(pairs arb-1 arb-2 arb-3); }
+
+# Start the watcher on all nine; it writes until obs_stop. Sets WATCH_PID.
+obs_watch() {                   # $1 file prefix
+  rm -f "$1.stop"
+  # shellcheck disable=SC2046
+  python3 "$CLASSIFY" watch "$1-watch.jsonl" "$1.stop" $(pairs "${SERVERS[@]}") &
+  WATCH_PID=$!
+}
+obs_stop() { touch "$1.stop"; wait "$WATCH_PID" 2>/dev/null || true; }
+
+# The thaw as `rig-t4.sh thaw` does it -- CONT, 3 s, then each monitor
+# answers -- but the clock starts at the CONT itself. Sets THAW_T, and
+# writes it to $2.thaw so the kept readings can be classified again later.
+thaw_timed() {
+  local s
+  THAW_T="$(now)"
+  echo "$THAW_T" >"$2.thaw"
+  for s in $(in_cluster "$1"); do kill -CONT "$(pid_of "$s")" 2>/dev/null || true; done
+  sleep 3
+  for s in $(in_cluster "$1"); do wait_ready "$(http_of "$s")" >/dev/null 2>&1 || true; done
+}
+
 # Monitor ports of the servers NOT in cluster $1.
 live_ports() { local s; for s in "${SERVERS[@]}"; do [ "${s%-*}" = "$1" ] || http_of "$s"; done; }
 
@@ -609,57 +691,82 @@ step3_round() {
   recovery_checks "$dark" $((B + 9)) "$lead" "$term0" s3 "$(id 0)"
 }
 
-# S4 -- thaw cluster $1, then every recovery check. Shared by step3 and step4.
-# $2 is the first check number (8 numbers: 7 checks and the verdict), $3 the
-# leader just before the thaw, $4 the meta term before the freeze, $5 the
-# prefix of the write-probe ids. Any further IDs are the round's precondition
-# checks (its start check): a failed one makes the S4 verdict inconclusive.
+# S4 -- thaw cluster $1, then every recovery check. Shared by steps 3, 4 and 5.
+# $2 is the thaw check number R (R..R+7), $3 the leader at the round's start
+# (a note only: the baseline is measured just before the thaw), $4 the meta
+# term before the freeze (a note), $5 the prefix of the write-probe ids. Any
+# further IDs are the round's start checks: a failed one makes the experiment
+# inconclusive.
+#
+# The observation window. A baseline from all nine just before the thaw (two
+# readings 0.5 s apart): the six live servers must agree, the three frozen
+# ones must not answer. Then a watcher on all nine, from just before the CONT
+# to the end of the settle window. Then one final reading of all nine. The
+# round's step-downs fall outside it: before the freeze, or (step 4) after the
+# verdicts. classify-10.py turns the readings and the rows into three
+# outcomes -- experiment, recovery, stability -- and none of them stands in
+# for another.
 recovery_checks() {
-  local dark="$1" R="$2" lead="$3" term0="$4" tag="$5" i cur t0 secs after v term_thaw term_after
+  local dark="$1" R="$2" lead0="$3" term0="$4" tag="$5" i cur t0 secs
   shift 5; local pre="$*"
-  term_thaw="$(meta_term)"
-  t0="$(now)"
-  "$RIG" thaw "$dark" >/dev/null 2>&1 || true
+  local obs="$OBS_DIR/ML$R" live frozen base fin L0="" T0="" L1="" T1="" all
+  # shellcheck disable=SC2046
+  live="$(names $(not_cluster "$dark"))"; frozen="$(names $(in_cluster "$dark"))"
+  all="$(names "${SERVERS[@]}")"
+  rm -f "$obs"-*.jsonl "$obs.stop" "$obs.thaw"
+
+  # Before the thaw: the processes are stopped, and the baseline.
+  check "ML${R}a" D03-R16 "before the thaw: $dark's three processes are stopped (ps state T)" "3" \
+    "$(stopped_count "$dark")"
+  # shellcheck disable=SC2046
+  python3 "$CLASSIFY" snap "$obs-baseline.jsonl" --rounds 2 --src baseline $(pairs "${SERVERS[@]}")
+  base="$(python3 "$CLASSIFY" agree "$obs-baseline.jsonl" --expect "$live" --frozen "$frozen")"
+  [[ "$base" == "agreed "* ]] && read -r _ L0 T0 <<<"$base"
+  check "ML${R}b" D03-R16 "baseline just before the thaw (raftz, two readings 0.5 s apart): the six live servers name one leader in one term, it says LEADER; $dark's three do not answer" \
+    "agreed" "$([ -n "$L0" ] && echo agreed || echo "$base")"
+
+  obs_watch "$obs"; sleep 0.5      # at least one watcher poll before the CONT
+  thaw_timed "$dark" "$obs"; t0="$THAW_T"
   check "ML$R" D03-R16 "thaw $dark: all nine monitors answer" "9" "$(answering)"
+  check "ML${R}c" D03-R16 "after the thaw: $dark's three processes resumed (running, not ps state T)" "3" \
+    "$(resumed_count "$dark")"
 
   KIND=procedure
-  SEEN="$lead"
-  for ((i=0; i<RECOVERY_S; i++)); do
-    seen_add "$(meta_leader 8541)"; cur="$(current_peers)"; [ "$cur" = 8 ] && break; sleep 1
-  done
+  for ((i=0; i<RECOVERY_S; i++)); do cur="$(current_peers)"; [ "$cur" = 8 ] && break; sleep 1; done
   secs="$(secs_since "$t0")"
   check "ML$((R + 1))" D03-R16 "after the thaw: peers current, active < 5 s, within ${RECOVERY_S} s" "8" "$cur"
-  # An election on the return shows up a few seconds later (measured by hand).
-  for ((i=0; i<SETTLE_S*2; i++)); do seen_add "$(meta_leader 8541)"; sleep 0.5; done
-  after="$(wait_agreed_leader '^t-(za|au|arb)-[123]$' "" "$ELECTION_S")"
-  seen_add "$after"
-  check "ML$((R + 2))" D03-R16 "after the thaw: one live leader that all nine name" "1" \
-    "$([ "$after" != NONE ] && echo 1 || echo 0)"
-  check "ML$((R + 3))" D03-R16 "after the thaw: the meta leader is the one from just before the thaw" "unchanged" \
-    "$([ "$after" = "$lead" ] && echo unchanged || echo "moved $lead -> $after")"
-  # The same server can come back as leader in a later term, so the leader's
-  # name alone does not show the term held (measured 2026-10-05: term +2, same
-  # server). The window: from just before the thaw to the end of the settle
-  # window above (peers current, then SETTLE_S, then an agreed leader). The
-  # term only rises, so its value at the end covers the whole window. Both
-  # readings must be numbers; a missing reading is a rig failure (verdict
-  # inconclusive), never a match of "?" with "?". ID suffix `b`: added after
-  # ML42-ML111 were numbered, and IDs are never renumbered.
-  term_after="$(meta_term)"
-  if [[ "$term_thaw" =~ ^[0-9]+$ && "$term_after" =~ ^[0-9]+$ ]]; then
+  # An election on the return shows up a few seconds later (measured by
+  # hand). The watcher records the settle window; then all nine must agree.
+  sleep "$SETTLE_S"
+  wait_agreed_leader '^t-(za|au|arb)-[123]$' "" "$ELECTION_S" >/dev/null
+  obs_stop "$obs"
+  # shellcheck disable=SC2046
+  python3 "$CLASSIFY" snap "$obs-final.jsonl" --src final $(pairs "${SERVERS[@]}")
+  fin="$(python3 "$CLASSIFY" agree "$obs-final.jsonl" --expect "$all")"
+  [[ "$fin" == "agreed "* ]] && read -r _ L1 T1 <<<"$fin"
+  check "ML$((R + 2))" D03-R16 "after the thaw: one leader that all nine name in one term, and it says LEADER (raftz)" "1" \
+    "$([ -n "$L1" ] && echo 1 || echo "0 ($fin)")"
+
+  # Leadership stability, baseline -> final. The term only rises, and all
+  # nine report T1 at the end, so T1 = T0 means no server's term rose in the
+  # window. Without an agreed reading at both ends there is nothing to
+  # compare: a note, never a PASS, and never a FAIL that claims a disturbance.
+  # ID suffix `b`: added after ML42-ML111 were numbered.
+  if [ -n "$L0" ] && [ -n "$L1" ]; then
+    check "ML$((R + 3))" D03-R16 "after the thaw: the meta leader is the one from just before the thaw" "unchanged" \
+      "$([ "$L1" = "$L0" ] && echo unchanged || echo "moved $L0 -> $L1")"
     check "ML$((R + 3))b" D03-R16 "after the thaw: meta term unchanged during recovery (just before the thaw -> end of the settle window)" "unchanged" \
-      "$([ "$term_after" = "$term_thaw" ] && echo unchanged || echo "term $term_thaw -> $term_after")"
+      "$([ "$T1" = "$T0" ] && echo unchanged || echo "term $T0 -> $T1")"
   else
     KIND=rig
-    check "ML$((R + 3))b" D03-R16 "after the thaw: meta term unchanged during recovery -- both readings must be numbers" "unchanged" \
-      "no reading: '$term_thaw' -> '$term_after'"
+    note "ML$((R + 3))"  D03-R16 "after the thaw: same leader as just before the thaw -- not assessed, no agreed reading at one end" \
+      "baseline: $base; final: $fin"
+    note "ML$((R + 3))b" D03-R16 "after the thaw: meta term unchanged during recovery -- not assessed, no agreed reading at one end" \
+      "baseline: $base; final: $fin"
+    KIND=procedure
   fi
-  KIND=rig
-  note "ML$((R + 3))a" D03-R16 "after the thaw: leaders seen in order; meta term before the freeze -> after; seconds from thaw to peers current" \
-    "$SEEN; term $term0 -> $term_after; ${secs}s"
 
   # Every message back, in all three streams, plus the KV key.
-  KIND=procedure
   local want="" got="" site
   for site in "${SITES[@]}"; do
     want="$want $(ledger_total "$site")/$(ledger_total "$site")"; got="$got $(readback "$site")"
@@ -678,13 +785,29 @@ recovery_checks() {
   check "ML$((R + 6))" D03-R16 "after the thaw: metadata probe -- create, delete, gone" "ok ok gone" "$(meta_probe)"
   KIND=rig
 
-  # One verdict row for the scenario. Its <why> reports the two parts apart:
-  # recovery (peers current, a leader, data, writes, metadata) and leadership
-  # stability (same leader, term unchanged).
-  # shellcheck disable=SC2086
-  v="$(range_verdict "$R" $((R + 6)) $pre)"
-  verdict "ML$((R + 7))" D03-R16 "$dark returns: all current, same leader, meta term unchanged, every message back, writes and metadata work (S4)" \
-    "${v%%|*}" "${v#*|}; recovery: $(ids_met "ML$((R + 1))" "ML$((R + 2))" "ML$((R + 4))" "ML$((R + 5))" "ML$((R + 6))"); leadership stability: $(ids_met "ML$((R + 3))" "ML$((R + 3))b")"
+  # The three outcomes. A classifier that prints nothing leaves every
+  # outcome inconclusive -- never the last round's values.
+  unset "${!CL_@}"
+  eval "$(python3 "$CLASSIFY" round --results "$RESULTS" \
+            --baseline "$obs-baseline.jsonl" --watch "$obs-watch.jsonl" --final "$obs-final.jsonl" \
+            --live "$live" --frozen "$frozen" --thaw-t "$t0" --deadline "$RECOVERY_S" \
+            --process "ML${R}a,ML${R}c" \
+            --pre "$(printf '%s,' $pre "ML${R}b")" \
+            --recovery "ML$R,ML$((R + 1)),ML$((R + 2)),ML$((R + 4)),ML$((R + 5)),ML$((R + 6))")"
+  note "ML$((R + 3))a" D03-R16 "after the thaw: leader at the round start; baseline and final (raftz); leaders the watcher saw; meta term before the freeze -> end; seconds from thaw to peers current, and to all nine agreeing" \
+    "start $lead0; baseline ${L0:-?} term ${T0:-?}; final ${L1:-?} term ${T1:-?}; seen ${CL_leaders_seen:-?}; term $term0 -> ${T1:-?}; ${secs}s; agreed ${CL_first_agreed_s:-?}s; ${CL_stale_readings:-?} stale readings ignored"
+  note "ML$((R + 3))c" D03-R16 "after the thaw, to the end of the settle window (a poll sees only its own instant): group no-leader intervals (no server says LEADER); servers that saw no leader while another said LEADER; election attempts (CANDIDATE)" \
+    "group: ${CL_no_leader:-no classifier output}; own view: ${CL_server_no_leader:-?}; attempts: ${CL_candidates:-?}"
+  verdict "ML$((R + 7))a" D03-R16 "$dark returns: the experiment -- stopped, resumed, start check met, one stable baseline, nothing else inside the window" \
+    "${CL_experiment:-inconclusive}" "${CL_experiment_why:-classify-10.py gave no output}; classifier ${CL_revision:-?}"
+  verdict "ML$((R + 7))b" D03-R16 "$dark returns: recovery -- servers, peers current, one agreed leader, every message, writes, metadata, within ${RECOVERY_S} s (S4)" \
+    "${CL_recovery:-inconclusive}" "${CL_recovery_why:-classify-10.py gave no output}"
+  local req
+  case "${CL_stability:-}" in
+    stable) req="requirement met" ;; disturbed) req="requirement not met" ;; *) req="requirement not assessable" ;;
+  esac
+  verdict "ML$((R + 7))c" D03-R16 "$dark returns: leadership stability -- D03-R16 asks for the same leader in the same term through the return; assessed apart from recovery" \
+    "${CL_stability:-unknown}" "$req: ${CL_stability_why:-classify-10.py gave no output}"
 }
 
 part_step3() {
@@ -840,7 +963,7 @@ hub_ports() { echo 8541 8542 8543; }
 part_step5() {
   banner "Step 5 -- both regions dark, then recovery one region at a time (S5 + S4)"
   ledger_from_streams
-  local B=112 i cur l lead term0 term1 t0 secs none hold s err v
+  local B=112 i cur l lead term0 term1 t0 t1 secs none hold s err v
   id() { echo "ML$((B + $1))"; }
 
   # Step 5.1: leader in the hub, nine up, eight peers current.
@@ -869,12 +992,17 @@ part_step5() {
   # NONE. One field can lag another by many seconds: the first run read
   # arb-1 NONE while arb-3 still named the old leader (stale-leader field),
   # and the old leader's log lagged arb-1's field by about 20 s by hand.
+  #
+  # Read with hub_kinds (/raftz): NONE is a valid answer that names no
+  # leader. An unreachable or invalid monitor prints UNREACHABLE or INVALID,
+  # so it can never pass as "no leader" (it did with meta_leader, which
+  # prints NONE for all three). The cap is wall-clock, not a poll count.
   t0="$(now)"
   for s in au-1 au-2 au-3; do kill -STOP "$(pid_of "$s")" 2>/dev/null || true; done
   local first=""
   none=no
-  for ((i=0; i<QUORUM_LOSS_S*5; i++)); do
-    l="$(for p in $(hub_ports); do meta_leader "$p"; done | paste -sd ' ' -)"
+  while awk -v s="$(secs_since "$t0")" -v m="$QUORUM_LOSS_S" 'BEGIN{exit !(s < m)}'; do
+    l="$(hub_kinds)"
     [ -z "$first" ] && [[ "$l" == *NONE* ]] && first="$(secs_since "$t0")"
     [ "$l" = "NONE NONE NONE" ] && { none=yes; break; }
     sleep 0.2
@@ -886,8 +1014,8 @@ part_step5() {
 
   KIND=procedure
   # shellcheck disable=SC2046
-  check "$(id 4)" D03-R17 "both dark: no meta leader on the three hub monitors within ${QUORUM_LOSS_S} s" \
-    "yes NONE NONE NONE" "$none $(for p in $(hub_ports); do meta_leader "$p"; done | paste -sd ' ' -)"
+  check "$(id 4)" D03-R17 "both dark: no meta leader on the three hub monitors within ${QUORUM_LOSS_S} s (raftz; each must answer)" \
+    "yes NONE NONE NONE" "$none $(hub_kinds)"
   KIND=rig
   note "$(id 4)a" D03-R17 "both dark: seconds from the au STOP until the first, then all three, hub leader fields are NONE (polled every 0.2 s)" \
     "first ${first:-never}s; all ${secs}s"
@@ -896,12 +1024,21 @@ part_step5() {
   # only the hub could. Once all three fields are NONE, a name that appears
   # is a new claim, not a stale one. Watch for HOLD_S.
   KIND=procedure
+  # A poll with no valid answer from a hub monitor is not "none": it ends
+  # the hold as "no valid reading", which fails the check.
   hold=none
-  for ((i=0; i<HOLD_S*2; i++)); do
-    for p in $(hub_ports); do l="$(meta_leader "$p")"; [ "$l" = NONE ] || hold="named: $l"; done
+  t1="$(now)"
+  while [ "$hold" = none ] && awk -v s="$(secs_since "$t1")" -v m="$HOLD_S" 'BEGIN{exit !(s < m)}'; do
+    for l in $(hub_kinds); do
+      case "$l" in
+        NONE) ;;
+        UNREACHABLE|INVALID) hold="no valid reading: $l" ;;
+        *) hold="named: $l" ;;
+      esac
+    done
     sleep 0.5
   done
-  check "$(id 5)" D03-R17 "both dark: no hub monitor names a leader for ${HOLD_S} s more" "none" "$hold"
+  check "$(id 5)" D03-R17 "both dark: no hub monitor names a leader for ${HOLD_S} s more (raftz; each must answer)" "none" "$hold"
 
   # Step 5.4: acked writes to the hub stream, then read them back.
   check "$(id 6)" D03-R17 "both dark: 3 acked writes to ODOMETER_ARB -- stored sequences" \
@@ -1037,10 +1174,33 @@ step6_round() {
   # Step 6.5: thaw. Was the unacknowledged write stored after all? That is a
   # note: nothing promises either answer. If it was, it joins the ledger, so
   # the rest of the run checks what the stream really holds.
-  "$RIG" thaw "$dark" >/dev/null 2>&1 || true
+  #
+  # The meta leader through this return is observed the same way as in
+  # recovery_checks -- baseline, watcher, final reading -- but S6 does not
+  # assess it, so the outcome is a note (id 9d), not a verdict.
+  local obs="$OBS_DIR/ML$((B + 9))" live frozen base fin L1="" T1=""
+  # shellcheck disable=SC2046
+  live="$(names $(not_cluster "$dark"))"; frozen="$(names $(in_cluster "$dark"))"
+  rm -f "$obs"-*.jsonl "$obs.stop" "$obs.thaw"
+  check "$(id 9)b" D03-R18 "before the thaw: $dark's three processes are stopped (ps state T)" "3" \
+    "$(stopped_count "$dark")"
+  # shellcheck disable=SC2046
+  python3 "$CLASSIFY" snap "$obs-baseline.jsonl" --rounds 2 --src baseline $(pairs "${SERVERS[@]}")
+  base="$(python3 "$CLASSIFY" agree "$obs-baseline.jsonl" --expect "$live" --frozen "$frozen")"
+  obs_watch "$obs"; sleep 0.5      # at least one watcher poll before the CONT
+  thaw_timed "$dark" "$obs"; t0="$THAW_T"
   check "$(id 9)" D03-R18 "thaw $dark: all nine monitors answer" "9" "$(answering)"
+  check "$(id 9)c" D03-R18 "after the thaw: $dark's three processes resumed (running, not ps state T)" "3" \
+    "$(resumed_count "$dark")"
   for ((i=0; i<RECOVERY_S; i++)); do cur="$(current_peers)"; [ "$cur" = 8 ] && break; sleep 1; done
   wait_whole
+  sleep "$SETTLE_S"
+  wait_agreed_leader '^t-(za|au|arb)-[123]$' "" "$ELECTION_S" >/dev/null
+  obs_stop "$obs"
+  # shellcheck disable=SC2046
+  python3 "$CLASSIFY" snap "$obs-final.jsonl" --src final $(pairs "${SERVERS[@]}")
+  fin="$(python3 "$CLASSIFY" agree "$obs-final.jsonl" --expect "$(names "${SERVERS[@]}")")"
+  [[ "$fin" == "agreed "* ]] && read -r _ L1 T1 <<<"$fin"
   held=""
   for ((i=0; i<RECOVERY_S; i++)); do
     held="$(nats_as "$(port_of "$dark")" lb stream info "$ds" --json 2>/dev/null | jq -r '.state.last_seq // empty')"
@@ -1050,8 +1210,16 @@ step6_round() {
   for ((q=$(ledger_total "$dark")+1; q<=${held:-0}; q++)); do
     direct_get "$(port_of "$dark")" lb "\$JS.API.DIRECT.GET.$ds" "{\"seq\":$q}" >> "$(ledger "$dark")" || true
   done
-  note "$(id 9)a" D03-R18 "after the thaw: $ds messages beyond the acked ones (the unacked write stored later?); meta leader before -> after; meta term" \
-    "${held:-?} held, $extra beyond the acked; $lead -> $(meta_leader 8541); term $term0 -> $(meta_term)"
+  note "$(id 9)a" D03-R18 "after the thaw: $ds messages beyond the acked ones (the unacked write stored later?); meta leader at the round start -> end (all nine, raftz); meta term" \
+    "${held:-?} held, $extra beyond the acked; $lead -> ${L1:-? ($fin)}; term $term0 -> ${T1:-?}"
+
+  unset "${!CL_@}"
+  eval "$(python3 "$CLASSIFY" round --results "$RESULTS" \
+            --baseline "$obs-baseline.jsonl" --watch "$obs-watch.jsonl" --final "$obs-final.jsonl" \
+            --live "$live" --frozen "$frozen" --thaw-t "$t0" --deadline "$RECOVERY_S" \
+            --process "$(id 9)b,$(id 9)c" --pre "$(id 0)" --recovery "$(id 9)")"
+  note "$(id 9)d" D03-R18 "after the thaw: the meta leader through the return -- S6 does not assess it, steps 3-5 do (experiment; meta recovery; stability; no-leader intervals)" \
+    "experiment ${CL_experiment:-inconclusive}; meta ${CL_recovery:-inconclusive}; stability ${CL_stability:-unknown}: ${CL_stability_why:-no classifier output}; baseline $base; group no leader: ${CL_no_leader:-?}; own view: ${CL_server_no_leader:-?}; attempts: ${CL_candidates:-?}; classifier ${CL_revision:-?}"
 
   # The region's stream works again, so the next round starts whole. A retry
   # reuses the msg id, so the dedup window keeps it to one stored copy.
@@ -1086,6 +1254,7 @@ fi
 # Only an attached rig can be in the wrong state; our own rig is fresh.
 [ "$MODE" = attached ] && "ready_$PART"
 [ "${LAB_RUN_ALL:-}" = 1 ] || : > "$RESULTS"
+rm -rf "$OBS_DIR"; mkdir -p "$OBS_DIR"
 
 # A full run keeps its rows, logs, configs and ledgers, as 09 does: a report
 # cites a run, so the run must outlive lab/run/. A stamp is never reused.
@@ -1104,15 +1273,39 @@ if [ "$PART" = all ]; then
     # report can keep them apart. Runs before 2026-10-05 15:20 lack this line.
     echo "script	sha256 $(shasum -a 256 "${BASH_SOURCE[0]}" | cut -c1-12)"
     echo "readiness	$WHOLE_N all-nine /healthz readings in a row, within ${RECOVERY_S}s"
+    echo "classifier	revision $(python3 -c "import importlib.util as u,sys; s=u.spec_from_file_location('c',sys.argv[1]); m=u.module_from_spec(s); s.loader.exec_module(m); print(m.REVISION)" "$CLASSIFY"); sha256 $(shasum -a 256 "$CLASSIFY" | cut -c1-12)"
+    echo "window	baseline 2 readings 0.5 s apart; watcher every 0.5 s (1 s fetch cap); settle ${SETTLE_S}s; final reading of all nine"
   } > "$EVIDENCE/env.txt"
 fi
 
-for p in "${RUN_PARTS[@]}"; do "part_$p"; done
+# Diagnostic mode is read from the running processes, not from LAB_DEBUG:
+# an attached rig was started by someone else.
+diagnostic_mode() {
+  local s n=0
+  for s in "${SERVERS[@]}"; do
+    ps -o args= -p "$(pid_of "$s")" 2>/dev/null | grep -q -- ' -D' && n=$((n + 1))
+  done
+  if [ "$n" = 0 ]; then echo "off"
+  else echo "on: $n of 9 servers run with -D (debug log, Raft lines included); timing differs from a normal run"; fi
+}
+
+for p in "${RUN_PARTS[@]}"; do
+  "part_$p"
+  # The rig is up after step 1 starts it: record the mode once.
+  if [ -n "$EVIDENCE" ] && ! grep -q '^diagnostic' "$EVIDENCE/env.txt"; then
+    echo "diagnostic	$(diagnostic_mode)" >> "$EVIDENCE/env.txt"
+  fi
+done
 
 if [ -n "$EVIDENCE" ]; then
   echo "ended	$(date '+%Y-%m-%d %H:%M:%S %Z')" >> "$EVIDENCE/env.txt"
   cp -p "$RESULTS" "$RUN_DIR"/ledger-* "$RUN_DIR"/t-*.conf "$RUN_DIR/accounts.conf" "$EVIDENCE/"
   cp -p "$RUN_DIR"/log/*.log "$EVIDENCE/log/"
+  cp -Rp "$OBS_DIR" "$EVIDENCE/obs"
+  # In diagnostic mode, the meta group's Raft lines around each thaw.
+  if grep -q '^diagnostic	on' "$EVIDENCE/env.txt"; then
+    python3 "$CLASSIFY" elections "$EVIDENCE/log" "$EVIDENCE/obs" > "$EVIDENCE/elections.txt" || true
+  fi
   echo "  evidence kept: lab/run/evidence/${EVIDENCE##*/}"
 fi
 

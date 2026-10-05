@@ -101,6 +101,8 @@ cd demos/03-multi-cluster-and-accounts/lab
 | `08-hub-leaf-per-region.sh` | T5 / H — hub + two leaf clusters, an account per region | 9 |
 | `09-switch-t4-t5.sh` | T4 / S, T5 / S — switch in place, T4 → T5 and T5 → T4, same stores | 9 |
 | `10-hub-meta-leader.sh` | T4 / ML — hub meta-leader, steps 1–6, `ML1`–`ML158`. Full run via `exercises/ex10-check.sh`; keeps `lab/run/evidence/10-<stamp>/` | 9 |
+| `classify-10.py` | `10`'s three outcomes per return — experiment, recovery, stability — from `/raftz` readings. Pure function plus a small CLI; `REVISION` names its rules. `elections` lists the `_meta_` Raft log lines around each thaw (diagnostic mode) | — |
+| `test-classify-10.py` | fixture tests for `classify-10.py` — no servers, about 1 s. Run after any change to it, before a live run | — |
 | `rig-t4.sh` | starts / freezes / thaws / restarts the static T4 configs from `exercises/config/` | 9 |
 | `test-verdict.sh` | fixture tests for `09`'s verdict, evidence and exit-status rules — no servers, about 5 s |
 | `_common.sh` | the shared harness — config builders, freeze/thaw, the checks |
@@ -127,6 +129,12 @@ Rules for anything added here:
   counted apart, because it is the answer, not a broken rig. A procedure run
   ends with one `verdict` row. Never rewrite a failed procedure check to
   expect the failure — keep the requirement, report the verdict.
+- **`LAB_DEBUG=1` is diagnostic mode** (`_common.sh` `start_server`): every
+  server runs with `-D`. `10` records it in `env.txt` and keeps
+  `elections.txt`. Debug logging changes the timing, so a diagnostic run is
+  never the cited run.
+- **`classify-10.py` is run fresh for every round.** Do not edit it while a
+  `10` run is live: the rounds after the edit record the new revision.
 - **Run `lab/test-verdict.sh` after any change to `09`'s verdict, evidence
   or exit logic, before a live run.** A live `09` takes about 25 minutes;
   the fixtures take seconds. They source `09` (its guard stops it running)
@@ -561,9 +569,14 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   - One region dark with the leader in the hub: the leader stays, the term
     does not move, writes and metadata go on (`ML44`, `ML49a`).
   - When a region returns, **recovery** always came back, but **stability**
-    did not: the leader sometimes left the hub — to the region that stayed
-    up (`ML54`, `ML71`) or to the returning one (`ML106`) — and sometimes the
-    same server came back in a higher term (`ML54b`, `ML157a`). Report recovery and stability apart.
+    did not. Use this wording: "During some regional recoveries, the metadata
+    group entered a new election term and sometimes elected a different
+    leader. In one diagnostic run, logs showed returning servers requesting
+    votes with higher terms, causing the incumbent leader to step down. Why
+    those servers initiated elections remains unproved, and this sequence has
+    not been confirmed in normal runs." Report experiment, recovery and
+    stability apart (`ML<R+7>a/b/c`; step 6 in notes `ML146d`, `ML157d`).
+    These are SIGSTOP/SIGCONT tests, not a partition or a restart.
   - **Meta quorum and stream availability are separate.** Both regions dark:
     no meta leader and create fails `10008` (`ML116`, `ML120`), yet
     `ODOMETER_ARB` still writes (`ML118`). One region dark: the meta group is
@@ -581,9 +594,14 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
 
 ## Still open — do not claim these are settled
 
-- **Why a regional return disturbs T4 hub leadership** (`D03-R16`) — a moved
-  leader, or the same leader in a higher term. Not proved. Do not write a
-  cause down.
+- **Why returning servers start elections** (`D03-R16`). Not proved. Do
+  not write a cause down. The overdue-election-timer idea is a
+  **hypothesis**; label it so wherever it appears. The diagnostic run
+  `10-20261005-164912` shows one step only: in each disturbed return, the
+  incumbent's own log has a returning server's higher-term vote request on
+  the Raft line just before its step-down, at the same term. It does not
+  show why that server campaigned, and no normal run confirms the
+  sequence. It is never cited.
 - **Why one timed-out publish was stored later**, in one try of eight. Not
   proved.
 

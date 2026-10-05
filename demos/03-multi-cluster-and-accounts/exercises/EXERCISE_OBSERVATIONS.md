@@ -222,12 +222,20 @@ New rig commands, used here for the first time:
 - **When the region came back,** the meta group held a new election both
   times, and the leader changed both times. Once it left the hub. Data was
   intact both times.
+- **The finding, as worded everywhere:** During some regional recoveries, the
+  metadata group entered a new election term and sometimes elected a different
+  leader. In one diagnostic run, logs showed returning servers requesting
+  votes with higher terms, causing the incumbent leader to step down. Why
+  those servers initiated elections remains unproved, and this sequence has
+  not been confirmed in normal runs.
 - **The cause is not proved.** The logs show only the result. The term rose
-  by 2 on the second thaw. A guess — the thawed servers' election timers ran
-  out during the freeze and they campaign on wake — is **not** a finding.
-  Prove it before writing it down (debug logs or the server source).
-- `kill -STOP` freezes a process whole, timers included. A real WAN cut keeps
-  the far side running. Its return may behave differently.
+  by 2 on the second thaw. **Hypothesis, not a finding:** the thawed
+  servers' election timers ran out during the freeze, and they campaign on
+  wake. Prove it before writing it down (debug logs or the server source).
+- These tests use `kill -STOP` (SIGSTOP) and `kill -CONT` (SIGCONT). That
+  freezes a process whole, timers included. It is not a real network
+  partition, where the far side keeps running, and it is not a restart. A
+  real partition's return may behave differently.
 
 ### Repeated by the script, 12:34 and 12:35 SAST
 
@@ -648,3 +656,93 @@ Attached: 20 passed, 0 failed. Own rig: 43 passed, 0 failed (with step1).
   held in every run.
 - **Why a return disturbs leadership is not proved.**
 - **Why one timed-out write was stored is not proved.**
+
+## 2026-10-05 16:25–17:06 SAST — Exercise 10: three outcomes per return, and a diagnostic run (script)
+
+From here every return round has three verdicts: experiment
+(`ML<n>a`), recovery (`ML<n>b`) and stability (`ML<n>c`). Step 6 records
+the same three words in a note (`ML146d`, `ML157d`). `lab/classify-10.py`
+makes them; `lab/test-classify-10.py` is its fixture suite.
+
+| Run | Classifier | Diagnostic | Kept because |
+|---|---|---|---|
+| `10-20261005-162522` | c1 | off | first run with three outcomes; no `.thaw` files, so no interval times |
+| `10-20261005-163907` | c2 for steps 3–5, c3 for step 6 | off | the classifier was edited during the run; each round names its own revision |
+| `10-20261005-164912` | c4 | on (`LAB_DEBUG=1`) | the Raft debug log around each thaw, in `elections.txt` |
+| `10-20261005-170022` | c4 | off | **the cited run** in `REPORT-10.md`: one classifier revision, no debug logging, no rig check failed |
+
+Older runs keep their recorded verdicts. `REPORT-10.md` shows each beside
+the reassessment of the same readings with the current classifier (c5),
+labelled with the original run, script and classifier. No reading was
+added to an old run. c5 changed no kept verdict.
+
+All seven recovery windows of each run are in `REPORT-10.md`: the five S4
+returns, and the two step 6 returns (`ML146`, `ML157`). Step 6's recovery
+word is meta recovery only; the stream's own recovery is `ML147` and
+`ML158`. The four runs before `162522` did not classify step 6. Their two
+step 6 returns show as "not assessed", with the reason, and are not
+counted.
+
+- **Classifier changes, each from a misread found in these runs.** c2: a
+  group no-leader poll means no server says LEADER. c3: a stale leader
+  field on one server is that server's view, not a conflict. c4: a poll
+  that straddles the thaw is partial — single-server views only, never a
+  group interval or a gap. c5 (after these runs): a straddling poll is
+  still checked for two LEADERs in one term and for another leader in the
+  baseline term; a live server's no leader after the thaw, with no LEADER
+  in that poll, keeps the round from stable; a window with no complete
+  poll before the final reading is unknown. Each has a fixture (`04h`–`04o`
+  for c5).
+- **Do not edit `classify-10.py` during a run.** It is run fresh for each
+  round, so an edit changes the rules part way through. That is what
+  happened in `163907`.
+- **Recovery was met in every valid return round of these runs.** Stability
+  was disturbed in some rounds and held in others. `REPORT-10.md` has them
+  round by round.
+
+### The diagnostic run, `10-20261005-164912`
+
+All nine servers ran with `-D`. `elections.txt` keeps every `_meta_` Raft
+line from just before each thaw to the watcher's last reading. Not cited:
+debug logging changes the timing.
+
+What the log shows, in this run:
+
+- **In every return,** the returning servers logged `Switching to
+  candidate` soon after the first SIGCONT.
+- **In the five disturbed returns** (`ML51`, `ML68`, `ML85`, `ML146`,
+  `ML157`), a returning server sent a vote request with a term above the
+  incumbent's. The incumbent's own log has that request on the Raft line
+  just before `Stepping down from leader, detected higher term`, at the
+  same term. The next three Raft lines are `Stepping down`, `Switching to
+  follower` and `Canceling catchup subscription`. `REPORT-10.md` quotes
+  both microsecond times per return. This matched sequence is the
+  evidence. It is the order `processVoteRequest` writes in nats-server
+  v2.14.6, the version the rig runs:
+  [raft.go L5291-L5323](https://github.com/nats-io/nats-server/blob/1aa10f9fe4e7a27b7d877af004a9c0022fdc4910/server/raft.go#L5291-L5323)
+  (tag `v2.14.6`, commit `1aa10f9`). The request is logged at L5297, the
+  step-down at L5315-L5317, then `stepdownLocked` (L1856-L1859),
+  `switchToFollowerLocked` (L5497) and `cancelCatchup` (L3989-L3990,
+  called at L5319). No other line in that file writes `Stepping down from
+  leader`. The other higher-term step-down, on an AppendEntry response,
+  writes `Detected another leader with higher term` (L4745-L4754). No log
+  of this run holds it. That fits, but it proves nothing by itself. A
+  later election picked the leader. Sometimes it was a live server,
+  sometimes a returning one.
+- **In the two stable returns** (`ML103`, `ML129`), returning servers also
+  became candidates, but no candidate's term was above the incumbent's.
+  No incumbent stepped down.
+- **In `ML92c`,** `t-za-2` had already accepted the leader, then campaigned
+  later and won. The log does not say why.
+
+What the log does not show:
+
+- **Why the returning servers became candidates.** No line names an
+  election timer. The overdue-timer idea stays a **hypothesis**.
+- **Why a vote was refused.** The line says `granted:false` only.
+- **That a normal run does the same.** Debug logging slows every server.
+
+So: in this run, a returning server's higher-term vote request made the
+incumbent step down, then an election followed. The log does not show why
+the returning server asked, and no normal run confirms the sequence. The
+finding says exactly this.

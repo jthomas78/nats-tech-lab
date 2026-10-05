@@ -490,11 +490,31 @@ as before, the **meta term unchanged during recovery** (read just before the
 thaw, and again at the end of the settle window; both must be numbers),
 eight peers current, every message back by Direct Get, a write and a metadata
 probe succeed. A leader that moves, or a new term with the same server back,
-is **the finding**. Record it. The verdict reports **recovery** and
-**leadership stability** apart, so "data recovered; leadership stability not
-met" is a valid result. (The term rule was added 2026-10-05: one return put
-the same server back at term +2, so "same leader" alone does not show the
-term held.)
+is **the finding**. Record it. The script reports three outcomes for each
+return, and never merges them:
+
+- **experiment** — valid, invalid or inconclusive: were the processes
+  stopped, then resumed, did the start check pass, and was there one stable
+  leader just before the thaw?
+- **recovery** — recovered, not recovered or inconclusive: servers, peers,
+  one agreed leader, every message, a write and a metadata probe, within
+  60 s.
+- **stability** — stable, disturbed or unknown: the same leader in the same
+  term, from just before the thaw to the end of the settle window. This is
+  the stability requirement. It is kept apart from recovery, and it is not
+  weakened.
+
+So "recovered; leadership disturbed" is a valid result, not a failed
+recovery. Missing or broken readings give "inconclusive" or "unknown",
+never a pass. (The term rule was added 2026-10-05: one return put the same
+server back at term +2, so "same leader" alone does not show the term held.)
+
+What the kept runs show: **During some regional recoveries, the metadata
+group entered a new election term and sometimes elected a different leader.
+In one diagnostic run, logs showed returning servers requesting votes with
+higher terms, causing the incumbent leader to step down. Why those servers
+initiated elections remains unproved, and this sequence has not been
+confirmed in normal runs.**
 
 Two rounds: Round 1 freezes `za` (Steps 3.1–3.7). Round 2 freezes `au`
 (Step 3.8).
@@ -534,9 +554,11 @@ curl -s "localhost:8541/raftz?group=_meta_" | jq '.["$SYS"]._meta_ | {term, stat
 
 ### Step 3.2: Freeze the za region
 
-**Concept:** `freeze` sends `kill -STOP` to all three `za` servers. They stop
-dead, as if the WAN link was cut. Then it reads each monitor until it stops
-answering. A freeze that did nothing would read like a finding.
+**Concept:** `freeze` sends `kill -STOP` (SIGSTOP) to all three `za` servers.
+They stop dead, timers included. This is **not** a real network partition:
+in a partition both sides keep running. It is not a restart either. Then
+`freeze` reads each monitor until it stops answering. A freeze that did
+nothing would read like a finding.
 
 ```bash
 ./lab/rig-t4.sh freeze za
@@ -601,8 +623,9 @@ delete prints nothing.
 
 ### Step 3.5: Thaw za, then read the leader again
 
-**Concept:** recovery. `thaw` sends `kill -CONT` and waits until each monitor
-answers.
+**Concept:** recovery. `thaw` sends `kill -CONT` (SIGCONT) and waits until
+each monitor answers. The servers resume where they stopped; they do not
+restart.
 
 ```bash
 ./lab/rig-t4.sh thaw za
@@ -627,6 +650,29 @@ Look for it in the logs:
 ```bash
 grep -n "metadata leader" lab/run/log/arb-1.log
 ```
+
+The normal log shows only the result, not which event started the new
+term. **Hypothesis, not a finding:** the returning servers' election timers
+ran out while they were stopped, so they campaign the moment they resume.
+To look closer, run the whole exercise in diagnostic mode. Every server then
+runs with `-D` (debug log, Raft lines included), and the kept evidence gets
+an `elections.txt` with every `_meta_` Raft line around each thaw:
+
+```bash
+LAB_DEBUG=1 ./exercises/ex10-check.sh
+```
+
+Debug logging slows each server, so a diagnostic run's timings are not a
+normal run's timings. Its rows are labelled and never cited.
+
+In `elections.txt`, look for three lines in order: a returning server's
+`Switching to candidate`, the incumbent's `Stepping down from leader,
+detected higher term`, and the winner's `Self is new JetStream cluster
+metadata leader`. They show the sequence. To match the step-down to its
+cause, open the incumbent's own log in `log/` and read the Raft line just
+before the step-down: it must be `Received a voteRequest` at the same
+term. No line shows why the returning server became a candidate, so the
+hypothesis stays a hypothesis.
 
 ### Step 3.6: Read every message back
 

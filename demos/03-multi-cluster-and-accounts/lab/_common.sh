@@ -136,7 +136,13 @@ conf_accounts() { accounts_block >> "$RUN_DIR/t-$1.conf"; }
 start_server() {
   local name="$1"
   pushd "$RUN_DIR" >/dev/null
-  nats-server -c "t-$name.conf" > "log/$name.log" 2>&1 &
+  # LAB_DEBUG=1 adds -D: debug logging, Raft vote lines included. A
+  # diagnostic run only -- the extra logging changes the timing.
+  if [ "${LAB_DEBUG:-}" = 1 ]; then
+    nats-server -c "t-$name.conf" -D > "log/$name.log" 2>&1 &
+  else
+    nats-server -c "t-$name.conf" > "log/$name.log" 2>&1 &
+  fi
   echo $! > "$RUN_DIR/pid/$name.pid"
   popd >/dev/null
 }
