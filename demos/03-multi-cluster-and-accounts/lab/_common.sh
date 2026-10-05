@@ -50,11 +50,17 @@ need_tools() {
   }
 }
 
-lab_init() {
-  need_tools
+# Clear the last run's servers' files. Leaves results.tsv and evidence/ alone.
+# Split out of lab_init so rig-t4.sh can use it WITHOUT the EXIT trap.
+lab_reset_run_dir() {
   rm -rf "$RUN_DIR"/{log,pid,js}
   rm -f "$RUN_DIR"/t-*.conf
   mkdir -p "$RUN_DIR"/{log,pid,js}
+}
+
+lab_init() {
+  need_tools
+  lab_reset_run_dir
   trap lab_down EXIT INT TERM
   lab_down_quiet
 }

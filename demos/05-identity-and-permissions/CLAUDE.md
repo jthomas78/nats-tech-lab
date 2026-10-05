@@ -101,7 +101,7 @@ user. This is the easiest mistake to make in this demo.
 | Lab-shell intro, requirements, walkthrough | `README.md` |
 | Everything one exercise needs, in one flat folder | `exercises/` |
 | — server configs | `exercises/config/exNN-nats-*.conf` |
-| — numbered terminal steps | `exercises/EXERCISE-NN-TERMINAL-STEPS.md` |
+| — numbered terminal steps (`NN` starts at `01`; `00` is invalid) | `exercises/EXERCISE-NN-TERMINAL-STEPS.md` |
 | — measured results, with versions | `exercises/EXERCISE_OBSERVATIONS.md` |
 | — the exercise's check script | `exercises/exNN-check.sh` |
 | Shared tools (secrets, up, down, lib) | `lab/` |

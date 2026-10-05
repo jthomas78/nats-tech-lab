@@ -83,6 +83,13 @@ needs one. The rule and its exceptions are in `demo-playbook.html`, stage `03`
 (Activities). Demos 01–04 keep their shape. Demo 05 keeps each exercise's steps,
 configs and check script together in `exercises/`; see its own `CLAUDE.md`.
 
+**Exercise numbers start at `01`. `00` is invalid** — a set-up exercise is
+exercise `01`. This applies in every demo, to file names
+(`EXERCISE-01-…`, `ex01-check.sh`) and to prose. One exception: demo 03
+numbers an exercise after its lab script (`EXERCISE-10-…` belongs to
+`lab/10-….sh`). A demo's own `CLAUDE.md` repeats this rule, because an agent
+inside a sealed demo does not read this file.
+
 ## Repository Layout
 
 Read the tree with `ls` — it changes faster than this file. Not visible from the
