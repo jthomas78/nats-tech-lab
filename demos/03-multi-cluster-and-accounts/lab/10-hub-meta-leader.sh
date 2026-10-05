@@ -93,6 +93,26 @@ answering() {                   # how many of the nine monitors answer
   echo "$n"
 }
 
+# Wait, up to RECOVERY_S, until all nine /healthz calls pass. A server that is
+# up but still catching up (a stream replica not current) fails /healthz, and
+# answering counts it out. Measured 2026-10-05 14:47:53: t-arb-1, about 1 s
+# after the step2 restart, "stream 'LB > KV_t7-vehicles' is not current" --
+# step3 read its start check then and got 8. A round's start check reads after
+# this wait, so it measures the start state, not the tail of the last part.
+# One all-nine reading is not enough: in run 10-20261005-150839, t-arb-1's
+# /healthz passed after its restart (15:08:50.7), failed once at 15:08:51.79
+# ("KV_t7-vehicles is not current"), then passed again. The wait saw the first
+# pass and ML42 read the failure. So ask for WHOLE_N readings in a row.
+WHOLE_N=3
+wait_whole() {
+  local i ok=0
+  for ((i=0; i<RECOVERY_S; i++)); do
+    if [ "$(answering)" = 9 ]; then ok=$((ok + 1)); [ "$ok" -ge "$WHOLE_N" ] && return 0
+    else ok=0; fi
+    sleep 1
+  done
+}
+
 stream_exists() { nats_as "$(port_of arb)" lb stream info "$1" >/dev/null 2>&1; }
 
 if pgrep -f "$KILL_PATTERN" >/dev/null 2>&1; then
@@ -505,10 +525,13 @@ seen_add() { case " $SEEN " in *" $1 "*) ;; *) SEEN="${SEEN:+$SEEN }$1" ;; esac;
 
 # One verdict from the PASS/FAIL rows ML<lo>..ML<hi>, suffixed checks
 # (ML57b) included. Notes do not count: they are neither PASS nor FAIL.
-range_verdict() {               # $1 lo  $2 hi  -> "<word>|<why>"
-  local rf pf pn word
-  read -r rf pf pn < <(awk -F'\t' -v lo="$1" -v hi="$2" '
+# Any further IDs are the scenario's preconditions outside the range (a
+# round's start check): a failed RIG check there makes it inconclusive too.
+range_verdict() {               # $1 lo  $2 hi  [$3... precondition IDs]  -> "<word>|<why>"
+  local rf pf pn word lo="$1" hi="$2"; shift 2
+  read -r rf pf pn < <(awk -F'\t' -v lo="$lo" -v hi="$hi" -v pre=" $* " '
     $1 ~ /^ML[0-9]+[a-z]?$/ && ($7 == "PASS" || $7 == "FAIL") {
+      if (index(pre, " " $1 " ")) { if ($9 == "rig" && $7 == "FAIL") rf++; next }
       n = substr($1, 3); sub(/[a-z]$/, "", n); n += 0; if (n < lo || n > hi) next
       if ($9 == "rig" && $7 == "FAIL") rf++
       if ($9 == "procedure")           { pn++; if ($7 == "FAIL") pf++ }
@@ -541,6 +564,7 @@ step3_round() {
     lead="$(wait_agreed_leader '^t-arb-[123]$' "" "$ELECTION_S")"
   fi
   for ((i=0; i<RECOVERY_S; i++)); do cur="$(current_peers)"; [ "$cur" = 8 ] && break; sleep 1; done
+  wait_whole
   check "$(id 0)" D03-R14 "$dark round: start -- leader's cluster, monitors answering, peers current" \
     "arb 9 8" "$(region_of "$lead") $(answering) $cur"
   term0="$(meta_term)"
@@ -582,15 +606,17 @@ step3_round() {
     "${v%%|*}" "${v#*|}"
 
   # Steps 3.5-3.7: thaw, then recovery.
-  recovery_checks "$dark" $((B + 9)) "$lead" "$term0" s3
+  recovery_checks "$dark" $((B + 9)) "$lead" "$term0" s3 "$(id 0)"
 }
 
 # S4 -- thaw cluster $1, then every recovery check. Shared by step3 and step4.
 # $2 is the first check number (8 numbers: 7 checks and the verdict), $3 the
 # leader just before the thaw, $4 the meta term before the freeze, $5 the
-# prefix of the write-probe ids.
+# prefix of the write-probe ids. Any further IDs are the round's precondition
+# checks (its start check): a failed one makes the S4 verdict inconclusive.
 recovery_checks() {
   local dark="$1" R="$2" lead="$3" term0="$4" tag="$5" i cur t0 secs after v term_thaw term_after
+  shift 5; local pre="$*"
   term_thaw="$(meta_term)"
   t0="$(now)"
   "$RIG" thaw "$dark" >/dev/null 2>&1 || true
@@ -655,7 +681,8 @@ recovery_checks() {
   # One verdict row for the scenario. Its <why> reports the two parts apart:
   # recovery (peers current, a leader, data, writes, metadata) and leadership
   # stability (same leader, term unchanged).
-  v="$(range_verdict "$R" $((R + 6)))"
+  # shellcheck disable=SC2086
+  v="$(range_verdict "$R" $((R + 6)) $pre)"
   verdict "ML$((R + 7))" D03-R16 "$dark returns: all current, same leader, meta term unchanged, every message back, writes and metadata work (S4)" \
     "${v%%|*}" "${v#*|}; recovery: $(ids_met "ML$((R + 1))" "ML$((R + 2))" "ML$((R + 4))" "ML$((R + 5))" "ML$((R + 6))"); leadership stability: $(ids_met "ML$((R + 3))" "ML$((R + 3))b")"
 }
@@ -705,6 +732,7 @@ step4_round() {
   stepdown "$dark" || true
   lead="$(wait_agreed_leader "^t-$dark-[123]\$" "" "$ELECTION_S")"
   for ((i=0; i<RECOVERY_S; i++)); do cur="$(current_peers)"; [ "$cur" = 8 ] && break; sleep 1; done
+  wait_whole
   check "$(id 0)" D03-R15 "$dark round: start -- leader's cluster, monitors answering, peers current" \
     "$dark 9 8" "$(region_of "$lead") $(answering) $cur"
   term0="$(meta_term)"
@@ -761,7 +789,7 @@ step4_round() {
 
   # Steps 4.6-4.8: thaw, then recovery. "Same leader" means the one elected
   # while dark: does it keep the job when the old leader's region returns?
-  recovery_checks "$dark" $((B + 9)) "$(meta_leader 8541)" "$term0" s4
+  recovery_checks "$dark" $((B + 9)) "$(meta_leader 8541)" "$term0" s4 "$(id 0)"
 
   # Step 4.9: a hub step-down, measured apart from the recovery above.
   KIND=procedure
@@ -822,6 +850,7 @@ part_step5() {
     lead="$(wait_agreed_leader '^t-arb-[123]$' "" "$ELECTION_S")"
   fi
   for ((i=0; i<RECOVERY_S; i++)); do cur="$(current_peers)"; [ "$cur" = 8 ] && break; sleep 1; done
+  wait_whole
   check "$(id 0)" D03-R17 "start -- leader's cluster, monitors answering, peers current" \
     "arb 9 8" "$(region_of "$lead") $(answering) $cur"
   term0="$(meta_term)"
@@ -928,12 +957,12 @@ part_step5() {
   check "$(id 15)" D03-R17 "za back: metadata probe -- create, delete, gone" "ok ok gone" "$(meta_probe)"
   KIND=rig
 
-  v="$(range_verdict $((B + 10)) $((B + 15)))"
+  v="$(range_verdict $((B + 10)) $((B + 15)) "$(id 0)")"
   verdict "$(id 16)" D03-R17 "za back, au still dark: quorum, a leader, data, writes and metadata return (partial recovery)" \
     "${v%%|*}" "${v#*|}"
 
   # Steps 5.7-5.8: thaw au -- a full return, the same checks as Step 3.
-  recovery_checks au $((B + 17)) "$(meta_leader 8541)" "$term0" s5
+  recovery_checks au $((B + 17)) "$(meta_leader 8541)" "$term0" s5 "$(id 0)" "$(id 10)"
 }
 
 # --- part step6: one region dark, only its stream stops ----------------------
@@ -961,6 +990,7 @@ step6_round() {
     lead="$(wait_agreed_leader '^t-arb-[123]$' "" "$ELECTION_S")"
   fi
   for ((i=0; i<RECOVERY_S; i++)); do cur="$(current_peers)"; [ "$cur" = 8 ] && break; sleep 1; done
+  wait_whole
   check "$(id 0)" D03-R18 "$dark round: start -- leader's cluster, monitors answering, peers current" \
     "arb 9 8" "$(region_of "$lead") $(answering) $cur"
   term0="$(meta_term)"
@@ -1010,6 +1040,7 @@ step6_round() {
   "$RIG" thaw "$dark" >/dev/null 2>&1 || true
   check "$(id 9)" D03-R18 "thaw $dark: all nine monitors answer" "9" "$(answering)"
   for ((i=0; i<RECOVERY_S; i++)); do cur="$(current_peers)"; [ "$cur" = 8 ] && break; sleep 1; done
+  wait_whole
   held=""
   for ((i=0; i<RECOVERY_S; i++)); do
     held="$(nats_as "$(port_of "$dark")" lb stream info "$ds" --json 2>/dev/null | jq -r '.state.last_seq // empty')"
@@ -1055,7 +1086,35 @@ fi
 # Only an attached rig can be in the wrong state; our own rig is fresh.
 [ "$MODE" = attached ] && "ready_$PART"
 [ "${LAB_RUN_ALL:-}" = 1 ] || : > "$RESULTS"
+
+# A full run keeps its rows, logs, configs and ledgers, as 09 does: a report
+# cites a run, so the run must outlive lab/run/. A stamp is never reused.
+EVIDENCE=""
+if [ "$PART" = all ]; then
+  EVIDENCE="$RUN_DIR/evidence/10-$(date '+%Y%m%d-%H%M%S')"
+  mkdir -p "$EVIDENCE/log"
+  {
+    echo "when	$(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo "nats-server	$(nats-server --version | sed 's/^nats-server: //')"
+    echo "nats-cli	$(nats --version)"
+    echo "host	$(uname -srm)"
+    echo "part	all"
+    echo "rig	$MODE"
+    # Runs made across script edits must say which script made them, so a
+    # report can keep them apart. Runs before 2026-10-05 15:20 lack this line.
+    echo "script	sha256 $(shasum -a 256 "${BASH_SOURCE[0]}" | cut -c1-12)"
+    echo "readiness	$WHOLE_N all-nine /healthz readings in a row, within ${RECOVERY_S}s"
+  } > "$EVIDENCE/env.txt"
+fi
+
 for p in "${RUN_PARTS[@]}"; do "part_$p"; done
+
+if [ -n "$EVIDENCE" ]; then
+  echo "ended	$(date '+%Y-%m-%d %H:%M:%S %Z')" >> "$EVIDENCE/env.txt"
+  cp -p "$RESULTS" "$RUN_DIR"/ledger-* "$RUN_DIR"/t-*.conf "$RUN_DIR/accounts.conf" "$EVIDENCE/"
+  cp -p "$RUN_DIR"/log/*.log "$EVIDENCE/log/"
+  echo "  evidence kept: lab/run/evidence/${EVIDENCE##*/}"
+fi
 
 echo
 awk -F'\t' '$7=="PASS"{p++} $7=="FAIL"{f++; if ($9=="procedure") pf++} $7=="NOTE"{n++}

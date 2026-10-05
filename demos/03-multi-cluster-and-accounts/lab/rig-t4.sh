@@ -165,6 +165,9 @@ cmd_restart() {
     echo "t-$s (PID $pid) did not stop within 30 s" >&2
     exit 1
   fi
+  # start_server truncates the log. Keep the old one: it is evidence (the
+  # 14:47 run lost t-arb-1's first 22 s this way).
+  mv -f "$RUN_DIR/log/$s.log" "$RUN_DIR/log/$s.before-restart.log" 2>/dev/null || true
   start_server "$s"
   wait_ready "$(http_of "$s")"
   echo "t-$s restarted: PID $pid -> $(cat "$RUN_DIR/pid/$s.pid")"

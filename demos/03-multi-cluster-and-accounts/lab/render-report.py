@@ -1266,4 +1266,6 @@ def main():
     o("Run one on its own the same way: `./01-gateway.sh`.")
 
 
-main()
+# Guarded so render-report-10.py can import the styles and helpers.
+if __name__ == "__main__":
+    main()

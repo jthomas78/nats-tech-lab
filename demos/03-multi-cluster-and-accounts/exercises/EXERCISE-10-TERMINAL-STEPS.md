@@ -438,6 +438,34 @@ eight peers current.
 
 ---
 
+## Before every round of Steps 3–6: wait until the rig is whole
+
+**Concept:** a server that is up can still be catching up. While a stream
+replica on it is not current, its `/healthz` fails. Right after a restart or
+a thaw, `/healthz` can pass, fail once, then pass again. This was measured
+twice in full runs: 14:47 and 15:08 on 2026-10-05, both times on `t-arb-1`
+with `KV_t7-vehicles is not current`. A round that starts during that flap
+measures the last round's tail, not its own start.
+
+So, before you read a round's starting state, wait until **all nine**
+`/healthz` pass **three times in a row**, one second apart, within 60 s.
+This is the same rule the script uses (`wait_whole`, `WHOLE_N=3`,
+`RECOVERY_S=60`), so a hand run and a script run start from the same state.
+
+```bash
+ok=0; for i in $(seq 60); do n=0; for p in 8231 8232 8233 8241 8242 8243 8541 8542 8543; do curl -fs --max-time 1 "localhost:$p/healthz" >/dev/null && n=$((n+1)); done; if [ "$n" = 9 ]; then ok=$((ok+1)); else ok=0; fi; echo "$i: $n of 9, $ok in a row"; [ "$ok" -ge 3 ] && break; sleep 1; done
+```
+
+**Purpose:** a starting state that holds, not one lucky reading.
+**Predict:** the last line ends `9 of 9, 3 in a row`. If 60 lines print and
+it never gets there, **stop**: the rig is not whole, and the round would not
+measure what it says. Find out which monitor fails before you go on. The
+script records this case as a failed rig check (`ML42` and its
+counterparts), and the verdict that depends on it as **inconclusive**.
+
+One reading of 9 is not enough. In run `10-20261005-150839` the old rule
+(one reading) saw 9, and the start check one second later read 8.
+
 ## Step 3: One region dark, leader in the hub — then recovery
 
 Plan tests S2 and S4, requirements `D03-R14` and `D03-R16`.
@@ -488,6 +516,9 @@ nats --no-context --server nats://127.0.0.1:4541 --user admin --password admin \
 **Purpose:** a confirmed hub leader, all nine up, eight peers current.
 **Predict:** `New leader elected "t-arb-<n>"`, and `status` shows that leader on
 all nine. Write it down.
+
+Then run the readiness wait ("Before every round", above). Go on only at
+`9 of 9, 3 in a row`.
 
 Then read the meta group's **term**. The term goes up on every election
 **attempt**, won or not (Raft paper, sections 5.1–5.2). So a higher term shows
@@ -700,11 +731,15 @@ nats --no-context --server nats://127.0.0.1:4541 --user admin --password admin \
   server cluster step-down --cluster za
 ```
 
+Then run the readiness wait ("Before every round", above). Go on only at
+`9 of 9, 3 in a row`.
+
 ```bash
 curl -s "localhost:8541/raftz?group=_meta_" | jq '.["$SYS"]._meta_ | {term, state}'
 ```
 
-**Purpose:** a confirmed za leader, and the term before the freeze.
+**Purpose:** a confirmed za leader, a whole rig, and the term before the
+freeze.
 **Predict:** `New leader elected "t-za-<n>"`. Write down the leader and the
 term.
 
@@ -887,11 +922,15 @@ nats --no-context --server nats://127.0.0.1:4541 --user admin --password admin \
   server cluster step-down --cluster arb
 ```
 
+Then run the readiness wait ("Before every round", above). Go on only at
+`9 of 9, 3 in a row`.
+
 ```bash
 curl -s "localhost:8541/raftz?group=_meta_" | jq '.["$SYS"]._meta_ | {term, state}'
 ```
 
-**Purpose:** a hub leader, and the term before anything goes dark.
+**Purpose:** a hub leader, a whole rig, and the term before anything goes
+dark.
 **Predict:** `New leader elected "t-arb-<n>"`. Write down the leader and the
 term.
 
@@ -1121,6 +1160,9 @@ That is fine.
 
 **Purpose:** a meta leader that the freeze cannot touch.
 **Predict:** `New leader elected "t-arb-<n>"`.
+
+Then run the readiness wait ("Before every round", above). Go on only at
+`9 of 9, 3 in a row`.
 
 ### Step 6.2: Freeze za, and check the meta group
 

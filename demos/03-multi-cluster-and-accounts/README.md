@@ -100,6 +100,18 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
 | **D03-R10** | If a system has a **gateway and a leaf link at the same time**, which one decides the JetStream shape? | answered |
 | **D03-R11** | Can a running **T4** be converted **in place** to **T5**, and keep its data? | **failed** for the one procedure tested — 2026-09-28, 2026-09-29 |
 | **D03-R12** | Can a running **T5** be converted **in place** to **T4**, and keep its data? | **failed** for the one procedure tested, not repeatable — 2026-09-28, 2026-09-29 |
+| **D03-R13** | On **T4**, does a hub step-down put the meta leader in the hub, every time? | answered — yes, every trial; requested, not pinned — 2026-10-05 |
+| **D03-R14** | One region dark, leader in the hub: does the leader stay, and do writes and metadata go on? | answered — yes — 2026-10-05 |
+| **D03-R15** | One region dark, leader in that region: who wins, and how long does it take? | answered — a new leader outside that region; who and how long are notes — 2026-10-05 |
+| **D03-R16** | When the region returns: does the leader stay, does the term stay, is the region current? Recovery and stability reported apart | **recovery met** in every valid round; **stability not met** in some — the leader moved, or the term rose — 2026-10-05 |
+| **D03-R17** | Both regions dark: does the hub lose the meta quorum even though it is healthy? | answered — yes; the hub's own stream still writes — 2026-10-05 |
+| **D03-R18** | One region dark: does only that region's stream lose writes? | answered — yes; a timeout is an unknown outcome — 2026-10-05 |
+
+D03-R13 to D03-R18 are exercise 10
+([`exercises/EXERCISE-10-TERMINAL-STEPS.md`](exercises/EXERCISE-10-TERMINAL-STEPS.md),
+`lab/10-hub-meta-leader.sh`). Their evidence is
+[`REPORT-10.md`](REPORT-10.md) and [`REPORT-10.html`](REPORT-10.html), made by
+`lab/render-report-10.py` from kept runs.
 
 ### D03-R11 and D03-R12 — switching topology in place
 
@@ -241,7 +253,7 @@ Measured on **`nats-server 2.14.6`**, September 2026.
 | 01 Define | this page |
 | 02 Design | done — [`CLAUDE.md`](CLAUDE.md), the rig |
 | 03 Validate | done — measured by hand 2026-09-11, made re-runnable 2026-09-17: [`lab/`](lab/), [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) |
-| 04 Learn | to write — pattern cards deck |
+| 04 Learn | written — pattern cards deck v0.6, 14 cards; card 14 is exercise 10 (2026-10-05) |
 
 See [`demo-playbook.pdf`](../../demo-playbook.pdf) for what those stages mean.
 
@@ -257,3 +269,13 @@ and writes [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) — the
 same findings, but the HTML edition draws each topology. It needs
 `nats-server`, `nats`, `jq`, `curl` and `python3`, and nothing else — no
 Docker, no trust chain.
+
+Exercise 10 (hub meta-leader on T4) has its own run and its own report:
+
+```bash
+demos/03-multi-cluster-and-accounts/exercises/ex10-check.sh
+python3 demos/03-multi-cluster-and-accounts/lab/render-report-10.py demos/03-multi-cluster-and-accounts/lab/run/evidence/10-<stamp> [more kept runs...]
+```
+
+The first run named is the cited run. Every run named is in the provenance
+table of [`REPORT-10.md`](REPORT-10.md) and [`REPORT-10.html`](REPORT-10.html).

@@ -1,0 +1,77 @@
+<!-- Exercise 10's hand-drawn figure, spliced into REPORT-10.html by
+     render-report-10.py. Same primitives and markers as figures.html (T4 / F).
+     It draws the DESIGN only. Every measured value sits in the table the
+     renderer writes under it, from the cited run. -->
+<!--FIG topo-->
+<svg viewBox="0 0 960 556" role="img" aria-label="Exercise 10 rig, topology T4. Three clusters of three servers: za and au are the two regions, arb is the hub, a third independent site. Gateways join za to au, za to arb and au to arb. All nine servers vote in one JetStream meta group, so the quorum is five. Each region holds one stream with three replicas, all inside that region: ODOMETER_ZA in za and ODOMETER_AU in au. The hub holds ODOMETER_ARB and the KV bucket t7-vehicles, each with three replicas, all in arb. One region dark leaves six of nine voters, above the quorum, but that region's stream has no live replica. Both regions dark leaves three of nine, below the quorum, while ODOMETER_ARB still has all three replicas.">
+  <defs>
+    <marker id="xt-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+  </defs>
+  <text class="grp g" x="22" y="26">T4 &mdash; ONE META GROUP &mdash; 9 VOTERS &mdash; QUORUM 5 &mdash; NO JETSTREAM DOMAIN SET</text>
+  <rect class="nb" x="14" y="34" width="932" height="510" rx="4"/>
+
+  <rect class="nb clu" x="30" y="64" width="400" height="168" rx="4"/>
+  <text class="grp" x="44" y="82">CLUSTER za &mdash; REGION za</text>
+  <rect class="n" x="44" y="94" width="104" height="34" rx="3"/>
+  <text class="lbl" x="96" y="108" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="96" y="121" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="158" y="94" width="104" height="34" rx="3"/>
+  <text class="lbl" x="210" y="108" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="210" y="121" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="272" y="94" width="104" height="34" rx="3"/>
+  <text class="lbl" x="324" y="108" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="324" y="121" text-anchor="middle">127.0.0.1:4233</text>
+  <path class="n" d="M110 158 L110 208 A120 8 0 0 0 350 208 L350 158"/>
+  <ellipse class="n" cx="230" cy="158" rx="120" ry="8"/>
+  <text class="lbl" x="230" y="182" text-anchor="middle">ODOMETER_ZA</text>
+  <text class="lbl2" x="230" y="196" text-anchor="middle">R3 &middot; all 3 replicas in za</text>
+
+  <rect class="nb clu" x="530" y="64" width="400" height="168" rx="4"/>
+  <text class="grp" x="544" y="82">CLUSTER au &mdash; REGION au</text>
+  <rect class="n" x="544" y="94" width="104" height="34" rx="3"/>
+  <text class="lbl" x="596" y="108" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="596" y="121" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="658" y="94" width="104" height="34" rx="3"/>
+  <text class="lbl" x="710" y="108" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="710" y="121" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="772" y="94" width="104" height="34" rx="3"/>
+  <text class="lbl" x="824" y="108" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="824" y="121" text-anchor="middle">127.0.0.1:4243</text>
+  <path class="n" d="M610 158 L610 208 A120 8 0 0 0 850 208 L850 158"/>
+  <ellipse class="n" cx="730" cy="158" rx="120" ry="8"/>
+  <text class="lbl" x="730" y="182" text-anchor="middle">ODOMETER_AU</text>
+  <text class="lbl2" x="730" y="196" text-anchor="middle">R3 &middot; all 3 replicas in au</text>
+
+  <rect class="nb clu" x="220" y="284" width="520" height="168" rx="4"/>
+  <text class="grp" x="234" y="302">CLUSTER arb &mdash; THE HUB, A THIRD SITE</text>
+  <rect class="n" x="314" y="314" width="104" height="34" rx="3"/>
+  <text class="lbl" x="366" y="328" text-anchor="middle">t-arb-1</text>
+  <text class="lbl2" x="366" y="341" text-anchor="middle">127.0.0.1:4541</text>
+  <rect class="n" x="428" y="314" width="104" height="34" rx="3"/>
+  <text class="lbl" x="480" y="328" text-anchor="middle">t-arb-2</text>
+  <text class="lbl2" x="480" y="341" text-anchor="middle">127.0.0.1:4542</text>
+  <rect class="n" x="542" y="314" width="104" height="34" rx="3"/>
+  <text class="lbl" x="594" y="328" text-anchor="middle">t-arb-3</text>
+  <text class="lbl2" x="594" y="341" text-anchor="middle">127.0.0.1:4543</text>
+  <path class="n" d="M250 378 L250 428 A110 8 0 0 0 470 428 L470 378"/>
+  <ellipse class="n" cx="360" cy="378" rx="110" ry="8"/>
+  <text class="lbl" x="360" y="402" text-anchor="middle">ODOMETER_ARB</text>
+  <text class="lbl2" x="360" y="416" text-anchor="middle">R3 &middot; all in arb</text>
+  <path class="n" d="M490 378 L490 428 A110 8 0 0 0 710 428 L710 378"/>
+  <ellipse class="n" cx="600" cy="378" rx="110" ry="8"/>
+  <text class="lbl" x="600" y="402" text-anchor="middle">KV t7-vehicles</text>
+  <text class="lbl2" x="600" y="416" text-anchor="middle">R3 &middot; all in arb</text>
+
+  <line class="gw" x1="436" y1="111" x2="524" y2="111" marker-start="url(#xt-gw)" marker-end="url(#xt-gw)"/>
+  <text class="edge" x="480" y="105" text-anchor="middle">gateway</text>
+  <path class="gw" d="M230 238 V258 H380 V278" marker-start="url(#xt-gw)" marker-end="url(#xt-gw)"/>
+  <text class="edge" x="222" y="256" text-anchor="end">gateway</text>
+  <path class="gw" d="M730 238 V258 H580 V278" marker-start="url(#xt-gw)" marker-end="url(#xt-gw)"/>
+  <text class="edge" x="738" y="256">gateway</text>
+
+  <text class="ro h" x="30" y="478">DESIGN  9 servers, 9 meta voters, quorum 5. The meta leader can be any of the nine.</text>
+  <text class="ro" x="30" y="496">DESIGN  one region dark: 6 of 9 voters left, above quorum. That region's stream has no live replica.</text>
+  <text class="ro" x="30" y="514">DESIGN  both regions dark: 3 of 9 left, below quorum. ODOMETER_ARB still has all 3 replicas.</text>
+  <text class="ro" x="30" y="532">Measured values are in the table under this figure, from the cited run.</text>
+</svg>
+<!--/FIG-->

@@ -17,8 +17,8 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.5.html"
-PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.5.pdf"
+HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.6.html"
+PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.6.pdf"
 
 fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -67,6 +67,7 @@ TITLES=(
  "Export / import: the explicit way across an account"
  "Both links at once is not both shapes at once"
  "procedure did not establish safe conversion"
+ "Hub placement is a request; regional recovery can change leadership"
 )
 for t in "${TITLES[@]}"; do has "carries the card: $t" "$t"; done
 
