@@ -127,3 +127,72 @@ does not assert them, because the error arrives after the command returns.
 **Surprises against the docs:** not compared. The two source pages were not
 re-read for this exercise, so "an unlisted side is open" is recorded as
 **measured behaviour**, not as a quoted claim from the docs.
+
+## Exercise 03 — how do allow, deny, wildcards and defaults combine?
+
+**Status: IN PROGRESS.** Part 03a measured by hand. Parts 03b, 03c, 03d not run.
+No `ex03-check.sh` yet.
+
+### Part 03a — deny beats allow; what `*` and `>` match
+
+- **Date / tools:** 2026-10-01; nats-server v2.14.6, nats CLI 0.4.0, macOS Darwin 25.4.0.
+- **Config:** `exercises/config/ex03-nats-allow-deny.conf`. `order-svc` pub allow
+  `orders.>` and deny `orders.internal.>`; `analytics-reader` sub allow `orders.*`;
+  `audit-observer` (new) sub allow `orders.>`, so delivery to it shows what
+  `order-svc` could publish.
+- **Steps:** `exercises/EXERCISE-03-TERMINAL-STEPS.md`, Step 1.
+
+| Step | Action | Client | Server log | Delivery to observer |
+|---|---|---|---|---|
+| 1.4 | `order-svc` pub `orders.created` | accepted | none | received |
+| 1.5 | `order-svc` pub `orders.eu.created` | accepted | none | received |
+| 1.6 | `order-svc` pub `orders` | `Permissions Violation for Publish to "orders"` | `Publish Violation - Subject "orders"` | not received |
+| 1.7 | `order-svc` pub `orders.internal.audit` | `Permissions Violation for Publish to "orders.internal.audit"` | `Publish Violation - Subject "orders.internal.audit"` | not received |
+| 1.8 | `analytics-reader` sub `orders.created` | accepted (no error in 2 s) | none | n/a |
+| 1.9 | `analytics-reader` sub `orders.eu.created` | `Permissions Violation for Subscription to "orders.eu.created"` | `Subscription Violation - Subject "orders.eu.created", SID 1` | n/a |
+
+**Measured:**
+
+- `>` in an allow list matches one or more trailing tokens (1.4, 1.5) and does
+  **not** match the bare prefix `orders` (1.6).
+- When a subject matches both an allow and a deny, **deny wins** (1.7).
+- `*` in a subscribe permission matches exactly one token: `orders.created`
+  allowed, `orders.eu.created` denied (1.8, 1.9).
+- The log held exactly 3 `[ERR]` lines (1.6, 1.7, 1.9). The observer received
+  only `one-token` and `two-tokens`.
+- A clean shutdown line was printed on Ctrl-C.
+
+**Not measured:** exit codes of the denied commands.
+
+**Gotcha:** the observer user (`audit-observer`) and `D05_AUDIT_OBSERVER_PASSWORD`
+were added for 03a. `lab/secrets.sh` now writes the new variable; an older
+`.run/secrets.env` needs the line added or `lab/secrets.sh --rotate`.
+
+### Part 03b — an empty allow list
+
+- **Date / tools:** 2026-10-01; nats-server v2.14.6, nats CLI 0.4.0, macOS Darwin 25.4.0.
+- **Config:** `exercises/config/ex03-nats-empty-list.conf`. `order-svc` has
+  `publish: { allow: [] }` and `subscribe: { deny: ">" }`; `analytics-reader` may
+  subscribe to `>` so a listener sees anything that gets through.
+- **Steps:** `exercises/EXERCISE-03-TERMINAL-STEPS.md`, Step 2.
+
+| Step | Action | Client | Server log | Delivery to listener |
+|---|---|---|---|---|
+| 2.1 | start server | started, no complaint about `allow: []` | none | n/a |
+| 2.2 | `analytics-reader` sub `>` | accepted | none | n/a |
+| 2.3 | `order-svc` pub `invoices.created` | `Published 10 bytes` | none | received `empty-list` |
+| 2.4 | `order-svc` sub `orders.>` | `Permissions Violation for Subscription to "orders.>"` | `Subscription Violation - Subject "orders.>", SID 1` | n/a |
+
+**Measured:**
+
+- The server accepts `allow: []`. It does not reject it.
+- An empty allow list means **no restriction**, not deny-all. `order-svc` published
+  `invoices.created`, a subject outside `orders.>`, and it was delivered.
+- The permissions block is still live: the same user's `subscribe: { deny: ">" }`
+  denied a subscribe. This is the control that makes 2.3 meaningful.
+- The log held exactly 1 `[ERR]` line (Step 2.4). Step 2.3 logged nothing.
+
+**Not measured:** exit codes of the denied commands.
+
+**Unconfirmed in this run:** the A-terminal line count was taken from one pasted
+`[ERR]` line, not from a script counting the log.
