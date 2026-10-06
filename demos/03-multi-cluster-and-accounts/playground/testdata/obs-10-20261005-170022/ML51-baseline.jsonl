@@ -1,0 +1,18 @@
+{"round": 0, "t": 1791212465.942064, "server": "t-za-1", "port": 8231, "kind": "unreachable", "leader": null, "term": null, "state": null, "why": "no answer in 1.0 s", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 0, "t": 1791212465.9423099, "server": "t-za-2", "port": 8232, "kind": "unreachable", "leader": null, "term": null, "state": null, "why": "no answer in 1.0 s", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 0, "t": 1791212465.942227, "server": "t-za-3", "port": 8233, "kind": "unreachable", "leader": null, "term": null, "state": null, "why": "no answer in 1.0 s", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 0, "t": 1791212464.9400709, "server": "t-au-1", "port": 8241, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 0, "t": 1791212464.940213, "server": "t-au-2", "port": 8242, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 0, "t": 1791212464.940189, "server": "t-au-3", "port": 8243, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 0, "t": 1791212464.939877, "server": "t-arb-1", "port": 8541, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "LEADER", "why": "", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 0, "t": 1791212464.9400861, "server": "t-arb-2", "port": 8542, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 0, "t": 1791212464.940202, "server": "t-arb-3", "port": 8543, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212464.9139788, "src": "baseline"}
+{"round": 1, "t": 1791212467.452491, "server": "t-za-1", "port": 8231, "kind": "unreachable", "leader": null, "term": null, "state": null, "why": "no answer in 1.0 s", "t0": 1791212466.447041, "src": "baseline"}
+{"round": 1, "t": 1791212467.452987, "server": "t-za-2", "port": 8232, "kind": "unreachable", "leader": null, "term": null, "state": null, "why": "no answer in 1.0 s", "t0": 1791212466.447041, "src": "baseline"}
+{"round": 1, "t": 1791212467.4526038, "server": "t-za-3", "port": 8233, "kind": "unreachable", "leader": null, "term": null, "state": null, "why": "no answer in 1.0 s", "t0": 1791212466.447041, "src": "baseline"}
+{"round": 1, "t": 1791212466.452776, "server": "t-au-1", "port": 8241, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212466.447041, "src": "baseline"}
+{"round": 1, "t": 1791212466.453703, "server": "t-au-2", "port": 8242, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212466.447041, "src": "baseline"}
+{"round": 1, "t": 1791212466.45437, "server": "t-au-3", "port": 8243, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212466.447041, "src": "baseline"}
+{"round": 1, "t": 1791212466.45431, "server": "t-arb-1", "port": 8541, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "LEADER", "why": "", "t0": 1791212466.447041, "src": "baseline"}
+{"round": 1, "t": 1791212466.454726, "server": "t-arb-2", "port": 8542, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212466.447041, "src": "baseline"}
+{"round": 1, "t": 1791212466.454695, "server": "t-arb-3", "port": 8543, "kind": "ok", "leader": "t-arb-1", "term": 15, "state": "FOLLOWER", "why": "", "t0": 1791212466.447041, "src": "baseline"}
