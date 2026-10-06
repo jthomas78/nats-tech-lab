@@ -1,0 +1,51 @@
+{
+  "id": "demo-03",
+  "name": "Multi-cluster - T4 playground",
+  "version": "0.1.0",
+  "description": "Freeze a region of the live nine-server T4 rig, resume it, or request the meta leader in another cluster. Then watch what the servers report.",
+  "schemaVersion": 1,
+  "shellApiVersion": 1,
+  "routePrefix": "demo-03",
+  "remote": {
+    "kind": "federated",
+    "url": "/plugins/demo-03/remoteEntry.js",
+    "name": "demo_03",
+    "module": "plugin"
+  },
+  "contributions": [
+    {
+      "kind": "route",
+      "id": "playground",
+      "path": "/demo-03/playground",
+      "title": "Multi-cluster — T4 playground",
+      "component": "playground",
+      "default": true
+    },
+    {
+      "kind": "route",
+      "id": "overview",
+      "path": "/demo-03/overview",
+      "title": "Multi-cluster — Overview",
+      "component": "overview"
+    },
+    {
+      "kind": "navigation",
+      "id": "playground-nav",
+      "label": "Playground",
+      "route": "playground",
+      "icon": "pi pi-sitemap",
+      "order": 30,
+      "group": { "id": "multi-cluster", "label": "Multi-cluster" }
+    },
+    {
+      "kind": "navigation",
+      "id": "overview-nav",
+      "label": "Overview",
+      "route": "overview",
+      "icon": "pi pi-info-circle",
+      "order": 31,
+      "group": { "id": "multi-cluster", "label": "Multi-cluster" }
+    }
+  ],
+  "backendServices": []
+}

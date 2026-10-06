@@ -184,6 +184,18 @@
       ],
       "cwd": "demos/04-jetstream-cqrs/frontend",
       "port": 20401
+    },
+    {
+      "//": "Demo 03's T4 playground page (PLAYGROUND-PLAN.md, L3). 20301 this dev server; the control service on 20302 is started by hand (`go run ./demos/03-multi-cluster-and-accounts/playground serve -lab demos/03-multi-cluster-and-accounts/lab`), like demo 04's `cqrs serve`. strictPort, because the service grants origin 127.0.0.1:20301 exactly.",
+      "name": "demo03-playground",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "demos/03-multi-cluster-and-accounts/frontend",
+      "port": 20301,
+      "url": "http://127.0.0.1:20301"
     }
   ]
 }

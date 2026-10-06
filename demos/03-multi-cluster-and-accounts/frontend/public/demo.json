@@ -1,0 +1,21 @@
+{
+  "//": "The demo's own metadata, beside manifest.json and never inside it, as demo 04. No readiness block: the playground page shows the service and the rig state itself, and a readiness block would give the lab shell a second demo 03 card (PLAYGROUND-PLAN.md, L2). No hostedUpstream: the rig is host processes and the control service runs on the host, so there is no container for a hosted shell to forward to.",
+  "devServer": {
+    "port": 20301
+  },
+  "api": {
+    "//": "The control service's routes, so the lab shell can serve them on its own origin. Every path here is a route in playground/serve.go. A path not listed is not forwarded. The trailing slash on /clusters/ is a prefix: /clusters/{za,arb,au}/{freeze,resume,leadership,publish,verify}. /readyz is deliberately absent.",
+    "devPort": 20302,
+    "routes": [
+      "/state",
+      "/rig/start",
+      "/rig/attach",
+      "/rig/stop",
+      "/clusters/",
+      "/meta/probe",
+      "/restore"
+    ]
+  },
+  "//runCommand": "The control service, from the repo root. It starts no rig by itself: the page's Start rig or Attach does that.",
+  "runCommand": "go run ./demos/03-multi-cluster-and-accounts/playground serve -lab demos/03-multi-cluster-and-accounts/lab"
+}
