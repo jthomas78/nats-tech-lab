@@ -32,6 +32,8 @@ const monitor = computed(() => {
 })
 
 const ROLE = { leader: 'solid', candidate: 'cand' }
+/* The role is in the META group (/raftz?group=_meta_), never a stream's. */
+const ROLE_LABEL = { leader: 'meta-leader' }
 const role = computed(() => (reading.value?.state ?? '').toLowerCase())
 </script>
 
@@ -106,7 +108,7 @@ const role = computed(() => (reading.value?.state ?? '').toLowerCase())
           v-if="role"
           class="pill"
           :class="ROLE[role]"
-        >{{ role }}</span>
+        >{{ ROLE_LABEL[role] ?? role }}</span>
       </div>
       <div
         class="age"

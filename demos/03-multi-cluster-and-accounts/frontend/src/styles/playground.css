@@ -1,8 +1,12 @@
 /* The T4 playground's own styles. Colours come from shared/unifi-theme;
    the one demo-local token is --d3-lane, the mockup's stroke grey.
    Every selector sits under .pg, so nothing leaks into the lab shell. */
-:root { --d3-lane: #4a515b; }
-html:not(.p-dark) { --d3-lane: #b7bcc2; }
+:root { --d3-lane: #4a515b; --d3-dark: #f87171; }
+html:not(.p-dark) { --d3-lane: #b7bcc2; --d3-dark: #c42f2f; }
+/* --d3-dark is a frozen (SIGSTOP) cluster: the red of REPORT.html's
+   `nb clu dead`, so the page and the report draw a dark region alike.
+   Not --warn (that means unknown/stale here) and not orange (the reports'
+   JetStream-domain colour). */
 
 .pg { display: flex; flex-direction: row; align-items: flex-start; min-width: 0; gap: 0; }
 .pg .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11.5px; }
@@ -11,12 +15,18 @@ html:not(.p-dark) { --d3-lane: #b7bcc2; }
 .pg.unreachable .pg-main > :not(.rigbar) { opacity: .5; }
 
 /* buttons, pills */
-.pg .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; background: var(--lab-secondary-bg); border: 1px solid var(--lab-panel-border); color: var(--p-text-color); cursor: pointer; white-space: nowrap; font: inherit; }
-.pg .btn:hover:not([disabled]) { background: var(--lab-secondary-bg-hover); }
+/* An enabled button is raised: its own fill and a visible edge. A disabled
+   one is flat: no fill, a faint edge and dim text. The theme's disabled fill
+   is lighter than its secondary fill, so a disabled button read as the more
+   clickable of the two. */
+.pg .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; background: var(--lab-secondary-bg-hover); border: 1px solid var(--d3-lane); color: var(--p-text-color); cursor: pointer; white-space: nowrap; font: inherit; font-weight: 500; }
+.pg .btn:hover:not([disabled]) { border-color: var(--lab-accent); background: color-mix(in srgb, var(--lab-accent) 14%, var(--lab-secondary-bg-hover)); }
+.pg .btn:focus-visible { outline: 2px solid var(--lab-accent); outline-offset: 1px; }
 .pg .btn.primary { background: var(--lab-accent); border-color: var(--lab-accent); color: var(--lab-accent-ink); }
 .pg .btn.warnb { border-color: color-mix(in srgb, var(--warn) 60%, var(--lab-panel-border)); }
-.pg .btn.darkb { border-color: color-mix(in srgb, var(--warn) 60%, var(--lab-panel-border)); color: var(--warn); }
-.pg .btn[disabled] { background: var(--lab-disabled-bg); color: var(--p-text-disabled-color); border-color: transparent; cursor: not-allowed; }
+.pg .btn.darkb { border-color: color-mix(in srgb, var(--d3-dark) 70%, var(--lab-panel-border)); color: var(--d3-dark); }
+.pg .btn.darkb:hover:not([disabled]) { border-color: var(--d3-dark); background: color-mix(in srgb, var(--d3-dark) 14%, var(--lab-secondary-bg-hover)); }
+.pg .btn[disabled] { background: transparent; color: var(--p-text-disabled-color); border-color: color-mix(in srgb, var(--lab-panel-border) 70%, transparent); cursor: not-allowed; }
 .pg .btn.sm { height: 26px; padding: 0 9px; font-size: 12px; }
 .pg .btn.xs { height: 22px; padding: 0 8px; font-size: 11.5px; }
 .pg .spin { width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: pg-spin .8s linear infinite; display: inline-block; flex-shrink: 0; }
@@ -78,7 +88,7 @@ html:not(.p-dark) { --d3-lane: #b7bcc2; }
 .pg .gwsvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; z-index: 2; pointer-events: none; }
 .pg .gwsvg .hit { stroke: transparent; stroke-width: 12; fill: none; pointer-events: stroke; cursor: help; }
 .pg .gwsvg .trk { fill: none; stroke-width: 1.6; }
-.pg .gwsvg .trk.listed { stroke: var(--p-text-muted-color); }
+.pg .gwsvg .trk.listed { stroke: var(--ok); }
 .pg .gwsvg .trk.partial { stroke: var(--warn); }
 .pg .gwsvg .trk.not_listed { stroke: var(--err); }
 .pg .gwsvg .trk.unknown { stroke: var(--warn); stroke-dasharray: 4 3; }
@@ -87,15 +97,16 @@ html:not(.p-dark) { --d3-lane: #b7bcc2; }
 .pg .gwsvg text.not_listed { fill: var(--err); }
 .pg .gwsvg .tagbg { fill: var(--lab-bg); }
 .pg .gwsvg .cap { fill: var(--p-text-disabled-color); }
-.pg .gwsvg .ah-listed { fill: var(--p-text-muted-color); }
+.pg .gwsvg .ah-listed { fill: var(--ok); }
 .pg .gwsvg .ah-partial, .pg .gwsvg .ah-unknown { fill: var(--warn); }
 .pg .gwsvg .ah-not_listed { fill: var(--err); }
 
 /* cluster panel */
-.pg .cp { border: 1px solid var(--lab-panel-border); border-radius: 8px; display: flex; flex-direction: column; min-width: 0; background: var(--lab-panel-bg); }
-.pg .cp.hub { border-color: color-mix(in srgb, var(--lab-accent) 40%, var(--lab-panel-border)); }
-.pg .cp.isdark { border-color: var(--warn); }
-.pg .cp.isdark .srv { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--warn) 6%, transparent) 6px 7px); }
+/* Every cluster panel (za, arb, au) carries the accent edge; the summary and
+   side cards keep the grey one. */
+.pg .cp { border: 1px solid color-mix(in srgb, var(--lab-accent) 55%, var(--lab-panel-border)); border-radius: 8px; display: flex; flex-direction: column; min-width: 0; background: var(--lab-panel-bg); }
+.pg .cp.isdark { border-color: var(--d3-dark); }
+.pg .cp.isdark .srv { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--d3-dark) 8%, transparent) 6px 7px); }
 .pg .cp-head { padding: 8px 12px; border-bottom: 1px solid var(--lab-panel-border); display: flex; flex-direction: column; gap: 6px; }
 .pg .cp-title { display: flex; align-items: center; gap: 10px; }
 .pg .cp-name { font-weight: 600; font-size: 15px; }
@@ -105,11 +116,11 @@ html:not(.p-dark) { --d3-lane: #b7bcc2; }
 .pg .darkbox { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--lab-panel-border); background: var(--lab-secondary-bg); }
 .pg .darkbox .ds { font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .pg .darkbox .dd { font-size: 11.5px; color: var(--p-text-muted-color); line-height: 16px; }
-.pg .darkbox.on { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--lab-secondary-bg)); }
-.pg .darkbox.on .ds { color: var(--warn); }
+.pg .darkbox.on { border-color: var(--d3-dark); background: color-mix(in srgb, var(--d3-dark) 12%, var(--lab-secondary-bg)); }
+.pg .darkbox.on .ds { color: var(--d3-dark); }
 .pg .darkbox.moving { border: 1px dashed var(--lab-accent); }
 .pg .darkbox.moving .ds { color: var(--lab-accent); }
-.pg .darkbox.mixed { border: 1px dashed var(--warn); }
+.pg .darkbox.mixed { border: 1px dashed var(--d3-dark); }
 .pg .leadnote { font-size: 11.5px; line-height: 16px; color: var(--p-text-muted-color); padding: 3px 8px; border-left: 2px solid var(--lab-accent); }
 .pg .srvs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--lab-panel-border); }
 .pg .srv { display: flex; flex-direction: column; gap: 3px; padding: 7px 12px 8px; min-width: 0; }

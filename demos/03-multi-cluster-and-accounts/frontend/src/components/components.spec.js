@@ -63,6 +63,14 @@ describe('a server row (rules 1, 2, 3)', () => {
     expect(w.find('[data-testid="proc"]').text()).toMatch(/stopped/)
     expect(w.find('[data-testid="monitor"]').text()).toMatch(/answered/)
   })
+
+  it('names the meta group in the leader badge, and leaves a follower as it is', () => {
+    const reading = (state) => ({ server: 't-arb-1', kind: 'ok', leader: 't-arb-1', term: 4, state, why: '' })
+    const lead = mount(ServerRow, opts({ server: serverState({ server: 't-arb-1', cluster: 'arb', reading: reading('leader') }), pid: 1 }))
+    expect(lead.find('.pill.solid').text()).toBe('meta-leader')
+    const follow = mount(ServerRow, opts({ server: serverState({ server: 't-za-1', cluster: 'za' }), pid: 1 }))
+    expect(follow.find('[data-testid="belief"] .pill').text()).toBe('follower')
+  })
 })
 
 describe('the meta summary (rule 1)', () => {
