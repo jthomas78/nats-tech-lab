@@ -36,7 +36,7 @@ the NATS docs. The rest of the [security section](https://docs.nats.io/learn/sec
 | `D05-R5` | Each user can be limited separately on publish and on subscribe. | 02 | **measured** (by hand, then `ex02-check.sh`, 3 runs) |
 | `D05-R6` | Allow, deny, wildcards, default permissions and empty lists behave as the docs say. | 03 | in progress (03a, 03b measured by hand) |
 | `D05-R7` | Request / reply works under limits: the requester's inbox and the responder's reply. | 04 | drafted, not run |
-| `D05-R8` | A shared token and an NKey are compared against the password approach. | 05 | planned |
+| `D05-R8` | A shared token and an NKey are compared against the password approach. | 05 | drafted, not run |
 | `D05-R9` | bcrypt protects the stored password; TLS protects it on the wire; one does not replace the other. | 06 | planned |
 | `D05-R10` | Another person runs this README with no help and sees every exercise work. | all | not started |
 | `D05-R11` | A pattern cards deck closes the demo (playbook stage 04). | — | not started |
@@ -266,7 +266,19 @@ script is written but **not yet run**:
 exercises/ex04-check.sh
 ```
 
-## Exercises 05 – 06
+## Exercise 05
+
+**Drafted — not run, not verified.** The steps are in
+[`exercises/EXERCISE-05-TERMINAL-STEPS.md`](exercises/EXERCISE-05-TERMINAL-STEPS.md):
+one shared token (05a), then NKey users with per-user limits (05b).
+`lab/nkeys.sh` makes the key pairs; seeds stay in `.run/nkeys/`. The check
+script is written but **not yet run**:
+
+```bash
+exercises/ex05-check.sh
+```
+
+## Exercise 06
 
 **Planned — not implemented, not verified.** The outline is in
 [`docs/THEORY.md`](docs/THEORY.md). Each will follow the same shape as 01:

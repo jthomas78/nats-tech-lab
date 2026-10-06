@@ -206,3 +206,17 @@ Read from the server source (v2.14.6, `server/client.go`, `server/opts.go`),
 not measured: the reply check runs only after allow and deny have said no, so
 `allow_responses` should beat `publish: { deny: ">" }`. Its defaults are 1
 reply per request, valid 2 minutes.
+
+## Exercise 05 — a token and an NKey, against the password
+
+**Status: NOT RUN.** Steps, four configs, `lab/nkeys.sh` and `ex05-check.sh`
+(28 checks) written 2026-10-06. Nothing measured at runtime yet.
+
+Checked with `nats-server -t` only (v2.14.6), 2026-10-06:
+
+- `ex05-nats-token-and-users.conf` is rejected:
+  `Can not have a token and a users array`.
+- `ex05-nats-nkey-with-password.conf` is rejected:
+  `Nkey users do not take usernames or passwords`.
+- `nats auth nkey gen user --output <file>` writes a 59-byte seed starting
+  `SU`, **mode 644**. `lab/nkeys.sh` sets 600.

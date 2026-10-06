@@ -1,6 +1,6 @@
 ---
 name: demo05-state-and-handover
-description: "[demo 05] State as of 2026-10-06: ex 01, 02 done; ex 03 half measured; ex03/ex04 scripts written but never run; next is ex 05."
+description: "[demo 05] State as of 2026-10-06: ex 01, 02 done; ex 03 half measured; ex03/04/05 steps + scripts written but NEVER run; user runs them next."
 metadata:
   type: project
 ---
@@ -30,7 +30,12 @@ State of `demos/05-identity-and-permissions/` on 2026-10-06, branch
   `ex04-check.sh` (22) exist but were NEVER RUN; `prediction:` checks are docs
   claims. Exercise 04 = request/reply: 04a inbox allowed/denied, 04b
   no-publish vs `allow_responses` (source v2.14.6: responses beat deny ">").
-- Next: exercise 05 (token and NKey). 06 (bcrypt) stays planned.
+- Exercise 05 drafted too: 05a token, 05b NKey; `lab/nkeys.sh` (seeds in
+  `.run/nkeys/`, 600), `D05_TOKEN` added to `lab/secrets.sh` (old secrets
+  file needs `--rotate`). `ex05-check.sh` (28) NEVER RUN. Its two "rejected"
+  configs were confirmed by `nats-server -t` only.
+- Next: the user runs 03c/03d, 04 and 05 by hand, then the three scripts;
+  record results in EXERCISE_OBSERVATIONS.md. 06 (bcrypt) stays planned.
 - Not done: a stranger's walkthrough (`D05-R10`), pattern cards (`D05-R11`).
 
 **Why:** the user will resume this over several sessions.

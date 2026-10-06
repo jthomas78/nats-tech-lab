@@ -18,6 +18,8 @@ fi
 mkdir -p "$D05_RUN"
 "$D05_DIR/lab/secrets.sh" >/dev/null
 source "$D05_SECRETS"
+# Exercise 05 configs name NKey public keys. lab/nkeys.sh writes them.
+[[ -f "$D05_NKEYS" ]] && source "$D05_NKEYS"
 
 : > "$D05_LOG"
 nats-server -c "$conf" -l "$D05_LOG" -P "$D05_PID" &

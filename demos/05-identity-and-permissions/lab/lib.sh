@@ -6,6 +6,8 @@ D05_CONFIGS="$D05_DIR/exercises/config"
 D05_PID="$D05_RUN/nats-server.pid"
 D05_LOG="$D05_RUN/server.log"
 D05_SECRETS="$D05_RUN/secrets.env"
+D05_NKEYS_DIR="$D05_RUN/nkeys"
+D05_NKEYS="$D05_RUN/nkeys.env"
 
 D05_URL="nats://127.0.0.1:4522"
 D05_MONITOR="http://127.0.0.1:8522"

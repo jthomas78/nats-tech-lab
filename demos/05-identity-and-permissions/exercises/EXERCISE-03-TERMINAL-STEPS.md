@@ -12,7 +12,7 @@ combine. It is bigger than 01 and 02, so it has **four parts**. Do one part, the
 stop. Each part has its own server config.
 
 | Part | Question | Config | Claims (THEORY.md) |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 03a | Does deny beat allow? What do `*` and `>` match? | `ex03-nats-allow-deny.conf` | 1, 2, 3 |
 | 03b | Does an empty list mean "allow all" or "deny all"? | `ex03-nats-empty-list.conf` | 4 |
 | 03c | Do defaults apply, and does a user's own block replace them? | `ex03-nats-defaults.conf` | 5 |
@@ -240,7 +240,7 @@ nats --no-context -s nats://127.0.0.1:4522 --user analytics-reader --password "$
 **Purpose:** the control listener, allowed by the defaults.
 **Predict:** does it connect?
 
-### Step 3.3: The reader publishes. The defaults say no.
+### Step 3.3: The reader publishes. The defaults say no
 
 **Terminal C:**
 

@@ -26,7 +26,7 @@ So the requester needs *subscribe* on its inbox, and the responder needs
 *publish* on the requester's inbox.
 
 | Part | Question | Configs | THEORY.md |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 04a | What happens when the requester may not subscribe to its inbox? | `ex04-nats-inbox-allowed.conf`, then `ex04-nats-inbox-denied.conf` | Exercise 04, bullet 1 |
 | 04b | Can the responder reply without a broad `_INBOX.>` publish grant? | `ex04-nats-no-responses.conf`, then `ex04-nats-allow-responses.conf` | Exercise 04, bullet 2 |
 

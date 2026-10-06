@@ -76,7 +76,7 @@ sibling subject to prove the subscription is live.
 - A timeout alone proves nothing. Show the same request succeeding with the
   inbox allowed, then failing with it denied, then read the server log.
 
-## Exercise 05 — token and NKey, against the password *(planned)*
+## Exercise 05 — token and NKey, against the password *(drafted, not run)*
 
 - **Token:** one shared secret for the whole server. No per-user identity, so
   no per-user permissions. [AUTHN]

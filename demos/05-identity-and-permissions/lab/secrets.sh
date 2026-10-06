@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Write random passwords for the demo users to .run/secrets.env (mode 600).
+# Write random passwords (and the exercise 05 token) to .run/secrets.env (mode 600).
 # Keeps an existing file, so passwords stay stable across runs.
 #   lab/secrets.sh           create if missing
 #   lab/secrets.sh --rotate  replace with new passwords
@@ -18,5 +18,6 @@ umask 077
   echo "export D05_ORDER_SVC_PASSWORD=$(openssl rand -hex 12)"
   echo "export D05_ANALYTICS_READER_PASSWORD=$(openssl rand -hex 12)"
   echo "export D05_AUDIT_OBSERVER_PASSWORD=$(openssl rand -hex 12)"
+  echo "export D05_TOKEN=$(openssl rand -hex 16)"
 } > "$D05_SECRETS"
 echo "wrote    $D05_SECRETS"

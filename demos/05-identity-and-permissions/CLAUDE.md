@@ -81,7 +81,9 @@ user. This is the easiest mistake to make in this demo.
   (measured: `variable reference for 'D05_ORDER_SVC_PASSWORD' ... can not be
   found`). That is fail-closed, and it is the point.
 - `lab/secrets.sh` writes random passwords to `.run/secrets.env`, mode 600.
-  NKey seeds (exercise 05) will go in `.run/` too.
+  NKey seeds (exercise 05) go in `.run/nkeys/`, mode 600, written by
+  `lab/nkeys.sh`; public keys go in `.run/nkeys.env`. The CLI writes seeds
+  mode 644, so the script sets 600.
 - `.run/` is in the root `.gitignore`. Check it is still there before adding
   any generated file.
 
@@ -139,4 +141,5 @@ Exercises 01 and 02 are built and measured, each with a check script
 (`exercises/ex01-check.sh`, `exercises/ex02-check.sh`). Exercise 03 is in
 progress: 03a and 03b measured by hand; `exercises/ex03-check.sh` written
 before the 03c / 03d hand run and not yet run. Exercise 04 is drafted
-(steps, four configs, `exercises/ex04-check.sh`) and not yet run.
+(steps, four configs, `exercises/ex04-check.sh`) and not yet run. So is
+exercise 05 (steps, four configs, `lab/nkeys.sh`, `exercises/ex05-check.sh`).
