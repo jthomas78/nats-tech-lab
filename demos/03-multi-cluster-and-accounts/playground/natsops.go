@@ -27,9 +27,11 @@ const (
 	// the TCP connection and never sends INFO, so this is what ends it.
 	connectFor = 2 * time.Second
 
-	// metaStepDownSubject is what `nats server cluster step-down` sends
-	// (JSApiLeaderStepDown, nats-server jetstream_api.go). Checked against
-	// the CLI's --trace output in step 5, not taken from its name.
+	// metaStepDownSubject is what `nats server cluster step-down` sends —
+	// `nats server raft step-down` in exercise 10, the same command under
+	// its `raft` alias (JSApiLeaderStepDown, nats-server jetstream_api.go).
+	// Checked against the CLI's --trace output in step 5, not taken from its
+	// name.
 	metaStepDownSubject = "$JS.API.META.LEADER.STEPDOWN"
 )
 
