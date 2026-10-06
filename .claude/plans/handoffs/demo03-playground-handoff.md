@@ -47,6 +47,12 @@ Build the live T4 playground for demo 03: a small Go control service
    in preview, not 404 (`demoReadiness.js` guards dev only). See plan L1b.
 8. **Stage 04** only if the playground shows something the lab has not
    measured — then measure it in `lab/` first.
+   **Done 2026-10-06, documentation only:** two playground behaviors stay
+   unvalidated; no new finding, no new card, deck stays v0.6. Mapping,
+   the delayed-storage evidence gap and three follow-ups (fix the
+   `REPORT-10` citation through its generator; card 14 provenance; validate
+   only if a card needs it) are in `PLAYGROUND-PLAN.md`, "Step 8 — stage 04
+   result".
 
 ## Decisions already made — do not re-open
 

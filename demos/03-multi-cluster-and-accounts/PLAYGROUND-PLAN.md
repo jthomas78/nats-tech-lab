@@ -611,6 +611,67 @@ Made **first**, before any code, and shown to the user:
 8. **Stage 04:** a pattern card only if the playground shows something the
    lab has not measured; then it is measured in `lab/` first.
 
+### Step 8 — stage 04 result, 2026-10-06
+
+**Conclusion:** Two additional behaviors were observed in the playground
+but remain unvalidated. No new validated finding or pattern card is added.
+The deck stays at v0.6.
+
+Documentation only. No rig was started or changed, no lab script ran, and
+no report was regenerated. The source is the step 5 playground session in
+`exercises/EXERCISE_OBSERVATIONS.md` ("T4 playground, step 5 live check").
+A playground session is never evidence (`D03-R28`), so nothing below
+promotes it.
+
+| Playground observation (step 5 row) | Class | Support |
+|---|---|---|
+| Rig start; each stream placed in its own cluster (1) | kept lab evidence | `ML10`–`ML13` |
+| Request leadership here, arb (5; CLI check before 4) | kept lab evidence | `ML26`–`ML36` |
+| Request leadership here, za (4) | kept lab evidence | S3 set-up, step-down `--cluster za`, `ML76`–`ML93` |
+| Publish to the dark region's stream through arb times out (8) | kept lab evidence | `ML140`, `ML140a` (lab cap 5 s; playground 2 s) |
+| A region returns: the term rises and the leader may move (3, 9, 16) | kept lab evidence | `ML54`, `ML71`, `ML88`, `ML106` |
+| Metadata create, delete and gone with one region dark (13–15) | kept lab evidence | `ML49`, `ML66`, `ML83`, `ML101` |
+| The timed-out write was stored later (10) | prose only before; playground now | see the evidence gap below |
+| A same-ID retry after the thaw was acked as a duplicate (10) | **unvalidated, new** | the lab never retries an ID after a thaw |
+| Leader in za held, same term, while au was dark (2) | **unvalidated, new** | `ML44`/`ML61` cover a hub leader only; `F3`/`F22` show only that a leader exists |
+
+The last two rows are the two unvalidated behaviors. Each was seen once,
+in one playground session.
+
+**The duplicate acknowledgement is a separate fact.** It shows that, when
+the retry was processed, JetStream already held that message ID. It does
+not show when the original message was stored. Do not use it as the time
+of storage.
+
+**Evidence gap — delayed storage after a publish timeout.**
+
+- In the 16 kept rounds (8 kept exercise 10 runs, `ML146a` and `ML157a`
+  in each `lab/run/evidence/10-*/10-all.tsv`), delayed storage was not
+  observed at the readback checkpoints: every row reads "0 beyond the
+  acked".
+- Those results do not disprove its possibility. They show only that
+  nothing extra was held at the moment of each readback.
+- The earlier delayed-storage observation (`EXERCISE_OBSERVATIONS.md`,
+  "Repeated by the script, 14:39–14:44 SAST", own-rig `za` round) has
+  prose provenance only. Its rows were in `lab/run/10-step6.tsv`, and that
+  run was not retained.
+- The client advice is not affected: a publish timeout is an unknown
+  outcome; retry with the same `Nats-Msg-Id`.
+
+**Follow-ups, not done at step 8:**
+
+1. **Correct `REPORT-10`'s citation.** The finding "A timed-out publish is
+   not a failed publish" and the S6 answer cite `ML146a` for "may still be
+   stored later", but the kept `ML146a` rows read 0. Change the prose in
+   `lab/render-report-10.py` and re-render. Never hand-edit `REPORT-10.md`
+   or `REPORT-10.html`.
+2. **Clarify card 14's provenance.** The deck says "in the earlier step-6
+   own-rig run one such message was". Add that the run was not retained.
+   That is a new deck version, with `fit-pages.mjs`, the PDF export,
+   `check-cards.sh` and the layout audit.
+3. **Validate the two behaviors only if a card will need them.** That is a
+   change to `lab/` and a lab run, with the user's go-ahead.
+
 Terminal first is already met for the actions themselves:
 `EXERCISE-10-TERMINAL-STEPS.md` does each one by hand. Step 5 does the same
 for the service's routes.
