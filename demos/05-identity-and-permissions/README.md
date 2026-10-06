@@ -35,7 +35,7 @@ the NATS docs. The rest of the [security section](https://docs.nats.io/learn/sec
 | `D05-R4` | A refused client's messages never reach a subscriber. | 01b | **measured** |
 | `D05-R5` | Each user can be limited separately on publish and on subscribe. | 02 | **measured** (by hand, then `ex02-check.sh`, 3 runs) |
 | `D05-R6` | Allow, deny, wildcards, default permissions and empty lists behave as the docs say. | 03 | in progress (03a, 03b measured by hand) |
-| `D05-R7` | Request / reply works under limits: the requester's inbox and the responder's reply. | 04 | planned |
+| `D05-R7` | Request / reply works under limits: the requester's inbox and the responder's reply. | 04 | drafted, not run |
 | `D05-R8` | A shared token and an NKey are compared against the password approach. | 05 | planned |
 | `D05-R9` | bcrypt protects the stored password; TLS protects it on the wire; one does not replace the other. | 06 | planned |
 | `D05-R10` | Another person runs this README with no help and sees every exercise work. | all | not started |
@@ -254,7 +254,19 @@ docs claims until the hand run confirms them:
 exercises/ex03-check.sh
 ```
 
-## Exercises 04 – 06
+## Exercise 04
+
+**Drafted — not run, not verified.** The steps are in
+[`exercises/EXERCISE-04-TERMINAL-STEPS.md`](exercises/EXERCISE-04-TERMINAL-STEPS.md):
+a request and its reply, with the requester's inbox denied (04a) and the
+responder's reply denied, then allowed by `allow_responses` (04b). The check
+script is written but **not yet run**:
+
+```bash
+exercises/ex04-check.sh
+```
+
+## Exercises 05 – 06
 
 **Planned — not implemented, not verified.** The outline is in
 [`docs/THEORY.md`](docs/THEORY.md). Each will follow the same shape as 01:

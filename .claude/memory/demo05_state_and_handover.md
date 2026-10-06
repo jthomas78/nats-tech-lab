@@ -1,6 +1,6 @@
 ---
 name: demo05-state-and-handover
-description: "[demo 05] State as of 2026-10-06: exercises 01 (16 checks) and 02 (24 checks) done with check scripts; ex 03 parts 03a+03b measured by hand, 03c+03d not run; 04-06 planned only."
+description: "[demo 05] State as of 2026-10-06: ex 01, 02 done; ex 03 half measured; ex03/ex04 scripts written but never run; next is ex 05."
 metadata:
   type: project
 ---
@@ -24,10 +24,13 @@ State of `demos/05-identity-and-permissions/` on 2026-10-06, branch
   written. 03a (deny wins; `*` one token, `>` one or more) and 03b (empty
   allow list = no restriction) measured by hand 2026-10-01. 03c
   (`default_permissions`) and 03d (wildcard sub overlapping a deny) not run.
-  No `ex03-check.sh` yet. 03a added user `audit-observer` and
-  `D05_AUDIT_OBSERVER_PASSWORD`.
-- Exercises 04 (request/reply, `_INBOX`, `allow_responses`), 05 (token and
-  NKey), 06 (bcrypt) are planned only, in `docs/THEORY.md`.
+  03a added user `audit-observer` and `D05_AUDIT_OBSERVER_PASSWORD`.
+- 2026-10-06 the user chose: write steps + scripts for 03, 04, 05 FIRST, one
+  commit per exercise, then run them all by hand. So `ex03-check.sh` (36) and
+  `ex04-check.sh` (22) exist but were NEVER RUN; `prediction:` checks are docs
+  claims. Exercise 04 = request/reply: 04a inbox allowed/denied, 04b
+  no-publish vs `allow_responses` (source v2.14.6: responses beat deny ">").
+- Next: exercise 05 (token and NKey). 06 (bcrypt) stays planned.
 - Not done: a stranger's walkthrough (`D05-R10`), pattern cards (`D05-R11`).
 
 **Why:** the user will resume this over several sessions.

@@ -196,3 +196,13 @@ were added for 03a. `lab/secrets.sh` now writes the new variable; an older
 
 **Unconfirmed in this run:** the A-terminal line count was taken from one pasted
 `[ERR]` line, not from a script counting the log.
+
+## Exercise 04 — does request / reply work under limits?
+
+**Status: NOT RUN.** Steps, four configs and `ex04-check.sh` (22 checks)
+written 2026-10-06. Nothing measured yet.
+
+Read from the server source (v2.14.6, `server/client.go`, `server/opts.go`),
+not measured: the reply check runs only after allow and deny have said no, so
+`allow_responses` should beat `publish: { deny: ">" }`. Its defaults are 1
+reply per request, valid 2 minutes.

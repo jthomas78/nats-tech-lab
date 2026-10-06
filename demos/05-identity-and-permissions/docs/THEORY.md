@@ -64,7 +64,7 @@ Claims from [AUTHZ] to test one at a time:
 Claim 6 is the one most likely to surprise. It needs a positive control on a
 sibling subject to prove the subscription is live.
 
-## Exercise 04 — request / reply under limits *(planned)*
+## Exercise 04 — request / reply under limits *(drafted, not run)*
 
 - A requester subscribes to a private inbox (`_INBOX.>`) before it sends the
   request. With subscribe denied, the reply has nowhere to go and the

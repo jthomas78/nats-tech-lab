@@ -138,4 +138,5 @@ The demo is not complete until, under the playbook:
 Exercises 01 and 02 are built and measured, each with a check script
 (`exercises/ex01-check.sh`, `exercises/ex02-check.sh`). Exercise 03 is in
 progress: 03a and 03b measured by hand; `exercises/ex03-check.sh` written
-before the 03c / 03d hand run and not yet run.
+before the 03c / 03d hand run and not yet run. Exercise 04 is drafted
+(steps, four configs, `exercises/ex04-check.sh`) and not yet run.
