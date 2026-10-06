@@ -1,0 +1,936 @@
+<!doctype html>
+<!--
+  Mockup only: PLAYGROUND-PLAN.md (revision 2, after the Codex review of 2026-10-06).
+  Not the plugin, and not a simulator of NATS.
+  Every state on this page is MOCK DATA, made by a small script below with
+  made-up timings and outcomes, so that each screen state can be seen. It
+  controls no process and calls no service.
+  Rule kept by the mock engine: every command ends in a result, an error, a
+  timeout or a cancellation. A watchdog closes anything that overruns.
+  Tokens mirror shared/unifi-theme/unifi.css (dark). Judge at 1920x1080.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T4 Playground</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #131416; --panel: #1a1e23; --border: #2c3138; --accent: #006fff; --nav-active: #1c1d1f;
+  --disabled-bg: #3a4049; --sec-bg: #22262c; --sec-hover: #2b3037; --nested: #171c29;
+  --ok: #27c07f; --warn: #f0b429; --err: #e5484d; --lane: #4a515b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 13px; line-height: 20px; }
+.mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11.5px; }
+button, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* shell frame (lab shell, not the plugin) */
+.app { display: flex; flex-direction: column; height: 100vh; }
+.topbar { flex-shrink: 0; display: flex; align-items: center; gap: 20px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.brandmark { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.brandmark .bm { width: 18px; height: 18px; border-radius: 5px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 800; display: grid; place-items: center; }
+.crumb { color: var(--muted); font-size: 12px; display: flex; gap: 6px; }
+.crumb b { color: var(--text); font-weight: 600; }
+.crumb .sep { color: var(--dim); }
+.shell { flex: 1; display: flex; min-height: 0; }
+.rail { width: 220px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 16px; }
+.eyebrow { padding: 4px 8px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.nav-item { display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 2px solid transparent; padding: 7px 8px; border-radius: 5px; color: var(--muted); cursor: pointer; }
+.nav-item:hover { color: var(--text); }
+.nav-item.active { background: var(--nav-active); color: var(--text); border-left-color: var(--accent); font-weight: 600; }
+.rail-note { margin-top: auto; font-size: 11px; line-height: 16px; color: var(--dim); padding: 0 8px; }
+
+/* mock strip: exists only in this mockup */
+.mockbar { flex-shrink: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 16px; border-bottom: 1px dashed var(--warn); background: color-mix(in srgb, var(--warn) 6%, transparent); font-size: 12px; }
+.mockbar .tag { color: var(--warn); font-weight: 700; }
+.mockbar .say { color: var(--muted); }
+.scene { background: none; border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); color: var(--text); border-radius: 100px; padding: 0 9px; cursor: pointer; font-size: 11.5px; line-height: 19px; }
+.scene:hover { border-color: var(--warn); }
+.scene.on { background: color-mix(in srgb, var(--warn) 18%, transparent); border-color: var(--warn); }
+
+.content { flex: 1; min-width: 0; display: flex; }
+.view { display: none; flex: 1; min-width: 0; }
+.view.on { display: flex; }
+.main { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.side { width: 430px; flex-shrink: 0; border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+
+/* buttons, pills */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; background: var(--sec-bg); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; }
+.btn:hover:not([disabled]) { background: var(--sec-hover); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.warnb { border-color: color-mix(in srgb, var(--warn) 60%, var(--border)); }
+.btn.darkb { border-color: color-mix(in srgb, var(--warn) 60%, var(--border)); color: var(--warn); }
+.btn[disabled] { background: var(--disabled-bg); color: var(--dim); border-color: transparent; cursor: not-allowed; }
+.btn.sm { height: 26px; padding: 0 9px; font-size: 12px; }
+.btn.xs { height: 22px; padding: 0 8px; font-size: 11.5px; }
+.spin { width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin, .pending-dot { animation: none !important; } }
+.pill { display: inline-block; font-size: 11px; line-height: 17px; padding: 0 7px; border-radius: 4px; white-space: nowrap; border: 1px solid var(--lane); color: var(--muted); }
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+.pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.pill.unknown { color: var(--warn); border-style: dashed; border-color: var(--warn); }
+.pill.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 55%, transparent); }
+.pill.pend { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.pill.solid { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pill.cand { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.n { font-size: 12px; color: var(--dim); }
+.k { font-size: 11.5px; color: var(--muted); }
+
+/* rig bar */
+.rigbar { display: flex; align-items: center; gap: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; }
+.rig-state { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rig-state .big { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.rig-state .small { color: var(--muted); font-size: 12px; }
+.rig-procs { color: var(--muted); font-size: 12px; line-height: 17px; white-space: nowrap; }
+.rig-procs b { color: var(--text); }
+.vsep { width: 1px; align-self: stretch; background: var(--border); }
+.svc { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+/* summary */
+.summary { display: grid; grid-template-columns: 1.7fr 1.1fr 1fr 1.05fr; border: 1px solid var(--border); border-radius: 8px; }
+.summary > div { padding: 8px 14px; border-right: 1px solid var(--border); min-width: 0; }
+.summary > div:last-child { border-right: 0; }
+.v { font-size: 17px; line-height: 24px; font-weight: 600; margin-top: 1px; display: flex; align-items: center; gap: 8px; }
+.v.dis, .v.stale, .v.none { color: var(--warn); } .v.ins { color: var(--muted); }
+.views { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.views div { display: flex; gap: 6px; }
+.counts { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; font-size: 12px; line-height: 18px; margin-top: 2px; }
+.counts b { font-weight: 600; text-align: right; }
+.derived { outline: 1px dashed var(--lane); outline-offset: -5px; border-radius: 8px; }
+.dtag { font-size: 10.5px; color: var(--muted); border: 1px dashed var(--lane); border-radius: 4px; padding: 0 5px; margin-left: 6px; }
+
+/* client strip */
+.client { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.client label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.client select { background: var(--sec-bg); border: 1px solid var(--border); border-radius: 6px; height: 26px; padding: 0 6px; color: var(--text); }
+.client .help { color: var(--dim); flex: 1; min-width: 300px; }
+
+/* clusters */
+.topo { position: relative; display: flex; flex-direction: column; gap: 84px; padding: 4px 0 6px; }
+.toprow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr); gap: 28px; align-items: start; position: relative; z-index: 1; }
+.botrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 132px; align-items: stretch; position: relative; z-index: 1; }
+.corner { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.slot > .cp { height: 100%; }
+#gwsvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; z-index: 2; pointer-events: none; }
+#gwsvg .hit { stroke: transparent; stroke-width: 12; fill: none; pointer-events: stroke; cursor: help; }
+#gwsvg .trk { fill: none; stroke-width: 1.6; }
+#gwsvg .listed { stroke: var(--muted); } #gwsvg .partial { stroke: var(--warn); } #gwsvg .absent { stroke: var(--err); } #gwsvg .unknown { stroke: var(--warn); stroke-dasharray: 4 3; } #gwsvg .none { stroke: var(--lane); stroke-dasharray: 2 4; }
+#gwsvg text { font-size: 10.5px; fill: var(--muted); font-family: inherit; }
+#gwsvg text.listed { fill: var(--muted); } #gwsvg text.partial, #gwsvg text.unknown { fill: var(--warn); } #gwsvg text.absent { fill: var(--err); } #gwsvg text.none { fill: var(--dim); }
+#gwsvg .tagbg { fill: var(--bg); }
+#gwsvg .cap { fill: var(--dim); }
+.cp { border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; min-width: 0; }
+.cp.hub { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.cp.isdark { border-color: var(--warn); }
+.cp.isdark .srv { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--warn) 6%, transparent) 6px 7px); }
+.cp-head { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.cp-title { display: flex; align-items: center; gap: 10px; }
+.cp-name { font-weight: 600; font-size: 15px; }
+.cp-role { color: var(--muted); font-size: 12px; }
+.cp-title .btn { margin-left: auto; }
+.darkrow { display: flex; align-items: center; gap: 8px; }
+.darkbox { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--sec-bg); }
+.darkbox .ds { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.darkbox .dd { font-size: 11.5px; color: var(--muted); line-height: 16px; }
+.darkbox.on { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--sec-bg)); }
+.darkbox.on .ds { color: var(--warn); }
+.darkbox.moving { border: 1px dashed var(--accent); }
+.darkbox.moving .ds { color: var(--accent); }
+.leadnote { font-size: 11.5px; line-height: 16px; color: var(--muted); padding: 3px 8px; border-left: 2px solid var(--accent); }
+.srvs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--border); }
+.srv { display: flex; flex-direction: column; gap: 3px; padding: 7px 12px 8px; min-width: 0; }
+.srv + .srv { border-left: 1px solid var(--border); }
+.srv-top { display: flex; align-items: baseline; gap: 8px; }
+.srv-pm { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; }
+.srv-n { font-weight: 600; font-size: 12.5px; }
+.cell-k { font-size: 10.5px; color: var(--dim); line-height: 13px; }
+.cell-v { font-size: 12px; line-height: 17px; display: flex; align-items: center; gap: 6px; }
+.belief { display: flex; flex-direction: column; min-width: 0; }
+.belief .line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.belief .who { font-weight: 600; }
+.belief .term { color: var(--muted); font-size: 12px; }
+.belief.stale .line { opacity: .55; }
+.belief .age { font-size: 11px; color: var(--dim); line-height: 15px; }
+.belief .age.stale { color: var(--warn); }
+.stream { padding: 8px 12px 10px; background: color-mix(in srgb, var(--nested) 60%, transparent); border-radius: 0 0 8px 8px; margin-top: auto; }
+.stream-h { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.stream-h b { font-size: 12.5px; }
+.stream-h .sp { flex: 1; }
+.ledger { display: flex; flex-direction: column; gap: 4px; max-height: 96px; overflow-y: auto; }
+.msg { border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); padding-top: 3px; }
+.msg-h { display: flex; gap: 8px; align-items: center; font-size: 11.5px; color: var(--dim); }
+.msg-h .mono { color: var(--text); }
+.msg-h .btn { margin-left: auto; }
+.msg-a { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-top: 2px; font-size: 11.5px; }
+.empty { color: var(--dim); font-size: 12px; }
+
+/* results row */
+.tlist { display: flex; flex-direction: column; }
+.tr { padding: 4px 0; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); font-size: 12px; line-height: 18px; }
+.tr:first-child { border-top: 0; }
+.tr-h { display: flex; gap: 8px; align-items: baseline; }
+.tr-h .n { margin-left: auto; }
+.tr-b { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; color: var(--muted); }
+.card { border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px 10px; min-width: 0; }
+.card h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card h3 .btn { margin-left: auto; }
+.kv { display: grid; grid-template-columns: 76px 1fr; column-gap: 10px; row-gap: 2px; font-size: 12px; line-height: 18px; }
+.kv > span:nth-child(odd) { color: var(--dim); }
+.ttab { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 18px; }
+.ttab th { text-align: left; font-weight: 500; color: var(--dim); font-size: 11px; padding: 0 8px 2px 0; }
+.ttab { table-layout: fixed; }
+.ttab td { padding: 2px 8px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); vertical-align: top; }
+.ttab .pill { white-space: normal; }
+.probe-res { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+
+/* side: guide + history */
+.guide { border-bottom: 1px solid var(--border); padding: 10px 16px; flex-shrink: 0; }
+.guide-h { display: flex; align-items: center; gap: 8px; }
+.guide-h h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.guide-h .pill { margin-left: 2px; }
+.guide-h button { margin-left: auto; background: none; border: 0; color: var(--accent); cursor: pointer; font-size: 12px; }
+.guide p.gi { margin: 2px 0 6px; color: var(--muted); font-size: 12px; line-height: 17px; }
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 20px 1fr; gap: 6px; font-size: 12px; line-height: 17px; padding: 3px 0; color: var(--muted); }
+.steps li::before { content: counter(s); width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--lane); display: grid; place-items: center; font-size: 10.5px; color: var(--muted); }
+.steps li.done { color: var(--dim); }
+.steps li.done::before { content: "✓"; border-color: var(--ok); color: var(--ok); }
+.steps li.next { color: var(--text); }
+.steps li.next::before { border-color: var(--accent); color: var(--accent); }
+.steps li .when { color: var(--ok); font-size: 11px; }
+.side-h { padding: 10px 16px 6px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.side-h h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.filters { display: flex; gap: 4px; margin-left: auto; }
+.filters button { background: none; border: 1px solid var(--border); border-radius: 100px; padding: 0 9px; font-size: 11.5px; cursor: pointer; color: var(--muted); }
+.filters button.on { color: var(--text); border-color: var(--accent); }
+.hist { flex: 1; overflow-y: auto; padding: 2px 0; min-height: 0; }
+.ev { display: grid; grid-template-columns: 70px 76px 1fr; gap: 8px; padding: 4px 16px; font-size: 12px; line-height: 17px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.ev .t { color: var(--dim); font-variant-numeric: tabular-nums; }
+.ev .kind { font-size: 10.5px; }
+.ev .kind.action, .ev .kind.pending { color: var(--accent); } .ev .kind.result { color: var(--ok); } .ev .kind.observation { color: var(--muted); } .ev .kind.error { color: var(--err); } .ev .kind.cancelled { color: var(--warn); }
+.ev.err .txt { color: var(--err); }
+.ev .sub { color: var(--dim); font-size: 11px; }
+.pending-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; margin-right: 5px; vertical-align: 1px; }
+@keyframes pulse { 50% { opacity: .3; } }
+
+/* overview */
+.overview { flex: 1; overflow-y: auto; padding: 24px 32px; display: grid; grid-template-columns: minmax(0, 760px) 420px; gap: 32px; align-content: start; }
+.overview h1 { margin: 0 0 6px; font-size: 22px; line-height: 30px; font-weight: 600; }
+.overview .q { font-size: 16px; line-height: 24px; margin: 0 0 14px; max-width: 64ch; }
+.overview h2 { font-size: 14px; margin: 20px 0 6px; }
+.overview p, .overview li { color: var(--muted); max-width: 72ch; }
+.overview li { margin-bottom: 4px; }
+.overview li b { color: var(--text); font-weight: 600; }
+.box { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+.box h3 { margin: 0 0 6px; font-size: 13px; }
+.box pre { margin: 6px 0 0; background: var(--sec-bg); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; font-size: 11.5px; line-height: 17px; }
+.box a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brandmark"><span class="bm">T</span>Tech Lab</div>
+    <div class="crumb"><span>Demos</span><span class="sep">/</span><span>Multi-cluster</span><span class="sep">/</span><b id="crumb">Playground</b></div>
+  </header>
+  <div class="mockbar" role="note">
+    <span class="tag">Mock data</span>
+    <span class="say">This page controls no process. Timings and outcomes are made up. Every button works against the mock. The scene buttons exist only in this mockup, to jump to a state:</span>
+    <span id="scenes"></span>
+  </div>
+  <div class="shell">
+    <nav class="rail" aria-label="Shell navigation">
+      <div><div class="eyebrow">Shell</div><button class="nav-item">Home</button><button class="nav-item">Plugins</button></div>
+      <div><div class="eyebrow">JetStream</div><button class="nav-item">Lesson 01</button><button class="nav-item">Lesson 02</button></div>
+      <div><div class="eyebrow">Multi-cluster</div>
+        <button class="nav-item active" data-go="playground">Playground</button>
+        <button class="nav-item" data-go="overview">Overview</button></div>
+      <p class="rail-note">The topbar and this rail belong to the lab shell. The plugin draws only the area to the right.</p>
+    </nav>
+    <main class="content">
+      <section class="view on" id="v-playground">
+        <div class="main">
+          <div class="rigbar" id="rigbar"></div>
+          <div class="summary" id="summary"></div>
+          <div class="client" id="client"></div>
+          <div class="topo" id="topo"><svg id="gwsvg" aria-label="Gateway links between the three clusters"></svg>
+            <div class="toprow"><div class="corner" id="cornerL"></div><div class="slot" id="cp-arb"></div><div class="corner" id="cornerR"></div></div>
+            <div class="botrow"><div class="slot" id="cp-za"></div><div class="slot" id="cp-au"></div></div>
+          </div>
+        </div>
+        <aside class="side" aria-label="Guide and history">
+          <div class="guide" id="guide"></div>
+          <div class="side-h"><h2>History</h2><div class="filters" id="filters"></div></div>
+          <div class="hist" id="hist"></div>
+        </aside>
+      </section>
+
+      <section class="view" id="v-overview">
+        <div class="overview">
+          <div>
+            <h1>T4 playground</h1>
+            <p class="q">Freeze a region, resume it, or request the meta leader in another cluster. Then watch what the nine servers report, and try a write and a metadata change.</p>
+            <p>The rig is T4: three clusters of three nats-server processes on this machine, za, au and the hub arb, joined by gateways. All nine vote on JetStream metadata. Each cluster has its own stream, ODOMETER_ZA, ODOMETER_ARB and ODOMETER_AU, with three copies inside that cluster.</p>
+            <h2>What each control does</h2>
+            <ul>
+              <li><b>Start rig</b> runs <span class="mono">lab/rig-t4.sh up</span>. The service owns that rig and stops it when it shuts down.</li>
+              <li><b>Attach</b> uses a rig that is already running. The service checks all nine processes first. It never stops a rig it attached to.</li>
+              <li><b>Freeze</b> turns Dark on: SIGSTOP to the cluster's three processes. This is a clean, total stop. It is not a network partition.</li>
+              <li><b>Resume</b> turns Dark off: SIGCONT. <b>Restore all frozen clusters</b> does it for every cluster.</li>
+              <li><b>Request leadership here</b> asks the meta leader to step down in favour of that cluster. NATS can refuse, or elect elsewhere. The page shows the leader it then observed.</li>
+              <li><b>Publish new</b> writes one message with a new ID. <b>Retry same ID</b> sends the same message again. JetStream drops a copy it already holds and says so.</li>
+              <li><b>Verify storage</b> reads the stream back and says, for each message ID, present or absent at that time.</li>
+              <li><b>Try metadata operation</b> creates and deletes a small stream. It needs a meta leader. A stream write does not.</li>
+              <li><b>Gateway arrows</b> join the panels: arb at the top, za and au below it. Each arrow is one direction, read from the server that dials out. The tag n/3 counts the servers whose fresh reading lists that direction. A dashed arrow, tagged ?/3, has no fresh reading from its own end. A listed gateway is not proof that the far side answers.</li>
+              <li><b>Client connection</b> picks the cluster the service connects through. The destination stream is set by the panel. So you can publish through au to ODOMETER_ZA.</li>
+            </ul>
+            <h2>What the page cannot tell you</h2>
+            <ul>
+              <li>A monitor that does not answer is not proof that the process stopped, or that quorum is lost. Process state is shown on its own.</li>
+              <li>A missing or stale reading is unknown. It never counts as a vote, and never as zero.</li>
+              <li>Times to agreement are polled every 0.5 s, so each is good to about half a second.</li>
+              <li>What the playground shows is not evidence. Measured results live in REPORT-10.</li>
+            </ul>
+          </div>
+          <div>
+            <div class="box"><h3>Start</h3>
+              <div>The control service, from the repo root:</div>
+              <pre>go run ./demos/03-multi-cluster-and-accounts/playground serve</pre>
+              <div style="margin-top:8px">Then open the Playground and press Start rig, or Attach.</div></div>
+            <div class="box"><h3>Measured results</h3>
+              <ul style="margin:0;padding-left:18px">
+                <li><a href="#">REPORT-10.html</a>: exercise 10, every check</li>
+                <li><a href="#">Pattern cards v0.6</a>: card 14</li>
+                <li><a href="#">Terminal steps</a>: the same actions by hand</li></ul></div>
+            <div class="box"><h3>Do not run beside the lab</h3>
+              <p style="margin:0">A lab script stops every t- server when it starts. Stop the playground before you run <span class="mono">run-all.sh</span> or exercise 10.</p></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+/* ===================== MOCK ENGINE (illustrative only) ===================== */
+const CL = ['za', 'arb', 'au'];
+const ROLE = { za: 'region', arb: 'hub', au: 'region' };
+const STREAM = { za: 'ODOMETER_ZA', arb: 'ODOMETER_ARB', au: 'ODOMETER_AU' };
+const SRV = { za: ['za-1','za-2','za-3'], arb: ['arb-1','arb-2','arb-3'], au: ['au-1','au-2','au-3'] };
+const ALL = [...SRV.za, ...SRV.arb, ...SRV.au];
+const MPORT = { 'za-1':8231,'za-2':8232,'za-3':8233,'arb-1':8541,'arb-2':8542,'arb-3':8543,'au-1':8241,'au-2':8242,'au-3':8243 };
+const FRESH = 1.5, QUORUM = 5, WATCH = 15, BASE = 14 * 3600 + 2 * 60;
+const clusterOf = s => s.split('-')[0];
+const fmtT = t => { const x = BASE + t; const h = Math.floor(x / 3600), m = Math.floor(x / 60) % 60, s = x % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${s.toFixed(1).padStart(4,'0')}`; };
+const hms = t => fmtT(t).slice(0, 8);
+const ago = t => `${(S.now - t).toFixed(1)} s`;
+
+let S, Q, nextPoll, filter = 'all', scene = null, guideOpen = true;
+
+function reset() {
+  S = { now: 0, rig: { status: 'absent', owner: null, why: '' }, proc: {}, pid: {}, mon: {}, belief: {},
+        truth: { leader: null, term: 0 }, epoch: 0, resumes: 0, streams: {}, pending: [], hist: [], hid: 0,
+        probe: null, sumKey: '', lastAgree: null, lead: null, trans: [], n: 0, timeouts: 0,
+        dark: {}, gw: {}, settings: { via: 'auto', pubTimeout: 5 }, did: {}, zaOffs: 0 };
+  ALL.forEach((s, i) => { S.proc[s] = 'absent'; S.pid[s] = 41210 + i * 7; S.mon[s] = { ans: null, tryAt: null, tryOk: null }; S.belief[s] = null; S.gw[s] = null; });
+  CL.forEach(c => { S.streams[c] = { seq: 0, msgs: [] }; S.dark[c] = { want: 'off', since: null, resumedAt: null, p: null, conf: 0, of: 0 }; });
+  Q = []; nextPoll = 0.5;
+}
+/* at(): mock cluster behaviour, dropped when the topology changes again.
+   atAny(): command completions, never dropped. */
+function at(dt, fn) { Q.push({ due: S.now + dt, fn, ep: S.epoch }); Q.sort((a, b) => a.due - b.due); }
+function atAny(dt, fn) { Q.push({ due: S.now + dt, fn, ep: null }); Q.sort((a, b) => a.due - b.due); }
+function advance(dt) {
+  const end = S.now + dt;
+  for (;;) {
+    const ev = Q[0], nd = ev ? ev.due : Infinity;
+    if (Math.min(nd, nextPoll) > end) break;
+    if (nextPoll <= nd) { S.now = nextPoll; poll(); nextPoll += 0.5; }
+    else { Q.shift(); S.now = ev.due; if (ev.ep === null || ev.ep === S.epoch) ev.fn(); }
+  }
+  S.now = end;
+}
+function log(kind, text, cluster = null, extra = {}) { const e = { id: ++S.hid, t: S.now, kind, text, cluster, ...extra }; S.hist.unshift(e); if (S.hist.length > 400) S.hist.pop(); return e; }
+const did = tag => { if (!S.did[tag]) S.did[tag] = S.now; };
+
+/* pending commands: each ends in finish() or cancel(); the watchdog in poll() closes overruns */
+function begin(key, label, cluster, limit, lane) {
+  const p = { key, label, cluster, start: S.now, limit, lane, ev: null };
+  p.ev = log('pending', label, cluster, { pend: p }); S.pending.push(p); return p;
+}
+function close(p, sub) { if (!S.pending.includes(p)) return false; S.pending = S.pending.filter(x => x !== p); p.ev.done = true; p.ev.kind = 'action'; p.ev.sub = sub; return true; }
+function finish(p, kind, text, sub) { if (close(p, `finished after ${(S.now - p.start).toFixed(1)} s`)) log(kind, text, p.cluster, { sub }); }
+function cancel(p, why) { if (close(p, `cancelled after ${(S.now - p.start).toFixed(1)} s`)) log('cancelled', `${p.label.split(':')[0]} cancelled: ${why}`, p.cluster); }
+const busy = key => S.pending.find(p => p.key === key);
+
+/* readings and summary */
+const running = () => ALL.filter(s => S.proc[s] === 'running');
+const upIn = c => SRV[c].filter(s => S.proc[s] === 'running').length;
+function poll() {
+  for (const s of ALL) {
+    const m = S.mon[s];
+    if (S.rig.status === 'absent' && !m.ans && m.tryAt === null) continue;
+    const was = m.tryOk; m.tryAt = S.now;
+    if (S.proc[s] === 'running' && S.belief[s]) {
+      const b = S.belief[s], old = m.ans; m.ans = { ...b, at: S.now }; m.tryOk = true;
+      S.gw[s] = { at: S.now, to: Object.fromEntries(CL.filter(c => c !== clusterOf(s)).map(c => [c, gwHeld(s, c)])) };
+      if (was === false) log('observation', `t-${s} monitor answers again`, clusterOf(s));
+      if (old && (old.leader !== b.leader || old.term !== b.term || old.role !== b.role))
+        log('observation', `t-${s} now reports ${b.leader ? 't-' + b.leader : 'no leader'}, term ${b.term}, ${b.role.toLowerCase()}`, clusterOf(s));
+    } else {
+      m.tryOk = false;
+      if (was === true) log('observation', `t-${s} monitor did not answer within 1 s`, clusterOf(s));
+    }
+  }
+  const sm = summary();
+  const key = sm.state + (sm.leader || '') + (sm.term || '');
+  if (key !== S.sumKey && S.rig.status !== 'absent') { S.sumKey = key; log('observation', `Meta summary: ${sm.title}${sm.leader ? ', t-' + sm.leader + ' term ' + sm.term : ''}`); }
+  if (S.rig.status === 'starting' || S.rig.status === 'ready') if (sm.state === 'agreed') did('agreed');
+  // leadership request: watch for the outcome
+  const L = S.lead;
+  if (L && L.outcome === 'watching') {
+    if (sm.state === 'agreed' && (!L.before || sm.term > L.before.term)) {
+      L.observed = { leader: sm.leader, term: sm.term, at: S.now }; L.outcome = 'done';
+      finish(L.p, 'result', `Requested ${L.cluster}. Observed t-${sm.leader} in ${clusterOf(sm.leader)}, term ${sm.term}.`,
+        clusterOf(sm.leader) === L.cluster ? 'Nothing keeps the leader there.' : 'The leader is not in the requested cluster.');
+    } else if (S.now - L.replyAt > 10) {
+      L.outcome = 'done'; L.observed = null;
+      finish(L.p, 'result', `Requested ${L.cluster}. No new agreed leader observed within 10 s.`, 'See the summary for what each server reports.');
+    }
+  }
+  // transitions: time from a confirmed change to the next agreement
+  for (const tr of S.trans) {
+    if (!tr.open) continue;
+    if (sm.state !== 'agreed') tr.sawNon = true;
+    else if (tr.sawNon || !tr.before || sm.leader !== tr.before.leader || sm.term !== tr.before.term) {
+      tr.agreeAt = S.now; tr.after = { leader: sm.leader, term: sm.term }; tr.open = false; continue;
+    }
+    if (S.now - tr.t > WATCH) { tr.open = false; tr.end = tr.sawNon ? 'none' : 'steady'; if (!tr.sawNon) tr.after = tr.before; }
+  }
+  // watchdog
+  for (const p of [...S.pending]) if (S.now - p.start > p.limit + 1)
+    finish(p, 'error', `${p.label.split(':')[0]}: no completion within ${p.limit} s. Marked timed out by the service.`);
+}
+/* mock: a server lists an outbound gateway to a cluster once that cluster's processes exist.
+   A SIGSTOPped peer stays listed here (its TCP socket stays open). The real page shows
+   whatever /gatewayz says; how long the live side keeps listing a stopped peer is unmeasured. */
+function gwHeld(s, c) { return S.now - (S.upAt ?? Infinity) > 1.2 && SRV[c].some(x => S.proc[x] !== 'absent'); }
+function gwLink(from, to) {
+  const rows = SRV[from].map(s => { const g = S.gw[s]; const fresh = g && S.now - g.at <= FRESH;
+    return { s, fresh, listed: fresh && g.to[to], age: g ? S.now - g.at : null }; });
+  const fr = rows.filter(r => r.fresh), k = fr.filter(r => r.listed).length;
+  let st;
+  if (S.rig.status === 'absent' && !rows.some(r => r.age !== null)) st = 'none';
+  else if (!fr.length) st = 'unknown';
+  else if (k === 3) st = 'listed';
+  else if (k === 0 && fr.length === 3) st = 'absent';
+  else st = 'partial';
+  const tag = st === 'none' ? '' : st === 'unknown' ? 'no reading' : `${k}/3`;
+  const tip = `${from} → ${to}: outbound gateway, from ${from}'s own /gatewayz\n` + rows.map(r =>
+    `t-${r.s}: ${r.age === null ? 'no reading' : !r.fresh ? `no fresh reading (last ${r.age.toFixed(1)} s ago)` : r.listed ? 'lists an outbound connection to ' + to : 'no outbound connection to ' + to}`).join('\n')
+    + (st === 'listed' ? '\nListed means the server holds a connection. It does not prove the far side answers.' : '');
+  return { st, tag, tip };
+}
+function summary() {
+  const fresh = ALL.filter(s => S.mon[s].ans && S.now - S.mon[s].ans.at <= FRESH);
+  const stale = ALL.filter(s => S.mon[s].ans && S.now - S.mon[s].ans.at > FRESH);
+  const never = ALL.filter(s => !S.mon[s].ans);
+  const noAns = ALL.filter(s => S.mon[s].tryOk === false);
+  const views = new Map();
+  for (const s of fresh) { const a = S.mon[s].ans; const k = a.leader ? `${a.leader}@${a.term}` : 'none';
+    if (!views.has(k)) views.set(k, []); views.get(k).push(s); }
+  const base = { fresh: fresh.length, stale: stale.length, never: never.length, noAns: noAns.length, views };
+  if (S.rig.status === 'absent') return { ...base, state: 'ins', title: 'No readings', why: 'No rig is running.' };
+  if (views.size > 1) return { ...base, state: 'dis', title: 'Disagreement', why: 'Fresh readings name different leaders or terms.' };
+  if (views.size === 1) {
+    const [k, who] = [...views][0];
+    if (k === 'none' && who.length >= QUORUM) return { ...base, state: 'none', title: 'Agreed: no leader', why: `${who.length} fresh readings, and none reports a leader.` };
+    if (k !== 'none') {
+      const [l, t] = k.split('@'); const own = S.mon[l].ans;
+      if (who.length >= QUORUM && own && S.now - own.at <= FRESH && own.role === 'LEADER') {
+        S.lastAgree = { leader: l, term: +t, at: S.now };
+        return { ...base, state: 'agreed', title: 'Agreed', leader: l, term: +t, why: `Named by ${who.length} fresh readings, and t-${l} reports LEADER.` };
+      }
+    }
+  }
+  if (S.lastAgree && S.now - S.lastAgree.at > FRESH && fresh.length < QUORUM)
+    return { ...base, state: 'stale', title: 'Stale', why: `Last agreed t-${S.lastAgree.leader}, term ${S.lastAgree.term}, ${ago(S.lastAgree.at)} ago. Too few fresh readings to say more.` };
+  return { ...base, state: 'ins', title: 'Insufficient evidence', why: fresh.length < QUORUM ? `Only ${fresh.length} fresh readings. Unknown is not a vote.` : 'The named leader has no fresh reading of its own.' };
+}
+function openTransition(label) {
+  const b = S.lastAgree ? { leader: S.lastAgree.leader, term: S.lastAgree.term } : null;
+  S.trans.forEach(tr => { if (tr.open) { tr.open = false; tr.end = 'next'; } });   // a new change ends the previous watch
+  S.trans.unshift({ label, t: S.now, before: b, sawNon: false, agreeAt: null, after: null, open: true, end: null });
+  S.trans = S.trans.slice(0, 8);
+}
+
+/* mock cluster behaviour (illustrative) */
+function settle() { const L = S.truth.leader; if (L && S.proc[L] === 'running' && running().length >= QUORUM)
+  running().forEach(s => S.belief[s] = { leader: L, term: S.truth.term, role: s === L ? 'LEADER' : 'FOLLOWER' }); }
+function spread(leader, term, start, step) {
+  const order = [leader, ...running().filter(s => s !== leader)];
+  order.forEach((s, i) => at(start + i * step, () => { if (S.proc[s] === 'running') S.belief[s] = { leader, term, role: s === leader ? 'LEADER' : 'FOLLOWER' }; }));
+  at(start + order.length * step + 0.3, settle);
+}
+function pick(prefer) { for (const c of prefer) for (const s of SRV[c]) if (S.proc[s] === 'running') return s; return null; }
+function topologyChanged() {
+  S.epoch++;
+  const live = running(), L = S.truth.leader, T = S.truth.term;
+  if (L && S.proc[L] !== 'running') {
+    S.truth.leader = null;
+    if (live.length >= QUORUM) {
+      live.forEach((s, i) => at(2.0 + i * 0.15, () => S.belief[s] = { leader: null, term: T + 1, role: 'CANDIDATE' }));
+      at(3.2, () => { const nl = pick(['arb', 'za', 'au']); S.truth = { leader: nl, term: T + 1 }; spread(nl, T + 1, 0, 0.2); });
+    } else clearOneByOne(live, T, 1.5);
+  } else if (L && live.length < QUORUM) {
+    S.truth.leader = null;
+    at(2.0, () => S.belief[L] = { leader: null, term: T, role: 'FOLLOWER' });
+    clearOneByOne(live.filter(s => s !== L), T, 2.6);
+  } else at(1.0, settle);
+}
+function clearOneByOne(list, T, start) {
+  list.forEach((s, i) => at(start + i * 1.1, () => S.belief[s] = { leader: null, term: T + (i % 2), role: i % 2 ? 'CANDIDATE' : 'FOLLOWER' }));
+}
+function afterResume(back) {
+  if (!back.length) return;
+  S.epoch++;
+  const live = running(), L = S.truth.leader, T = S.truth.term;
+  if (L) {
+    S.resumes++;
+    if (S.resumes % 2 === 1) {            // a disturbed return (mock)
+      at(0.8, () => back.forEach(s => S.belief[s] = { leader: null, term: T + 1, role: 'CANDIDATE' }));
+      at(2.0, () => { const nl = back[back.length - 1]; S.truth = { leader: nl, term: T + 2 }; spread(nl, T + 2, 0, 0.15); });
+    } else {                              // a steady return (mock)
+      back.forEach((s, i) => at(0.6 + i * 0.2, () => S.belief[s] = { leader: L, term: T, role: 'FOLLOWER' }));
+      at(1.5, settle);
+    }
+  } else if (live.length >= QUORUM) {
+    const maxT = Math.max(...live.map(s => (S.belief[s] || { term: 0 }).term));
+    at(1.4, () => { const nl = pick(['arb', 'za', 'au']); S.truth = { leader: nl, term: maxT + 1 }; spread(nl, maxT + 1, 0, 0.15); });
+  }
+}
+/* the client connection: Auto = destination cluster, then arb, then the other region; running servers only */
+function entry(target) {
+  const v = S.settings.via;
+  if (v === 'auto') { const s = pick([target, 'arb', ...CL.filter(c => c !== target && c !== 'arb')]); return s ? { s } : { err: 'No running server in any cluster.' }; }
+  const s = pick([v]); return s ? { s } : { err: `No running server in ${v}. Change the client connection, or resume ${v}.` };
+}
+
+/* ===================== the actions, as the real page would offer them ===================== */
+const A = {
+  start() {
+    if (S.rig.status !== 'absent') return;
+    S.rig = { status: 'starting', owner: 'owned', why: '' };
+    const p = begin('life', 'Start rig: lab/rig-t4.sh up', null, 120, 'lifecycle');
+    ALL.forEach((s, i) => atAny(0.25 * (i + 1), () => { S.proc[s] = 'running'; S.belief[s] = { leader: null, term: 0, role: 'FOLLOWER' };
+      log('observation', `t-${s} process running, pid ${S.pid[s]}, identity verified`, clusterOf(s)); }));
+    atAny(2.25, () => { S.upAt = S.now; });
+    atAny(3.2, () => { S.truth = { leader: 'za-2', term: 1 }; spread('za-2', 1, 0, 0.1); });
+    atAny(4.4, () => log('result', 'Streams ready: ODOMETER_ZA, ODOMETER_ARB, ODOMETER_AU (R3, one per cluster)'));
+    atAny(4.6, () => { S.rig.status = 'ready'; did('ready'); finish(p, 'result', 'Rig ready. Owned by this service. 9 of 9 processes verified, meta size 9.'); });
+  },
+  attach() {
+    if (S.rig.status !== 'absent') return;
+    const p = begin('life', 'Attach to a running rig', null, 10, 'lifecycle');
+    atAny(0.8, () => finish(p, 'error', 'Nothing to attach to. No process holds the nine T4 monitor ports.', 'Start rig instead.'));
+  },
+  stop() {
+    if (S.rig.owner !== 'owned' || S.rig.status !== 'ready') return;
+    S.rig.status = 'stopping'; S.epoch++;
+    [...S.pending].forEach(p => cancel(p, 'the rig is stopping'));
+    const p = begin('life', 'Stop rig: SIGCONT, then SIGTERM to 9 verified processes', null, 30, 'lifecycle');
+    ALL.forEach((s, i) => atAny(0.3 + i * 0.1, () => { S.proc[s] = 'absent'; log('observation', `t-${s} process exited`, clusterOf(s)); }));
+    atAny(1.5, () => { finish(p, 'result', 'Rig stopped. Nine processes exited.'); const h = S.hist, id = S.hid; reset(); S.hist = h; S.hid = id; });
+  },
+  freeze(c) {
+    const d = S.dark[c]; if (S.rig.status !== 'ready' || d.want === 'on') return;
+    const targets = SRV[c].filter(s => S.proc[s] === 'running'); if (!targets.length) return;
+    if (d.p) cancel(d.p, 'superseded by Freeze');
+    d.want = 'on'; d.since = null; d.conf = 0; d.of = targets.length;
+    const p = begin('dark-' + c, `Freeze ${c}: SIGSTOP sent to ${targets.map(s => 't-' + s).join(' ')}`, c, 2, 'signal'); d.p = p;
+    targets.forEach((s, i) => atAny(0.15 + i * 0.15, () => {
+      if (d.p !== p) return;
+      S.proc[s] = 'stopped'; d.conf++;
+      if (d.conf === d.of) { d.since = S.now; d.p = null; did('freeze:' + c);
+        if (S.dark.za.want === 'on' && S.dark.au.want === 'on') did('bothdark');
+        finish(p, 'result', `${c}: Dark on. ${d.of} of ${d.of} processes confirmed stopped (ps state T).`, 'Monitors are read separately.');
+        openTransition(`Dark ${c} on`); topologyChanged(); }
+    }));
+  },
+  resume(c) {
+    const d = S.dark[c];
+    const targets = SRV[c].filter(s => S.proc[s] === 'stopped' || (d.p && d.want === 'on' && S.proc[s] === 'running'));
+    if (d.want === 'off' && !SRV[c].some(s => S.proc[s] === 'stopped')) return;
+    if (d.p) cancel(d.p, `superseded by Resume after ${ago(d.p.start)}`);
+    const back = SRV[c].filter(s => S.proc[s] === 'stopped');
+    d.want = 'off'; d.since = null; d.conf = 0; d.of = targets.length;
+    const p = begin('dark-' + c, `Resume ${c}: SIGCONT sent to ${targets.map(s => 't-' + s).join(' ')}`, c, 2, 'signal'); d.p = p;
+    targets.forEach((s, i) => atAny(0.1 + i * 0.12, () => {
+      if (d.p !== p) return;
+      S.proc[s] = 'running'; d.conf++;
+      if (d.conf === d.of) { d.resumedAt = S.now; d.p = null; did('resume:' + c); if (c === 'za') S.zaOffs++;
+        S.streams[c].msgs.forEach(m => { if (m.hidden && !m.seq) { m.seq = ++S.streams[c].seq; m.hidden = false; } });
+        finish(p, 'result', `${c}: Dark off. ${d.of} of ${d.of} processes confirmed running.`);
+        if (back.length) { openTransition(`Dark ${c} off`); afterResume(back); } }
+    }));
+  },
+  restore() {
+    const list = CL.filter(c => S.dark[c].want === 'on' || SRV[c].some(s => S.proc[s] === 'stopped'));
+    if (!list.length) return;
+    log('action', `Restore all frozen clusters: ${list.join(', ')}`); did('restore');
+    list.forEach(c => A.resume(c));
+  },
+  leadership(c) {
+    if (busy('lead') || S.rig.status !== 'ready') return;
+    const e = entry(c); if (!e.s) { log('error', `Request leadership refused before sending: ${e.err}`, c); return; }
+    const sm = summary();
+    const p = begin('lead', `Request leadership here: ${c}, via t-${e.s} as $SYS`, c, 13, 'nats');
+    const L = S.lead = { cluster: c, via: e.s, at: S.now, before: sm.state === 'agreed' ? { leader: sm.leader, term: sm.term } : null,
+      beforeState: sm.title, reply: 'pending', replyText: '', replyAt: null, observed: null, outcome: 'pending', p };
+    atAny(0.5, () => {
+      if (S.lead !== L || L.reply !== 'pending' || !S.truth.leader) return;     // no leader: the 3 s timeout below answers
+      const target = SRV[c].find(s => S.proc[s] === 'running' && s !== S.truth.leader);
+      if (!target) { L.reply = 'refused'; L.replyText = `no eligible peer in ${c}`; L.outcome = 'done';
+        finish(p, 'error', `Request refused: no eligible peer in ${c}.`, 'Mock reply text. The real page shows the server\'s reply.'); return; }
+      L.reply = 'accepted'; L.replyAt = S.now; L.outcome = 'watching'; did('lead:' + c);
+      log('result', 'Step-down request accepted by the meta leader. Watching for agreement (10 s).', c);
+      const T = S.truth.term; S.truth = { leader: target, term: T + 1 }; S.epoch++;
+      spread(target, T + 1, 0.5, 0.15);
+      openTransition(`Leadership requested in ${c}`);
+    });
+    atAny(3.0, () => { if (S.lead === L && L.reply === 'pending') { L.reply = 'noreply'; L.outcome = 'done';
+      finish(p, 'error', 'No reply within 3 s. No meta leader answered the request.'); } });
+  },
+  publish(c, retryId) {
+    if (S.rig.status !== 'ready' || busy('pub-' + c)) return;
+    const st = S.streams[c]; let m;
+    if (retryId) { m = st.msgs.find(x => x.id === retryId); if (!m) return; }
+    else { m = { id: `pg-a1-${c}-${++S.n}`, attempts: [], seq: null, hidden: false, verify: null }; st.msgs.unshift(m); }
+    const verb = retryId ? 'Retry same ID' : 'Publish new';
+    const e = entry(c), a = { t: S.now, via: e.s, state: 'pending', seq: null, limit: S.settings.pubTimeout };
+    m.attempts.push(a);
+    if (!e.s) { a.state = 'refused'; log('error', `${verb} ${m.id} refused before sending: ${e.err}`, c, { sub: 'Not sent. This outcome is known.' }); return; }
+    if (retryId) did('retry');
+    const p = begin('pub-' + c, `${verb}: ${m.id} to ${STREAM[c]} via t-${e.s}`, c, a.limit, 'nats');
+    if (upIn(c) >= 2) atAny(clusterOf(e.s) === c ? 0.12 : 0.28, () => {
+      did('pub:' + c);
+      if (m.seq) { a.state = 'dup'; a.seq = m.seq; finish(p, 'result', `Acknowledged as a duplicate: ${m.id} is already stored at seq ${m.seq}.`, 'JetStream matched the Nats-Msg-Id and stored nothing new.'); }
+      else { m.seq = ++st.seq; a.state = 'acked'; a.seq = m.seq; finish(p, 'result', `Acknowledged: ${STREAM[c]} seq ${m.seq}.`); }
+    });
+    else atAny(a.limit, () => {
+      did('pub:' + c); a.state = 'unknown';
+      if (!m.seq && S.timeouts++ % 2 === 0) m.hidden = true;           // mock: some timed-out writes are stored later
+      finish(p, 'error', `${m.id}: no acknowledgement in ${a.limit} s. Outcome unknown.`, 'It may or may not be stored. Verify storage, or retry with the same ID.');
+    });
+  },
+  verify(c) {
+    if (busy('ver-' + c) || S.rig.status !== 'ready') return;
+    const list = S.streams[c].msgs.filter(m => m.attempts.some(a => a.state !== 'pending' && a.state !== 'refused'));
+    if (!list.length) return;
+    const e = entry(c); if (!e.s) { log('error', `Verify storage refused before sending: ${e.err}`, c); return; }
+    const p = begin('ver-' + c, `Verify storage: ${list.length} message IDs in ${STREAM[c]} via t-${e.s}`, c, 3, 'nats');
+    if (upIn(c) < 2) { atAny(3.0, () => finish(p, 'error', 'Read timed out after 3 s. Storage not verified.', 'Mock: reads fail while the stream\'s cluster is dark.')); return; }
+    atAny(0.4, () => {
+      let pr = 0, ab = 0; did('verify:' + c);
+      list.forEach(m => { if (m.seq) { m.verify = { res: 'present', seq: m.seq, at: S.now }; pr++; } else { m.verify = { res: 'absent', at: S.now }; ab++; } });
+      finish(p, 'result', `${pr} present, ${ab} absent, as of ${fmtT(S.now)}.`, ab ? 'Absent means absent at this time. A later read can differ.' : '');
+    });
+  },
+  probe() {
+    if (busy('probe') || S.rig.status !== 'ready') return;
+    const e = entry('arb'); if (!e.s) { log('error', `Metadata operation refused before sending: ${e.err}`); return; }
+    const p = begin('probe', `Metadata operation: create, delete, check PG_PROBE_${S.n + 1} via t-${e.s}`, null, 10, 'nats');
+    S.probe = { state: 'pending', via: e.s, res: null, at: S.now };
+    if (S.truth.leader) atAny(0.6, () => { did('probe'); S.probe = { state: 'done', via: e.s, at: S.now, res: [['create', 'ok'], ['delete', 'ok'], ['check', 'gone']] }; finish(p, 'result', 'Metadata operation: create ok, delete ok, gone.'); });
+    else atAny(10.0, () => { did('probe'); S.probe = { state: 'done', via: e.s, at: S.now, res: [['create', 'failed 10008'], ['delete', 'not tried'], ['check', 'not tried']] };
+      finish(p, 'error', 'Create failed: JetStream system temporarily unavailable (10008), after 10 s.', 'Metadata needs a meta leader. A stream write does not.'); });
+  },
+};
+
+/* ===================== scenes (mockup only) ===================== */
+const ready = () => { A.start(); advance(6); };
+const hubAndZaDark = () => { ready(); A.leadership('arb'); advance(3); A.freeze('za'); advance(3); };
+const SCENES = [
+  ['Not running', () => {}],
+  ['Starting', () => { A.start(); advance(1.7); }],
+  ['Ready', () => ready()],
+  ['Leadership pending', () => { ready(); A.leadership('arb'); advance(0.3); }],
+  ['ZA going dark', () => { ready(); A.leadership('arb'); advance(3); A.freeze('za'); advance(0.25); }],
+  ['ZA dark, publish pending', () => { hubAndZaDark(); A.publish('arb'); advance(.5); A.publish('za'); advance(2.2); }],
+  ['Publish timed out', () => { hubAndZaDark(); A.publish('arb'); advance(.5); A.publish('za'); advance(5.5); }],
+  ['Recovery disagreement', () => { hubAndZaDark(); A.publish('za'); advance(5.5); A.resume('za'); advance(1.6); }],
+  ['Retry via AU, verify', () => { hubAndZaDark(); A.publish('za'); advance(5.5); A.resume('za'); advance(5); S.settings.via = 'au'; A.publish('za', 'pg-a1-za-1'); advance(1); A.publish('za'); advance(1); A.verify('za'); advance(1); }],
+  ['Both regions dark', () => { ready(); A.leadership('arb'); advance(3); A.freeze('za'); advance(.5); A.freeze('au'); advance(5); A.publish('arb'); advance(.5); A.probe(); advance(3); }],
+  ['Request, then freeze at once', () => { ready(); A.leadership('za'); advance(0.1); A.freeze('za'); advance(5.5); }],
+  ['Attach refused', () => {
+    ALL.forEach(s => { S.proc[s] = 'running'; S.belief[s] = { leader: 'arb-1', term: 22, role: s === 'arb-1' ? 'LEADER' : 'FOLLOWER' }; });
+    S.rig = { status: 'refused', owner: null, why: 't-arb-2: pid 41255 runs "nats-server -c arb-2.conf", expected "nats-server -c t-arb-2.conf". Control refused for the whole rig. Monitors are still read.' };
+    S.proc['arb-2'] = 'unverified'; S.upAt = -5;
+    log('action', 'Attach to a running rig', null, { done: true, sub: 'finished after 0.6 s' });
+    log('error', 'Attach refused: 8 of 9 processes verified.', null, { sub: 't-arb-2 failed the command-line check. Nothing was signalled.' });
+    advance(2); }],
+];
+function playScene(i) { reset(); scene = i; SCENES[i][1](); render(); }
+
+/* ===================== render ===================== */
+const procView = s => ({ running: ['running', 'var(--ok)'], stopped: ['stopped (T)', 'var(--warn)'], absent: ['not running', 'var(--dim)'], unverified: ['unverified', 'var(--err)'] }[S.proc[s]]);
+function btn(act, label, o = {}) {
+  const p = o.key && busy(o.key);
+  const dis = o.disabled || (p && !o.allowWhileBusy);
+  const inner = p && o.busyLabel ? `<span class="spin"></span>${o.busyLabel} ${(S.now - p.start).toFixed(1)} s` : label;
+  return `<button class="btn ${o.cls || ''} ${o.size || ''}" data-act="${act}" ${dis ? 'disabled' : ''} ${o.title ? `title="${o.title}"` : ''}>${inner}</button>`;
+}
+function renderRig() {
+  const r = S.rig, live = running().length, stopped = ALL.filter(s => S.proc[s] === 'stopped').length;
+  const map = { absent: ['Rig not running', 'var(--dim)', 'Start the managed T4 rig, or attach to one that is running.'],
+    starting: ['Starting', 'var(--accent)', `lab/rig-t4.sh up: ${live} of 9 processes running. Waiting for a nine-member meta group.`],
+    ready: ['Ready', 'var(--ok)', r.owner === 'owned' ? 'Owned: this service started the rig, and stops it when it shuts down.' : 'Attached: this service did not start the rig, and never stops it.'],
+    stopping: ['Stopping', 'var(--warn)', 'SIGCONT, then SIGTERM, to the nine verified processes.'],
+    refused: ['Control refused', 'var(--err)', r.why] }[r.status];
+  const anyDark = CL.some(c => S.dark[c].want === 'on' || SRV[c].some(s => S.proc[s] === 'stopped'));
+  document.getElementById('rigbar').innerHTML = `
+    <div class="rig-state"><div class="big"><span class="dot" style="background:${map[1]}"></span>${map[0]}${r.owner ? `<span class="pill">${r.owner}</span>` : ''}</div>
+      <div class="small">${map[2]}</div></div>
+    <div class="rig-procs">Processes<br><b>${live} running, ${stopped} stopped</b></div>
+    ${btn('start', 'Start rig', { cls: 'primary', disabled: r.status !== 'absent', key: 'life', busyLabel: 'Starting' })}
+    ${btn('attach', 'Attach', { disabled: r.status !== 'absent' || !!busy('life') })}
+    ${btn('stop', 'Stop rig', { disabled: !(r.status === 'ready' && r.owner === 'owned'), title: r.owner === 'attached' ? 'This service did not start the rig' : '' })}
+    <span class="vsep"></span>
+    ${btn('restore', 'Restore all frozen clusters', { cls: 'warnb', disabled: !anyDark, title: 'Works while other commands are pending' })}
+    <span class="vsep"></span>
+    <span class="svc"><span class="dot" style="background:var(--ok)"></span>Control service answering</span>`;
+}
+function renderSummary() {
+  const m = summary();
+  const views = m.state === 'dis' ? `<div class="views">${[...m.views].map(([k, who]) => `<div><b>${k === 'none' ? 'no leader' : 't-' + k.replace('@', ', term ')}</b><span>from ${who.map(s => 't-' + s).join(' ')}</span></div>`).join('')}</div>` : '';
+  const procRun = running().length, procStop = ALL.filter(s => S.proc[s] === 'stopped').length;
+  document.getElementById('summary').innerHTML = `
+    <div><div class="k">Meta group, from the monitors</div>
+      <div class="v ${m.state}">${m.title}${m.state === 'agreed' ? `<span>t-${m.leader}</span><span class="pill">term ${m.term}</span>` : ''}</div>
+      <div class="n">${m.why}</div>${views}</div>
+    <div><div class="k">Readings (fresh under ${FRESH} s)</div>
+      <div class="counts"><b>${m.fresh}</b><span>fresh</span><b>${m.stale}</b><span>stale, shown greyed</span><b>${m.noAns}</b><span>no answer at the last poll</span><b>${m.never}</b><span>never answered</span></div></div>
+    <div><div class="k">Processes, from the OS</div>
+      <div class="counts"><b>${procRun}</b><span>running</span><b>${procStop}</b><span>stopped (SIGSTOP)</span><b>${9 - procRun - procStop}</b><span>not running or unverified</span></div></div>
+    <div class="derived"><div class="k">Quorum rule<span class="dtag">derived</span></div>
+      <div class="v">5 of 9</div>
+      <div class="n">Arithmetic, not a reading. Unknown readings are never counted as zero.</div></div>`;
+}
+function renderClient() {
+  const sel = (id, opts, v) => `<select id="${id}">${opts.map(([val, lab]) => `<option value="${val}" ${String(v) === String(val) ? 'selected' : ''}>${lab}</option>`).join('')}</select>`;
+  const el = document.getElementById('client');
+  if (el.contains(document.activeElement)) return;     // do not redraw a select the user has open
+  el.innerHTML = `
+    <label>Client connection ${sel('via', [['auto', 'Auto'], ['za', 'za'], ['arb', 'arb'], ['au', 'au']], S.settings.via)}</label>
+    <label>Publish timeout ${sel('pubto', [[1, '1 s'], [2, '2 s'], [5, '5 s'], [10, '10 s'], [30, '30 s']], S.settings.pubTimeout)}</label>
+    <span class="help">${S.settings.via === 'auto' ? 'Auto: the destination\'s own cluster, then arb, then the other region. Running servers only.' : `Every command goes through a running server in ${S.settings.via}. The destination stream is still the panel's.`} The server used is shown on each result.</span>`;
+}
+function darkBox(c) {
+  const d = S.dark[c], n = SRV[c].filter(s => S.proc[s] === 'stopped').length, r = upIn(c);
+  if (d.p && d.want === 'on') return `<div class="darkbox moving"><span class="ds"><span class="spin"></span>Going dark</span><span class="dd">SIGSTOP sent ${ago(d.p.start)} ago. ${d.conf} of ${d.of} confirmed stopped.</span></div>`;
+  if (d.p && d.want === 'off') return `<div class="darkbox moving"><span class="ds"><span class="spin"></span>Coming back</span><span class="dd">SIGCONT sent ${ago(d.p.start)} ago. ${d.conf} of ${d.of} confirmed running.</span></div>`;
+  if (d.want === 'on') return `<div class="darkbox on"><span class="ds">Dark: on</span><span class="dd">${n} of 3 stopped (ps state T). Dark for ${d.since !== null ? ago(d.since) : '—'}.</span></div>`;
+  const since = d.resumedAt !== null ? ` Resumed ${ago(d.resumedAt)} ago.` : '';
+  return `<div class="darkbox"><span class="ds">Dark: off</span><span class="dd">${S.rig.status === 'absent' ? 'No processes.' : `${r} of 3 running.${since}`}</span></div>`;
+}
+function leadNote(c) {
+  const L = S.lead; if (!L || L.cluster !== c) return '';
+  let s = `Leadership requested here at ${hms(L.at)}: `;
+  if (L.reply === 'pending') s += 'waiting for the reply.';
+  else if (L.reply === 'refused') s += `refused, ${L.replyText}.`;
+  else if (L.reply === 'noreply') s += 'no reply in 3 s.';
+  else if (L.outcome === 'watching') s += 'accepted, watching for agreement.';
+  else s += L.observed ? `accepted, then observed t-${L.observed.leader}, term ${L.observed.term}.` : 'accepted, no new leader observed in 10 s.';
+  return `<div class="leadnote">${s}</div>`;
+}
+function attemptPill(a) {
+  if (a.state === 'pending') return `<span class="pill pend">waiting for ack ${ago(a.t)} / ${a.limit} s</span>`;
+  if (a.state === 'acked') return `<span class="pill">acked, seq ${a.seq}</span>`;
+  if (a.state === 'dup') return `<span class="pill">acked as duplicate, seq ${a.seq}</span>`;
+  if (a.state === 'refused') return '<span class="pill err">refused, not sent</span>';
+  return `<span class="pill unknown">timed out at ${a.limit} s, outcome unknown</span>`;
+}
+function renderClusters() {
+  const ready = S.rig.status === 'ready';
+  CL.forEach(c => {
+    const d = S.dark[c];
+    const rows = SRV[c].map(s => {
+      const m = S.mon[s], a = m.ans, pv = procView(s);
+      let mon, belief;
+      if (!a && m.tryAt === null) mon = '<span style="color:var(--dim)">not polled</span>';
+      else if (m.tryOk) mon = `<span class="dot" style="background:var(--ok)"></span>answered`;
+      else mon = `<span class="dot" style="background:var(--warn)"></span>no answer`;
+      if (!a) belief = `<div class="belief"><div class="line" style="color:var(--dim)">${m.tryAt === null ? 'No reading' : 'Never answered'}</div><div class="age">port ${MPORT[s]}</div></div>`;
+      else {
+        const age = S.now - a.at, st = age > FRESH;
+        belief = `<div class="belief ${st ? 'stale' : ''}"><div class="line">${a.leader ? `<span class="who">t-${a.leader}</span>` : '<span class="who" style="color:var(--warn)">no leader</span>'}<span class="term">term ${a.term}</span><span class="pill ${a.role === 'LEADER' ? 'solid' : a.role === 'CANDIDATE' ? 'cand' : ''}">${a.role.toLowerCase()}</span></div>
+          <div class="age ${st ? 'stale' : ''}">${st ? `last answer ${age.toFixed(1)} s ago, stale` : `read ${age.toFixed(1)} s ago`}</div></div>`;
+      }
+      return `<div class="srv"><div class="srv-top"><span class="srv-n">t-${s}</span><span class="cell-k">pid ${S.proc[s] === 'absent' ? '—' : S.pid[s]}</span></div>
+        <div class="srv-pm"><span class="cell-k">Process</span><span class="cell-v"><span class="dot" style="background:${pv[1]}"></span>${pv[0]}</span>
+             <span class="cell-k">Monitor</span><span class="cell-v">${mon}</span></div>
+        ${belief}</div>`;
+    }).join('');
+    const st = S.streams[c], pubBusy = busy('pub-' + c);
+    const ledger = st.msgs.length ? st.msgs.map(m => {
+      const last = m.attempts[m.attempts.length - 1];
+      const canRetry = ready && !pubBusy && (last.state === 'unknown' || last.state === 'refused');
+      const v = m.verify ? (m.verify.res === 'present' ? `<span class="pill ok">present, seq ${m.verify.seq}, at ${hms(m.verify.at)}</span>` : `<span class="pill">absent at ${hms(m.verify.at)}</span>`) : '';
+      return `<div class="msg"><div class="msg-h"><span class="mono">${m.id}</span><span>${m.attempts.length > 1 ? m.attempts.length + ' attempts' : hms(m.attempts[0].t)}</span>
+          ${canRetry ? btn(`retry:${c}:${m.id}`, 'Retry same ID', { size: 'xs' }) : ''}</div>
+        <div class="msg-a">${m.attempts.map((a, i) => `${m.attempts.length > 1 ? `<span class="n">${i + 1}.</span>` : ''}${attemptPill(a)}<span class="n">via ${a.via ? 't-' + a.via : '—'}</span>`).join('')}${v}</div></div>`;
+    }).join('') : '<div class="empty">No publishes in this session.</div>';
+    const isDark = d.want === 'on' && !d.p;
+    const leadBusy = busy('lead');
+    document.getElementById('cp-' + c).innerHTML = `<section class="cp ${ROLE[c] === 'hub' ? 'hub' : ''} ${isDark ? 'isdark' : ''}">
+      <div class="cp-head">
+        <div class="cp-title"><span class="cp-name">${c}</span><span class="cp-role">${ROLE[c]}</span>
+          ${btn('leadership:' + c, 'Request leadership here', { size: 'sm', disabled: !ready || !!leadBusy, key: leadBusy && leadBusy.cluster === c ? 'lead' : null, busyLabel: 'Requested' })}</div>
+        <div class="darkrow">${darkBox(c)}
+          ${btn('freeze:' + c, 'Freeze', { size: 'sm', cls: 'darkb', disabled: !ready || d.want === 'on' || upIn(c) === 0 })}
+          ${btn('resume:' + c, 'Resume', { size: 'sm', disabled: !(d.want === 'on' || SRV[c].some(s => S.proc[s] === 'stopped')) })}</div>
+        ${leadNote(c)}
+      </div>
+      <div class="srvs">${rows}</div>
+      <div class="stream"><div class="stream-h"><b>${STREAM[c]}</b><span class="n">3 copies in ${c}</span><span class="sp"></span>
+        ${btn('publish:' + c, 'Publish new', { size: 'sm', disabled: !ready, key: 'pub-' + c, busyLabel: 'Publishing' })}
+        ${btn('verify:' + c, 'Verify storage', { size: 'sm', disabled: !ready || !st.msgs.some(m => m.attempts.some(a => a.state !== 'pending' && a.state !== 'refused')), key: 'ver-' + c, busyLabel: 'Reading' })}</div>
+        <div class="ledger">${ledger}</div></div>
+    </section>`;
+  });
+}
+function renderGateways() {
+  const svg = document.getElementById('gwsvg'), T = document.getElementById('topo').getBoundingClientRect();
+  const R = c => { const e = document.querySelector('#cp-' + c + ' .cp'); if (!e) return null; const b = e.getBoundingClientRect();
+    return { l: b.left - T.left, r: b.right - T.left, t: b.top - T.top, b: b.bottom - T.top }; };
+  const a = R('arb'), z = R('za'), u = R('au'); if (!a || !z || !u) return;
+  const y0 = (Math.max(z.t, u.t) + Math.min(z.b, u.b)) / 2;     // vertical centre of the two region panels
+  const tagAt = (x, y, L, name, anchor = 'middle') => {
+    if (!L.tag) return '';
+    const txt = `${name} ${L.tag}`, w = txt.length * 5.8 + 10, x0 = anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w : x;
+    return `<rect class="tagbg" x="${x0}" y="${y - 8}" width="${w}" height="16" rx="3"/><text class="${L.st}" x="${x0 + w / 2}" y="${y + 4}" text-anchor="middle">${txt}</text>`; };
+  const track = (d, L, extra) => `<g><title>${L.tip}</title><path class="trk ${L.st}" d="${d}" marker-end="url(#ah-${L.st})"/><path class="hit" d="${d}"/>${extra}</g>`;
+  // hub to a region: two vertical arrows in the gap below the hub, where the panels overlap
+  const down = (R2, c) => {
+    const x = (Math.max(a.l, R2.l) + Math.min(a.r, R2.r)) / 2, y1 = a.b + 4, y2 = R2.t - 4, ym = (y1 + y2) / 2;
+    const Ld = gwLink('arb', c), Lu = gwLink(c, 'arb');
+    return track(`M${x - 6},${y1} L${x - 6},${y2}`, Ld, tagAt(x - 14, ym, Ld, `arb → ${c}`, 'end'))
+         + track(`M${x + 6},${y2} L${x + 6},${y1}`, Lu, tagAt(x + 14, ym, Lu, `${c} → arb`, 'start'));
+  };
+  // za and au: the direct link, across the gap between the two regions; it does not pass through arb
+  const x1 = z.r + 4, x2 = u.l - 4, xm = (x1 + x2) / 2, Lzu = gwLink('za', 'au'), Luz = gwLink('au', 'za');
+  const across = track(`M${x1},${y0 - 6} L${x2},${y0 - 6}`, Lzu, tagAt(xm, y0 - 22, Lzu, 'za → au'))
+               + track(`M${x2},${y0 + 6} L${x1},${y0 + 6}`, Luz, tagAt(xm, y0 + 22, Luz, 'au → za'));
+  const markers = ['listed', 'partial', 'absent', 'unknown', 'none'].map(st => `<marker id="ah-${st}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" style="fill:${{ listed: 'var(--muted)', partial: 'var(--warn)', absent: 'var(--err)', unknown: 'var(--warn)', none: 'var(--lane)' }[st]}"/></marker>`).join('');
+  const yc = (a.b + z.t) / 2;
+  svg.innerHTML = `<defs>${markers}</defs>
+    <text class="cap" x="${z.l}" y="${yc - 4}">Gateways, each arrow read from the</text><text class="cap" x="${z.l}" y="${yc + 10}">/gatewayz of the cluster it leaves</text>
+    <text class="cap" x="${u.r}" y="${yc - 4}" text-anchor="end">n/3: servers whose fresh reading lists it.</text><text class="cap" x="${u.r}" y="${yc + 10}" text-anchor="end">Hover an arrow for each server.</text>
+    ${down(z, 'za')}${down(u, 'au')}${across}`;
+}
+function renderResults() {
+  const L = S.lead;
+  let lead = '<div class="n">No request yet. Press "Request leadership here" on a cluster. The result stays here until the next request.</div>';
+  if (L) {
+    const reply = { pending: `<span class="pill pend">waiting ${ago(L.at)} / 3 s</span>`, accepted: `<span class="pill ok">accepted at ${hms(L.replyAt)}</span>`,
+      refused: `<span class="pill err">refused: ${L.replyText}</span>`, noreply: '<span class="pill err">no reply in 3 s</span>' }[L.reply];
+    let obs = '<span class="n">—</span>';
+    if (L.reply === 'accepted') obs = L.outcome === 'watching' ? `<span class="pill pend">watching ${ago(L.replyAt)} / 10 s</span>`
+      : L.observed ? `<span><b>t-${L.observed.leader}</b> in ${clusterOf(L.observed.leader)}, term ${L.observed.term}, ${(L.observed.at - L.replyAt).toFixed(1)} s after the reply</span>`
+      : '<span>no new agreed leader in 10 s</span>';
+    lead = `<div class="kv"><span>Requested</span><span><b>${L.cluster}</b> at ${hms(L.at)}, via t-${L.via} as $SYS</span>
+      <span>Before</span><span>${L.before ? `t-${L.before.leader}, term ${L.before.term}` : `no agreement (${L.beforeState})`}</span>
+      <span>Reply</span><span>${reply}</span><span>Observed</span>${obs}</div>
+      ${L.observed && clusterOf(L.observed.leader) === L.cluster ? '<div class="n" style="margin-top:3px">The leader is in the requested cluster now. Nothing keeps it there.</div>' : ''}`;
+  }
+  const trows = S.trans.slice(0, 5).map(tr => {
+    let res, after = '<span class="n">—</span>';
+    if (tr.open) res = `<span class="pill pend">watching ${ago(tr.t)}</span>`;
+    else if (tr.agreeAt !== null) res = `agreed after <b>${(tr.agreeAt - tr.t).toFixed(1)} s</b>`;
+    else if (tr.end === 'none') res = `<span class="pill warn">no agreement in ${WATCH} s</span>`;
+    else if (tr.end === 'next') res = `<span class="n">next change came first</span>`;
+    else res = `<span class="pill">no change in ${WATCH} s</span>`;
+    if (tr.after) {
+      const ch = !tr.before ? '' : tr.after.leader === tr.before.leader && tr.after.term === tr.before.term ? '<span class="pill">unchanged</span>'
+        : `<span class="pill warn">term +${tr.after.term - tr.before.term}${tr.after.leader !== tr.before.leader ? ', leader moved' : ''}</span>`;
+      after = `t-${tr.after.leader}, term ${tr.after.term} ${ch}`;
+    }
+    return `<div class="tr"><div class="tr-h"><b>${tr.label}</b><span class="n">${hms(tr.t)}</span></div><div class="tr-b">${res}${tr.after ? '<span class="n">then</span>' + after : ''}</div></div>`;
+  }).join('');
+  const pr = S.probe;
+  const probe = pr ? (pr.state === 'pending' ? `<span class="pill pend">pending ${ago(pr.at)} / 10 s via t-${pr.via}</span>` :
+    pr.res.map(([k, v]) => `<span>${k}</span><span class="pill ${v === 'ok' || v === 'gone' ? 'ok' : v.startsWith('failed') ? 'err' : ''}">${v}</span>`).join('') + `<span class="n">via t-${pr.via}, ${hms(pr.at)}</span>`) : '<span class="n">Not tried yet.</span>';
+  document.getElementById('cornerR').innerHTML = `
+    <div class="card"><h3>Transitions</h3><div class="n" style="margin:-2px 0 4px">Time from a confirmed change to the next agreed reading, polled every 0.5 s.</div>
+      ${trows ? `<div class="tlist">${trows}</div>` : '<div class="n">Freeze, resume or request leadership. Each change is timed here, so repeated tries can be compared.</div>'}</div>`;
+  document.getElementById('cornerL').innerHTML = `
+    <div class="card"><h3>Last leadership request</h3>${lead}</div>
+    <div class="card"><h3>Metadata operation ${btn('probe', 'Try metadata operation', { size: 'sm', disabled: S.rig.status !== 'ready', key: 'probe', busyLabel: 'Trying' })}</h3>
+      <div class="n">Create, delete and check a small stream. It needs a meta leader. Compare it with a stream write.</div>
+      <div class="probe-res">${probe}</div></div>`;
+}
+const STEPS = [
+  ['Start or attach the rig. Wait for the summary to say Agreed.', () => S.did.agreed],
+  ['Press Request leadership here on arb. Note the leader and term in the leadership card.', () => S.did['lead:arb']],
+  ['Freeze za. Does the leader or the term change? Read the Transitions card.', () => S.did['freeze:za']],
+  ['Publish new to ODOMETER_ARB and to ODOMETER_ZA. Then try the metadata operation.', () => S.did['pub:arb'] && S.did['pub:za'] && S.did.probe && Math.max(S.did['pub:arb'], S.did['pub:za'], S.did.probe)],
+  ['Resume za. Read the time to agreement, and whether the term moved.', () => S.did['resume:za']],
+  ['Verify storage on za. Retry any unknown message with the same ID.', () => S.did['verify:za']],
+  ['Repeat steps 3 to 5. Compare the transitions.', () => S.zaOffs >= 2 && S.did['resume:za']],
+  ['Optional: freeze za and au together. Compare an arb publish with the metadata operation. Then restore all.', () => S.did.bothdark && S.did.restore],
+];
+function renderGuide() {
+  const el = document.getElementById('guide');
+  if (!guideOpen) { el.innerHTML = `<div class="guide-h"><h2>Exercise 10 guide</h2><span class="pill">optional</span><button data-guide="1">Show</button></div>`; return; }
+  let next = false;
+  el.innerHTML = `<div class="guide-h"><h2>Exercise 10 guide</h2><span class="pill">optional</span><button data-guide="0">Hide</button></div>
+    <p class="gi">You do each step with the controls. A step is ticked only when the page sees you do it. Nothing here runs a step for you.</p>
+    <ol class="steps">${STEPS.map(([t, f]) => { const w = f(); let cls = w ? 'done' : ''; if (!w && !next) { cls = 'next'; next = true; }
+      return `<li class="${cls}"><span>${t}${w ? ` <span class="when">${hms(w)}</span>` : ''}</span></li>`; }).join('')}</ol>`;
+}
+function renderHistory() {
+  document.getElementById('filters').innerHTML = ['all', 'za', 'arb', 'au', 'errors'].map(f => `<button data-filter="${f}" class="${filter === f ? 'on' : ''}">${f}</button>`).join('');
+  const list = S.hist.filter(e => filter === 'all' || (filter === 'errors' ? e.kind === 'error' : e.cluster === filter || e.cluster === null));
+  document.getElementById('hist').innerHTML = list.length ? list.map(e => {
+    const pend = e.kind === 'pending' && !e.done;
+    const sub = pend ? `pending ${ago(e.pend.start)} of ${e.pend.limit} s, ${e.pend.lane} lane` : (e.sub || '');
+    return `<div class="ev ${e.kind === 'error' ? 'err' : ''}"><span class="t">${fmtT(e.t)}</span><span class="kind ${e.kind}">${pend ? '<span class="pending-dot"></span>' : ''}${e.kind}</span>
+      <span><span class="txt">${e.text}</span>${sub ? `<div class="sub">${sub}</div>` : ''}</span></div>`;
+  }).join('') : '<div class="ev"><span></span><span></span><span class="sub">Nothing yet. Start the rig, or attach to one.</span></div>';
+}
+function render() {
+  renderRig(); renderSummary(); renderClient(); renderClusters(); renderResults(); renderGateways(); renderGuide(); renderHistory();
+  document.getElementById('scenes').innerHTML = SCENES.map((s, i) => `<button class="scene ${scene === i ? 'on' : ''}" data-scene="${i}">${i + 1}. ${s[0]}</button>`).join(' ');
+}
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (b && !b.disabled) { const [a, c, id] = b.dataset.act.split(':'); scene = null; if (a === 'retry') A.publish(c, id); else A[a](c); render(); return; }
+  const sc = e.target.closest('[data-scene]'); if (sc) { playScene(+sc.dataset.scene); return; }
+  const f = e.target.closest('[data-filter]'); if (f) { filter = f.dataset.filter; render(); return; }
+  const gd = e.target.closest('[data-guide]'); if (gd) { guideOpen = gd.dataset.guide === '1'; render(); return; }
+  const g = e.target.closest('[data-go]'); if (g) {
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + g.dataset.go));
+    document.querySelectorAll('[data-go]').forEach(x => x.classList.toggle('active', x === g));
+    document.getElementById('crumb').textContent = g.dataset.go === 'overview' ? 'Overview' : 'Playground';
+  }
+});
+document.addEventListener('change', e => {
+  if (e.target.id === 'via') S.settings.via = e.target.value;
+  if (e.target.id === 'pubto') S.settings.pubTimeout = +e.target.value;
+  e.target.blur(); render();
+});
+reset(); playScene(7);
+setInterval(() => { advance(0.1); render(); }, 100);
+</script>
+</body>
+</html>
