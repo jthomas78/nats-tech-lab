@@ -1,0 +1,700 @@
+<!doctype html>
+<!--
+  Mockup only: EVIDENCE-REPLAY-PLAN.md, part 3. Not the plugin.
+  The readings are real: run 10-20261005-170022, obs/ML51-* and obs/ML129-*,
+  copied in by the build line at the bottom of this comment. Times are
+  seconds from the recorded thaw. Rows are copied from that run's 10-all.tsv.
+  Tokens mirror shared/unifi-theme/unifi.css (dark). Judge at 1920x1080.
+  Generated: evidence-replay-mockup.html = this file + the readings JSON.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exercise 10 Replay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --p-text-color: #dee0e3; --p-text-muted-color: #b7bcc2; --p-text-disabled-color: #737c87;
+  --lab-bg: #131416; --lab-panel-bg: #131416; --lab-panel-border: #2c3138;
+  --lab-accent: #006fff; --lab-accent-ink: #ffffff; --lab-nav-active-bg: #1c1d1f;
+  --lab-disabled-bg: #3a4049; --lab-secondary-bg: #22262c; --lab-secondary-bg-hover: #2b3037;
+  --lab-nested-bg: #171c29;
+  --ok: #27c07f; --warn: #f0b429; --err: #e5484d;
+  --truth: #27c07f;          /* authoritative-data accent */
+  --lane: #4a515b;
+  --hatch: repeating-linear-gradient(135deg, transparent 0 4px, #2c3138 4px 5px);
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --lab-bg:#131416; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--lab-bg); color: var(--p-text-color);
+  font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 13px; line-height: 20px;
+}
+code, .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--lab-accent); outline-offset: 2px; }
+
+/* ---------- the shell's frame (drawn by the lab shell, not by the plugin) ---------- */
+.app { display: flex; flex-direction: column; height: 100vh; }
+.topbar { flex-shrink: 0; display: flex; align-items: center; gap: 20px; height: 52px; padding: 0 16px;
+  border-bottom: 1px solid var(--lab-panel-border); }
+.brandmark { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.brandmark .dot { width: 18px; height: 18px; border-radius: 5px; background: var(--lab-accent);
+  color: var(--lab-accent-ink); font-size: 10px; font-weight: 800; display: grid; place-items: center; }
+.crumb { color: var(--p-text-muted-color); font-size: 12px; display: flex; gap: 6px; }
+.crumb b { color: var(--p-text-color); font-weight: 600; }
+.crumb .sep { color: var(--p-text-disabled-color); }
+.mock-flag { margin-left: auto; font-size: 11px; color: var(--warn); border: 1px dashed var(--warn);
+  border-radius: 100px; padding: 2px 10px; }
+.shell { flex: 1; display: flex; min-height: 0; }
+.rail { width: 220px; flex-shrink: 0; border-right: 1px solid var(--lab-panel-border); padding: 14px 10px;
+  display: flex; flex-direction: column; gap: 16px; }
+.eyebrow { padding: 4px 8px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--p-text-disabled-color); }
+.nav-item { display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 2px solid transparent;
+  padding: 7px 8px; border-radius: 5px; color: var(--p-text-muted-color); cursor: pointer; }
+.nav-item:hover { color: var(--p-text-color); }
+.nav-item.active { background: var(--lab-nav-active-bg); color: var(--p-text-color); border-left-color: var(--lab-accent); font-weight: 600; }
+.rail-note { margin-top: auto; font-size: 11px; line-height: 16px; color: var(--p-text-disabled-color); padding: 0 8px; }
+
+/* ---------- plugin content ---------- */
+.content { flex: 1; min-width: 0; display: flex; }
+.view { display: none; flex: 1; min-width: 0; }
+.view.on { display: flex; }
+
+/* the exercise, as its steps */
+.steps { width: 312px; flex-shrink: 0; border-right: 1px solid var(--lab-panel-border); overflow-y: auto; padding: 18px 14px 18px 18px; }
+.steps h2 { font-size: 15px; line-height: 22px; margin: 0 0 2px; font-weight: 600; }
+.steps .sub { color: var(--p-text-muted-color); font-size: 12px; margin-bottom: 14px; }
+.run-pick { width: 100%; background: var(--lab-secondary-bg); border: 1px solid var(--lab-panel-border); color: var(--p-text-color);
+  border-radius: 6px; padding: 6px 8px; margin-bottom: 16px; font: inherit; font-size: 12px; }
+.step { margin-bottom: 14px; }
+.step-head { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: baseline; }
+.step-n { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lane); display: grid; place-items: center;
+  font-size: 11px; font-weight: 600; color: var(--p-text-muted-color); }
+.step-t { font-weight: 600; }
+.moments { list-style: none; margin: 6px 0 0 30px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.moment { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; width: 100%; background: none; border: 1px solid transparent;
+  border-radius: 6px; padding: 5px 8px; cursor: pointer; text-align: left; color: var(--p-text-muted-color); }
+.moment:hover { border-color: var(--lab-panel-border); color: var(--p-text-color); }
+.moment.on { background: var(--lab-nav-active-bg); border-color: var(--lab-panel-border); color: var(--p-text-color); }
+.moment[disabled] { cursor: default; opacity: .55; }
+.moment[disabled]:hover { border-color: transparent; color: var(--p-text-muted-color); }
+.moment .lbl { flex: 1 0 100%; }
+.kindtag { font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
+.kindtag.readings { color: var(--lab-accent); border: 1px solid color-mix(in srgb, var(--lab-accent) 55%, transparent); }
+.kindtag.bfa { color: var(--p-text-muted-color); border: 1px solid var(--lane); }
+.verdict { font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
+.verdict.disturbed { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.verdict.stable { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.diag-group { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--lab-panel-border); }
+.diag-group p { margin: 4px 0 0; font-size: 12px; color: var(--p-text-disabled-color); }
+
+/* stage */
+.stage { flex: 1; min-width: 0; overflow-y: auto; padding: 18px 24px 24px; display: flex; flex-direction: column; gap: 14px; }
+.stage-head { display: flex; align-items: flex-end; gap: 16px; }
+.stage-head h1 { margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.01em; }
+.stage-head .prov { color: var(--p-text-muted-color); font-size: 12px; }
+.legend { margin-left: auto; display: flex; gap: 14px; font-size: 11.5px; color: var(--p-text-muted-color); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 10px; border-radius: 2px; display: inline-block; }
+.sw.obs { background: var(--p-text-color); }
+.sw.rec { border: 1px solid var(--truth); }
+.sw.der { border: 1px dashed var(--p-text-muted-color); }
+.sw.gap { background: var(--hatch); border: 1px solid var(--lab-panel-border); }
+
+/* meta-group summary */
+.summary { display: grid; grid-template-columns: 1.4fr .7fr 1fr 1.5fr; border: 1px solid var(--lab-panel-border); border-radius: 8px; }
+.summary > div { padding: 10px 14px; border-right: 1px solid var(--lab-panel-border); }
+.summary > div:last-child { border-right: 0; }
+.s-k { font-size: 11.5px; color: var(--p-text-muted-color); }
+.s-v { font-size: 17px; line-height: 24px; font-weight: 600; margin-top: 2px; }
+.s-v.none { color: var(--warn); }
+.s-n { font-size: 11.5px; color: var(--p-text-disabled-color); }
+.derived { border: 1px dashed var(--lane); border-radius: 8px; margin: -1px; }
+.derived .tag { font-size: 10.5px; color: var(--p-text-muted-color); border: 1px dashed var(--lane); border-radius: 4px; padding: 0 5px; margin-left: 6px; font-weight: 400; vertical-align: 2px; }
+
+/* clusters */
+.clusters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.cp { border: 1px solid var(--lab-panel-border); border-radius: 8px; display: flex; flex-direction: column; }
+.cp.hub { border-color: color-mix(in srgb, var(--lab-accent) 45%, var(--lab-panel-border)); }
+.cp-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--lab-panel-border); }
+.cp-name { font-weight: 600; font-size: 14px; }
+.cp-role { color: var(--p-text-muted-color); font-size: 12px; }
+.cp-state { margin-left: auto; font-size: 11.5px; padding: 1px 8px; border-radius: 100px; border: 1px solid var(--lab-panel-border); color: var(--p-text-muted-color); }
+.cp-state.dark { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.srv { display: grid; grid-template-columns: 74px 1fr auto; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--lab-panel-border); min-height: 52px; }
+.srv:last-of-type { border-bottom: 0; }
+.srv-n { font-weight: 600; font-size: 12.5px; }
+.srv-a { font-size: 11px; color: var(--p-text-disabled-color); }
+.belief { display: flex; align-items: center; gap: 8px; }
+.belief .who { font-weight: 600; }
+.belief .term { color: var(--p-text-muted-color); font-size: 12px; }
+.chip { font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--lane); color: var(--p-text-muted-color); }
+.chip.LEADER { background: var(--lab-accent); border-color: var(--lab-accent); color: #fff; }
+.chip.CANDIDATE { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.age { font-size: 11.5px; color: var(--p-text-disabled-color); text-align: right; white-space: nowrap; }
+.age.stale { color: var(--warn); }
+.srv.noans .belief, .srv.noread .belief { color: var(--p-text-disabled-color); }
+.srv.noread { background: var(--hatch); }
+.srv.stale .belief { opacity: .6; }
+.stream { border-top: 1px solid var(--lab-panel-border); padding: 10px 14px 12px; background: color-mix(in srgb, var(--lab-nested-bg) 60%, transparent); border-radius: 0 0 8px 8px; }
+.stream h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.stream h4 small { font-weight: 400; color: var(--p-text-disabled-color); font-size: 11px; }
+.evt { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 2px 0; }
+.evt .id { margin-left: auto; color: var(--truth); font-size: 11px; }
+.pill { font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
+.pill.ack { color: var(--p-text-color); border: 1px solid var(--lane); }
+.pill.unknown { color: var(--warn); border: 1px dashed var(--warn); }
+.pill.stored { color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 60%, transparent); }
+.pill.notstored { color: var(--p-text-muted-color); border: 1px solid var(--lane); }
+.pill.none { color: var(--p-text-disabled-color); border: 1px dotted var(--lane); }
+
+/* the belief strip */
+.strip-wrap { border: 1px solid var(--lab-panel-border); border-radius: 8px; padding: 12px 14px 10px; }
+.strip-top { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+.strip-top h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.strip-top p { margin: 0; color: var(--p-text-muted-color); font-size: 12px; }
+.leaders-key { margin-left: auto; display: flex; gap: 12px; font-size: 11.5px; color: var(--p-text-muted-color); }
+.leaders-key span { display: inline-flex; align-items: center; gap: 5px; }
+.strip { position: relative; display: grid; grid-template-columns: 64px 1fr; row-gap: 3px; cursor: pointer; user-select: none; }
+.lane-n { font-size: 11px; color: var(--p-text-muted-color); line-height: 16px; }
+.lane-n.c-arb { color: var(--p-text-color); }
+.lane { position: relative; height: 16px; background: var(--hatch); border-radius: 2px; }
+.cell { position: absolute; top: 0; height: 16px; border-radius: 1px; }
+.cell.unreachable { background: transparent; border-top: 1px dashed #4a515b; border-bottom: 1px dashed #4a515b; }
+.cell.CANDIDATE { background: color-mix(in srgb, var(--warn) 70%, #131416); }
+.cell.LEADER { background: var(--lab-accent); }
+.cell.noleader { background: #3a4049; }
+.axis { grid-column: 2; position: relative; height: 18px; margin-top: 2px; }
+.tick { position: absolute; top: 2px; font-size: 10.5px; color: var(--p-text-disabled-color); transform: translateX(-50%); }
+.marker { position: absolute; top: -2px; bottom: 18px; width: 0; border-left: 1px solid var(--p-text-muted-color); pointer-events: none; }
+.marker span { position: absolute; top: -18px; left: 4px; font-size: 11px; color: var(--p-text-muted-color); white-space: nowrap; }
+.playhead { position: absolute; top: -4px; bottom: 16px; width: 2px; background: var(--p-text-color); pointer-events: none; }
+.playhead::before { content: ''; position: absolute; top: -4px; left: -4px; width: 10px; height: 10px; background: var(--p-text-color); border-radius: 50%; }
+.srcband { position: absolute; top: -20px; font-size: 10.5px; color: var(--p-text-disabled-color); }
+
+/* playback */
+.playback { display: flex; align-items: center; gap: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px;
+  background: var(--lab-secondary-bg); border: 1px solid var(--lab-panel-border); cursor: pointer; }
+.btn:hover { background: var(--lab-secondary-bg-hover); }
+.btn.primary { background: var(--lab-accent); border-color: var(--lab-accent); color: #fff; }
+.btn[disabled] { background: var(--lab-disabled-bg); color: var(--p-text-disabled-color); border-color: transparent; cursor: not-allowed; }
+.btn svg { width: 14px; height: 14px; }
+.clock { font-variant-numeric: tabular-nums; min-width: 168px; color: var(--p-text-muted-color); }
+.clock b { color: var(--p-text-color); }
+.spacer { flex: 1; }
+.why { font-size: 11.5px; color: var(--p-text-disabled-color); max-width: 300px; line-height: 16px; }
+
+/* recorded rows */
+.rows { border: 1px solid var(--lab-panel-border); border-radius: 8px; }
+.rows summary { padding: 10px 14px; cursor: pointer; font-weight: 600; }
+.rows summary small { font-weight: 400; color: var(--p-text-muted-color); margin-left: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 14px; border-top: 1px solid var(--lab-panel-border); vertical-align: top; }
+th { font-size: 11.5px; font-weight: 500; color: var(--p-text-muted-color); }
+td.id { color: var(--truth); white-space: nowrap; }
+td.st { white-space: nowrap; }
+.PASS { color: var(--ok); } .FAIL { color: var(--err); } .NOTE { color: var(--p-text-muted-color); } .VERDICT { color: var(--p-text-color); font-weight: 600; }
+td.t { color: var(--p-text-disabled-color); white-space: nowrap; }
+
+/* before/after */
+.gapcard { border: 1px solid var(--lab-panel-border); border-radius: 8px; padding: 14px 16px; background: var(--hatch); }
+.gapcard h3 { margin: 0 0 4px; font-size: 14px; }
+.gapcard p { margin: 0; color: var(--p-text-muted-color); max-width: 78ch; }
+.ba { display: grid; grid-template-columns: 1fr 40px 1fr; gap: 0; align-items: stretch; }
+.ba .arrow { display: grid; place-items: center; color: var(--p-text-disabled-color); }
+.ba-col { border: 1px solid var(--lab-panel-border); border-radius: 8px; padding: 12px 14px; }
+.ba-col h4 { margin: 0 0 8px; font-size: 12.5px; }
+.flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.flow-step { border: 1px solid var(--lab-panel-border); border-radius: 8px; padding: 10px 12px; position: relative; }
+.flow-step h5 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--p-text-muted-color); }
+.flow-step p { margin: 6px 0 0; font-size: 12px; color: var(--p-text-muted-color); }
+.prose { border-left: 2px solid var(--lane); padding: 6px 12px; color: var(--p-text-muted-color); }
+.prose b { color: var(--p-text-color); font-weight: 600; }
+
+/* overview */
+.overview { flex: 1; overflow-y: auto; padding: 24px 32px; display: grid; grid-template-columns: minmax(0, 760px) 420px; gap: 32px; align-content: start; }
+.overview h1 { margin: 0 0 6px; font-size: 22px; line-height: 30px; font-weight: 600; }
+.q { font-size: 16px; line-height: 24px; color: var(--p-text-color); margin: 0 0 14px; max-width: 64ch; }
+.overview p { max-width: 72ch; }
+.finding { border-top: 1px solid var(--lab-panel-border); padding: 12px 0; }
+.finding h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.finding p { margin: 0 0 6px; color: var(--p-text-muted-color); }
+.ev { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11.5px; color: var(--p-text-disabled-color); }
+.ev a, .ev button { color: var(--truth); background: none; border: 0; padding: 0; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
+.ev .r { font-size: 10.5px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--lane); color: var(--p-text-muted-color); font-family: inherit; }
+.ev .r.rd { color: var(--lab-accent); border-color: color-mix(in srgb, var(--lab-accent) 55%, transparent); }
+.side h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+.side section { border: 1px solid var(--lab-panel-border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+.side pre { margin: 6px 0 0; background: var(--lab-secondary-bg); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; font-size: 11.5px; line-height: 17px; }
+.side ul { margin: 0; padding-left: 18px; }
+.side a { color: var(--lab-accent); }
+.layers dt { font-weight: 600; margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+.layers dd { margin: 2px 0 0; color: var(--p-text-muted-color); }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brandmark"><span class="dot">T</span>Tech Lab</div>
+    <div class="crumb"><span>Demos</span><span class="sep">/</span><span>Multi-cluster</span><span class="sep">/</span><b id="crumb-view">Replay</b></div>
+    <span class="mock-flag">Mockup. Real readings from run 170022; nothing here is built.</span>
+  </header>
+  <div class="shell">
+    <nav class="rail" aria-label="Shell navigation">
+      <div>
+        <div class="eyebrow">Shell</div>
+        <button class="nav-item">Home</button>
+        <button class="nav-item">Plugins</button>
+      </div>
+      <div>
+        <div class="eyebrow">JetStream</div>
+        <button class="nav-item">Lesson 01</button>
+        <button class="nav-item">Lesson 02</button>
+      </div>
+      <div>
+        <div class="eyebrow">Multi-cluster</div>
+        <button class="nav-item" data-go="overview">Overview</button>
+        <button class="nav-item active" data-go="replay">Replay</button>
+      </div>
+      <p class="rail-note">The topbar and this rail belong to the lab shell. The plugin draws only the area to the right.</p>
+    </nav>
+
+    <main class="content">
+      <!-- ======================= REPLAY ======================= -->
+      <section class="view on" id="v-replay" aria-label="Replay">
+        <aside class="steps" aria-label="Exercise 10 steps">
+          <h2>Exercise 10</h2>
+          <div class="sub">Hub meta-leader on T4. Pick a recorded moment.</div>
+          <label class="s-k" for="run">Run</label>
+          <select class="run-pick" id="run">
+            <option>10-20261005-170022 (cited)</option>
+            <option disabled>10-20261005-163907</option>
+            <option disabled>10-20261005-162522 (no thaw times)</option>
+            <option disabled>4 older runs: rows only</option>
+          </select>
+          <div id="steplist"></div>
+          <div class="diag-group">
+            <div class="step-t">Diagnostic runs</div>
+            <p>Run 164912 used debug logging, so its timing differs from a normal run. It is kept apart and never cited. Not in this mockup.</p>
+          </div>
+        </aside>
+        <div class="stage" id="stage"></div>
+      </section>
+
+      <!-- ======================= OVERVIEW ======================= -->
+      <section class="view" id="v-overview" aria-label="Overview">
+        <div class="overview">
+          <div>
+            <h1>Multi-cluster topologies and accounts</h1>
+            <p class="q">Can the JetStream meta leader be kept in the hub? What happens to metadata and to regional data when a region goes dark, and when it comes back?</p>
+            <p>Three clusters of three servers, joined by gateways: <b>za</b>, <b>au</b> and the hub, <b>arb</b>. Nine servers vote on metadata; five make a quorum. This demo is for validation only. The replay shows what the rig recorded. It does not run NATS, and it does not predict what NATS would do.</p>
+            <div id="findings"></div>
+          </div>
+          <div class="side">
+            <section>
+              <h2>How to read the replay</h2>
+              <dl class="layers">
+                <dt><span class="sw obs"></span>Observed</dt><dd>A reading a server gave, with its time. Values change only when a new reading arrives.</dd>
+                <dt><span class="sw rec"></span>Recorded result</dt><dd>A check, note or verdict row, with its ID (for example ML54).</dd>
+                <dt><span class="sw der"></span>Derived</dt><dd>Quorum arithmetic only: answering voters against the quorum of five.</dd>
+                <dt><span class="sw gap"></span>No reading</dt><dd>The rig recorded nothing here. Nothing is filled in.</dd>
+              </dl>
+            </section>
+            <section>
+              <h2>Run it yourself</h2>
+              <div>All six steps, with every check:</div>
+              <pre>demos/03-multi-cluster-and-accounts/exercises/ex10-check.sh</pre>
+              <div style="margin-top:8px">Then write the report from kept runs:</div>
+              <pre>python3 demos/03-multi-cluster-and-accounts/lab/render-report-10.py demos/03-multi-cluster-and-accounts/lab/run/evidence/10-&lt;stamp&gt;</pre>
+            </section>
+            <section>
+              <h2>Full write-ups</h2>
+              <ul>
+                <li><a href="#">REPORT-10.html</a>: every check, every run</li>
+                <li><a href="#">Pattern cards v0.6</a>: card 14</li>
+                <li><a href="#">Terminal steps</a>: the exercise by hand</li>
+              </ul>
+            </section>
+            <section>
+              <h2>Not in the kept evidence</h2>
+              <p class="prose" style="margin:0"><b>Prose observation.</b> In one part run that was not kept, a write that timed out was stored later. No kept run shows this, so the replay cannot play it. Source: <code>exercises/EXERCISE_OBSERVATIONS.md:570-576</code>.</p>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+const DATA = {"ML51":[[-2.153,"za-1","unreachable",null,null,null,"b",0],[-2.153,"za-2","unreachable",null,null,null,"b",0],[-2.153,"za-3","unreachable",null,null,null,"b",0],[-3.155,"au-1","ok","arb-1",15,"FOLLOWER","b",0],[-3.155,"au-2","ok","arb-1",15,"FOLLOWER","b",0],[-3.155,"au-3","ok","arb-1",15,"FOLLOWER","b",0],[-3.156,"arb-1","ok","arb-1",15,"LEADER","b",0],[-3.155,"arb-2","ok","arb-1",15,"FOLLOWER","b",0],[-3.155,"arb-3","ok","arb-1",15,"FOLLOWER","b",0],[-0.643,"za-1","unreachable",null,null,null,"b",1],[-0.642,"za-2","unreachable",null,null,null,"b",1],[-0.643,"za-3","unreachable",null,null,null,"b",1],[-1.643,"au-1","ok","arb-1",15,"FOLLOWER","b",1],[-1.642,"au-2","ok","arb-1",15,"FOLLOWER","b",1],[-1.641,"au-3","ok","arb-1",15,"FOLLOWER","b",1],[-1.641,"arb-1","ok","arb-1",15,"LEADER","b",1],[-1.641,"arb-2","ok","arb-1",15,"FOLLOWER","b",1],[-1.641,"arb-3","ok","arb-1",15,"FOLLOWER","b",1],[0.018,"za-1","no_leader",null,16,"CANDIDATE","w",0],[0.028,"za-2","no_leader",null,16,"CANDIDATE","w",0],[0.042,"za-3","no_leader",null,16,"CANDIDATE","w",0],[-0.449,"au-1","ok","arb-1",15,"FOLLOWER","w",0],[-0.449,"au-2","ok","arb-1",15,"FOLLOWER","w",0],[-0.449,"au-3","ok","arb-1",15,"FOLLOWER","w",0],[-0.449,"arb-1","ok","arb-1",15,"LEADER","w",0],[-0.448,"arb-2","ok","arb-1",15,"FOLLOWER","w",0],[-0.449,"arb-3","ok","arb-1",15,"FOLLOWER","w",0],[0.056,"za-1","no_leader",null,16,"CANDIDATE","w",1],[0.055,"za-2","no_leader",null,16,"CANDIDATE","w",1],[0.063,"za-3","no_leader",null,16,"CANDIDATE","w",1],[0.055,"au-1","ok","arb-1",16,"FOLLOWER","w",1],[0.056,"au-2","ok","arb-1",16,"FOLLOWER","w",1],[0.06,"au-3","ok","arb-1",16,"FOLLOWER","w",1],[0.063,"arb-1","no_leader",null,16,"FOLLOWER","w",1],[0.056,"arb-2","ok","arb-1",16,"FOLLOWER","w",1],[0.056,"arb-3","ok","arb-1",16,"FOLLOWER","w",1],[0.568,"za-1","ok","au-3",17,"FOLLOWER","w",2],[0.568,"za-2","ok","au-3",17,"FOLLOWER","w",2],[0.569,"za-3","ok","au-3",17,"FOLLOWER","w",2],[0.569,"au-1","ok","au-3",17,"FOLLOWER","w",2],[0.569,"au-2","ok","au-3",17,"FOLLOWER","w",2],[0.57,"au-3","ok","au-3",17,"LEADER","w",2],[0.571,"arb-1","ok","au-3",17,"FOLLOWER","w",2],[0.571,"arb-2","ok","au-3",17,"FOLLOWER","w",2],[0.57,"arb-3","ok","au-3",17,"FOLLOWER","w",2],[1.077,"za-1","ok","au-3",17,"FOLLOWER","w",3],[1.075,"za-2","ok","au-3",17,"FOLLOWER","w",3],[1.078,"za-3","ok","au-3",17,"FOLLOWER","w",3],[1.078,"au-1","ok","au-3",17,"FOLLOWER","w",3],[1.078,"au-2","ok","au-3",17,"FOLLOWER","w",3],[1.078,"au-3","ok","au-3",17,"LEADER","w",3],[1.079,"arb-1","ok","au-3",17,"FOLLOWER","w",3],[1.079,"arb-2","ok","au-3",17,"FOLLOWER","w",3],[1.079,"arb-3","ok","au-3",17,"FOLLOWER","w",3],[1.579,"za-1","ok","au-3",17,"FOLLOWER","w",4],[1.581,"za-2","ok","au-3",17,"FOLLOWER","w",4],[1.58,"za-3","ok","au-3",17,"FOLLOWER","w",4],[1.58,"au-1","ok","au-3",17,"FOLLOWER","w",4],[1.581,"au-2","ok","au-3",17,"FOLLOWER","w",4],[1.581,"au-3","ok","au-3",17,"LEADER","w",4],[1.582,"arb-1","ok","au-3",17,"FOLLOWER","w",4],[1.582,"arb-2","ok","au-3",17,"FOLLOWER","w",4],[1.583,"arb-3","ok","au-3",17,"FOLLOWER","w",4],[2.08,"za-1","ok","au-3",17,"FOLLOWER","w",5],[2.079,"za-2","ok","au-3",17,"FOLLOWER","w",5],[2.08,"za-3","ok","au-3",17,"FOLLOWER","w",5],[2.079,"au-1","ok","au-3",17,"FOLLOWER","w",5],[2.08,"au-2","ok","au-3",17,"FOLLOWER","w",5],[2.081,"au-3","ok","au-3",17,"LEADER","w",5],[2.081,"arb-1","ok","au-3",17,"FOLLOWER","w",5],[2.081,"arb-2","ok","au-3",17,"FOLLOWER","w",5],[2.081,"arb-3","ok","au-3",17,"FOLLOWER","w",5],[2.581,"za-1","ok","au-3",17,"FOLLOWER","w",6],[2.582,"za-2","ok","au-3",17,"FOLLOWER","w",6],[2.581,"za-3","ok","au-3",17,"FOLLOWER","w",6],[2.582,"au-1","ok","au-3",17,"FOLLOWER","w",6],[2.583,"au-2","ok","au-3",17,"FOLLOWER","w",6],[2.583,"au-3","ok","au-3",17,"LEADER","w",6],[2.584,"arb-1","ok","au-3",17,"FOLLOWER","w",6],[2.583,"arb-2","ok","au-3",17,"FOLLOWER","w",6],[2.583,"arb-3","ok","au-3",17,"FOLLOWER","w",6],[3.079,"za-1","ok","au-3",17,"FOLLOWER","w",7],[3.079,"za-2","ok","au-3",17,"FOLLOWER","w",7],[3.079,"za-3","ok","au-3",17,"FOLLOWER","w",7],[3.079,"au-1","ok","au-3",17,"FOLLOWER","w",7],[3.079,"au-2","ok","au-3",17,"FOLLOWER","w",7],[3.079,"au-3","ok","au-3",17,"LEADER","w",7],[3.079,"arb-1","ok","au-3",17,"FOLLOWER","w",7],[3.08,"arb-2","ok","au-3",17,"FOLLOWER","w",7],[3.08,"arb-3","ok","au-3",17,"FOLLOWER","w",7],[3.594,"za-1","ok","au-3",17,"FOLLOWER","w",8],[3.595,"za-2","ok","au-3",17,"FOLLOWER","w",8],[3.594,"za-3","ok","au-3",17,"FOLLOWER","w",8],[3.596,"au-1","ok","au-3",17,"FOLLOWER","w",8],[3.596,"au-2","ok","au-3",17,"FOLLOWER","w",8],[3.596,"au-3","ok","au-3",17,"LEADER","w",8],[3.596,"arb-1","ok","au-3",17,"FOLLOWER","w",8],[3.596,"arb-2","ok","au-3",17,"FOLLOWER","w",8],[3.596,"arb-3","ok","au-3",17,"FOLLOWER","w",8],[4.1,"za-1","ok","au-3",17,"FOLLOWER","w",9],[4.099,"za-2","ok","au-3",17,"FOLLOWER","w",9],[4.1,"za-3","ok","au-3",17,"FOLLOWER","w",9],[4.101,"au-1","ok","au-3",17,"FOLLOWER","w",9],[4.101,"au-2","ok","au-3",17,"FOLLOWER","w",9],[4.101,"au-3","ok","au-3",17,"LEADER","w",9],[4.101,"arb-1","ok","au-3",17,"FOLLOWER","w",9],[4.102,"arb-2","ok","au-3",17,"FOLLOWER","w",9],[4.101,"arb-3","ok","au-3",17,"FOLLOWER","w",9],[4.602,"za-1","ok","au-3",17,"FOLLOWER","w",10],[4.602,"za-2","ok","au-3",17,"FOLLOWER","w",10],[4.603,"za-3","ok","au-3",17,"FOLLOWER","w",10],[4.603,"au-1","ok","au-3",17,"FOLLOWER","w",10],[4.604,"au-2","ok","au-3",17,"FOLLOWER","w",10],[4.604,"au-3","ok","au-3",17,"LEADER","w",10],[4.603,"arb-1","ok","au-3",17,"FOLLOWER","w",10],[4.604,"arb-2","ok","au-3",17,"FOLLOWER","w",10],[4.604,"arb-3","ok","au-3",17,"FOLLOWER","w",10],[5.105,"za-1","ok","au-3",17,"FOLLOWER","w",11],[5.104,"za-2","ok","au-3",17,"FOLLOWER","w",11],[5.106,"za-3","ok","au-3",17,"FOLLOWER","w",11],[5.105,"au-1","ok","au-3",17,"FOLLOWER","w",11],[5.105,"au-2","ok","au-3",17,"FOLLOWER","w",11],[5.106,"au-3","ok","au-3",17,"LEADER","w",11],[5.106,"arb-1","ok","au-3",17,"FOLLOWER","w",11],[5.107,"arb-2","ok","au-3",17,"FOLLOWER","w",11],[5.107,"arb-3","ok","au-3",17,"FOLLOWER","w",11],[5.611,"za-1","ok","au-3",17,"FOLLOWER","w",12],[5.611,"za-2","ok","au-3",17,"FOLLOWER","w",12],[5.611,"za-3","ok","au-3",17,"FOLLOWER","w",12],[5.61,"au-1","ok","au-3",17,"FOLLOWER","w",12],[5.612,"au-2","ok","au-3",17,"FOLLOWER","w",12],[5.611,"au-3","ok","au-3",17,"LEADER","w",12],[5.612,"arb-1","ok","au-3",17,"FOLLOWER","w",12],[5.612,"arb-2","ok","au-3",17,"FOLLOWER","w",12],[5.612,"arb-3","ok","au-3",17,"FOLLOWER","w",12],[6.125,"za-1","ok","au-3",17,"FOLLOWER","w",13],[6.125,"za-2","ok","au-3",17,"FOLLOWER","w",13],[6.127,"za-3","ok","au-3",17,"FOLLOWER","w",13],[6.127,"au-1","ok","au-3",17,"FOLLOWER","w",13],[6.125,"au-2","ok","au-3",17,"FOLLOWER","w",13],[6.126,"au-3","ok","au-3",17,"LEADER","w",13],[6.126,"arb-1","ok","au-3",17,"FOLLOWER","w",13],[6.127,"arb-2","ok","au-3",17,"FOLLOWER","w",13],[6.128,"arb-3","ok","au-3",17,"FOLLOWER","w",13],[6.63,"za-1","ok","au-3",17,"FOLLOWER","w",14],[6.63,"za-2","ok","au-3",17,"FOLLOWER","w",14],[6.63,"za-3","ok","au-3",17,"FOLLOWER","w",14],[6.63,"au-1","ok","au-3",17,"FOLLOWER","w",14],[6.63,"au-2","ok","au-3",17,"FOLLOWER","w",14],[6.63,"au-3","ok","au-3",17,"LEADER","w",14],[6.63,"arb-1","ok","au-3",17,"FOLLOWER","w",14],[6.631,"arb-2","ok","au-3",17,"FOLLOWER","w",14],[6.631,"arb-3","ok","au-3",17,"FOLLOWER","w",14],[7.143,"za-1","ok","au-3",17,"FOLLOWER","w",15],[7.143,"za-2","ok","au-3",17,"FOLLOWER","w",15],[7.146,"za-3","ok","au-3",17,"FOLLOWER","w",15],[7.145,"au-1","ok","au-3",17,"FOLLOWER","w",15],[7.147,"au-2","ok","au-3",17,"FOLLOWER","w",15],[7.147,"au-3","ok","au-3",17,"LEADER","w",15],[7.147,"arb-1","ok","au-3",17,"FOLLOWER","w",15],[7.146,"arb-2","ok","au-3",17,"FOLLOWER","w",15],[7.147,"arb-3","ok","au-3",17,"FOLLOWER","w",15],[7.655,"za-1","ok","au-3",17,"FOLLOWER","w",16],[7.655,"za-2","ok","au-3",17,"FOLLOWER","w",16],[7.655,"za-3","ok","au-3",17,"FOLLOWER","w",16],[7.654,"au-1","ok","au-3",17,"FOLLOWER","w",16],[7.656,"au-2","ok","au-3",17,"FOLLOWER","w",16],[7.656,"au-3","ok","au-3",17,"LEADER","w",16],[7.656,"arb-1","ok","au-3",17,"FOLLOWER","w",16],[7.657,"arb-2","ok","au-3",17,"FOLLOWER","w",16],[7.656,"arb-3","ok","au-3",17,"FOLLOWER","w",16],[8.162,"za-1","ok","au-3",17,"FOLLOWER","w",17],[8.163,"za-2","ok","au-3",17,"FOLLOWER","w",17],[8.165,"za-3","ok","au-3",17,"FOLLOWER","w",17],[8.163,"au-1","ok","au-3",17,"FOLLOWER","w",17],[8.165,"au-2","ok","au-3",17,"FOLLOWER","w",17],[8.166,"au-3","ok","au-3",17,"LEADER","w",17],[8.165,"arb-1","ok","au-3",17,"FOLLOWER","w",17],[8.164,"arb-2","ok","au-3",17,"FOLLOWER","w",17],[8.167,"arb-3","ok","au-3",17,"FOLLOWER","w",17],[8.665,"za-1","ok","au-3",17,"FOLLOWER","w",18],[8.666,"za-2","ok","au-3",17,"FOLLOWER","w",18],[8.664,"za-3","ok","au-3",17,"FOLLOWER","w",18],[8.665,"au-1","ok","au-3",17,"FOLLOWER","w",18],[8.665,"au-2","ok","au-3",17,"FOLLOWER","w",18],[8.666,"au-3","ok","au-3",17,"LEADER","w",18],[8.666,"arb-1","ok","au-3",17,"FOLLOWER","w",18],[8.667,"arb-2","ok","au-3",17,"FOLLOWER","w",18],[8.666,"arb-3","ok","au-3",17,"FOLLOWER","w",18],[9.171,"za-1","ok","au-3",17,"FOLLOWER","w",19],[9.171,"za-2","ok","au-3",17,"FOLLOWER","w",19],[9.171,"za-3","ok","au-3",17,"FOLLOWER","w",19],[9.172,"au-1","ok","au-3",17,"FOLLOWER","w",19],[9.172,"au-2","ok","au-3",17,"FOLLOWER","w",19],[9.172,"au-3","ok","au-3",17,"LEADER","w",19],[9.173,"arb-1","ok","au-3",17,"FOLLOWER","w",19],[9.173,"arb-2","ok","au-3",17,"FOLLOWER","w",19],[9.174,"arb-3","ok","au-3",17,"FOLLOWER","w",19],[9.678,"za-1","ok","au-3",17,"FOLLOWER","w",20],[9.678,"za-2","ok","au-3",17,"FOLLOWER","w",20],[9.678,"za-3","ok","au-3",17,"FOLLOWER","w",20],[9.678,"au-1","ok","au-3",17,"FOLLOWER","w",20],[9.677,"au-2","ok","au-3",17,"FOLLOWER","w",20],[9.678,"au-3","ok","au-3",17,"LEADER","w",20],[9.678,"arb-1","ok","au-3",17,"FOLLOWER","w",20],[9.678,"arb-2","ok","au-3",17,"FOLLOWER","w",20],[9.678,"arb-3","ok","au-3",17,"FOLLOWER","w",20],[10.179,"za-1","ok","au-3",17,"FOLLOWER","w",21],[10.179,"za-2","ok","au-3",17,"FOLLOWER","w",21],[10.179,"za-3","ok","au-3",17,"FOLLOWER","w",21],[10.18,"au-1","ok","au-3",17,"FOLLOWER","w",21],[10.18,"au-2","ok","au-3",17,"FOLLOWER","w",21],[10.18,"au-3","ok","au-3",17,"LEADER","w",21],[10.18,"arb-1","ok","au-3",17,"FOLLOWER","w",21],[10.18,"arb-2","ok","au-3",17,"FOLLOWER","w",21],[10.18,"arb-3","ok","au-3",17,"FOLLOWER","w",21],[10.69,"za-1","ok","au-3",17,"FOLLOWER","w",22],[10.689,"za-2","ok","au-3",17,"FOLLOWER","w",22],[10.69,"za-3","ok","au-3",17,"FOLLOWER","w",22],[10.69,"au-1","ok","au-3",17,"FOLLOWER","w",22],[10.69,"au-2","ok","au-3",17,"FOLLOWER","w",22],[10.689,"au-3","ok","au-3",17,"LEADER","w",22],[10.691,"arb-1","ok","au-3",17,"FOLLOWER","w",22],[10.691,"arb-2","ok","au-3",17,"FOLLOWER","w",22],[10.691,"arb-3","ok","au-3",17,"FOLLOWER","w",22],[11.2,"za-1","ok","au-3",17,"FOLLOWER","w",23],[11.2,"za-2","ok","au-3",17,"FOLLOWER","w",23],[11.199,"za-3","ok","au-3",17,"FOLLOWER","w",23],[11.199,"au-1","ok","au-3",17,"FOLLOWER","w",23],[11.201,"au-2","ok","au-3",17,"FOLLOWER","w",23],[11.2,"au-3","ok","au-3",17,"LEADER","w",23],[11.201,"arb-1","ok","au-3",17,"FOLLOWER","w",23],[11.201,"arb-2","ok","au-3",17,"FOLLOWER","w",23],[11.201,"arb-3","ok","au-3",17,"FOLLOWER","w",23],[11.705,"za-1","ok","au-3",17,"FOLLOWER","w",24],[11.705,"za-2","ok","au-3",17,"FOLLOWER","w",24],[11.707,"za-3","ok","au-3",17,"FOLLOWER","w",24],[11.708,"au-1","ok","au-3",17,"FOLLOWER","w",24],[11.707,"au-2","ok","au-3",17,"FOLLOWER","w",24],[11.707,"au-3","ok","au-3",17,"LEADER","w",24],[11.707,"arb-1","ok","au-3",17,"FOLLOWER","w",24],[11.708,"arb-2","ok","au-3",17,"FOLLOWER","w",24],[11.708,"arb-3","ok","au-3",17,"FOLLOWER","w",24],[12.212,"za-1","ok","au-3",17,"FOLLOWER","w",25],[12.213,"za-2","ok","au-3",17,"FOLLOWER","w",25],[12.213,"za-3","ok","au-3",17,"FOLLOWER","w",25],[12.212,"au-1","ok","au-3",17,"FOLLOWER","w",25],[12.214,"au-2","ok","au-3",17,"FOLLOWER","w",25],[12.213,"au-3","ok","au-3",17,"LEADER","w",25],[12.214,"arb-1","ok","au-3",17,"FOLLOWER","w",25],[12.214,"arb-2","ok","au-3",17,"FOLLOWER","w",25],[12.214,"arb-3","ok","au-3",17,"FOLLOWER","w",25],[12.717,"za-1","ok","au-3",17,"FOLLOWER","w",26],[12.717,"za-2","ok","au-3",17,"FOLLOWER","w",26],[12.718,"za-3","ok","au-3",17,"FOLLOWER","w",26],[12.718,"au-1","ok","au-3",17,"FOLLOWER","w",26],[12.719,"au-2","ok","au-3",17,"FOLLOWER","w",26],[12.718,"au-3","ok","au-3",17,"LEADER","w",26],[12.719,"arb-1","ok","au-3",17,"FOLLOWER","w",26],[12.719,"arb-2","ok","au-3",17,"FOLLOWER","w",26],[12.719,"arb-3","ok","au-3",17,"FOLLOWER","w",26],[13.218,"za-1","ok","au-3",17,"FOLLOWER","w",27],[13.218,"za-2","ok","au-3",17,"FOLLOWER","w",27],[13.218,"za-3","ok","au-3",17,"FOLLOWER","w",27],[13.218,"au-1","ok","au-3",17,"FOLLOWER","w",27],[13.218,"au-2","ok","au-3",17,"FOLLOWER","w",27],[13.219,"au-3","ok","au-3",17,"LEADER","w",27],[13.219,"arb-1","ok","au-3",17,"FOLLOWER","w",27],[13.219,"arb-2","ok","au-3",17,"FOLLOWER","w",27],[13.219,"arb-3","ok","au-3",17,"FOLLOWER","w",27],[13.852,"za-1","ok","au-3",17,"FOLLOWER","f",0],[13.852,"za-2","ok","au-3",17,"FOLLOWER","f",0],[13.852,"za-3","ok","au-3",17,"FOLLOWER","f",0],[13.852,"au-1","ok","au-3",17,"FOLLOWER","f",0],[13.852,"au-2","ok","au-3",17,"FOLLOWER","f",0],[13.852,"au-3","ok","au-3",17,"LEADER","f",0],[13.852,"arb-1","ok","au-3",17,"FOLLOWER","f",0],[13.852,"arb-2","ok","au-3",17,"FOLLOWER","f",0],[13.852,"arb-3","ok","au-3",17,"FOLLOWER","f",0]],"ML129":[[-3.14,"za-1","ok","arb-1",35,"FOLLOWER","b",0],[-3.14,"za-2","ok","arb-1",35,"FOLLOWER","b",0],[-3.14,"za-3","ok","arb-1",35,"FOLLOWER","b",0],[-2.138,"au-1","unreachable",null,null,null,"b",0],[-2.138,"au-2","unreachable",null,null,null,"b",0],[-2.138,"au-3","unreachable",null,null,null,"b",0],[-3.14,"arb-1","ok","arb-1",35,"LEADER","b",0],[-3.14,"arb-2","ok","arb-1",35,"FOLLOWER","b",0],[-3.14,"arb-3","ok","arb-1",35,"FOLLOWER","b",0],[-1.625,"za-1","ok","arb-1",35,"FOLLOWER","b",1],[-1.625,"za-2","ok","arb-1",35,"FOLLOWER","b",1],[-1.626,"za-3","ok","arb-1",35,"FOLLOWER","b",1],[-0.625,"au-1","unreachable",null,null,null,"b",1],[-0.624,"au-2","unreachable",null,null,null,"b",1],[-0.625,"au-3","unreachable",null,null,null,"b",1],[-1.624,"arb-1","ok","arb-1",35,"LEADER","b",1],[-1.624,"arb-2","ok","arb-1",35,"FOLLOWER","b",1],[-1.624,"arb-3","ok","arb-1",35,"FOLLOWER","b",1],[-0.441,"za-1","ok","arb-1",35,"FOLLOWER","w",0],[-0.441,"za-2","ok","arb-1",35,"FOLLOWER","w",0],[-0.441,"za-3","ok","arb-1",35,"FOLLOWER","w",0],[0.026,"au-1","no_leader",null,29,"CANDIDATE","w",0],[0.033,"au-2","no_leader",null,29,"CANDIDATE","w",0],[0.04,"au-3","no_leader",null,29,"CANDIDATE","w",0],[-0.441,"arb-1","ok","arb-1",35,"LEADER","w",0],[-0.441,"arb-2","ok","arb-1",35,"FOLLOWER","w",0],[-0.441,"arb-3","ok","arb-1",35,"FOLLOWER","w",0],[0.05,"za-1","ok","arb-1",35,"FOLLOWER","w",1],[0.05,"za-2","ok","arb-1",35,"FOLLOWER","w",1],[0.049,"za-3","ok","arb-1",35,"FOLLOWER","w",1],[0.05,"au-1","no_leader",null,35,"FOLLOWER","w",1],[0.068,"au-2","no_leader",null,35,"FOLLOWER","w",1],[0.053,"au-3","no_leader",null,29,"CANDIDATE","w",1],[0.05,"arb-1","ok","arb-1",35,"LEADER","w",1],[0.05,"arb-2","ok","arb-1",35,"FOLLOWER","w",1],[0.05,"arb-3","ok","arb-1",35,"FOLLOWER","w",1],[0.564,"za-1","ok","arb-1",35,"FOLLOWER","w",2],[0.564,"za-2","ok","arb-1",35,"FOLLOWER","w",2],[0.563,"za-3","ok","arb-1",35,"FOLLOWER","w",2],[0.564,"au-1","ok","arb-1",35,"FOLLOWER","w",2],[0.565,"au-2","ok","arb-1",35,"FOLLOWER","w",2],[0.565,"au-3","ok","arb-1",35,"FOLLOWER","w",2],[0.565,"arb-1","ok","arb-1",35,"LEADER","w",2],[0.565,"arb-2","ok","arb-1",35,"FOLLOWER","w",2],[0.565,"arb-3","ok","arb-1",35,"FOLLOWER","w",2],[1.063,"za-1","ok","arb-1",35,"FOLLOWER","w",3],[1.065,"za-2","ok","arb-1",35,"FOLLOWER","w",3],[1.066,"za-3","ok","arb-1",35,"FOLLOWER","w",3],[1.066,"au-1","ok","arb-1",35,"FOLLOWER","w",3],[1.065,"au-2","ok","arb-1",35,"FOLLOWER","w",3],[1.066,"au-3","ok","arb-1",35,"FOLLOWER","w",3],[1.067,"arb-1","ok","arb-1",35,"LEADER","w",3],[1.067,"arb-2","ok","arb-1",35,"FOLLOWER","w",3],[1.067,"arb-3","ok","arb-1",35,"FOLLOWER","w",3],[1.57,"za-1","ok","arb-1",35,"FOLLOWER","w",4],[1.571,"za-2","ok","arb-1",35,"FOLLOWER","w",4],[1.573,"za-3","ok","arb-1",35,"FOLLOWER","w",4],[1.573,"au-1","ok","arb-1",35,"FOLLOWER","w",4],[1.574,"au-2","ok","arb-1",35,"FOLLOWER","w",4],[1.573,"au-3","ok","arb-1",35,"FOLLOWER","w",4],[1.574,"arb-1","ok","arb-1",35,"LEADER","w",4],[1.574,"arb-2","ok","arb-1",35,"FOLLOWER","w",4],[1.574,"arb-3","ok","arb-1",35,"FOLLOWER","w",4],[2.075,"za-1","ok","arb-1",35,"FOLLOWER","w",5],[2.075,"za-2","ok","arb-1",35,"FOLLOWER","w",5],[2.077,"za-3","ok","arb-1",35,"FOLLOWER","w",5],[2.077,"au-1","ok","arb-1",35,"FOLLOWER","w",5],[2.077,"au-2","ok","arb-1",35,"FOLLOWER","w",5],[2.078,"au-3","ok","arb-1",35,"FOLLOWER","w",5],[2.078,"arb-1","ok","arb-1",35,"LEADER","w",5],[2.078,"arb-2","ok","arb-1",35,"FOLLOWER","w",5],[2.078,"arb-3","ok","arb-1",35,"FOLLOWER","w",5],[2.582,"za-1","ok","arb-1",35,"FOLLOWER","w",6],[2.579,"za-2","ok","arb-1",35,"FOLLOWER","w",6],[2.581,"za-3","ok","arb-1",35,"FOLLOWER","w",6],[2.581,"au-1","ok","arb-1",35,"FOLLOWER","w",6],[2.581,"au-2","ok","arb-1",35,"FOLLOWER","w",6],[2.581,"au-3","ok","arb-1",35,"FOLLOWER","w",6],[2.581,"arb-1","ok","arb-1",35,"LEADER","w",6],[2.582,"arb-2","ok","arb-1",35,"FOLLOWER","w",6],[2.582,"arb-3","ok","arb-1",35,"FOLLOWER","w",6],[3.088,"za-1","ok","arb-1",35,"FOLLOWER","w",7],[3.089,"za-2","ok","arb-1",35,"FOLLOWER","w",7],[3.089,"za-3","ok","arb-1",35,"FOLLOWER","w",7],[3.089,"au-1","ok","arb-1",35,"FOLLOWER","w",7],[3.09,"au-2","ok","arb-1",35,"FOLLOWER","w",7],[3.09,"au-3","ok","arb-1",35,"FOLLOWER","w",7],[3.089,"arb-1","ok","arb-1",35,"LEADER","w",7],[3.09,"arb-2","ok","arb-1",35,"FOLLOWER","w",7],[3.09,"arb-3","ok","arb-1",35,"FOLLOWER","w",7],[3.592,"za-1","ok","arb-1",35,"FOLLOWER","w",8],[3.591,"za-2","ok","arb-1",35,"FOLLOWER","w",8],[3.591,"za-3","ok","arb-1",35,"FOLLOWER","w",8],[3.592,"au-1","ok","arb-1",35,"FOLLOWER","w",8],[3.591,"au-2","ok","arb-1",35,"FOLLOWER","w",8],[3.592,"au-3","ok","arb-1",35,"FOLLOWER","w",8],[3.592,"arb-1","ok","arb-1",35,"LEADER","w",8],[3.592,"arb-2","ok","arb-1",35,"FOLLOWER","w",8],[3.592,"arb-3","ok","arb-1",35,"FOLLOWER","w",8],[4.103,"za-1","ok","arb-1",35,"FOLLOWER","w",9],[4.103,"za-2","ok","arb-1",35,"FOLLOWER","w",9],[4.104,"za-3","ok","arb-1",35,"FOLLOWER","w",9],[4.104,"au-1","ok","arb-1",35,"FOLLOWER","w",9],[4.105,"au-2","ok","arb-1",35,"FOLLOWER","w",9],[4.103,"au-3","ok","arb-1",35,"FOLLOWER","w",9],[4.105,"arb-1","ok","arb-1",35,"LEADER","w",9],[4.105,"arb-2","ok","arb-1",35,"FOLLOWER","w",9],[4.105,"arb-3","ok","arb-1",35,"FOLLOWER","w",9],[4.617,"za-1","ok","arb-1",35,"FOLLOWER","w",10],[4.617,"za-2","ok","arb-1",35,"FOLLOWER","w",10],[4.617,"za-3","ok","arb-1",35,"FOLLOWER","w",10],[4.618,"au-1","ok","arb-1",35,"FOLLOWER","w",10],[4.619,"au-2","ok","arb-1",35,"FOLLOWER","w",10],[4.619,"au-3","ok","arb-1",35,"FOLLOWER","w",10],[4.619,"arb-1","ok","arb-1",35,"LEADER","w",10],[4.619,"arb-2","ok","arb-1",35,"FOLLOWER","w",10],[4.619,"arb-3","ok","arb-1",35,"FOLLOWER","w",10],[5.112,"za-1","ok","arb-1",35,"FOLLOWER","w",11],[5.114,"za-2","ok","arb-1",35,"FOLLOWER","w",11],[5.113,"za-3","ok","arb-1",35,"FOLLOWER","w",11],[5.114,"au-1","ok","arb-1",35,"FOLLOWER","w",11],[5.113,"au-2","ok","arb-1",35,"FOLLOWER","w",11],[5.114,"au-3","ok","arb-1",35,"FOLLOWER","w",11],[5.115,"arb-1","ok","arb-1",35,"LEADER","w",11],[5.115,"arb-2","ok","arb-1",35,"FOLLOWER","w",11],[5.115,"arb-3","ok","arb-1",35,"FOLLOWER","w",11],[5.623,"za-1","ok","arb-1",35,"FOLLOWER","w",12],[5.622,"za-2","ok","arb-1",35,"FOLLOWER","w",12],[5.622,"za-3","ok","arb-1",35,"FOLLOWER","w",12],[5.622,"au-1","ok","arb-1",35,"FOLLOWER","w",12],[5.623,"au-2","ok","arb-1",35,"FOLLOWER","w",12],[5.623,"au-3","ok","arb-1",35,"FOLLOWER","w",12],[5.623,"arb-1","ok","arb-1",35,"LEADER","w",12],[5.623,"arb-2","ok","arb-1",35,"FOLLOWER","w",12],[5.624,"arb-3","ok","arb-1",35,"FOLLOWER","w",12],[6.123,"za-1","ok","arb-1",35,"FOLLOWER","w",13],[6.125,"za-2","ok","arb-1",35,"FOLLOWER","w",13],[6.124,"za-3","ok","arb-1",35,"FOLLOWER","w",13],[6.125,"au-1","ok","arb-1",35,"FOLLOWER","w",13],[6.126,"au-2","ok","arb-1",35,"FOLLOWER","w",13],[6.126,"au-3","ok","arb-1",35,"FOLLOWER","w",13],[6.127,"arb-1","ok","arb-1",35,"LEADER","w",13],[6.127,"arb-2","ok","arb-1",35,"FOLLOWER","w",13],[6.127,"arb-3","ok","arb-1",35,"FOLLOWER","w",13],[6.632,"za-1","ok","arb-1",35,"FOLLOWER","w",14],[6.633,"za-2","ok","arb-1",35,"FOLLOWER","w",14],[6.634,"za-3","ok","arb-1",35,"FOLLOWER","w",14],[6.633,"au-1","ok","arb-1",35,"FOLLOWER","w",14],[6.634,"au-2","ok","arb-1",35,"FOLLOWER","w",14],[6.635,"au-3","ok","arb-1",35,"FOLLOWER","w",14],[6.634,"arb-1","ok","arb-1",35,"LEADER","w",14],[6.635,"arb-2","ok","arb-1",35,"FOLLOWER","w",14],[6.635,"arb-3","ok","arb-1",35,"FOLLOWER","w",14],[7.143,"za-1","ok","arb-1",35,"FOLLOWER","w",15],[7.142,"za-2","ok","arb-1",35,"FOLLOWER","w",15],[7.143,"za-3","ok","arb-1",35,"FOLLOWER","w",15],[7.144,"au-1","ok","arb-1",35,"FOLLOWER","w",15],[7.145,"au-2","ok","arb-1",35,"FOLLOWER","w",15],[7.145,"au-3","ok","arb-1",35,"FOLLOWER","w",15],[7.145,"arb-1","ok","arb-1",35,"LEADER","w",15],[7.145,"arb-2","ok","arb-1",35,"FOLLOWER","w",15],[7.145,"arb-3","ok","arb-1",35,"FOLLOWER","w",15],[7.65,"za-1","ok","arb-1",35,"FOLLOWER","w",16],[7.651,"za-2","ok","arb-1",35,"FOLLOWER","w",16],[7.651,"za-3","ok","arb-1",35,"FOLLOWER","w",16],[7.653,"au-1","ok","arb-1",35,"FOLLOWER","w",16],[7.652,"au-2","ok","arb-1",35,"FOLLOWER","w",16],[7.652,"au-3","ok","arb-1",35,"FOLLOWER","w",16],[7.652,"arb-1","ok","arb-1",35,"LEADER","w",16],[7.652,"arb-2","ok","arb-1",35,"FOLLOWER","w",16],[7.652,"arb-3","ok","arb-1",35,"FOLLOWER","w",16],[8.155,"za-1","ok","arb-1",35,"FOLLOWER","w",17],[8.156,"za-2","ok","arb-1",35,"FOLLOWER","w",17],[8.155,"za-3","ok","arb-1",35,"FOLLOWER","w",17],[8.154,"au-1","ok","arb-1",35,"FOLLOWER","w",17],[8.156,"au-2","ok","arb-1",35,"FOLLOWER","w",17],[8.157,"au-3","ok","arb-1",35,"FOLLOWER","w",17],[8.157,"arb-1","ok","arb-1",35,"LEADER","w",17],[8.157,"arb-2","ok","arb-1",35,"FOLLOWER","w",17],[8.157,"arb-3","ok","arb-1",35,"FOLLOWER","w",17],[8.656,"za-1","ok","arb-1",35,"FOLLOWER","w",18],[8.657,"za-2","ok","arb-1",35,"FOLLOWER","w",18],[8.656,"za-3","ok","arb-1",35,"FOLLOWER","w",18],[8.656,"au-1","ok","arb-1",35,"FOLLOWER","w",18],[8.657,"au-2","ok","arb-1",35,"FOLLOWER","w",18],[8.657,"au-3","ok","arb-1",35,"FOLLOWER","w",18],[8.658,"arb-1","ok","arb-1",35,"LEADER","w",18],[8.658,"arb-2","ok","arb-1",35,"FOLLOWER","w",18],[8.658,"arb-3","ok","arb-1",35,"FOLLOWER","w",18],[9.159,"za-1","ok","arb-1",35,"FOLLOWER","w",19],[9.16,"za-2","ok","arb-1",35,"FOLLOWER","w",19],[9.162,"za-3","ok","arb-1",35,"FOLLOWER","w",19],[9.162,"au-1","ok","arb-1",35,"FOLLOWER","w",19],[9.163,"au-2","ok","arb-1",35,"FOLLOWER","w",19],[9.163,"au-3","ok","arb-1",35,"FOLLOWER","w",19],[9.163,"arb-1","ok","arb-1",35,"LEADER","w",19],[9.163,"arb-2","ok","arb-1",35,"FOLLOWER","w",19],[9.163,"arb-3","ok","arb-1",35,"FOLLOWER","w",19],[9.661,"za-1","ok","arb-1",35,"FOLLOWER","w",20],[9.663,"za-2","ok","arb-1",35,"FOLLOWER","w",20],[9.664,"za-3","ok","arb-1",35,"FOLLOWER","w",20],[9.663,"au-1","ok","arb-1",35,"FOLLOWER","w",20],[9.664,"au-2","ok","arb-1",35,"FOLLOWER","w",20],[9.663,"au-3","ok","arb-1",35,"FOLLOWER","w",20],[9.664,"arb-1","ok","arb-1",35,"LEADER","w",20],[9.664,"arb-2","ok","arb-1",35,"FOLLOWER","w",20],[9.664,"arb-3","ok","arb-1",35,"FOLLOWER","w",20],[10.163,"za-1","ok","arb-1",35,"FOLLOWER","w",21],[10.162,"za-2","ok","arb-1",35,"FOLLOWER","w",21],[10.163,"za-3","ok","arb-1",35,"FOLLOWER","w",21],[10.163,"au-1","ok","arb-1",35,"FOLLOWER","w",21],[10.163,"au-2","ok","arb-1",35,"FOLLOWER","w",21],[10.164,"au-3","ok","arb-1",35,"FOLLOWER","w",21],[10.164,"arb-1","ok","arb-1",35,"LEADER","w",21],[10.164,"arb-2","ok","arb-1",35,"FOLLOWER","w",21],[10.164,"arb-3","ok","arb-1",35,"FOLLOWER","w",21],[10.663,"za-1","ok","arb-1",35,"FOLLOWER","w",22],[10.665,"za-2","ok","arb-1",35,"FOLLOWER","w",22],[10.666,"za-3","ok","arb-1",35,"FOLLOWER","w",22],[10.666,"au-1","ok","arb-1",35,"FOLLOWER","w",22],[10.666,"au-2","ok","arb-1",35,"FOLLOWER","w",22],[10.666,"au-3","ok","arb-1",35,"FOLLOWER","w",22],[10.667,"arb-1","ok","arb-1",35,"LEADER","w",22],[10.667,"arb-2","ok","arb-1",35,"FOLLOWER","w",22],[10.667,"arb-3","ok","arb-1",35,"FOLLOWER","w",22],[11.166,"za-1","ok","arb-1",35,"FOLLOWER","w",23],[11.166,"za-2","ok","arb-1",35,"FOLLOWER","w",23],[11.167,"za-3","ok","arb-1",35,"FOLLOWER","w",23],[11.167,"au-1","ok","arb-1",35,"FOLLOWER","w",23],[11.166,"au-2","ok","arb-1",35,"FOLLOWER","w",23],[11.167,"au-3","ok","arb-1",35,"FOLLOWER","w",23],[11.167,"arb-1","ok","arb-1",35,"LEADER","w",23],[11.167,"arb-2","ok","arb-1",35,"FOLLOWER","w",23],[11.168,"arb-3","ok","arb-1",35,"FOLLOWER","w",23],[11.676,"za-1","ok","arb-1",35,"FOLLOWER","w",24],[11.676,"za-2","ok","arb-1",35,"FOLLOWER","w",24],[11.677,"za-3","ok","arb-1",35,"FOLLOWER","w",24],[11.677,"au-1","ok","arb-1",35,"FOLLOWER","w",24],[11.677,"au-2","ok","arb-1",35,"FOLLOWER","w",24],[11.677,"au-3","ok","arb-1",35,"FOLLOWER","w",24],[11.678,"arb-1","ok","arb-1",35,"LEADER","w",24],[11.678,"arb-2","ok","arb-1",35,"FOLLOWER","w",24],[11.678,"arb-3","ok","arb-1",35,"FOLLOWER","w",24],[12.186,"za-1","ok","arb-1",35,"FOLLOWER","w",25],[12.187,"za-2","ok","arb-1",35,"FOLLOWER","w",25],[12.188,"za-3","ok","arb-1",35,"FOLLOWER","w",25],[12.188,"au-1","ok","arb-1",35,"FOLLOWER","w",25],[12.189,"au-2","ok","arb-1",35,"FOLLOWER","w",25],[12.19,"au-3","ok","arb-1",35,"FOLLOWER","w",25],[12.189,"arb-1","ok","arb-1",35,"LEADER","w",25],[12.19,"arb-2","ok","arb-1",35,"FOLLOWER","w",25],[12.189,"arb-3","ok","arb-1",35,"FOLLOWER","w",25],[12.693,"za-1","ok","arb-1",35,"FOLLOWER","w",26],[12.695,"za-2","ok","arb-1",35,"FOLLOWER","w",26],[12.693,"za-3","ok","arb-1",35,"FOLLOWER","w",26],[12.694,"au-1","ok","arb-1",35,"FOLLOWER","w",26],[12.694,"au-2","ok","arb-1",35,"FOLLOWER","w",26],[12.695,"au-3","ok","arb-1",35,"FOLLOWER","w",26],[12.695,"arb-1","ok","arb-1",35,"LEADER","w",26],[12.695,"arb-2","ok","arb-1",35,"FOLLOWER","w",26],[12.695,"arb-3","ok","arb-1",35,"FOLLOWER","w",26],[13.2,"za-1","ok","arb-1",35,"FOLLOWER","w",27],[13.2,"za-2","ok","arb-1",35,"FOLLOWER","w",27],[13.201,"za-3","ok","arb-1",35,"FOLLOWER","w",27],[13.202,"au-1","ok","arb-1",35,"FOLLOWER","w",27],[13.203,"au-2","ok","arb-1",35,"FOLLOWER","w",27],[13.202,"au-3","ok","arb-1",35,"FOLLOWER","w",27],[13.203,"arb-1","ok","arb-1",35,"LEADER","w",27],[13.203,"arb-2","ok","arb-1",35,"FOLLOWER","w",27],[13.203,"arb-3","ok","arb-1",35,"FOLLOWER","w",27],[13.705,"za-1","ok","arb-1",35,"FOLLOWER","w",28],[13.706,"za-2","ok","arb-1",35,"FOLLOWER","w",28],[13.706,"za-3","ok","arb-1",35,"FOLLOWER","w",28],[13.707,"au-1","ok","arb-1",35,"FOLLOWER","w",28],[13.707,"au-2","ok","arb-1",35,"FOLLOWER","w",28],[13.707,"au-3","ok","arb-1",35,"FOLLOWER","w",28],[13.707,"arb-1","ok","arb-1",35,"LEADER","w",28],[13.708,"arb-2","ok","arb-1",35,"FOLLOWER","w",28],[13.708,"arb-3","ok","arb-1",35,"FOLLOWER","w",28],[14.211,"za-1","ok","arb-1",35,"FOLLOWER","w",29],[14.213,"za-2","ok","arb-1",35,"FOLLOWER","w",29],[14.214,"za-3","ok","arb-1",35,"FOLLOWER","w",29],[14.213,"au-1","ok","arb-1",35,"FOLLOWER","w",29],[14.214,"au-2","ok","arb-1",35,"FOLLOWER","w",29],[14.215,"au-3","ok","arb-1",35,"FOLLOWER","w",29],[14.215,"arb-1","ok","arb-1",35,"LEADER","w",29],[14.214,"arb-2","ok","arb-1",35,"FOLLOWER","w",29],[14.215,"arb-3","ok","arb-1",35,"FOLLOWER","w",29],[14.712,"za-1","ok","arb-1",35,"FOLLOWER","w",30],[14.713,"za-2","ok","arb-1",35,"FOLLOWER","w",30],[14.713,"za-3","ok","arb-1",35,"FOLLOWER","w",30],[14.712,"au-1","ok","arb-1",35,"FOLLOWER","w",30],[14.714,"au-2","ok","arb-1",35,"FOLLOWER","w",30],[14.713,"au-3","ok","arb-1",35,"FOLLOWER","w",30],[14.714,"arb-1","ok","arb-1",35,"LEADER","w",30],[14.714,"arb-2","ok","arb-1",35,"FOLLOWER","w",30],[14.714,"arb-3","ok","arb-1",35,"FOLLOWER","w",30],[15.348,"za-1","ok","arb-1",35,"FOLLOWER","f",0],[15.347,"za-2","ok","arb-1",35,"FOLLOWER","f",0],[15.347,"za-3","ok","arb-1",35,"FOLLOWER","f",0],[15.347,"au-1","ok","arb-1",35,"FOLLOWER","f",0],[15.347,"au-2","ok","arb-1",35,"FOLLOWER","f",0],[15.347,"au-3","ok","arb-1",35,"FOLLOWER","f",0],[15.347,"arb-1","ok","arb-1",35,"LEADER","f",0],[15.348,"arb-2","ok","arb-1",35,"FOLLOWER","f",0],[15.347,"arb-3","ok","arb-1",35,"FOLLOWER","f",0]]};
+
+/* ---------------- the exercise, as recorded moments ---------------- */
+const ROWS = {
+  ML51: [
+    ['ML51a','before the thaw: za\'s three processes are stopped (ps state T)','3','3','PASS'],
+    ['ML51b','baseline just before the thaw: the six live servers name one leader in one term; za\'s three do not answer','agreed','agreed','PASS'],
+    ['ML51','thaw za: all nine monitors answer','9','9','PASS'],
+    ['ML51c','after the thaw: za\'s three processes resumed','3','3','PASS'],
+    ['ML52','after the thaw: peers current, within 60 s','8','8','PASS'],
+    ['ML53','after the thaw: one leader that all nine name in one term','1','1','PASS'],
+    ['ML54','after the thaw: the meta leader is the one from just before the thaw','unchanged','moved t-arb-1 -> t-au-3','FAIL'],
+    ['ML54b','after the thaw: meta term unchanged during recovery','unchanged','term 15 -> 17','FAIL'],
+    ['ML55','after the thaw: arb za au, every expected message by Direct Get; KV vehicle-1','6/6 3/3 6/6 seed-k1-v1','6/6 3/3 6/6 seed-k1-v1','PASS'],
+    ['ML56','after the thaw: one acked write to each of arb za au','7 4 7','7 4 7','PASS'],
+    ['ML57','after the thaw: metadata probe: create, delete, gone','ok ok gone','ok ok gone','PASS'],
+    ['ML58a','za returns: the experiment','—','valid','VERDICT'],
+    ['ML58b','za returns: recovery (S4)','—','recovered','VERDICT'],
+    ['ML58c','za returns: leadership stability (D03-R16)','—','disturbed','VERDICT'],
+  ],
+  ML129: [
+    ['ML129a','before the thaw: au\'s three processes are stopped (ps state T)','3','3','PASS'],
+    ['ML129b','baseline just before the thaw: the six live servers agree; au\'s three do not answer','agreed','agreed','PASS'],
+    ['ML129','thaw au: all nine monitors answer','9','9','PASS'],
+    ['ML130','after the thaw: peers current, within 60 s','8','8','PASS'],
+    ['ML131','after the thaw: one leader that all nine name in one term','1','1','PASS'],
+    ['ML132','after the thaw: the meta leader is the one from just before the thaw','unchanged','unchanged','PASS'],
+    ['ML132b','after the thaw: meta term unchanged during recovery','unchanged','unchanged','PASS'],
+    ['ML133','after the thaw: arb za au, every expected message by Direct Get','23/23 14/14 13/13','23/23 14/14 13/13','PASS'],
+    ['ML134','after the thaw: one acked write to each of arb za au','24 15 14','24 15 14','PASS'],
+    ['ML136a','au returns: the experiment','—','valid','VERDICT'],
+    ['ML136b','au returns: recovery (S4)','—','recovered','VERDICT'],
+    ['ML136c','au returns: leadership stability (D03-R16)','—','stable','VERDICT'],
+  ],
+};
+
+const STEPS = [
+  { n: 1, t: 'Build the rig and seed the streams', m: [
+    { id: 'step1', label: 'Nine servers, three streams', kind: 'ba', off: true } ] },
+  { n: 2, t: 'Ask the hub to take the lead', m: [
+    { id: 'step2', label: 'Five step-down trials', kind: 'ba', off: true } ] },
+  { n: 3, t: 'One region dark, leader in the hub', m: [
+    { id: 'zadark3', label: 'za dark', kind: 'ba' },
+    { id: 'ML51', label: 'za returns', kind: 'readings', v: 'disturbed' },
+    { id: 'ML68', label: 'au returns', kind: 'readings', v: 'disturbed', off: true } ] },
+  { n: 4, t: 'The leader\'s region goes dark', m: [
+    { id: 'ML85', label: 'za returns', kind: 'readings', v: 'disturbed', off: true },
+    { id: 'ML103', label: 'au returns', kind: 'readings', v: 'disturbed', off: true } ] },
+  { n: 5, t: 'Both regions dark', m: [
+    { id: 'bothdark', label: 'Both dark: quorum lost', kind: 'ba', off: true },
+    { id: 'ML129', label: 'au returns', kind: 'readings', v: 'stable' } ] },
+  { n: 6, t: 'One region\'s stream stops', m: [
+    { id: 'zadark6', label: 'za dark: a publish times out', kind: 'ba' },
+    { id: 'ML146', label: 'za returns', kind: 'readings', v: 'disturbed', off: true } ] },
+];
+
+const CLUSTERS = [
+  { id: 'za', role: 'region', stream: 'ODOMETER_ZA' },
+  { id: 'arb', role: 'hub', stream: 'ODOMETER_ARB' },
+  { id: 'au', role: 'region', stream: 'ODOMETER_AU' },
+];
+const SERVERS = ['za-1','za-2','za-3','arb-1','arb-2','arb-3','au-1','au-2','au-3'];
+const STALE = 1.0;               // two watcher polls
+const QUORUM = 5;
+
+/* scenarios with readings */
+const SCEN = {
+  ML51: { title: 'Step 3: za returns', returning: 'za', freeze: 'ML43', thawId: 'ML51', verdict: 'disturbed', vid: 'ML58c',
+    streams: { za: [['ack','Acknowledged, seq 4','ML56'], ['stored','Read back 3/3 by Direct Get','ML55']],
+               arb:[['ack','Acknowledged, seq 7','ML56'], ['stored','Read back 6/6 by Direct Get','ML55']],
+               au: [['ack','Acknowledged, seq 7','ML56'], ['stored','Read back 6/6 by Direct Get','ML55']] } },
+  ML129: { title: 'Step 5: au returns', returning: 'au', freeze: 'ML115', thawId: 'ML129', verdict: 'stable', vid: 'ML136c',
+    streams: { za: [['ack','Acknowledged, seq 15','ML134'], ['stored','Read back 14/14 by Direct Get','ML133']],
+               arb:[['ack','Acknowledged, seq 24','ML134'], ['stored','Read back 23/23 by Direct Get','ML133']],
+               au: [['ack','Acknowledged, seq 14','ML134'], ['stored','Read back 13/13 by Direct Get','ML133']] } },
+};
+
+let cur = 'ML51', play = false, ph = 0, timer = null;
+
+/* ---------------- step list ---------------- */
+function renderSteps() {
+  const el = document.getElementById('steplist');
+  el.innerHTML = STEPS.map(s => `
+    <div class="step">
+      <div class="step-head"><span class="step-n">${s.n}</span><span class="step-t">${s.t}</span></div>
+      <ul class="moments">${s.m.map(m => `
+        <li><button class="moment ${m.id === cur ? 'on' : ''}" data-m="${m.id}" ${m.off ? 'disabled title="Not in this mockup"' : ''}>
+          <span class="lbl">${m.label}</span>
+          ${m.v ? `<span class="verdict ${m.v}">${m.v}</span>` : ''}
+          <span class="kindtag ${m.kind === 'ba' ? 'bfa' : m.kind}">${m.kind === 'readings' ? 'readings' : 'before / after'}</span>
+        </button></li>`).join('')}
+      </ul>
+    </div>`).join('');
+  el.querySelectorAll('.moment:not([disabled])').forEach(b => b.onclick = () => open(b.dataset.m));
+}
+
+function open(id) { stop(); cur = id; renderSteps(); SCEN[id] ? renderReplay() : renderBA(id); }
+
+/* ---------------- readings model ---------------- */
+function readings() { return DATA[cur]; }   // [t, srv, kind, leader, term, state, src, round]
+function span() { const ts = readings().map(r => r[0]); return [Math.min(...ts) - .3, Math.max(...ts) + .6]; }
+function latest(srv, t) {
+  let best = null;
+  for (const r of readings()) if (r[1] === srv && r[0] <= t && (!best || r[0] >= best[0])) best = r;
+  return best;
+}
+function polls() {
+  const m = new Map();
+  for (const r of readings()) { const k = r[6] + r[7]; if (!m.has(k)) m.set(k, []); m.get(k).push(r); }
+  return [...m.values()].map(rs => ({ rs, end: Math.max(...rs.map(r => r[0])) })).sort((a, b) => a.end - b.end);
+}
+function agreement(t) {
+  const done = polls().filter(p => p.end <= t);
+  if (!done.length) return { word: 'no reading yet' };
+  const p = done[done.length - 1];
+  const ans = p.rs.filter(r => r[2] === 'ok' || r[2] === 'no_leader');
+  const named = new Set(ans.map(r => r[2] === 'ok' ? r[3] + '@' + r[4] : 'none'));
+  const lone = named.size === 1 && !named.has('none');
+  const [ldr, term] = lone ? [...named][0].split('@') : [null, null];
+  const self = lone && p.rs.find(r => r[1] === ldr && r[5] === 'LEADER');
+  return { agreed: !!self, ldr, term, ans: ans.length, views: named.size, at: p.end };
+}
+const TINT = ['#3f6ea6', '#7a5cb4', '#2f8a8a', '#9a7b1e'];
+let tintOf = {};
+function tint(l) { if (!(l in tintOf)) tintOf[l] = TINT[Object.keys(tintOf).length % TINT.length]; return tintOf[l]; }
+const fmt = s => (s >= 0 ? '+' : '−') + Math.abs(s).toFixed(2) + ' s';
+
+/* ---------------- replay view ---------------- */
+function renderReplay() {
+  const S = SCEN[cur]; tintOf = {};
+  readings().forEach(r => r[3] && r[5] !== 'LEADER' && tint(r[3]));
+  readings().forEach(r => r[5] === 'LEADER' && tint(r[1]));
+  const [t0, t1] = span(); ph = polls()[0].end;
+  const R = S.returning.toUpperCase();
+  document.getElementById('stage').innerHTML = `
+    <div class="stage-head">
+      <div>
+        <h1>${S.title}</h1>
+        <div class="prov">Run 10-20261005-170022. Thaw recorded at 0.00 s (${S.thawId}). Recorded stability: <span class="verdict ${S.verdict}">${S.verdict}</span> <span class="mono" style="color:var(--truth)">${S.vid}</span></div>
+      </div>
+      <div class="legend">
+        <span><i class="sw obs"></i>Observed</span><span><i class="sw rec"></i>Recorded result</span>
+        <span><i class="sw der"></i>Derived</span><span><i class="sw gap"></i>No reading</span>
+      </div>
+    </div>
+    <div class="summary" id="summary"></div>
+    <div class="clusters" id="clusters"></div>
+    <div class="strip-wrap">
+      <div class="strip-top">
+        <h3>Who each server says is leader</h3>
+        <p>Two baseline polls before the thaw, a reading every 0.5 s after it, then a final poll. Click or drag to move.</p>
+        <div class="leaders-key" id="lkey"></div>
+      </div>
+      <div class="strip" id="strip"></div>
+    </div>
+    <div class="playback">
+      <button class="btn" id="b-reset" title="Back to the first reading"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3v10M13 3 6 8l7 5z"/></svg>Reset</button>
+      <button class="btn" id="b-prev"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M11 3 5 8l6 5z"/></svg>Previous reading</button>
+      <button class="btn primary" id="b-play"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5z"/></svg><span>Play</span></button>
+      <button class="btn" id="b-next">Next reading<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l6 5-6 5z"/></svg></button>
+      <span class="clock" id="clock"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="b-dark">Make ${R} dark</button>
+      <span class="why" id="why-dark">The freeze (${S.freeze}) is before this window. This opens the recorded freeze.</span>
+      <button class="btn" id="b-back">Bring ${R} back</button>
+    </div>
+    <details class="rows" open>
+      <summary>Recorded results for this window<small>Rows from 10-all.tsv. This run did not record when each row was written.</small></summary>
+      <table>
+        <thead><tr><th>Check</th><th>What it checked</th><th>Expected</th><th>Recorded</th><th>Result</th><th>Time</th></tr></thead>
+        <tbody>${ROWS[cur].map(r => `<tr><td class="id mono">${r[0]}</td><td>${r[1]}</td><td class="mono">${r[2]}</td><td class="mono">${r[3]}</td><td class="st ${r[4]}">${r[4] === 'VERDICT' ? r[3] : r[4].toLowerCase()}</td><td class="t">not kept</td></tr>`).join('')}</tbody>
+      </table>
+    </details>`;
+
+  // strip
+  const strip = document.getElementById('strip');
+  const X = t => ((t - t0) / (t1 - t0)) * 100;
+  let html = '';
+  for (const s of SERVERS) {
+    const rs = readings().filter(r => r[1] === s).sort((a, b) => a[0] - b[0]);
+    html += `<div class="lane-n ${s.startsWith('arb') ? 'c-arb' : ''}">t-${s}</div><div class="lane">`;
+    rs.forEach((r, i) => {
+      const nx = rs[i + 1] ? Math.min(rs[i + 1][0], r[0] + .5) : r[0] + .5;
+      const cls = r[2] === 'unreachable' || r[2] === 'invalid' ? 'unreachable' : r[5] === 'LEADER' ? 'LEADER' : r[5] === 'CANDIDATE' ? 'CANDIDATE' : r[2] === 'no_leader' ? 'noleader' : '';
+      const bg = !cls ? `background:${tint(r[3])}` : '';
+      const tip = `t-${s} at ${fmt(r[0])}: ${r[2] === 'unreachable' ? 'no answer' : (r[3] ? 't-' + r[3] : 'no leader') + ', term ' + r[4] + ', ' + (r[5] || '')}`;
+      html += `<div class="cell ${cls}" style="left:${X(r[0])}%;width:calc(${X(nx) - X(r[0])}% - 1px);${bg}" title="${tip}"></div>`;
+    });
+    html += `</div>`;
+  }
+  let ticks = '';
+  for (let t = Math.ceil(t0); t <= t1; t += 1) ticks += `<span class="tick" style="left:${X(t)}%">${t === 0 ? 'thaw' : (t > 0 ? '+' : '−') + Math.abs(t) + ' s'}</span>`;
+  const wStart = Math.min(...readings().filter(r => r[6] === 'w').map(r => r[0]));
+  html += `<div class="axis">${ticks}</div>
+    <div style="grid-column:2;position:absolute;left:64px;right:0;top:0;bottom:0;pointer-events:none">
+      <div class="marker" style="left:${X(0)}%"><span>${R} thawed (${S.thawId})</span></div>
+      <div class="playhead" id="ph"></div>
+    </div>`;
+  strip.innerHTML = html;
+  const seen = Object.keys(tintOf);
+  document.getElementById('lkey').innerHTML =
+    seen.map(l => `<span><i class="sw" style="background:${tintOf[l]}"></i>follows t-${l}</span>`).join('') +
+    `<span><i class="sw" style="background:var(--lab-accent)"></i>says LEADER</span>
+     <span><i class="sw" style="background:color-mix(in srgb,var(--warn) 70%,#131416)"></i>candidate</span>
+     <span><i class="sw" style="border-top:1px dashed #4a515b;border-bottom:1px dashed #4a515b"></i>no answer</span>`;
+
+  const seek = e => { const b = strip.getBoundingClientRect(); const x = (e.clientX - b.left - 64) / (b.width - 64);
+    ph = Math.max(t0, Math.min(t1, t0 + x * (t1 - t0))); stop(); draw(); };
+  let drag = false;
+  strip.onmousedown = e => { drag = true; seek(e); };
+  window.onmousemove = e => drag && seek(e);
+  window.onmouseup = () => drag = false;
+
+  const times = [...new Set(readings().map(r => r[0]))].sort((a, b) => a - b);
+  document.getElementById('b-reset').onclick = () => { stop(); ph = polls()[0].end; draw(); };
+  document.getElementById('b-next').onclick = () => { stop(); const n = polls().find(p => p.end > ph + 1e-6); if (n) ph = n.end; draw(); };
+  document.getElementById('b-prev').onclick = () => { stop(); const p = polls().filter(p => p.end < ph - 1e-6); ph = p.length ? p[p.length - 1].end : t0; draw(); };
+  document.getElementById('b-play').onclick = () => play ? stop() : start(t1);
+  document.getElementById('b-back').onclick = () => { stop(); ph = 0.0001; draw(); };
+  document.getElementById('b-dark').onclick = () => open(cur === 'ML51' ? 'zadark3' : 'bothdark');
+  if (cur === 'ML129') { const b = document.getElementById('b-dark'); b.disabled = true;
+    document.getElementById('why-dark').textContent = 'au\'s freeze (ML115) is in "Both dark", which has no readings in this run.'; }
+  draw();
+}
+
+function start(t1) {
+  play = true; document.querySelector('#b-play span').textContent = 'Pause';
+  timer = setInterval(() => { ph += 0.1; if (ph >= t1) { ph = t1; stop(); } draw(); }, 100);
+}
+function stop() { play = false; clearInterval(timer); const s = document.querySelector('#b-play span'); if (s) s.textContent = 'Play'; }
+
+function draw() {
+  const S = SCEN[cur]; const [t0, t1] = span();
+  document.getElementById('ph').style.left = ((ph - t0) / (t1 - t0) * 100) + '%';
+  document.getElementById('clock').innerHTML = `<b>${fmt(ph)}</b> from the thaw`;
+
+  // summary
+  const a = agreement(ph);
+  const answering = SERVERS.filter(s => { const r = latest(s, ph); return r && ph - r[0] <= STALE && (r[2] === 'ok' || r[2] === 'no_leader'); }).length;
+  const enough = answering >= QUORUM;
+  document.getElementById('summary').innerHTML = `
+    <div><div class="s-k">Meta leader (last complete poll, ${a.at !== undefined ? fmt(a.at) : '—'})</div>
+      ${a.agreed ? `<div class="s-v">t-${a.ldr}</div><div class="s-n">Every answering server names it, and it says LEADER.</div>`
+                 : `<div class="s-v none">No agreed leader</div><div class="s-n">${a.word || (a.views > 1 ? a.views + ' different views in that poll.' : 'Servers name a leader that does not say LEADER, or none.')}</div>`}</div>
+    <div><div class="s-k">Term</div><div class="s-v">${a.agreed ? a.term : '—'}</div><div class="s-n">${a.agreed ? 'agreed' : 'not agreed'}</div></div>
+    <div><div class="s-k">Monitors answering</div><div class="s-v">${answering} of 9</div><div class="s-n">readings under ${STALE} s old</div></div>
+    <div class="derived"><div class="s-k">Quorum arithmetic<span class="tag">derived</span></div>
+      <div class="s-v" style="color:${enough ? 'var(--p-text-color)' : 'var(--warn)'}">${answering} ${enough ? '≥' : '<'} ${QUORUM}</div>
+      <div class="s-n">${enough ? 'Enough answering voters for a quorum to form.' : 'Too few answering voters for a quorum.'} Counted here, not read from NATS.</div></div>`;
+
+  // clusters
+  document.getElementById('clusters').innerHTML = CLUSTERS.map(c => {
+    const rows = SERVERS.filter(s => s.startsWith(c.id + '-')).map(s => {
+      const r = latest(s, ph);
+      if (!r) return `<div class="srv noread"><div><div class="srv-n">t-${s}</div><div class="srv-a">no reading</div></div><div class="belief">Nothing recorded yet</div><div class="age"></div></div>`;
+      const age = ph - r[0], stale = age > STALE;
+      if (r[2] === 'unreachable' || r[2] === 'invalid')
+        return `<div class="srv noans ${stale ? 'stale' : ''}"><div><div class="srv-n">t-${s}</div><div class="srv-a">no answer</div></div><div class="belief">Monitor did not answer</div><div class="age ${stale ? 'stale' : ''}">${age.toFixed(1)} s ago${stale ? ', stale' : ''}</div></div>`;
+      return `<div class="srv ${stale ? 'stale' : ''}"><div><div class="srv-n">t-${s}</div><div class="srv-a">answering</div></div>
+        <div class="belief">${r[3] ? `<span class="who">t-${r[3]}</span>` : '<span class="who" style="color:var(--warn)">no leader</span>'}<span class="term">term ${r[4]}</span>${r[5] ? `<span class="chip ${r[5]}">${r[5].toLowerCase()}</span>` : ''}</div>
+        <div class="age ${stale ? 'stale' : ''}">${age.toFixed(1)} s ago${stale ? ', stale' : ''}</div></div>`;
+    }).join('');
+    const dark = c.id === S.returning && ph < 0;
+    return `<section class="cp ${c.role === 'hub' ? 'hub' : ''}">
+      <div class="cp-head"><span class="cp-name">${c.id}</span><span class="cp-role">${c.role === 'hub' ? 'hub (arb)' : 'region'}</span>
+        <span class="cp-state ${dark ? 'dark' : ''}">${c.id === S.returning ? (dark ? 'dark, frozen with SIGSTOP' : 'returned at the thaw') : 'up throughout'}</span></div>
+      ${rows}
+      <div class="stream"><h4>${c.stream}<small>after the thaw; time not kept in this run</small></h4>
+        ${S.streams[c.id].map(e => `<div class="evt"><span class="pill ${e[0]}">${e[0] === 'ack' ? 'acknowledged' : 'confirmed stored'}</span>${e[1]}<span class="id mono">${e[2]}</span></div>`).join('')}
+      </div></section>`;
+  }).join('');
+}
+
+/* ---------------- before / after moments ---------------- */
+function renderBA(id) {
+  const st = document.getElementById('stage');
+  if (id === 'zadark3') {
+    st.innerHTML = `
+      <div class="stage-head"><div><h1>Step 3: za dark, leader in the hub</h1>
+        <div class="prov">Run 10-20261005-170022, checks ML42 to ML50. Verdict ML50: passed with a measured interruption.</div></div></div>
+      <div class="gapcard"><h3>No readings for this span in this run</h3>
+        <p>The rig checked the leader every 0.5 s for 15 s while za was dark, but did not save the readings. Only the results below were kept. After the planned recording change, a new run will show one hub server's leader field over time here. The other eight servers will still show "no reading".</p></div>
+      <div class="ba">
+        <div class="ba-col"><h4>Before the freeze</h4>
+          <div class="evt">Leader t-arb-1, all nine answering, eight peers current<span class="id mono">ML42</span></div>
+          <div class="evt">Meta term 15<span class="id mono">ML49a</span></div></div>
+        <div class="arrow">→</div>
+        <div class="ba-col"><h4>za dark for 15 s</h4>
+          <div class="evt">za's three monitors do not answer<span class="id mono">ML43</span></div>
+          <div class="evt">Leader held; the six live servers agree<span class="id mono">ML44</span></div>
+          <div class="evt">Meta term 15 → 15<span class="id mono">ML49a</span></div>
+          <div class="evt">Metadata probe: create, delete, gone<span class="id mono">ML49</span></div></div>
+      </div>
+      <div class="flow">
+        ${baStream('ODOMETER_ARB', [['ack','Three writes acknowledged: seq 4, 5, 6','ML45'], ['stored','Read back 6/6','ML47']])}
+        ${baStream('ODOMETER_AU', [['ack','Three writes acknowledged: seq 4, 5, 6','ML46'], ['stored','Read back 6/6','ML48']])}
+        ${baStream('ODOMETER_ZA', [['none','No write attempted in step 3','—']])}
+        <div class="flow-step"><h5>Next</h5><button class="btn" onclick="open('ML51')">Bring ZA back</button><p>Opens "za returns", which has readings.</p></div>
+      </div>`;
+  }
+  if (id === 'zadark6') {
+    st.innerHTML = `
+      <div class="stage-head"><div><h1>Step 6: za dark, a publish times out</h1>
+        <div class="prov">Run 10-20261005-170022, checks ML137 to ML147. Verdict ML145: passed with a measured interruption.</div></div></div>
+      <div class="gapcard"><h3>Before and after only</h3>
+        <p>This run did not record when the publish started, when it timed out, or when the stream was read back. The planned recording change adds those times. One new run cannot promise a write that is stored later, so the replay will show whichever outcome was recorded.</p></div>
+      <div class="ba">
+        <div class="ba-col"><h4>Meta group while za is dark</h4>
+          <div class="evt">Leader t-arb-1; the six live servers agree<span class="id mono">ML139</span></div>
+          <div class="evt">Metadata probe: create, delete, gone<span class="id mono">ML144</span></div></div>
+        <div class="arrow">≠</div>
+        <div class="ba-col"><h4>Stream ODOMETER_ZA while za is dark</h4>
+          <div class="evt">No acknowledgement within 5 s<span class="id mono">ML140</span></div>
+          <div class="evt mono" style="color:var(--p-text-muted-color)">nats: error: nats: timeout; 5.07s<span class="id">ML140a</span></div></div>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><h5>1. Publish to ODOMETER_ZA</h5><span class="pill unknown">timed out, outcome unknown</span><p>A timeout means the CLI stopped waiting. It does not mean the write failed.</p><div class="evt"><span class="id mono">ML140, ML140a</span></div></div>
+        <div class="flow-step"><h5>2. After the thaw</h5><span class="pill notstored">not stored</span><p>15 messages held, 0 beyond the acknowledged ones.</p><div class="evt"><span class="id mono">ML146a</span></div></div>
+        <div class="flow-step"><h5>3. A new write</h5><span class="pill ack">acknowledged</span><p>Seq 16, new message ID.</p><div class="evt"><span class="id mono">ML147</span></div></div>
+        <div class="flow-step"><h5>4. Read back</h5><span class="pill stored">confirmed stored</span><p>16/16 by Direct Get.</p><div class="evt"><span class="id mono">ML147</span></div></div>
+      </div>
+      <div class="flow" style="grid-template-columns:1fr 1fr 2fr">
+        ${baStream('ODOMETER_ARB', [['ack','Seq 25, 26, 27','ML141'], ['stored','Read back 27/27','ML143']])}
+        ${baStream('ODOMETER_AU', [['ack','Seq 15, 16, 17','ML142'], ['stored','Read back 17/17','ML143']])}
+        <div class="flow-step"><h5>Not in the kept evidence</h5><p class="prose" style="margin:0"><b>Prose observation.</b> In a part run that was not kept, a write that timed out was stored later. No kept run shows it, so it is not shown as a step here. <code>EXERCISE_OBSERVATIONS.md:570-576</code></p></div>
+      </div>`;
+  }
+}
+function baStream(name, evts) {
+  const word = { ack: 'acknowledged', stored: 'confirmed stored', none: 'no attempt', unknown: 'outcome unknown', notstored: 'not stored' };
+  return `<div class="flow-step"><h5>${name}</h5>${evts.map(e => `<div class="evt"><span class="pill ${e[0]}">${word[e[0]]}</span>${e[1]}<span class="id mono">${e[2]}</span></div>`).join('')}</div>`;
+}
+
+/* ---------------- overview ---------------- */
+const FINDINGS = [
+  ['Hub leadership can be requested', 'A step-down with --cluster arb put the meta leader in the hub in every trial. Start-up does not put it there: nothing in the config pins it.', ['ML26','ML36','ML41','ML93','ML111','ML5a'], 'ba'],
+  ['A dark region does not move a hub leader', 'With the leader in the hub, one dark region left six voters, above the quorum. The leader held, the term did not move, and metadata and writes went on.', ['ML44','ML61','ML49a','ML66a'], 'ba', 'zadark3'],
+  ['Regional recovery can disturb it', 'During some regional recoveries, the metadata group entered a new election term and sometimes elected a different leader. In one diagnostic run, logs showed returning servers requesting votes with higher terms, causing the incumbent leader to step down. Why those servers initiated elections remains unproved, and this sequence has not been confirmed in normal runs.', ['ML54','ML54b','ML71','ML106','ML157a'], 'rd', 'ML51'],
+  ['Metadata quorum and stream availability are separate', 'Both regions dark: no meta leader and no create, yet the hub\'s own stream kept taking writes. One region dark: the meta group stayed healthy, yet that region\'s stream took no write.', ['ML116','ML118','ML120','ML139','ML140'], 'ba', 'zadark6'],
+  ['A timed-out publish is not a failed publish', 'The CLI gives up and prints a timeout. The message may still be stored later. Retry with the same Nats-Msg-Id, so a stored copy is not stored twice.', ['ML140a','ML146a','ML151a'], 'ba', 'zadark6'],
+  ['A leader field can be stale', 'After both regions go dark, the three hub servers stop naming the old leader one at a time, not together. Read every hub monitor, and wait.', ['ML116a'], 'ba'],
+];
+document.getElementById('findings').innerHTML = FINDINGS.map(f => `
+  <div class="finding"><h3>${f[0]}</h3><p>${f[1]}</p>
+    <div class="ev">Evidence: ${f[2].map(i => `<span class="mono" style="color:var(--truth)">${i}</span>`).join(' ')}
+      <span class="r ${f[3] === 'rd' ? 'rd' : ''}">${f[3] === 'rd' ? 'readings in run 170022' : 'before / after in run 170022'}</span>
+      ${f[4] ? `<button data-open="${f[4]}">Open in the replay</button>` : ''}</div></div>`).join('');
+document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { go('replay'); open(b.dataset.open); });
+
+/* ---------------- routes ---------------- */
+function go(v) {
+  document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'v-' + v));
+  document.querySelectorAll('[data-go]').forEach(x => x.classList.toggle('active', x.dataset.go === v));
+  document.getElementById('crumb-view').textContent = v === 'replay' ? 'Replay' : 'Overview';
+  stop();
+}
+document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
+
+renderSteps(); renderReplay();
+</script>
+</body>
+</html>
