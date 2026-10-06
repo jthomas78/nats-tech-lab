@@ -99,6 +99,17 @@
       "port": 7110
     },
     {
+      "//": "Demo 03 playground step 7 (BR-AS92). The PACKAGED shell: a build-mode build, then `vite preview` serving dist/ on 7110 with every plugin's remote read from its own dist/, so no demo dev server is needed. Port 7110, never Vite's default 4173: demo 03's control service (20302) accepts commands only from Origin localhost/127.0.0.1:7110 or 20301, so a 4173 preview loads the page and then answers every button with 403. vite.config.js pins preview to 7110 with strictPort for the same reason. Start the control service by hand first. Only one of this and the two lab-shell entries above can be up at a time.",
+      "name": "lab-shell-preview-7110",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_PLUGIN_SOURCE=build npm run build && npx vite preview --port 7110 --strictPort"
+      ],
+      "cwd": "lab-shell",
+      "port": 7110
+    },
+    {
       "//": "Phase 1b's example plugin. Its own toolchain, its own build, its own server — the shell never compiles it, which is what makes BR-AS03's no-host-rebuild claim testable rather than asserted (lab-shell/tools/hostBundleFingerprint.mjs). strictPort, because the shell reaches it by URL from the curated registry (demos/01-dictionary/registry.json) and a plugin that quietly moved would look like an unreachable remote rather than a moved one. Containerised too (its own Dockerfile), published on the same 7111 by the compose stack.",
       "name": "example-plugin",
       "runtimeExecutable": "npm",

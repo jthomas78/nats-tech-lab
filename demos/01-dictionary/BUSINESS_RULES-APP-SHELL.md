@@ -2097,3 +2097,47 @@ named here so the list is complete rather than re-argued.
 | A clash mark is reachable by a screen reader, not by colour alone, on BOTH entries | *(17f)* `lab-shell/src/shell/ui/ShellNav.spec.js` — the mark said in words as well as in tone, and kept in the words of BOTH entries when one lost the dot to a failure. `navMark.spec.js` — the description that survives losing the colour. |
 | Standalone demo 04 on `20401` keeps its own rail; the embedded plugin has none (D17-1) | *(17i)* `demos/04-jetstream-cqrs/frontend/src/App.spec.js` — the standalone half, which had no spec at all: a `NavList` of its own inside `AppShell`'s sidebar, both lessons in it, the lesson switching from the rail with no route involved, and its own `AppShell` rendered. `.../src/plugin.spec.js` — the embedded half, asked of the COMPONENT rather than of a class name. The old guard tested `.app-shell`, a string that has never existed in this repo — `AppShell.vue`'s root class is `.app` — so it could not have failed; 17i replaced it with `findComponent(AppShell)`. |
 | The host bundle fingerprint is unchanged by adding a plugin (BR-AS03) | *(17i, evidence run 2026-09-25)* `lab-shell/tools/hostBundleFingerprint.mjs`, the documented two-step workflow: `--record` against the phase-17 host, a third plugin added to `demos/01-dictionary/registry.json`, then `--verify` — `ok — host bundle unchanged across the plugin deployment (5da322dd…)`, 17 host assets, and the name scan clean. The recorded baseline was refreshed in the same commit because phase 17 changed HOST code (`shellRoutes.js`, `navigationTree.js`, `NavList.vue`); BR-AS03 claims a plugin cannot move the host, never that the host cannot change. |
+
+## Demo 03's playground — packaged preview, and one Home entrance (BR-AS92 to BR-AS94)
+
+Added 2026-10-06, step 7 of `demos/03-multi-cluster-and-accounts/PLAYGROUND-PLAN.md` (L1, L1b,
+L2), with the user's approval. Demo 03 gained one lab-shell plugin, the T4 playground (`demo-03`).
+Packaging it showed two `vite preview` gaps in the shell, both reproduced before they were changed,
+and one Home screen gap. Each rule names no demo in `lab-shell` code except the frontend-less list
+in `labDemos.js`, which always named demos 02 and 03 by hand.
+
+- **BR-AS92 — Preview serves the built copy of a plugin.** In `vite preview` of a
+  `plugin-source: build` shell, `/plugins/<id>/…` **must** be answered from the shell's own
+  `dist/plugins/<id>/` copy (BR-AS77). The asset proxy to a demo's dev-server port is for
+  development **only**, and `pluginAssets`' `config` hook **must** return no asset proxy when
+  `isPreview` is true. Cause, reproduced 2026-10-06 with demo 04 and again with demo 03: preview
+  copies `server.proxy` when `preview.proxy` is unset, so with the dev servers stopped every
+  `/plugins/<id>/remoteEntry.js` answered **500** (`http proxy error … ECONNREFUSED`) and the
+  packaged copy was never reached.
+  - **Development is unchanged.** `vite` (serve) still proxies the prefix to a declared dev port,
+    with `ws: true`, so hot module replacement still works through 7110.
+  - **The demo API and readiness proxies stay in preview.** Only the asset proxy is development-only.
+
+- **BR-AS93 — Preview forwards only declared demo API routes.** In `vite preview`,
+  `/demo-api/<demo>/…` **must** forward exactly the routes the demo's `demo.json` declares
+  (BR-AS82), and **must** answer **404**, plain text, for any other path under the prefix — the
+  same as in development and the same as the hosted nginx snippet. Cause, reproduced 2026-10-06:
+  the forwarding already reached preview (it copies `server.proxy`), but the closing refusal was a
+  `configureServer` middleware only, so an undeclared path in preview answered **200 with the
+  shell page**. One middleware, built from the same scan as the proxy map, now serves both hooks.
+
+- **BR-AS94 — One demo, one Home card.** A frontend-less lab demo (`labDemos.js`) **may** name a
+  plugin. When that plugin's **default** route is registered, the demo's Home card **must** link to
+  that route **by route name**, with **no** status element and no dot; when it is not, the card
+  **must** link to `/lab-demos/<demo>` as before. The demo **must** still have exactly one card on
+  Home, in `build` and in `registry` plugin source. A plugin named this way **must not** declare
+  readiness in its `demo.json`: readiness would admit it to the probed demo catalogue and draw a
+  second card (BR-AS79).
+
+### How BR-AS92 to BR-AS94 are checked
+
+| Rule | Specced by |
+| --- | --- |
+| BR-AS92 | *(demo 03, L1)* `lab-shell/src/shell/registry/pluginAssets.spec.js` — the `config` hook returning no asset proxy with `isPreview: true` and the prefix entry with `isPreview: false`, and no `configurePreviewServer` hook that could stand between preview and `dist/`. Live check, 2026-10-06: both demo frontends built, the shell built with `VITE_PLUGIN_SOURCE=build`, nothing on 20301 or 20401, `vite preview` — `/plugins/demo-03/remoteEntry.js` and `/plugins/demo-04/remoteEntry.js` answered 500 before the change and 200 after. |
+| BR-AS93 | *(demo 03, L1b)* `lab-shell/src/shell/demos/demoApiGeneration.spec.js` — for BOTH `configureServer` and `configurePreviewServer`: an undeclared path refused with 404 in plain text, a declared prefix route with a query passed on to the proxy, and a path outside the prefix ignored. Live check, 2026-10-06: an undeclared demo 03 path answered 200 HTML in preview before the change, 404 after; the declared routes reached the running control service on 20302. |
+| BR-AS94 | *(demo 03, L2)* `lab-shell/src/shell/demos/labDemos.spec.js` — demo 03 absent from the probed demo catalogue built from the REAL repository scan; exactly one demo 03 card with the plugin's default route registered (linking to `demo-03/playground` by name, with no status and no dot) and with it absent (linking to the intro page); and the `plugin` field equal to the id in demo 03's own `manifest.json`. |

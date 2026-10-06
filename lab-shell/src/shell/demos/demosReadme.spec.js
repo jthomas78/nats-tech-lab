@@ -115,10 +115,11 @@ describe('the committed page is the folder', () => {
 
     expect(sourceOf('01-dictionary')).toContain(SOURCE_REGISTRY)
     expect(sourceOf('04-jetstream-cqrs')).toEqual([SOURCE_BUILD])
-    /* Demos 02 and 03 have no frontend at all, so a mode label would be wrong
-       for them rather than merely missing. */
+    /* Demo 03's T4 playground is a build-sourced plugin, like demo 04's. */
+    expect(sourceOf('03-multi-cluster-and-accounts')).toEqual([SOURCE_BUILD])
+    /* Demo 02 has no frontend at all, so a mode label would be wrong for it
+       rather than merely missing. */
     expect(sourceOf('02-multi-region')).toEqual([null])
-    expect(sourceOf('03-multi-cluster-and-accounts')).toEqual([null])
   })
 
   it('is not stale', () => {

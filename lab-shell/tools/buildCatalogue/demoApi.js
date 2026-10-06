@@ -23,7 +23,8 @@
    Three things are generated, all from the same scan as everything else
    (BR-AS81) — no demo, port, upstream or route is restated by hand:
 
-   - `/demo-api/<demo>/…` in development: Vite proxy entries.
+   - `/demo-api/<demo>/…` in development and in `vite preview`: Vite proxy
+     entries.
    - `/demo-api/<demo>/…` hosted: an nginx snippet emitted into `dist/deploy/`
      and `include`d by `nginx.conf`, moved out of the served tree by the
      Dockerfile so the deployment ships the rule without publishing upstreams.
@@ -137,6 +138,27 @@ export function apiNginxConf({ repoRoot, fs } = {}) {
 }
 
 /**
+ * The closing 404 for the prefix, as a connect middleware (BR-AS82, BR-AS93).
+ *
+ * `routed` comes from the SAME scan that built the proxy map, so the two
+ * cannot drift. The keys are anchored regexes, so they are tested as regexes
+ * against `req.url` whole — query included, because the query is part of
+ * what the proxy key matches.
+ */
+export function unroutedRefusal(repoRoot) {
+  const routed = Object.keys(demoApiProxy({ repoRoot })).map((key) => new RegExp(key))
+  return (req, res, next) => {
+    const path = (req.url ?? '').split('?')[0]
+    if (!path.startsWith(`${DEMO_API_PREFIX}/`)) return next()
+    if (routed.some((pattern) => pattern.test(req.url ?? ''))) return next()
+    res.statusCode = 404
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    res.end(`No demo API route: ${path}`)
+    return undefined
+  }
+}
+
+/**
  * The Vite plugin.
  *
  * @param {object} [options]
@@ -170,22 +192,17 @@ export function demoApi(options = {}) {
          spelled out in `demoReadiness.js`: Vite runs `server.proxy` near the
          front and the SPA fallback at the back, and a middleware returned
          from this hook sits behind both. Behind, this 404 would never fire,
-         because the SPA fallback would already have answered with a page.
+         because the SPA fallback would already have answered with a page. */
+      server.middlewares.use(unroutedRefusal(repoRoot))
+    },
 
-         `routed` comes from the SAME scan that built the proxy map, so the
-         two cannot drift. The keys are anchored regexes, so they are tested
-         as regexes against `req.url` whole — query included, because the
-         query is part of what the proxy key matches. */
-      const routed = Object.keys(demoApiProxy({ repoRoot })).map((key) => new RegExp(key))
-      server.middlewares.use((req, res, next) => {
-        const path = (req.url ?? '').split('?')[0]
-        if (!path.startsWith(`${DEMO_API_PREFIX}/`)) return next()
-        if (routed.some((pattern) => pattern.test(req.url ?? ''))) return next()
-        res.statusCode = 404
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-        res.end(`No demo API route: ${path}`)
-        return undefined
-      })
+    configurePreviewServer(server) {
+      /* The same guard in `vite preview` (BR-AS93). Preview copies
+         `server.proxy`, so the declared routes were already forwarded there;
+         only the refusal was missing, and an undeclared path answered 200 with
+         the shell page — reproduced 2026-10-06. Preview installs its hooks'
+         body before its proxy and its SPA fallback, the same order as dev. */
+      server.middlewares.use(unroutedRefusal(repoRoot))
     },
 
     closeBundle() {

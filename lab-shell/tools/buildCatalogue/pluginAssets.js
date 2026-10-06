@@ -116,12 +116,19 @@ export function pluginAssets(options = {}) {
   return {
     name: 'plugin-assets:layout',
 
-    config() {
+    config(_config, env = {}) {
       /* `config` runs before `configResolved`, so the root is resolved here
          from the option or from this file's own location. The proxy map is a
          static part of Vite's server config: a plugin ADDED while the dev
          server runs needs a restart, which is the same rebuild boundary
-         decision 5 already puts on catalogue membership. */
+         decision 5 already puts on catalogue membership.
+
+         Development only (BR-AS92). `vite preview` copies `server.proxy` when
+         `preview.proxy` is unset, so without this guard a preview sent
+         `/plugins/<id>/…` to the demo's stopped dev port and answered 500,
+         never reaching the `dist/plugins/<id>/` copy the build made —
+         reproduced 2026-10-06 with demo 04. Preview serves what was built. */
+      if (env.isPreview === true) return {}
       const root = options.repoRoot ?? resolve(import.meta.dirname, '..', '..', '..')
       return { server: { proxy: pluginAssetProxy({ repoRoot: root }) } }
     },
@@ -147,8 +154,11 @@ export function pluginAssets(options = {}) {
 
     configureServer(server) {
       /* Served from disk for the demos that declared no dev port. Registered
-         after the proxy, which Vite installs first, so a demo with a port is
-         never answered from a stale `dist/`. */
+         in the hook body, so it runs BEFORE `server.proxy`, not after it. A
+         demo with a port is never answered from a stale `dist/` because of
+         the `devPort` check below, which hands it on to the proxy. Dev only:
+         preview has no `configurePreviewServer` here, and serves the
+         `dist/plugins/<id>/` copy as plain static files (BR-AS92). */
       server.middlewares.use((req, res, next) => {
         const path = (req.url ?? '').split('?')[0]
         if (!path.startsWith(`${PLUGIN_ASSET_PREFIX}/`)) return next()

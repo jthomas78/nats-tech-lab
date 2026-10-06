@@ -16,6 +16,6 @@ with no frontend is still a demo; it simply has no plugin to source.
 | `01-dictionary` | seafreight-app | registry | 7101 |  |
 | `01-dictionary` | refdata | registry | 7102 |  |
 | `02-multi-region` | — | — | — | Multi-Region Cluster Mechanics |
-| `03-multi-cluster-and-accounts` | — | — | — | Multi-Cluster Topologies and Accounts |
+| `03-multi-cluster-and-accounts` | frontend | build | 20301 | Multi-Cluster Topologies and Accounts |
 | `04-jetstream-cqrs` | frontend | build | 20401 | JetStream as an Event Source, with CQRS |
 | `05-identity-and-permissions` | — | — | — | Identity and Permissions |

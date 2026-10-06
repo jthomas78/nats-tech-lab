@@ -1,6 +1,8 @@
 <script setup>
 /*
-  The intro page for a demo that has no frontend (task 16g).
+  The intro page for a demo that has no frontend (task 16g), or whose one
+  plugin this shell has not loaded (BR-AS94). With the plugin loaded, the Home
+  card opens the plugin instead, and this page is reached only by its URL.
 
   Shell-owned, because there is no plugin to own it. It answers the two things
   a reader of the menu actually wants — what is this demo asking, and how do I
@@ -32,7 +34,12 @@ const demo = computed(() => labDemo(route.params.demo))
     <header class="page-head">
       <h1>{{ demo.name }}</h1>
       <p class="id">
-        {{ demo.id }} · no frontend, so no plugin and no catalogue entry
+        <template v-if="demo.plugin">
+          {{ demo.id }} · its live playground is plugin {{ demo.plugin }}, which this shell has not loaded
+        </template>
+        <template v-else>
+          {{ demo.id }} · no frontend, so no plugin and no catalogue entry
+        </template>
       </p>
     </header>
 

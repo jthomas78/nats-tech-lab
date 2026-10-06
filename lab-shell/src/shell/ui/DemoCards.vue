@@ -28,6 +28,11 @@
   that will never come; these demos have nothing to ask. The two groups are
   separated for the same reason, so a reader can see at a glance which half of
   the menu a status even applies to.
+
+  A lab demo may also name a plugin (demo 03's T4 playground). When that
+  plugin's default route is registered, its card opens that route, by name;
+  otherwise it opens the intro page. Still no status: the plugin declares no
+  readiness, so there is nothing to probe. One demo, one card (BR-AS94).
 */
 import { computed, inject } from 'vue'
 
@@ -54,12 +59,19 @@ const cards = computed(() => {
   })
 })
 
-/* Static, and not merged into `cards` above. A reader who cannot tell a probed
-   demo from an unprobed one learns the wrong thing from both. */
-const labDemos = LAB_DEMOS.map((demo) => ({
-  key: demo.id,
-  name: demo.name,
-  to: { name: LAB_DEMO_ROUTE, params: { demo: demo.id } },
+/* Not merged into `cards` above. A reader who cannot tell a probed demo from
+   an unprobed one learns the wrong thing from both. Computed, because a
+   registry-source shell admits plugins after the first paint. */
+const labDemos = computed(() => LAB_DEMOS.map((demo) => {
+  const live = demo.plugin
+    ? shell.contributions.routes.find((r) => r.pluginId === demo.plugin && r.default === true) ?? null
+    : null
+  return {
+    key: demo.id,
+    name: demo.name,
+    to: live ? { name: live.qualifiedId } : { name: LAB_DEMO_ROUTE, params: { demo: demo.id } },
+    note: live ? 'open the live page' : 'run from the shell',
+  }
 }))
 </script>
 
@@ -98,7 +110,7 @@ const labDemos = LAB_DEMOS.map((demo) => ({
          demo with no frontend, so there is no reading to soften. -->
     <template v-if="labDemos.length">
       <h2 class="second">
-        Demos without a frontend
+        Lab demos
       </h2>
       <ul>
         <li
@@ -112,7 +124,7 @@ const labDemos = LAB_DEMOS.map((demo) => ({
           >
             {{ card.name }}
           </router-link>
-          <span class="demo-card-note">run from the shell</span>
+          <span class="demo-card-note">{{ card.note }}</span>
         </li>
       </ul>
     </template>

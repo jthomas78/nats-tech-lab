@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { apiNginxConf, demoApiProxy } from '../../../tools/buildCatalogue/demoApi.js'
+import { apiNginxConf, demoApi, demoApiProxy } from '../../../tools/buildCatalogue/demoApi.js'
 import { scanDemoManifests } from '../../../tools/buildCatalogue/scanDemos.js'
 import { DEMO_API_PREFIX, DEMO_READINESS_PREFIX, demoApiPath } from './demoCatalogueLocation.js'
 
@@ -185,6 +185,40 @@ describe('the development proxy', () => {
       metadata: { api: { hostedUpstream: 'http://demo04-cqrs:20402', routes: ['/pool'] } },
     })
     expect(Object.values(demoApiProxy({ repoRoot }))[0].target).toBe('http://demo04-cqrs:20402')
+  })
+})
+
+/* BR-AS93. The proxy map reaches preview on its own, because preview copies
+   `server.proxy`. The refusal did not: before 2026-10-06 an undeclared path in
+   preview answered 200 with the shell page. Both hooks now install the same
+   middleware, and both are held here. */
+describe('the closing refusal, in development and in preview', () => {
+  beforeEach(() => {
+    demo('04-jetstream-cqrs', { manifest: manifestFor('demo-04'), metadata: apiMetadata })
+  })
+
+  const ask = (hook, url) => {
+    let handler
+    demoApi({ repoRoot })[hook]({ middlewares: { use: (fn) => { handler = fn } } })
+    const res = { statusCode: 200, headers: {}, body: null, setHeader(k, v) { this.headers[k] = v }, end(b) { this.body = b } }
+    let passed = false
+    handler({ url }, res, () => { passed = true })
+    return { passed, res }
+  }
+
+  it.each(['configureServer', 'configurePreviewServer'])('%s refuses an undeclared path with 404', (hook) => {
+    const { passed, res } = ask(hook, `${demoApiPath('04-jetstream-cqrs')}/readyz`)
+    expect(passed).toBe(false)
+    expect(res.statusCode).toBe(404)
+    expect(res.headers['Content-Type']).toMatch(/^text\/plain/)
+  })
+
+  it.each(['configureServer', 'configurePreviewServer'])('%s passes a declared route on to the proxy', (hook) => {
+    expect(ask(hook, `${demoApiPath('04-jetstream-cqrs')}/commands/register?x=1`).passed).toBe(true)
+  })
+
+  it.each(['configureServer', 'configurePreviewServer'])('%s ignores every path outside the prefix', (hook) => {
+    expect(ask(hook, '/plugins/demo-04/remoteEntry.js').passed).toBe(true)
   })
 })
 

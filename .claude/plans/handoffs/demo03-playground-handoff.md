@@ -40,7 +40,11 @@ Build the live T4 playground for demo 03: a small Go control service
 6. **Frontend** against the live service. *Check:* matches the mockup at
    1920x1080; Vitest specs green; no console errors.
 7. **L1 fix (if reproduced), L1b, L2, L3.** *Check:* build mode works end to
-   end in dev and in preview.
+   end in dev and in preview. Packaged preview runs on **7110**
+   (`lab-shell-preview-7110` in `.claude/launch.json`), never 4173 — the
+   service refuses commands from any other Origin.
+   **Follow-up, out of step 7:** `/demo-readiness/<unknown>` answers 200 HTML
+   in preview, not 404 (`demoReadiness.js` guards dev only). See plan L1b.
 8. **Stage 04** only if the playground shows something the lab has not
    measured — then measure it in `lab/` first.
 

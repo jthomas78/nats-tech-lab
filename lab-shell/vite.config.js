@@ -121,4 +121,12 @@ export default defineConfig({
       allow: [fileURLToPath(new URL('..', import.meta.url))],
     },
   },
+  preview: {
+    // 7110 too, not Vite's default 4173. Demo 03's control service grants
+    // commands to Origin localhost/127.0.0.1:7110 (and its own 20301) only,
+    // so a preview on 4173 shows the playground and then refuses every
+    // button with a 403 (BR-AS92). The proxy is inherited from `server`.
+    port: 7110,
+    strictPort: true,
+  },
 })

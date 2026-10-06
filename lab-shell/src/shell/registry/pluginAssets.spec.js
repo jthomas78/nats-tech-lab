@@ -117,6 +117,20 @@ describe('the development proxy', () => {
     const contributed = pluginAssets({ repoRoot }).config()
     expect(contributed.server.proxy).toEqual(pluginAssetProxy({ repoRoot }))
   })
+
+  /* BR-AS92. `vite preview` falls back to `server.proxy`, so a proxy entry
+     handed to preview sends the prefix to a dev port nobody runs there. */
+  it('is development only — preview gets no asset proxy and serves the built copy', () => {
+    demo('04-jetstream-cqrs', { id: 'demo-04', port: 20401 })
+    const plugin = pluginAssets({ repoRoot })
+    expect(plugin.config({}, { command: 'serve', isPreview: true })).toEqual({})
+    expect(plugin.config({}, { command: 'serve', isPreview: false }).server.proxy)
+      .toHaveProperty(`${PLUGIN_ASSET_PREFIX}/demo-04`)
+  })
+
+  it('declares no preview hook, so nothing stands between preview and dist/', () => {
+    expect(pluginAssets({ repoRoot }).configurePreviewServer).toBeUndefined()
+  })
 })
 
 describe('the dev middleware for a demo with no dev server', () => {

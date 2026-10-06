@@ -525,6 +525,30 @@ plan, with the backend added.
   undeclared `/demo-api/` paths is dev-only (`demoApi.js:168-189`). Check
   that preview forwards the seven declared routes to 20302 and answers
   nothing else. Fix only if wrong.
+
+  **Done at step 7, 2026-10-06** (BR-AS92, BR-AS93 in
+  `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md`). L1: `pluginAssets`
+  returns no asset proxy when `isPreview` is true. L1b: reproduced first —
+  an undeclared `/demo-api/03-…/readyz` answered 200 HTML in preview — then
+  `demoApi` got the same 404 guard in `configurePreviewServer`.
+
+  **The supported packaged preview is port 7110, never 4173.** The control
+  service grants commands to Origin `localhost`/`127.0.0.1` `:7110` and
+  `:20301` only, so a preview on Vite's default 4173 loads the page and then
+  answers every button with 403. `lab-shell/vite.config.js` now pins
+  `preview` to 7110 with `strictPort`. Start the control service, stop the
+  demo dev servers (20301, 20401), then run the `.claude/launch.json` entry
+  `lab-shell-preview-7110`, or by hand:
+
+  ```bash
+  env VITE_PLUGIN_SOURCE=build npm --prefix lab-shell run build
+  npm --prefix lab-shell run preview
+  ```
+
+  **Follow-up, not fixed at step 7:** in preview, `/demo-readiness/<unknown>`
+  answers 200 with the shell page instead of a 404 (seen 2026-10-06 with
+  `/demo-readiness/nope`). `demoReadiness.js` has its guard in dev only,
+  like L1b had. Separate from the playground; fix in its own change.
 - **L2 — one Home entrance.** `labDemos.js`: demo 03 keeps its question,
   summary, run instructions and findings, gains `plugin: 'demo-03'`, the deck
   link moves v0.3 → v0.6, and `REPORT-10.html` is added. `DemoCards.vue`: a

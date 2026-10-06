@@ -2,10 +2,12 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import { demoCatalogueDocument, scanDemoManifests } from '../../../tools/buildCatalogue/scanDemos.js'
 import { LAB_DEMOS, LAB_DEMO_ROUTE, labDemo } from './labDemos.js'
 import DemoCards from '../ui/DemoCards.vue'
+import LabDemoView from '../../views/LabDemoView.vue'
 import { SHELL } from '../shellKey.js'
 
 /*
@@ -25,6 +27,9 @@ import { SHELL } from '../shellKey.js'
   sort of thing a later refactor restores by accident while "making the two
   lists consistent".
 */
+const routeParams = { demo: '02-multi-region' }
+vi.mock('vue-router', () => ({ useRoute: () => ({ params: routeParams }) }))
+
 const repoRoot = resolve(process.cwd(), '..')
 
 /* One probed demo alongside the two unprobed ones. An empty catalogue would
@@ -39,9 +44,9 @@ const shellStub = () => ({
 
 const routerLink = { props: ['to'], template: '<a><slot /></a>' }
 
-const mountCards = () => mount(DemoCards, {
+const mountCards = (shell = shellStub()) => mount(DemoCards, {
   global: {
-    provide: { [SHELL]: shellStub() },
+    provide: { [SHELL]: shell },
     /* Registered, not stubbed: one card resolves the link by NAME through
        `<component :is>`, which a `stubs` entry does not reach. */
     components: { 'router-link': routerLink, RouterLink: routerLink },
@@ -132,5 +137,65 @@ describe('the demo menu', () => {
     const main = readFileSync(resolve(repoRoot, 'lab-shell/src/main.js'), 'utf8')
     expect(main).toContain("path: '/lab-demos/:demo'")
     expect(main).not.toContain("path: '/demos/:demo'")
+  })
+})
+
+/* BR-AS94 — one demo, one Home card. The demo catalogue is the REAL one, from
+   this repository's scan, so a readiness block added to demo 03's demo.json
+   (which would give it a second, probed card) fails here. */
+describe('demo 03 on Home', () => {
+  const demoCatalogue = demoCatalogueDocument(scanDemoManifests({ repoRoot }).entries)
+  const byPlugin = Object.fromEntries(demoCatalogue.demos.map((d) => [d.pluginId, d]))
+  const playground = { pluginId: 'demo-03', qualifiedId: 'demo-03/playground', default: true }
+  const overview = { pluginId: 'demo-03', qualifiedId: 'demo-03/overview', default: false }
+  const shellWith = (routes) => ({ demos: { byPlugin, results: {} }, contributions: { routes } })
+  const demo03Cards = (wrapper) => wrapper.findAll('.demo-card')
+    .filter((card) => /multi-cluster/iu.test(card.find('.demo-card-name').text()))
+
+  it('is not in the probed demo catalogue, because it declares no readiness', () => {
+    expect(Object.keys(byPlugin)).not.toContain('demo-03')
+  })
+
+  it('has one card in build mode, opening the plugin default route by name', () => {
+    const wrapper = mountCards(shellWith([overview, playground]))
+    const cards = demo03Cards(wrapper)
+    expect(cards).toHaveLength(1)
+    expect(cards[0].findComponent({ name: 'RouterLink' }).props('to')).toEqual({ name: 'demo-03/playground' })
+    expect(cards[0].find('.demo-card-status').exists()).toBe(false)
+    expect(cards[0].find('.dot').exists()).toBe(false)
+  })
+
+  it('has one card in registry mode, opening the intro page when the plugin is not admitted', () => {
+    const wrapper = mountCards(shellWith([]))
+    const cards = demo03Cards(wrapper)
+    expect(cards).toHaveLength(1)
+    expect(cards[0].findComponent({ name: 'RouterLink' }).props('to'))
+      .toEqual({ name: LAB_DEMO_ROUTE, params: { demo: '03-multi-cluster-and-accounts' } })
+  })
+
+  it('names the plugin its own manifest declares', () => {
+    const manifest = JSON.parse(readFileSync(resolve(repoRoot, 'demos/03-multi-cluster-and-accounts/frontend/public/manifest.json'), 'utf8'))
+    expect(labDemo('03-multi-cluster-and-accounts').plugin).toBe(manifest.id)
+  })
+})
+
+/* The intro page is the fallback for demo 03 (BR-AS94), so it must not say
+   the demo has no frontend, nor that it is validation only. */
+describe('the intro page', () => {
+  const intro = (demo) => {
+    routeParams.demo = demo
+    return mount(LabDemoView).text()
+  }
+
+  it('names demo 03 playground plugin, and calls it validation and showcase', () => {
+    const text = intro('03-multi-cluster-and-accounts')
+    expect(text).toContain('its live playground is plugin demo-03')
+    expect(text).toContain('Validation and showcase')
+    expect(text).not.toMatch(/no frontend|Validation only/u)
+    expect(text).toContain('REPORT-10.html')
+  })
+
+  it('still says demo 02 has no frontend', () => {
+    expect(intro('02-multi-region')).toContain('no frontend, so no plugin and no catalogue entry')
   })
 })

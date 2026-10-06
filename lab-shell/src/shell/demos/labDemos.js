@@ -24,6 +24,13 @@
 
   Each `findings` and `run` path is asserted to exist by `labDemos.spec.js`, so
   a renamed script or a moved report fails the suite rather than the reader.
+
+  Demo 03 later grew ONE frontend, the T4 playground (plugin `demo-03`). It
+  stays here, because its lab is still run from a terminal, and it gains a
+  `plugin` field naming that plugin. When the plugin is active, the Home card
+  opens the plugin's default route instead of the intro page; when it is not,
+  the card opens the intro page as before. One demo, one card (BR-AS94). The
+  plugin declares no readiness, so it never gets a second, probed card.
 */
 
 export const LAB_DEMOS = Object.freeze([
@@ -47,17 +54,25 @@ export const LAB_DEMOS = Object.freeze([
   Object.freeze({
     id: '03-multi-cluster-and-accounts',
     name: 'Multi-Cluster Topologies and Accounts',
+    /* The plugin id, from the demo's own manifest.json. Not a source label:
+       BR-AS81's ban is on `plugin-source`, which this is not. */
+    plugin: 'demo-03',
     question: 'When one region goes dark, who is still alive to take a JetStream write?',
     summary:
-      'Validation only, and the topology itself is the variable: seven runnable shapes, '
-      + 'built from nothing on every run, measured and written up automatically.',
+      'Validation and showcase. The topology itself is the variable: seven runnable shapes, '
+      + 'built from nothing on every run, measured and written up automatically. '
+      + 'The T4 playground is the showcase: freeze a region of the live nine-server rig, '
+      + 'resume it, or request leadership, and watch what the servers report. '
+      + 'A playground session is never evidence.',
     run: Object.freeze([
       Object.freeze({ label: 'Build and measure every topology', command: 'demos/03-multi-cluster-and-accounts/lab/run-all.sh' }),
+      Object.freeze({ label: 'Start the playground control service', command: 'go run ./demos/03-multi-cluster-and-accounts/playground serve -lab demos/03-multi-cluster-and-accounts/lab' }),
     ]),
     findings: Object.freeze([
       Object.freeze({ label: 'Generated report', path: 'demos/03-multi-cluster-and-accounts/REPORT.md' }),
       Object.freeze({ label: 'Generated report, with diagrams', path: 'demos/03-multi-cluster-and-accounts/REPORT.html' }),
-      Object.freeze({ label: 'Pattern cards', path: 'demos/03-multi-cluster-and-accounts/docs/03-multi-cluster-and-accounts-pattern-cards-v0.3.pdf' }),
+      Object.freeze({ label: 'Exercise 10 report, the hub meta-leader', path: 'demos/03-multi-cluster-and-accounts/REPORT-10.html' }),
+      Object.freeze({ label: 'Pattern cards', path: 'demos/03-multi-cluster-and-accounts/docs/03-multi-cluster-and-accounts-pattern-cards-v0.6.pdf' }),
     ]),
   }),
 ])
