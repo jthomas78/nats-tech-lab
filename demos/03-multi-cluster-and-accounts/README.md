@@ -9,14 +9,31 @@ Everything below exists to answer that, for **ZA** and **AU**.
 
 ## The role of this demo
 
-**Validation only.** Not a showcase.
+**Validation + showcase.** The two jobs stay apart.
 
-This demo produces measured evidence so a topology decision can be made. It
-does **not** have a one-command setup that a stranger can run. The rig is six
-hand-written config files and a host `nats` CLI, driven by hand.
+- **Validation** is `lab/`. It produces measured evidence so a topology
+  decision can be made: `REPORT.md`, `REPORT-10.md` and the pattern cards.
+  The rig is hand-written config files and a host `nats` CLI, driven by
+  hand. This job is unchanged.
+- **Showcase** is the T4 playground: a small Go control service
+  (`playground/`) and one lab-shell page (`frontend/`). A person freezes a
+  region, resumes it, requests the meta leader in another cluster, and
+  publishes to each region's stream — on the real nine-server T4 rig — and
+  sees what NATS reports. **What the playground shows is not evidence.** A
+  session is never cited and never feeds a report. Plan:
+  [`PLAYGROUND-PLAN.md`](PLAYGROUND-PLAN.md).
 
-If you want to see a feature work, read demo 02. If you want to pick a
-topology, read this one.
+If you want to pick a topology, read the reports. If you want to watch T4
+lose and regain a region, open the playground.
+
+### Ports
+
+All on `127.0.0.1`. The NATS servers' own ports are in `CLAUDE.md`.
+
+| Port | What |
+|---|---|
+| 20301 | playground UI — Vite dev server (`frontend/`) |
+| 20302 | playground control service — `go run ./playground serve` |
 
 > Written retroactively on **2026-09-17**. The rig was built and measured in
 > September 2026, before this page existed. The evidence is not being re-run —
@@ -112,6 +129,31 @@ D03-R13 to D03-R18 are exercise 10
 `lab/10-hub-meta-leader.sh`). Their evidence is
 [`REPORT-10.md`](REPORT-10.md) and [`REPORT-10.html`](REPORT-10.html), made by
 `lab/render-report-10.py` from kept runs.
+
+### D03-R19 to D03-R32 — the T4 playground (showcase)
+
+These are **showcase** and **safety** requirements, not questions. Meeting one
+means the playground does it; it proves nothing about NATS. Design:
+[`PLAYGROUND-PLAN.md`](PLAYGROUND-PLAN.md).
+
+| ID | Requirement | Kind | State |
+|---|---|---|---|
+| **D03-R19** | Start the managed T4 rig, or attach to one, and show its lifecycle and who owns it. | showcase | planned |
+| **D03-R20** | Freeze and resume each cluster, in any combination, both regions included. Show "Dark: on / off", the pending transition ("Going dark", "Coming back", N of 3 confirmed), the confirmed process state, and the time since the change. Show process state and monitor state apart. | showcase | planned |
+| **D03-R21** | Request meta leadership in a chosen cluster. Keep the last request visible near the controls: the cluster, leader and term before, the reply, and the leader and term then observed, with the time it took. | showcase | planned |
+| **D03-R22** | Publish to each cluster's stream. Show each message ID. Keep acked, acked as duplicate, refused (not sent), timed out (outcome unknown) and verified storage apart. **Publish new** makes a new ID; **Retry same ID** resends one. | showcase | planned |
+| **D03-R23** | Try a metadata operation, to compare metadata availability with stream writes. | showcase | planned |
+| **D03-R24** | Restore every frozen cluster in one action. Resume and restore answer while other commands are pending. | showcase | planned |
+| **D03-R25** | A meta summary that tells agreement, disagreement, stale readings and too little evidence apart. | showcase | planned |
+| **D03-R26** | A timestamped history of actions, results, observations, pending commands and errors. | showcase | planned |
+| **D03-R27** | Signals reach only verified rig processes; no arbitrary execution; local callers only. | safety | planned |
+| **D03-R28** | A playground session never writes to, or becomes, validation evidence. | safety | planned |
+| **D03-R29** | Time every change (freeze, resume, accepted leadership request) to the next agreed reading, and show the leader and term after it, so repeated tries can be compared. | showcase | planned |
+| **D03-R30** | Let the user pick the client connection cluster (Auto, za, arb, au) and the publish timeout. The destination stream stays the panel's. No general configuration editor. | showcase | planned |
+| **D03-R31** | An optional exercise 10 guide beside the controls: steps the user performs; it never acts. | showcase | planned |
+| **D03-R32** | Draw T4's gateway links between the three cluster panels: one arrow per direction (six), each read from the `/gatewayz` of the cluster that dials out. A direction with no fresh reading from its own end is unknown, never down. | showcase | planned |
+
+`D03-R27` and `D03-R28` are the two a stage 04 review checks first.
 
 ### D03-R11 and D03-R12 — switching topology in place
 

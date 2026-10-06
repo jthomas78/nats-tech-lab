@@ -40,6 +40,9 @@ tmp/
 # Scratch / live JetStream stores -- never tracked
 demos/03-multi-cluster-and-accounts/js/
 
+# Demo 03 playground — session file and run state, rewritten every run
+demos/03-multi-cluster-and-accounts/playground/.run/
+
 # Compiled Go binary, rebuilt on every run
 demos/02-multi-region/odometer/odometer
 

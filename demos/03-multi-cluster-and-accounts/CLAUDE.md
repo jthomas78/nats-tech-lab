@@ -7,8 +7,10 @@ Every demo folder in this repo is sealed and owns one of these. Demo 01 is a
 Postgres-backed multi-service POC; demo 02 is six NATS servers in Docker plus a
 small Go binary; demo 04 is one NATS server, a Go binary and a Vue app. **Demo
 03 is none of those.** It is bare `nats-server` processes on the host, plain
-password auth, and no application code at all. Most of the root file does not
-apply here, and applying it has already caused wrong work.
+password auth, and no application code at all — except the T4 playground:
+`playground/` (a small Go control service) and `frontend/` (one Vue lab-shell
+page). The rig itself stays bare host processes. Most of the root file does
+not apply here, and applying it has already caused wrong work.
 
 Two things still apply, repo-wide: the session memory rules, and the general
 preferences (stop if asked to do too much; don't read large docs whole;
@@ -20,8 +22,20 @@ This file is the demo's **stage 02 — Design the rig**. See
 
 ## What this demo is
 
-**Role: validation only. Not a showcase.** It exists to produce measured
-evidence for a topology decision, not to show a feature working.
+**Role: validation + showcase.** The two jobs stay apart.
+
+- **Validation** is `lab/`. It produces measured evidence for a topology
+  decision: the reports and the pattern cards.
+- **Showcase** is the T4 playground (`playground/` + `frontend/`). A person
+  changes cluster state on the live rig and sees what NATS reports. **The
+  playground is not evidence.** A session is never cited, never feeds a
+  report, and never writes under `lab/run/`'s evidence paths.
+
+The playbook rule holds here: **a demo frontend is a live playground first**
+(`demo-playbook.html`, stage 03, Activities). The page acts on the running
+rig. Do not turn it into a report viewer or a replay of recorded runs —
+measured results stay in the reports and the deck, and the page may link to
+them.
 
 The one question, from `README.md`:
 
@@ -149,8 +163,9 @@ Rules for anything added here:
 - **Never read `/jsz?meta=1` once and believe it.** The `leader` field stays
   stale for roughly a minute after a majority dies. Use `wait_no_leader` /
   `wait_live_leader`.
-- **Only `nats-server`, `nats`, `jq`, `curl` and `python3` are needed.** Do not
-  add Docker, `nsc` or a `nats` context to this folder.
+- **`lab/` needs only `nats-server`, `nats`, `jq`, `curl` and `python3`.**
+  `playground/` adds Go; `frontend/` adds Node. Do not add Docker, `nsc` or a
+  `nats` context to this folder.
 
 `REPORT.md` and `REPORT.html` are generated. Do not hand-edit either — change
 the scripts, or the prose in `render-report.py`, and re-run.
@@ -196,6 +211,13 @@ Used by the extra topologies:
 
 Keep a new port inside these families. Do not borrow demo 02's 46xx / 47xx or
 demo 04's 20402.
+
+The playground uses demo 04's `20<demo><n>` pattern:
+
+| Thing | Port |
+|---|---|
+| playground UI, Vite dev server (`frontend/`) | 20301 |
+| playground control service (`playground/`) | 20302 |
 
 ## Accounts
 
@@ -277,7 +299,7 @@ Everything about demo 03 lives under `demos/03-multi-cluster-and-accounts/`.
 
 | Path | Holds |
 |---|---|
-| `README.md` | stage 01 — the question, the role, the five topologies, requirements `D03-R1`…`D03-R18` |
+| `README.md` | stage 01 — the question, the role, the five topologies, requirements `D03-R1`…`D03-R32` (`R19`…`R32` are the playground) |
 | `CLAUDE.md` | stage 02 — this file, the rig |
 | `diagrams/combination-matrix.html` | every combination wired, one row each; figures T1–T5; placement findings C1–C6 |
 | `diagrams/meta-quorum-options.html` | *"Who is still alive to take a write?"* — figures A–D, the scoreboard, five config traps |
@@ -293,6 +315,11 @@ Everything about demo 03 lives under `demos/03-multi-cluster-and-accounts/`.
 | `SUPERCLUSTER-DOWNSIDES.md` | a parked note — outside claims about one shared JetStream domain, each checked against this rig. Not a deliverable; pattern cards are |
 | `*.conf` | the six committed T2 configs |
 | `js/` | JetStream store directories — **gitignored, throwaway** |
+| `PLAYGROUND-PLAN.md` | the T4 playground plan, revision 2 — requirements `D03-R19`…`D03-R32`, the rules, the order of work |
+| `docs/mockups/playground-mockup.html` | the playground mockup. Every state in it is mock data |
+| `playground/` | the playground control service — Go, own `go.mod`, in root `go.work`, Ginkgo specs. `playground/.run/` is gitignored |
+| `frontend/` | the playground page — one Vue lab-shell remote, UniFi theme |
+| `EVIDENCE-REPLAY-PLAN.md` | **superseded** by `PLAYGROUND-PLAN.md`. Kept for the record. Do not build from it |
 
 Both diagram pages cover demos 02 **and** 03. Demo 03 owns figures T1–T5,
 C1–C6, and matrix rows 5, 6 and 7.
@@ -347,13 +374,72 @@ or `proposed` tag. Read the `pattern-cards` skill before changing it.
   corrected") was removed on 2026-09-28 on the user's instruction. Do not add
   it back without asking. The selection guide stays.
 
+## The playground
+
+A live T4 page: `playground/` (Go control service, `127.0.0.1:20302`) and
+`frontend/` (lab-shell remote, `127.0.0.1:20301`). Full design in
+[`PLAYGROUND-PLAN.md`](PLAYGROUND-PLAN.md). These rules hold for every line
+of it:
+
+1. **Observed, not inferred.** A server's leader, term and role come only
+   from its own monitor reading. The page shows each reading's age.
+2. **Process state and monitor state are two things.** A stopped process is
+   read from the OS (`ps` state `T`). A monitor that does not answer is a
+   monitor that did not answer. Neither proves the other, and neither proves
+   lost quorum.
+3. **Missing or stale means unknown.** It never counts as zero voters, and
+   never as a vote.
+4. **"Dark" means SIGSTOP of that cluster's three processes.** Never call it
+   a WAN partition or a network cut.
+5. **"Request leadership here"** is the only name for the step-down action.
+   Never "pin", "move" or "set". The page reports the leader then observed,
+   which may be elsewhere.
+6. **A publish timeout is "outcome unknown".** Only a later readback can say
+   "present at seq N" or "absent", and only as of that readback's time.
+7. **Control only what this rig started.** Signals go only to processes
+   whose identity is verified (PID file, exact argv, cwd, monitor-port
+   listener, unchanged start time). No pattern kill. No shell. No command
+   text from the browser.
+8. **Playground output never lands in evidence.** The service never writes
+   to `lab/run/evidence/`, `lab/run/results.tsv`, `lab/run/obs/` or a
+   report.
+9. **Every command ends** — in a result, an error, a timeout or a
+   cancellation with its reason. A watchdog closes any command that outlives
+   its limit by 1 s. Nothing stays pending for ever.
+10. **Guidance never acts.** The exercise 10 guide is text. It ticks a step
+    only when it sees the user do it.
+
+Ownership:
+
+| | Rig the service **started** (`owned`) | Rig the service **attached** to (`attached`) |
+|---|---|---|
+| How | **Start rig**: `lab/rig-t4.sh up` (it refuses if anything is running) | **Attach**: all nine verified, meta size 9 read from a monitor |
+| Stop button | yes: CONT, then TERM, nine verified PIDs | **no** — the service did not start it |
+| Service shuts down | CONT every verified PID, then TERM all nine, wait up to 30 s | CONT **only the processes this service stopped**, then leave the rig running |
+| Service crashes | the rig keeps running; a later service can attach | the same |
+| Frozen by someone else | shown as stopped; **Restore all** resumes it | the same |
+
+Traps:
+
+- **Never call `rig-t4.sh down` from the service.** It is a pattern kill
+  (`pkill -f 'nats-server -c t-'`). Stop sends signals to verified PIDs.
+- **Never call `rig-t4.sh freeze|thaw` from the service.** They sleep and
+  wait on monitors with no limit, so Resume would block behind them.
+- **Never run the playground beside `lab/run-all.sh` or
+  `lab/10-hub-meta-leader.sh`.** `lab_init` kills every `t-` server. Attach
+  refuses while a lab script runs.
+- The service never edits `lab/` scripts. A change that would help is
+  proposed separately.
+
 ## Root rules that do NOT apply here
 
-- **Frontend design system** (`shared/unifi-theme`, `AppShell.vue`, the
-  1920x1080 viewport rule). There is no UI in this demo. The dark UniFi palette
-  still applies to anything under `diagrams/`.
+- **Frontend design system, outside `frontend/`.** `frontend/` uses
+  `shared/unifi-theme` and is judged at 1920x1080. It is a plugin, so it does
+  not use `AppShell.vue` — the lab shell owns the frame. The dark UniFi
+  palette still applies to anything under `diagrams/`.
 - **Host port range 7100–7299.** Demo 03 uses the families listed above.
-- **Ginkgo, `go build`, `go test`.** There is no Go code here.
+- **Ginkgo, `go build`, `go test`, outside `playground/`.** `playground/` is
+  Go and uses Ginkgo; `lab/` has no Go code.
 - **`BUSINESS_RULES-*.md`, the `ARCHITECTURE*.md` set, the ADR folder,
   `.claude/plans/`, `shared/natsconn`, hexagonal layout.** Those describe demo
   01 and the proposed V3 platform.

@@ -76,8 +76,8 @@ The playground answers "what is the machine doing now?" It never answers
 
 ## Requirements
 
-New IDs, from the next free number. **Add them to `README.md` only when the
-user says so** — until then they live here.
+New IDs, from the next free number. Added to `README.md` on 2026-10-06, on
+the user's go-ahead; the README is now their home and holds their state.
 
 | ID | Requirement | Kind |
 |---|---|---|
@@ -508,6 +508,18 @@ plan, with the backend added.
   `/plugins/demo-03/` and `/plugins/demo-04/` from `dist/` with the demo dev
   servers stopped; dev still hot-reloads through 7110. Fix the comment at
   `pluginAssets.js:149-151`.
+
+  **Reproduced, 2026-10-06** (order of work, step 2). Demo 04 frontend built;
+  shell built with `VITE_PLUGIN_SOURCE=build` (it copied
+  `lab-shell/dist/plugins/demo-04/remoteEntry.js`); nothing listening on
+  20401; `vite preview --port 4173`. `GET /plugins/demo-04/remoteEntry.js`
+  → **500**, and the preview log reads `http proxy error:
+  /plugins/demo-04/remoteEntry.js … ECONNREFUSED` once per request. Control:
+  `GET /plugin-catalogue.json` → 200. Cause, from the code: `pluginAssets`'s
+  `config` hook returns the asset proxy under `server.proxy`, and
+  `vite preview` falls back to `server.proxy` when `preview.proxy` is unset,
+  so the prefix goes to the stopped dev port before the static `dist/` copy
+  is reached. The fix stays as planned, at step 7.
 - **L1b — the demo API in preview.** Read from code, not seen: the demo API
   proxy is in `server.proxy`, so preview copies it, but the 404 guard for
   undeclared `/demo-api/` paths is dev-only (`demoApi.js:168-189`). Check

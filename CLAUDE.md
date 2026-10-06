@@ -346,10 +346,14 @@ unaffected.
 **`demos/03-multi-cluster-and-accounts/` has its own `CLAUDE.md`. Read that, not
 this file, for anything inside that folder.** It is a sealed unit and the odd
 one out: bare `nats-server` processes started on the **host**, no Docker, no
-`nsc` trust chain, no `nats` contexts, no Go code and no UI. Accounts are plain
-user/password pairs inside six hand-written `.conf` files.
+`nsc` trust chain, no `nats` contexts. Accounts are plain user/password pairs
+inside six hand-written `.conf` files. One exception to "no code": the T4
+playground — a small Go control service (`playground/`, port 20302) and one
+lab-shell page (`frontend/`, port 20301). The rig is still host processes.
 
-Its role is **validation only**, and the **topology itself is the variable** —
+Its role is **validation + showcase**: `lab/` is the validation and the
+playground is the showcase, and a playground session is never evidence. The
+**topology itself is the variable** —
 five numbered shapes (T1–T5), plus two variants that answer their own question
 (**B** a domain per cluster, **E** export / import between accounts) — seven
 runnable shapes in all, needing 6, 7 or 9 servers depending on the run. That is
