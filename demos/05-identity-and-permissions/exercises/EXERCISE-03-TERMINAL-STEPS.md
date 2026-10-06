@@ -1,10 +1,11 @@
 # Exercise 03 — how do allow, deny, wildcards and defaults combine? Step by step
 
-> **Status: drafted and syntax-checked, but runtime-unverified.** The repeatable
-> check script (`ex03-check.sh`) is pending. Every "Predict" line is a
-> prediction from the NATS docs, not a result. Nothing here is measured until it
-> is recorded in [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md). The
-> four configs only pass `nats-server -t`. No server has run them.
+> **Status: 03a and 03b measured by hand. 03c and 03d runtime-unverified.**
+> The check script `ex03-check.sh` (36 checks) is written but **not yet run**.
+> It was written before the 03c and 03d hand run, so its checks marked
+> `prediction:` test docs claims, not results. Every "Predict" line is a
+> prediction from the NATS docs. Nothing here is measured until it is recorded
+> in [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md).
 
 Exercise 02 closed the open side. Exercise 03 asks how the rules inside one side
 combine. It is bigger than 01 and 02, so it has **four parts**. Do one part, then

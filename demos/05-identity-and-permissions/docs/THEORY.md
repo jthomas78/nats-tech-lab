@@ -32,7 +32,7 @@ Note the naming trap: NATS reports a failed **authentication** as
 - Lab choice (not from the docs): passwords come from `$D05_...` environment
   variables, so no config file holds a secret.
 
-## Exercise 02 — separate publish and subscribe limits *(planned)*
+## Exercise 02 — separate publish and subscribe limits *(built, measured)*
 
 - Each user has a `permissions` block with independent `publish` and
   `subscribe` lists. [AUTHZ]
@@ -45,7 +45,7 @@ Note the naming trap: NATS reports a failed **authentication** as
   that the denied message is **not delivered**. The docs say a denied publish
   is dropped and the connection kept. [AUTHZ]
 
-## Exercise 03 — allow, deny, wildcards, defaults, empty lists *(planned)*
+## Exercise 03 — allow, deny, wildcards, defaults, empty lists *(in progress: 03a, 03b measured)*
 
 Claims from [AUTHZ] to test one at a time:
 

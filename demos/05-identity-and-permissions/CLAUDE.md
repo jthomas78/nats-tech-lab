@@ -136,4 +136,6 @@ The demo is not complete until, under the playbook:
 3. the pattern cards deck exists (`pattern-cards` skill, stage 04).
 
 Exercises 01 and 02 are built and measured, each with a check script
-(`exercises/ex01-check.sh`, `exercises/ex02-check.sh`).
+(`exercises/ex01-check.sh`, `exercises/ex02-check.sh`). Exercise 03 is in
+progress: 03a and 03b measured by hand; `exercises/ex03-check.sh` written
+before the 03c / 03d hand run and not yet run.

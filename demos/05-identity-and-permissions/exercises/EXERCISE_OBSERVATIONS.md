@@ -130,8 +130,8 @@ re-read for this exercise, so "an unlisted side is open" is recorded as
 
 ## Exercise 03 — how do allow, deny, wildcards and defaults combine?
 
-**Status: IN PROGRESS.** Part 03a measured by hand. Parts 03b, 03c, 03d not run.
-No `ex03-check.sh` yet.
+**Status: IN PROGRESS.** Parts 03a and 03b measured by hand. Parts 03c and 03d not run.
+`ex03-check.sh` written 2026-10-06, not yet run.
 
 ### Part 03a — deny beats allow; what `*` and `>` match
 
