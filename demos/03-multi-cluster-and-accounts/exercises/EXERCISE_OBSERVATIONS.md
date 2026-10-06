@@ -746,3 +746,60 @@ So: in this run, a returning server's higher-term vote request made the
 incumbent step down, then an election followed. The log does not show why
 the returning server asked, and no normal run confirms the sequence. The
 finding says exactly this.
+
+---
+
+## 2026-10-06 09:55–10:08 SAST — T4 playground, step 5 live check (agent run, playground session)
+
+**This is a playground session, not exercise 10 evidence** (`D03-R28`,
+`CLAUDE.md` "The playground"). It checks that the control service
+(`playground/`, `PLAYGROUND-PLAN.md` order of work step 5) does what it
+says on the live rig. It carries no `ML` IDs, nothing here is cited, and
+nothing here may be promoted to a finding. Session file:
+`playground/.run/sessions/20261006-095546.jsonl` (gitignored). Service
+built from `74f39e7` plus uncommitted step 5 work. `nats-server 2.14.6`.
+
+Every action was one `curl` POST to `127.0.0.1:20302`, with
+`Origin: http://127.0.0.1:20301`. The demo 05 server (`4522`) was running
+and was not touched.
+
+| # | Action | Result the service reported |
+|---|---|---|
+| 1 | Start rig | `rig-t4.sh up`, 12 s, nine verified. Leader `t-za-2`, term 2, 9 fresh readings. `ODOMETER_ZA/ARB/AU` created: file, R3, placed per site, `allow_direct: true` (checked with `nats stream info`) |
+| 2 | Freeze `au` | 3 of 3 confirmed stopped after 0.2 s; `ps` read `T` for all three. Summary stayed `t-za-2`, term 2, 6 fresh readings |
+| 3 | Resume `au` | 3 of 3 running after 0.2 s. Transition: term +1, leader moved to `t-au-1`, agreed after 0.9 s |
+| — | CLI check (by hand, not the service) | `nats server raft step-down --cluster arb --trace` sent `$JS.API.META.LEADER.STEPDOWN` with `{"placement":{"cluster":"arb"}}` — the subject and body the service sends. Leader `t-arb-1`, term 4 |
+| 4 | Request leadership here, `za` | "Requested za. Observed t-za-2 in za, term 5." |
+| 5 | Request leadership here, `arb` | "Requested arb. Observed t-arb-3 in arb, term 6." |
+| 6 | Publish `za` via `za`, 2 s | `…-za-1` acked at seq 1 via `t-za-1` |
+| 7 | Freeze `za` | 3 of 3 stopped after 0.2 s |
+| 8 | Publish `za` via `arb`, 2 s | `…-za-2` **timed out after 2 s — outcome unknown** |
+| 9 | Resume `za` | 3 of 3 running after 0.1 s. Transition: term +1, leader moved `t-arb-3` → `t-za-1`, agreed after 0.7 s |
+| 10 | Retry same ID `…-za-2` via `arb`, 5 s | **acked as duplicate (seq 2)**: JetStream already held this ID |
+| 11 | Publish `za` via `au`, 5 s | `…-za-3` acked at seq 3 via `t-au-1` |
+| 12 | Verify `za` via `arb` | 3 present, 0 absent, last seq 3. The ledger keeps both attempts of `…-za-2` |
+| 13 | Probe via `arb` | `PG_PROBE_1`: create ok, delete ok, gone ok |
+| 14–15 | Freeze `au`, then probe via `za` | `PG_PROBE_2`: create ok, delete ok, gone ok, with `au` dark |
+| 16 | Restore all | resumed `au`, 3 of 3 running after 0.2 s. Transition: term +2, leader moved to `t-arb-1`, agreed after 1.0 s |
+| 17 | Stop | "rig stopped: nine processes ended" in 0.8 s. No `t-` server left |
+
+After the session: nothing under `lab/run/evidence/`, `lab/run/obs/` or
+`lab/run/results.tsv` was newer than the session start. Ctrl-C equivalent
+(SIGTERM to the service) with no rig logged "no ready rig: nothing to
+release".
+
+What this shows about the **service**, and nothing more:
+
+- Each command ended in a result or a timeout. None stayed pending.
+- A publish timeout was reported as "outcome unknown", and only a later
+  retry and readback said what happened.
+- "Request leadership here" reported the leader it then observed.
+
+Seen in passing, **not a finding** (one session, no checks): all three
+returns (rows 3, 9, 16) moved the leader and raised the term. The
+timed-out publish in row 8 was stored after `za` came back. Both match
+what exercise 10 already reports; neither adds to it.
+
+Not checked in this session: **Attach**, and the service's shutdown
+release with a ready rig (owned: CONT then TERM; attached: CONT only to
+what it stopped). The specs cover both with fakes.

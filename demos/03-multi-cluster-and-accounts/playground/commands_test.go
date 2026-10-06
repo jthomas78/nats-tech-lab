@@ -21,7 +21,12 @@ type fakeHost struct {
 	stopped    map[int]bool
 	ignoreStop bool
 	ignoreCont bool
-	kills      []killCall
+	// gone are the processes a SIGTERM ended, unless ignoreTerm is set.
+	gone       map[int]bool
+	ignoreTerm bool
+	// psAll is `ps -axo args=`: every command line on the host.
+	psAll string
+	kills []killCall
 }
 
 func pidOf(s server) int {
@@ -33,7 +38,7 @@ func pidOf(s server) int {
 	return 0
 }
 
-func newFakeHost() *fakeHost { return &fakeHost{stopped: map[int]bool{}} }
+func newFakeHost() *fakeHost { return &fakeHost{stopped: map[int]bool{}, gone: map[int]bool{}} }
 
 func (h *fakeHost) deps() procDeps {
 	return procDeps{
@@ -42,7 +47,13 @@ func (h *fakeHost) deps() procDeps {
 			h.mu.Lock()
 			defer h.mu.Unlock()
 			key := strings.Join(append([]string{name}, args...), " ")
+			if key == "ps -axo args=" {
+				return runResult{Stdout: h.psAll}
+			}
 			for _, s := range servers {
+				if h.gone[pidOf(s)] && strings.HasSuffix(key, " -p "+strconv.Itoa(pidOf(s))) {
+					return runResult{Exit: 1}
+				}
 				p := strconv.Itoa(pidOf(s))
 				switch key {
 				case "ps -o args= -p " + p:
@@ -80,6 +91,8 @@ func (h *fakeHost) deps() procDeps {
 				h.stopped[pid] = true
 			case sig == syscall.SIGCONT && !h.ignoreCont:
 				delete(h.stopped, pid)
+			case sig == syscall.SIGTERM && !h.ignoreTerm:
+				h.gone[pid] = true
 			}
 			return nil
 		},

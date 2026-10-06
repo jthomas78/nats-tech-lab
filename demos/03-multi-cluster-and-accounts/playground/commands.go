@@ -254,6 +254,9 @@ type controllerDeps struct {
 	now     func() time.Time
 	t       timings
 	session string
+	// onReady, when set, runs (on its own goroutine) each time a rig
+	// becomes ready. main.go opens the session file with it.
+	onReady func(owner string)
 }
 
 type controller struct {
@@ -1014,6 +1017,9 @@ func (c *controller) lifecycleCmd(kind string, limit time.Duration, owner string
 			c.stoppedByUs = map[string]bool{}
 			for _, cl := range clusters {
 				c.dark[cl] = &darkState{}
+			}
+			if c.d.onReady != nil {
+				go c.d.onReady(owner)
 			}
 		}}
 	})
