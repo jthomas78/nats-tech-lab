@@ -83,6 +83,12 @@ needs one. The rule and its exceptions are in `demo-playbook.html`, stage `03`
 (Activities). Demos 01–04 keep their shape. Demo 05 keeps each exercise's steps,
 configs and check script together in `exercises/`; see its own `CLAUDE.md`.
 
+**A demo frontend is a live playground first.** When a demo gets a page, the
+page lets a person act on the running feature and watch what it does — not a
+summary or replay of report data. Measured results stay in the reports and
+the pattern cards deck; the page may link to them. Same source:
+`demo-playbook.html`, stage `03` (Activities).
+
 **Exercise numbers start at `01`. `00` is invalid** — a set-up exercise is
 exercise `01`. This applies in every demo, to file names
 (`EXERCISE-01-…`, `ex01-check.sh`) and to prose. One exception: demo 03
