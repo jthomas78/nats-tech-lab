@@ -1,6 +1,6 @@
 ---
 name: demo05-state-and-handover
-description: "[demo 05] State as of 2026-10-06: ex 01, 02 done; ex 03 half measured; ex03/04/05 steps + scripts written but NEVER run; user runs them next."
+description: "[demo 05] State as of 2026-10-07: ex 01, 02 done; ex 03 half measured; ex03/04/05 scripts NEVER run; ex04 rework proposed, awaiting approval."
 metadata:
   type: project
 ---
@@ -31,9 +31,17 @@ State of `demos/05-identity-and-permissions/` on 2026-10-06, branch
   claims. Exercise 04 = request/reply: 04a inbox allowed/denied, 04b
   no-publish vs `allow_responses` (source v2.14.6: responses beat deny ">").
 - Exercise 05 drafted too: 05a token, 05b NKey; `lab/nkeys.sh` (seeds in
-  `.run/nkeys/`, 600), `D05_TOKEN` added to `lab/secrets.sh` (old secrets
-  file needs `--rotate`). `ex05-check.sh` (28) NEVER RUN. Its two "rejected"
+  `.run/nkeys/`, 600), `D05_TOKEN` added to `lab/secrets.sh`.
+  `ex05-check.sh` (32) NEVER RUN. Its two "rejected"
   configs were confirmed by `nats-server -t` only.
+- 2026-10-07 Codex review (pasted by the user): `lab/secrets.sh` now adds
+  missing vars and keeps passwords; `--rotate` only on explicit request.
+  ex05 A10/B13 use a named probe connection + jq (empty list cannot pass).
+  Every unrun check is tagged `[pred]` / `[pred·hand]` / `[cfg]` / `[rig]`
+  (ex03 now 38 checks). Coverage map added to `docs/THEORY.md`. ex04 rework
+  is only a PROPOSAL in `exercises/ex04-check-PROPOSAL.md` (S/D/C evidence
+  groups; A7/A8/B1 exit assumptions dropped) — do not implement before the
+  user approves. Do not add coverage gaps; do not run or rotate unasked.
 - Next: the user runs 03c/03d, 04 and 05 by hand, then the three scripts;
   record results in EXERCISE_OBSERVATIONS.md. 06 (bcrypt) stays planned.
 - Not done: a stranger's walkthrough (`D05-R10`), pattern cards (`D05-R11`).

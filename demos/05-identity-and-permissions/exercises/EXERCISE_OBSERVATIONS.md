@@ -165,8 +165,10 @@ re-read for this exercise, so "an unlisted side is open" is recorded as
 **Not measured:** exit codes of the denied commands.
 
 **Gotcha:** the observer user (`audit-observer`) and `D05_AUDIT_OBSERVER_PASSWORD`
-were added for 03a. `lab/secrets.sh` now writes the new variable; an older
-`.run/secrets.env` needs the line added or `lab/secrets.sh --rotate`.
+were added for 03a. `lab/secrets.sh` now writes the new variable. Run without `--rotate`, it adds
+any variable an older `.run/secrets.env` lacks and keeps the existing
+passwords (changed 2026-10-07; the same path adds `D05_TOKEN` for exercise 05).
+Re-run `source .run/secrets.env` in every open terminal afterwards.
 
 ### Part 03b — an empty allow list
 
@@ -210,7 +212,16 @@ reply per request, valid 2 minutes.
 ## Exercise 05 — a token and an NKey, against the password
 
 **Status: NOT RUN.** Steps, four configs, `lab/nkeys.sh` and `ex05-check.sh`
-(28 checks) written 2026-10-06. Nothing measured at runtime yet.
+(28 checks) written 2026-10-06; 32 checks after the 2026-10-07 fix below.
+Nothing measured at runtime yet.
+
+2026-10-07 fix, before any run: A10 read `/connz` after the token listener
+could already have exited, so an empty connection list would have passed.
+A10 and B13 now each start a named probe connection, read `/connz` while it
+is connected, and split into three: the curl succeeded and returned JSON
+(a/rig), exactly one connection with the probe's name is listed (b/rig), and
+only then its `authorized_user` (c/prediction). Tested on sample JSON only
+(empty list, other connection, two probes, curl failure: all fail).
 
 Checked with `nats-server -t` only (v2.14.6), 2026-10-06:
 

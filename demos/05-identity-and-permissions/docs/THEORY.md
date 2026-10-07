@@ -107,3 +107,41 @@ sibling subject to prove the subscription is live.
 - **`no_auth_user`** — lets unauthenticated clients in as a named user. The
   docs warn it can undo a lock-down; worth one line in exercise 01's notes
   when it is measured. [AUTHN]
+
+## Coverage of the NATS security docs
+
+Demo 05 covers **part** of two pages: Authentication basics [AUTHN] and
+Authorization [AUTHZ]. It does not cover the other pages under
+<https://docs.nats.io/learn/security/>. Status as of 2026-10-07:
+
+- **Measured** — recorded in `exercises/EXERCISE_OBSERVATIONS.md`.
+- **Written, not run** — steps and a check script exist; every check in it is
+  a prediction. `nats-server -t` (config validation) and `shellcheck` were run;
+  neither says anything about runtime behaviour.
+- **Planned** — an outline above, nothing built.
+- **Not covered** — in the two pages, but no exercise is planned yet.
+- **Out of scope** — kept for later demos (see Boundaries).
+
+| Docs topic | Page | Exercise | Status |
+|---|---|---|---|
+| Central auth: the server holds the user list | AUTHN | 01 | measured |
+| Giving a credential; connecting; refusal | AUTHN | 01 | measured |
+| Token | AUTHN | 05a | written, not run |
+| NKeys | AUTHN | 05b | written, not run |
+| Storing passwords (bcrypt) | AUTHN | 06 | planned |
+| Password in a URL or a saved context | AUTHN | — | not covered |
+| `--user` sent as a token | AUTHN | — | not covered |
+| A bcrypt-hashed token | AUTHN | — | not covered |
+| `no_auth_user` | AUTHN | — | not covered |
+| Subjects, publish and subscribe sides | AUTHZ | 02 | measured |
+| Deny beats allow; `*` and `>` | AUTHZ | 03a | measured (by hand) |
+| An empty allow list | AUTHZ | 03b | measured (by hand) |
+| `default_permissions` replaced, not merged | AUTHZ | 03c | written, not run |
+| Wildcard subscription overlapping a deny | AUTHZ | 03d | written, not run |
+| Request / reply: the requester's inbox | AUTHZ | 04a | written, not run |
+| `allow_responses` | AUTHZ | 04b | written, not run |
+| Client exit codes on a denial | AUTHZ | 02–04 | not measured |
+| Queue-group permissions | AUTHZ | — | not covered |
+| Allowing `_INBOX.>` next to a deny | AUTHZ | — | not covered |
+| Accounts, operator mode, JWTs, auth callout | both | — | out of scope |
+| TLS, OCSP and the other security pages | — | — | out of scope |

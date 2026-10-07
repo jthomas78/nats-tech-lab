@@ -1,9 +1,11 @@
 # Exercise 03 — how do allow, deny, wildcards and defaults combine? Step by step
 
 > **Status: 03a and 03b measured by hand. 03c and 03d runtime-unverified.**
-> The check script `ex03-check.sh` (36 checks) is written but **not yet run**.
-> It was written before the 03c and 03d hand run, so its checks marked
-> `prediction:` test docs claims, not results. Every "Predict" line is a
+> The check script `ex03-check.sh` (38 checks) is written but **not yet run**,
+> so every NATS check in it is a prediction: `[pred·hand]` (03a, 03b: seen
+> once by hand, not yet reproduced by the script) or `[pred]` (03c, 03d: a
+> docs claim nobody has seen). `[rig]` checks test only the script's own
+> set-up. Every "Predict" line is a
 > prediction from the NATS docs. Nothing here is measured until it is recorded
 > in [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md).
 

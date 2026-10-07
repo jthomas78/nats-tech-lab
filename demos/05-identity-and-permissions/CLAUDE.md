@@ -81,6 +81,9 @@ user. This is the easiest mistake to make in this demo.
   (measured: `variable reference for 'D05_ORDER_SVC_PASSWORD' ... can not be
   found`). That is fail-closed, and it is the point.
 - `lab/secrets.sh` writes random passwords to `.run/secrets.env`, mode 600.
+  Without `--rotate` it keeps every existing value and adds only missing
+  variables (e.g. `D05_TOKEN` for an older file). `--rotate` replaces all of
+  them — only on the user's explicit request; then restart any running server.
   NKey seeds (exercise 05) go in `.run/nkeys/`, mode 600, written by
   `lab/nkeys.sh`; public keys go in `.run/nkeys.env`. The CLI writes seeds
   mode 644, so the script sets 600.

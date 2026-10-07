@@ -45,6 +45,11 @@ the NATS docs. The rest of the [security section](https://docs.nats.io/learn/sec
 with the date and tool versions. **planned** = not built, not verified. An
 "expected" line below is a **prediction** until its observation is recorded.
 
+**Scope:** this demo covers part of two NATS docs pages, Authentication
+basics and Authorization. Which topics are measured, written but not run,
+planned, not covered or out of scope is in
+[`docs/THEORY.md`](docs/THEORY.md), "Coverage of the NATS security docs".
+
 ## What you need
 
 - `nats-server` and the `nats` CLI on the host. Measured with
@@ -247,8 +252,8 @@ exercises/ex02-check.sh
 **In progress.** The steps are in
 [`exercises/EXERCISE-03-TERMINAL-STEPS.md`](exercises/EXERCISE-03-TERMINAL-STEPS.md).
 Parts 03a and 03b are measured by hand. Parts 03c and 03d are not run yet.
-The check script is written but **not yet run**. Its `prediction:` checks are
-docs claims until the hand run confirms them:
+The check script is written but **not yet run**. Every NATS check in it is
+labelled a prediction until a run is recorded:
 
 ```bash
 exercises/ex03-check.sh

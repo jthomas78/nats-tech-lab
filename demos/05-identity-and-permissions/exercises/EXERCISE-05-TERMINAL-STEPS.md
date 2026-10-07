@@ -3,7 +3,7 @@
 > **Status: drafted and syntax-checked, but runtime-unverified.** The four
 > configs were checked with `nats-server -t`: the two working ones pass, and
 > the two "meant to be rejected" ones are rejected (see each config's comment).
-> No server has run them. The check script `ex05-check.sh` (28 checks) is written
+> No server has run them. The check script `ex05-check.sh` (32 checks) is written
 > but **not yet run**. Every "Predict" line is a prediction, not a result. Nothing
 > here is measured until it is recorded in
 > [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md).
@@ -37,20 +37,24 @@ Every `nats` command passes `--no-context`.
 
 ### Step 1.1: Make sure there is a token
 
-**Concept:** `lab/secrets.sh` now writes `D05_TOKEN` as well. An older `.run/secrets.env` does not have it.
+**Concept:** `lab/secrets.sh` now writes `D05_TOKEN` as well. An older `.run/secrets.env` does not have it. Run without `--rotate`, the script adds only the missing variables. It keeps every password that is already there.
 **Terminal A:**
 
 ```bash
-grep -c D05_TOKEN .run/secrets.env
+lab/secrets.sh
 ```
 
-If it prints `0` (or the file is missing), run `lab/secrets.sh --rotate`. That makes new passwords too, which is fine.
+**Predict:** it prints `added    D05_TOKEN …` (an older file), `kept     …` (the token is already there) or `wrote    …` (no file yet).
 
 **Terminals A, B and C:**
 
 ```bash
 source .run/secrets.env
 ```
+
+**Why all three:** a terminal holds the values it sourced last. After the script adds or changes anything, every open terminal needs this line again.
+
+**Restart rule:** adding the token does not change a password, so a running exercise 01–04 server can keep running. Only `lab/secrets.sh --rotate` changes passwords. After `--rotate`, stop any running demo 05 server (Ctrl-C, or `lab/down.sh`) and start it again from a terminal that has re-sourced the file. Do not use `--rotate` for this exercise.
 
 ### Step 1.2: Can a token sit next to named users?
 
@@ -131,6 +135,7 @@ curl -s 'http://127.0.0.1:8522/connz?auth=1'
 ```
 
 **Purpose:** see what the server knows about a token client.
+**First check:** the list must hold B's connection (subscription `>`). An empty `connections` list proves nothing; start B again and re-read.
 **Predict:** is there an `authorized_user` field? If yes, what is in it?
 
 ### Step 1.9: Reset
@@ -238,6 +243,7 @@ nats --no-context -s nats://127.0.0.1:4522 pub orders.created 'no-key'
 curl -s 'http://127.0.0.1:8522/connz?auth=1'
 ```
 
+**First check:** the list must hold B's connection. An empty list proves nothing.
 **Predict:** what is in `authorized_user` for B? Compare it with `D05_ANALYTICS_READER_NKEY` in `.run/nkeys.env`.
 
 ### Step 2.9: Read the evidence, then reset
