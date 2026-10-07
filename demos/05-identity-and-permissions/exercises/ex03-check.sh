@@ -158,12 +158,13 @@ pred C6 "defaults limit the reader's subscribe: invoices.> denied, client told P
   grep -q 'Permissions Violation for Subscription to "invoices.>"' <<<"$r_rsub"
 pred C7 "own block REPLACES defaults: order-svc subscribe to invoices.>, no violation" \
   no_violation "$(cat "$out_os")"
-rig  C8a "/connz answered and returned valid JSON" \
-  bash -c '[[ $1 -eq 0 ]] && jq -e . >/dev/null 2>&1 <<<"$2"' _ "$connz_rc" "$connz"
-rig  C8b "/connz lists exactly one connection named d05-03c-order-svc, user order-svc" \
-  jq -e '[.connections[] | select(.name == "d05-03c-order-svc" and .authorized_user == "order-svc")] | length == 1' >/dev/null <<<"$connz"
-pred C8c "that connection holds a live invoices.> subscription" \
-  jq -e '[.connections[] | select(.name == "d05-03c-order-svc") | .subscriptions_list[]? | select(. == "invoices.>")] | length == 1' >/dev/null <<<"$connz"
+# Only jq's own output is silenced, inside each function. The PASS / FAIL line stays.
+connz_ok()  { [[ $connz_rc -eq 0 ]] && jq -e . >/dev/null 2>&1 <<<"$connz"; }
+os_conn()   { jq -e '[.connections[] | select(.name == "d05-03c-order-svc" and .authorized_user == "order-svc")] | length == 1' >/dev/null 2>&1 <<<"$connz"; }
+os_inv_sub(){ jq -e '[.connections[] | select(.name == "d05-03c-order-svc") | .subscriptions_list[]? | select(. == "invoices.>")] | length == 1' >/dev/null 2>&1 <<<"$connz"; }
+rig  C8a "/connz answered and returned valid JSON" connz_ok
+rig  C8b "/connz lists exactly one connection named d05-03c-order-svc, user order-svc" os_conn
+pred C8c "that connection holds a live invoices.> subscription" os_inv_sub
 pred C9 "server logged the reader's publish and subscribe denials" \
   bash -c "grep -q 'analytics-reader.*Publish Violation - Subject \"orders.created\"' '$D05_LOG' && grep -q 'analytics-reader.*Subscription Violation - Subject \"invoices.>\"' '$D05_LOG'"
 pred C10 "server logged exactly 2 violations, none for order-svc" \

@@ -1,8 +1,20 @@
 # Proposal — `ex04-check.sh` changes (not implemented)
 
-Status: proposal, 2026-10-07. Nothing here is built or run. The current
-`ex04-check.sh` (22 checks) stays as it is until this is approved. The
-exercise scope does not change: same four configs, same four cases.
+Status: **approved and implemented 2026-10-07, with review corrections**
+(36 checks; not run). This file is kept as the design record. Where it and
+`ex04-check.sh` differ, the script wins. The corrections:
+
+- Delivery checks read stdout **and** stderr; only `C` checks name a stream,
+  and those are predictions.
+- Responder receipt comes from `exercises/ex04-responder-hook.sh`, run by
+  `nats reply --command` in all four cases. Not `--echo`, not a third client
+  (section 5 below is superseded).
+- Each case ends with a verdict. A case is "demonstrated" only when its
+  positive control, captures, `S` and `D` checks all passed.
+- A listener on `_INBOX.>` in AA and BR also gets the real reply, as its own
+  positive control.
+
+The exercise scope does not change: same four configs, same four cases.
 
 ## Why
 

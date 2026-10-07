@@ -202,7 +202,25 @@ Re-run `source .run/secrets.env` in every open terminal afterwards.
 ## Exercise 04 — does request / reply work under limits?
 
 **Status: NOT RUN.** Steps, four configs and `ex04-check.sh` (22 checks)
-written 2026-10-06. Nothing measured yet.
+written 2026-10-06. Script rewritten 2026-10-07 (36 checks, after review):
+S / D / C evidence groups, stdout / stderr / exit kept apart in `.run/ex04/`,
+a responder hook (`exercises/ex04-responder-hook.sh`) that records each
+request the responder itself received, and a per-case verdict that needs the
+positive control. Tested offline on fake capture files only. Nothing measured
+yet.
+
+Assumptions still unverified (the hand run settles each one):
+
+- `nats reply --command <file>` runs that file once per request, sets
+  `NATS_REQUEST_SUBJECT` and `NATS_REQUEST_BODY`, and replies with its
+  stdout. Taken from `nats reply --help` (CLI 0.4.0), not run.
+- The hook runs before the reply is published, so it still records a
+  request whose reply the server then denies (BN).
+- A listener on `_INBOX.>` also receives the real reply (AA-D3, BR-D3).
+- How the requester reports a denied responder publish (BN): unknown,
+  recorded only.
+- The 04a-denied CLI report (AD-C1..C3) comes from the docs example. Which
+  stream each line uses is not claimed.
 
 Read from the server source (v2.14.6, `server/client.go`, `server/opts.go`),
 not measured: the reply check runs only after allow and deny have said no, so

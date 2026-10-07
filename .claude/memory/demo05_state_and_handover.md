@@ -1,6 +1,6 @@
 ---
 name: demo05-state-and-handover
-description: "[demo 05] State as of 2026-10-07: ex 01, 02 done; ex 03 half measured; ex03/04/05 scripts NEVER run; ex04 rework proposed, awaiting approval."
+description: "[demo 05] State as of 2026-10-07: ex 01, 02 done; ex 03 half measured; ex03/04/05 scripts NEVER run; ex04 rewritten (S/D/C + hook), not run."
 metadata:
   type: project
 ---
@@ -38,10 +38,12 @@ State of `demos/05-identity-and-permissions/` on 2026-10-06, branch
   missing vars and keeps passwords; `--rotate` only on explicit request.
   ex05 A10/B13 use a named probe connection + jq (empty list cannot pass).
   Every unrun check is tagged `[pred]` / `[pred·hand]` / `[cfg]` / `[rig]`
-  (ex03 now 38 checks). Coverage map added to `docs/THEORY.md`. ex04 rework
-  is only a PROPOSAL in `exercises/ex04-check-PROPOSAL.md` (S/D/C evidence
-  groups; A7/A8/B1 exit assumptions dropped) — do not implement before the
-  user approves. Do not add coverage gaps; do not run or rotate unasked.
+  (ex03 now 38 checks). Coverage map added to `docs/THEORY.md`. ex04
+  rewritten after a second review (36 checks, NOT run): S/D/C groups,
+  `.run/ex04/` captures, `exercises/ex04-responder-hook.sh` via
+  `nats reply --command` as responder-receipt evidence, per-case verdicts
+  gated on positive controls. Open assumptions listed in
+  EXERCISE_OBSERVATIONS.md. Do not add coverage gaps; do not run or rotate unasked.
 - Next: the user runs 03c/03d, 04 and 05 by hand, then the three scripts;
   record results in EXERCISE_OBSERVATIONS.md. 06 (bcrypt) stays planned.
 - Not done: a stranger's walkthrough (`D05-R10`), pattern cards (`D05-R11`).

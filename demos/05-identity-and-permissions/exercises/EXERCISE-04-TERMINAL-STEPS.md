@@ -2,7 +2,7 @@
 
 > **Status: drafted and syntax-checked, but runtime-unverified.** The four
 > configs pass `nats-server -t`. No server has run them. The check script
-> `ex04-check.sh` (22 checks) is written but **not yet run**. Every "Predict" line is a
+> `ex04-check.sh` (36 checks, rewritten 2026-10-07) is written but **not yet run**. Every "Predict" line is a
 > prediction from the NATS docs (and, where marked, the server source), not a
 > result. Nothing here is measured until it is recorded in
 > [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md).
@@ -74,11 +74,24 @@ nats-server -c exercises/config/ex04-nats-inbox-allowed.conf
 **Terminal B:**
 
 ```bash
-nats --no-context -s nats://127.0.0.1:4522 --user order-svc --password "$D05_ORDER_SVC_PASSWORD" reply orders.summary 'summary: 3 orders'
+mkdir -p .run/ex04
+```
+
+```bash
+nats --no-context -s nats://127.0.0.1:4522 --user order-svc --password "$D05_ORDER_SVC_PASSWORD" reply orders.summary --command "$PWD/exercises/ex04-responder-hook.sh"
 ```
 
 **Purpose:** `order-svc` answers every request on `orders.summary`. It stays open until Step 1.8.
+**Concept:** the reply comes from a small hook, `exercises/ex04-responder-hook.sh`. For each request, it first writes one line to `.run/ex04/receipts.log` (the subject, a tab, the body), then prints `summary: 3 orders` as the reply. So the responder itself records what it received, even when its reply is later denied. `ex04-check.sh` uses the same command in every case.
 **Predict:** does it connect? Does it print an error?
+
+**Any free terminal, any time:**
+
+```bash
+cat .run/ex04/receipts.log
+```
+
+**Purpose:** see what reached the responder. One line per request.
 
 ### Step 1.4: The request that should work
 
@@ -89,7 +102,7 @@ nats --no-context -s nats://127.0.0.1:4522 --user analytics-reader --password "$
 ```
 
 **Purpose:** the positive control. Both sides have what they need.
-**Predict:** does C print `summary: 3 orders`? Does B show the request?
+**Predict:** does C print `summary: 3 orders`? Does `.run/ex04/receipts.log` gain one line for it?
 
 ### Step 1.5: The broad grant has a cost
 
@@ -119,7 +132,7 @@ nats --no-context -s nats://127.0.0.1:4522 --user order-svc --password "$D05_ORD
 nats-server -c exercises/config/ex04-nats-inbox-denied.conf
 ```
 
-**Terminal B:** start the responder again, as in Step 1.3.
+**Terminal B:** start the responder again, as in Step 1.3. Run `: > .run/ex04/receipts.log` first, so the file holds only this part.
 
 **Purpose:** the same users and the same request. Only the inbox is denied.
 
@@ -132,14 +145,14 @@ nats --no-context -s nats://127.0.0.1:4522 --user analytics-reader --password "$
 ```
 
 **Purpose:** the deliberate denial.
-**Predict:** a reply, an error, or a timeout? Does B still receive the request? Does A log a `Subscription Violation`, and for which subject?
+**Predict:** a reply, an error, or a timeout? Does `.run/ex04/receipts.log` still gain a line? Does A log a `Subscription Violation`, and for which subject?
 
 ### Step 1.8: Read the evidence, then reset
 
 **Look at:**
 
-- **C:** Step 1.4 (the reply) next to Step 1.7 (what came instead). Does C say *why* it failed, or only that it timed out?
-- **B:** did the request of Step 1.7 arrive? If yes, the request got through and only the reply was lost.
+- **C:** Step 1.4 (the reply) next to Step 1.7 (what came instead). Does C say *why* it failed, or only that it timed out? Note the exit code (`echo $?` straight after) and whether each line came on stdout or stderr: run the request again with `2>/dev/null` to see only stdout.
+- **`.run/ex04/receipts.log`:** did the request of Step 1.7 arrive? If yes, the request got through and only the reply was lost.
 - **A:** the violation for Step 1.7, and nothing for Step 1.5.
 
 **Terminals B, then A:** press Ctrl-C.
@@ -157,7 +170,7 @@ nats --no-context -s nats://127.0.0.1:4522 --user analytics-reader --password "$
 nats-server -c exercises/config/ex04-nats-no-responses.conf
 ```
 
-**Terminal B:** start the responder, as in Step 1.3.
+**Terminal B:** run `: > .run/ex04/receipts.log`, then start the responder, as in Step 1.3.
 
 **Purpose:** start 04b without `allow_responses`.
 
@@ -181,7 +194,7 @@ nats --no-context -s nats://127.0.0.1:4522 --user analytics-reader --password "$
 nats-server -c exercises/config/ex04-nats-allow-responses.conf
 ```
 
-**Terminal B:** start the responder, as in Step 1.3.
+**Terminal B:** run `: > .run/ex04/receipts.log`, then start the responder, as in Step 1.3.
 
 ### Step 2.4: The same request, with `allow_responses`
 
