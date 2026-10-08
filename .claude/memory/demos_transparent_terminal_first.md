@@ -26,6 +26,10 @@ user said they are moving away from Python in demos.
   needed, keep it small and say that decoding a JWT does not verify it.
 - Replacing Python with clever `awk`/`jq` pipelines is no win. If a tool
   such as `jq` is needed, check for it explicitly; don't assume it.
+- Never say or write "Step 0". Preparation before Step 1 is a section
+  headed **Initial setup**, in the steps file itself (user, 2026-10-08:
+  "0 is interpreted as not a step"). Same idea as "exercise numbers start
+  at 01".
 - A demo-local `.run/` (keys, creds, resolver, logs; gitignored) is fine.
   Explain its contents and cleanup.
 

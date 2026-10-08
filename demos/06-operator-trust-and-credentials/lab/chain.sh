@@ -2,7 +2,7 @@
 # Build exercise 01's trust chain from nothing: operator D06, account ORDERS,
 # user order-svc, SYSTEM user admin, their .creds, and .run/trust.conf.
 #   lab/chain.sh
-# The scripted form of EXERCISE-01 steps 1-4. Refuses to run over an existing
+# The scripted form of EXERCISE-01 step 1. Refuses to run over an existing
 # operator: run `lab/down.sh --clean` first (that deletes every key in .run/).
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"

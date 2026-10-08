@@ -14,27 +14,67 @@ signed JWT and signs a random challenge (a **nonce**) with its secret key
 (its **seed**). The server checks three things: the nonce signature, the
 user signed by the account, and the account signed by the operator.
 
-Three terminals, all in `demos/06-operator-trust-and-credentials`:
+Every `nats` command goes through `lab/nats.sh`. It adds `--no-context` and
+keeps this demo's keys in `.run/`.
+
+---
+
+## Initial setup
+
+**Concept:** three terminals, and no keys left over from an earlier run.
+
+Open three terminals. In each one, go to the demo folder:
+
+```bash
+cd demos/06-operator-trust-and-credentials
+```
 
 - **A** = the server log
 - **B** = the listener
 - **C** = everything else
 
-Every `nats` command goes through `lab/nats.sh`. It adds `--no-context` and
-keeps this demo's keys in `.run/`.
+**Terminal C:** delete `.run/`, with every old key and credential in it. It also stops a demo 06 server, if one runs.
 
----
+```bash
+lab/down.sh --clean
+```
 
 ## Step 1: Build the chain
 
 **Concept:** an operator `D06`, a `SYSTEM` account with user `admin`, an account `ORDERS` with user `order-svc`. All keys stay in `.run/`.
 **Terminal C:**
 
+The operator `D06`. This also makes the `SYSTEM` account:
+
 ```bash
-lab/chain.sh
+lab/nats.sh auth operator add D06
 ```
 
-**Purpose:** make every key and JWT, and write `.run/trust.conf`.
+The account `ORDERS`, signed by the operator:
+
+```bash
+lab/nats.sh auth account add ORDERS --defaults
+```
+
+The user `order-svc`, signed by the account. The `.creds` file holds the user JWT and its seed (secret key):
+
+```bash
+lab/nats.sh auth user add order-svc ORDERS --defaults --credential .run/creds/order-svc.creds
+```
+
+The `SYSTEM` user `admin`. It pushes accounts to the server later:
+
+```bash
+lab/nats.sh auth user add admin SYSTEM --defaults --credential .run/creds/sys.creds
+```
+
+The trust file the server loads (`.run/trust.conf`):
+
+```bash
+lab/trust-conf.sh
+```
+
+**Purpose:** make every key and JWT, and write `.run/trust.conf`. (`lab/chain.sh` runs these five commands in one go. The check script uses it.)
 **Predict:** how many user names will the server config hold?
 
 ## Step 2: Read what the server will trust
