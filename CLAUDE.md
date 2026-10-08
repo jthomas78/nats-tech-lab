@@ -394,8 +394,26 @@ CLI contexts all start `lab4-`.
 this file, for anything inside that folder.** It is a sealed unit — one bare
 `nats-server` on the host (`127.0.0.1:4522`, monitor `8522`), the host `nats`
 CLI and shell scripts. No Docker, no Go, no UI, no operator mode. Role:
-showcase — NATS authentication and authorization, terminal first.
+showcase — **centralized** authentication (NATS configuration mode) and
+authorization, terminal first.
 
 Two rules worth knowing from outside: every `nats` command there passes
 `--no-context`, and generated passwords and seeds live in its gitignored
 `.run/`, never in a config file.
+
+### Running demo 06
+
+**`demos/06-operator-trust-and-credentials/` has its own `CLAUDE.md`. Read
+that, not this file, for anything inside that folder.** It is a sealed unit —
+one bare `nats-server` in **operator mode** on the host (`127.0.0.1:4922`,
+monitor `8922`), the host `nats auth` CLI and shell scripts. Role: showcase +
+validation — **decentralized** authentication through the operator → account
+→ user JWT chain. No auth callout; that is demo 07, which does not exist yet.
+
+**Terms, lab-wide:** centralized authentication = configuration mode (users
+in the server config; NKeys there included); decentralized authentication =
+operator mode (delegated JWT trust). Each demo's `CLAUDE.md` owns the detail.
+
+Two rules worth knowing from outside: every `nats` call goes through its
+`lab/nats.sh`, which keeps its keys out of `~/.local/share/nats`; and its
+keys and `.creds` live in its gitignored `.run/`.

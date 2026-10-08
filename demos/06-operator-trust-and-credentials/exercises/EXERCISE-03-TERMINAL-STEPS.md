@@ -1,0 +1,262 @@
+# Exercise 03 — what happens when a credential expires, or is revoked? Step by step
+
+> **Status: measured, then turned into a check.** The results come from the
+> hand run and the script runs of 2026-10-08, recorded in
+> [`EXERCISE_OBSERVATIONS.md`](EXERCISE_OBSERVATIONS.md). This file was
+> written after those runs. Nobody has yet run its exact commands as one
+> walkthrough (`D06-R9`). To run the same checks as a script:
+> `exercises/ex03-check.sh`.
+
+The server stores no users, so it cannot "delete" one. Two other tools end
+a user's access:
+
+- **Expiry** — the user JWT carries an end time (`exp`). After it, the JWT is no good.
+- **Revocation** — the account JWT lists users it no longer trusts. The server
+  learns this only when the account JWT is pushed.
+
+Each one is tested twice: on a **new** connection, and on an **open**
+connection that was already in when the access ended. The docs talk about
+new connections. Do not assume an open one behaves the same.
+
+Three terminals, all in `demos/06-operator-trust-and-credentials`:
+
+- **A** = the server log
+- **B** = the listener being cut
+- **C** = everything else
+
+---
+
+## Step 1: Start clean
+
+**Concept:** a new chain, so `analytics-reader` does not exist yet.
+**Terminal C:**
+
+```bash
+lab/down.sh --clean
+```
+
+```bash
+lab/chain.sh
+```
+
+```bash
+lab/up.sh ex01-nats-operator
+```
+
+```bash
+lab/nats.sh auth account push ORDERS -s nats://127.0.0.1:4922 --creds .run/creds/sys.creds
+```
+
+**Terminal A:**
+
+```bash
+tail -f .run/server.log
+```
+
+---
+
+## Part 03a — expiry
+
+## Step 2: A credential that lives for 60 seconds
+
+**Concept:** the same user `order-svc`, a new credential file with an end time. 60 s gives you time to type. (The script uses 10 s.)
+**Terminal C:**
+
+```bash
+lab/nats.sh auth user credential .run/creds/order-svc-60s.creds order-svc ORDERS --expire 60s
+```
+
+## Step 3: Read the end time
+
+**Terminal C:**
+
+```bash
+python3 -c "import base64,json,re,datetime as d; t=open('.run/creds/order-svc-60s.creds').read(); p=re.search(r'JWT-----\n(.*?)\n',t).group(1).split('.')[1]; c=json.loads(base64.urlsafe_b64decode(p+'='*(-len(p)%4))); print('issued ', d.datetime.fromtimestamp(c['iat']).time()); print('expires', d.datetime.fromtimestamp(c['exp']).time())"
+```
+
+**Purpose:** write down the `expires` time.
+
+## Step 4: Listen with the short credential
+
+**Terminal B:**
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc-60s.creds sub 'orders.>' --wait 90s
+```
+
+**Predict:** does it connect?
+
+## Step 5: Send one message before the end time
+
+**Terminal C:**
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc.creds pub orders.created 'before-expiry'
+```
+
+**Predict:** does terminal B receive it?
+
+## Step 6: Wait for the end time
+
+**Concept:** do nothing. Watch terminal B.
+**Predict:** at the end time, does the open connection stay, or is it cut? If it is cut, note the time on the `Disconnected` line. Does terminal A log anything at that moment?
+
+## Step 7: A new connection after the end time
+
+**Terminal C:**
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc-60s.creds pub orders.created 'after-expiry'
+```
+
+**Predict:** admitted or refused?
+
+## Step 8: Is the cut listener still receiving?
+
+**Terminal C:**
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc.creds pub orders.created 'after-expiry-sent'
+```
+
+**Predict:** does terminal B receive it?
+
+## Step 9: The cut listener's exit code
+
+**Concept:** wait for terminal B's `--wait 90s` to end on its own. Do not press `Ctrl-C`.
+**Terminal B:**
+
+```bash
+echo $?
+```
+
+**Predict:** 0 or not 0? Would a script notice the cut?
+
+---
+
+## Part 03b — revocation
+
+## Step 10: Issue the reader, and note its key
+
+**Terminal C:**
+
+```bash
+lab/nats.sh auth user add analytics-reader ORDERS --defaults --sub-allow 'orders.>' --pub-deny '>' --credential .run/creds/analytics-reader.creds
+```
+
+```bash
+lab/nats.sh auth user info analytics-reader ORDERS
+```
+
+**Purpose:** write down the reader's public key (it starts with `U`). You need it in Step 16.
+
+## Step 11: The reader listens
+
+**Terminal B:**
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/analytics-reader.creds sub 'orders.>'
+```
+
+## Step 12: Revoke the reader — but do not push
+
+**Terminal C:**
+
+```bash
+lab/nats.sh auth user rm analytics-reader ORDERS --revoke -f
+```
+
+**Purpose:** the revocation is now in the account JWT on your disk. The server has not seen it.
+
+See the two copies drift apart — your local copy, then the server's copy:
+
+```bash
+lab/nats.sh auth account info ORDERS
+```
+
+```bash
+lab/nats.sh auth account query ORDERS -s nats://127.0.0.1:4922 --creds .run/creds/sys.creds
+```
+
+**Predict:** what does `Revocations:` say in each?
+
+## Step 13: Is the reader still in?
+
+**Terminal C:**
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/analytics-reader.creds sub 'orders.>' --count 1 --wait 1s
+```
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc.creds pub orders.created 'revoked-not-pushed'
+```
+
+**Predict:** does the new connection print `Authorization Violation`? Does terminal B receive `revoked-not-pushed`?
+
+## Step 14: Push the account
+
+**Terminal C:**
+
+```bash
+lab/nats.sh auth account push ORDERS -s nats://127.0.0.1:4922 --creds .run/creds/sys.creds
+```
+
+**Predict:** watch terminal B. Is the open connection cut? How soon?
+
+Then read the server's copy again:
+
+```bash
+lab/nats.sh auth account query ORDERS -s nats://127.0.0.1:4922 --creds .run/creds/sys.creds
+```
+
+**Predict:** does `Revocations:` match your local copy now?
+
+## Step 15: New connections, both users
+
+**Terminal C:**
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/analytics-reader.creds sub 'orders.>' --count 1 --wait 1s
+```
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc.creds pub orders.created 'after-revoke'
+```
+
+**Purpose:** the revoked user, then a positive control in the same account.
+**Predict:** which one gets in?
+
+## Step 16: The revocation on the server
+
+**Terminal C:**
+
+```bash
+lab/nats.sh auth account info ORDERS
+```
+
+**Purpose:** write down the `ORDERS` account key (it starts with `A`). Then put it in place of `ORDERS-KEY` below.
+
+```bash
+curl -s 'http://127.0.0.1:8922/accountz?acc=ORDERS-KEY'
+```
+
+**Predict:** is the reader's key from Step 10 in the output?
+
+## Step 17: Stop
+
+Stop terminals A and B with `Ctrl-C`. Then, **terminal C:**
+
+```bash
+lab/down.sh
+```
+
+## What you should have seen
+
+- **Expiry, open connection:** cut at the end time, within one second. The client printed `Disconnected due to: EOF, will attempt reconnect`. The server logged nothing at the cut, only the refused reconnects.
+- **Expiry, new connection:** refused.
+- **The trap:** the cut listener still exited 0.
+- **Revoked, not pushed:** nothing changed. New connections got in; the open one kept receiving. `account query` showed why: local `Revocations: 1`, server `Revocations: 0`.
+- **The general rule this shows:** an account change does nothing until it is pushed. Measured here for a revocation only. Other account changes (for example a connection limit) were not tested.
+- **Revoked, pushed:** the open connection was cut within a second, and new connections were refused. `order-svc` in the same account was not touched.
+- **Choice this supports:** a revocation is only as fast as your push. Short-lived credentials end access with no push at all.

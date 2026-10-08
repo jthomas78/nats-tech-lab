@@ -54,3 +54,7 @@ demos/04-jetstream-cqrs/cqrs/cqrs
 # Demo 05's run state — generated passwords, NKey seeds, PID file and logs.
 # Holds secrets, so it must never be committed.
 demos/05-identity-and-permissions/.run/
+
+# Demo 06's run state — the operator / account / user keys and JWTs, .creds
+# files, resolver directory, PID file and logs. Holds seeds; never commit it.
+demos/06-operator-trust-and-credentials/.run/
