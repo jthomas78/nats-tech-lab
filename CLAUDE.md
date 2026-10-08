@@ -417,3 +417,9 @@ operator mode (delegated JWT trust). Each demo's `CLAUDE.md` owns the detail.
 Two rules worth knowing from outside: every `nats` call goes through its
 `lab/nats.sh`, which keeps its keys out of `~/.local/share/nats`; and its
 keys and `.creds` live in its gitignored `.run/`.
+
+**Auth demos (05, 06, 07) are transparent and terminal-first.** Three
+kinds of file, kept apart: the walkthrough (direct commands, the teaching
+path), thin convenience scripts, and validation scripts (assertions and
+deliberate failures). No inline Python in new work. Each demo's
+`CLAUDE.md` has the full rule.

@@ -111,6 +111,27 @@ user. This is the easiest mistake to make in this demo.
   unprefixed kill has already killed a live lab twice.
 - A foreground server started by hand in a terminal is stopped with Ctrl-C.
 
+## Three kinds of file: walkthrough, convenience, validation
+
+The goal is a **transparent** demo, in the NATS docs' style: explicit
+commands, readable config, minimal helper logic. A reader must understand
+and repeat the setup without reading a scripting framework. Keep three
+kinds of file apart:
+
+- **Walkthrough** (`exercises/EXERCISE-NN-TERMINAL-STEPS.md`): direct
+  `nats` and `nats-server` commands, readable configuration and short
+  explanations. This is the primary learning experience.
+- **Convenience scripts** (`lab/`): thin wrappers around those same steps.
+  They save typing, but never hide how users, credentials or permissions
+  are configured.
+- **Validation scripts** (`exercises/exNN-check.sh`): automated assertions
+  and deliberate failures. These may need extra manipulation, but that
+  machinery stays separate from the normal setup.
+
+Prefer a native NATS command to custom parsing. Use no inline Python in new
+work. Add another tool (for example `jq`) only where it makes a needed step
+simpler, and check for it explicitly.
+
 ## Layout
 
 | What | Where |

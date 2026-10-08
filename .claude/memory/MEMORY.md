@@ -10,6 +10,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [demo_context_isolation](demo_context_isolation.md) — every demo is an isolated task/AI context; current CQRS diagram discussion belongs to demo 03
 - [demos_are_small_slices_not_demo01](demos_are_small_slices_not_demo01.md) — a demo is one small NATS slice built from nothing; demo 01 is an oversized POC, never the model or a prerequisite
 - [nats_auth_terminology_and_demo_boundaries](nats_auth_terminology_and_demo_boundaries.md) — centralized = config mode (demo 05, NKeys too); decentralized = operator JWT chain (demo 06); auth callout = demo 07, operator mode only, not yet created
+- [demos_transparent_terminal_first](demos_transparent_terminal_first.md) — auth demos 05/06/07: transparent, NATS-docs style; 3 kinds of file (walkthrough / thin convenience / validation); no inline Python
 - [demo_playbook_session_2026-09-17](demo_playbook_session_2026-09-17.md) — 2026-09-17: `demo-playbook.html`/`.pdf` is the ONE demo lifecycle (stages 01-04, Learn is `04`, never `08`); root `CLAUDE.md` points at it and keeps no second step list; demo 03 retro-fit done except stage 04
 - [verify_before_resuming_offloaded_work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary
 - [ui_bug_triage_trust_framing](ui_bug_triage_trust_framing.md) — user says "the UI" is broken → check frontend first
