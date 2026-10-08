@@ -16,14 +16,15 @@ import NavList from '@ui-shell/NavList.vue'
 import * as config from './config.js'
 import { EMBEDDED_COMMAND_API } from './config.js'
 import { activate, components } from './plugin.js'
-import OverviewRoute from './plugin/OverviewRoute.vue'
-import PlaygroundRoute from './plugin/PlaygroundRoute.vue'
+import LegacyRoute from './plugin/LegacyRoute.vue'
+import MetaLeaderRoute from './plugin/MetaLeaderRoute.vue'
+import { LEGACY_TABS, PAGE_PATH } from './plugin/tabs.js'
 
 const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
 const manifest = JSON.parse(read('../public/manifest.json'))
 const viteConfig = read('../vite.config.js')
 
-const ROUTE_SOURCES = ['./plugin/PlaygroundRoute.vue', './plugin/OverviewRoute.vue', './plugin.js']
+const ROUTE_SOURCES = ['./plugin/MetaLeaderRoute.vue', './plugin/LegacyRoute.vue', './plugin/tabs.js', './plugin.js']
 
 describe('the entry module the shell loads', () => {
   it('exports a component map and an activate function', () => {
@@ -38,20 +39,34 @@ describe('the entry module the shell loads', () => {
 
   it('makes every route under its own prefix', () => {
     const routes = manifest.contributions.filter((c) => c.kind === 'route')
-    expect(routes.map((r) => r.path)).toEqual(['/demo-03/playground', '/demo-03/overview'])
+    expect(routes.map((r) => r.path)).toEqual([
+      `${PAGE_PATH}/:tab(overview|live)?`,
+      '/demo-03/playground',
+      '/demo-03/overview',
+    ])
     for (const route of routes) expect(route.path.startsWith(`/${manifest.routePrefix}/`)).toBe(true)
   })
 
-  it('declares exactly one default route, and it is the playground', () => {
+  /* The old playground link is the default, so Home and the bare /demo-03
+     open the Live tab through it. */
+  it('declares exactly one default route, and it is the old playground link', () => {
     const defaults = manifest.contributions.filter((c) => c.kind === 'route' && c.default === true)
     expect(defaults.map((r) => r.id)).toEqual(['playground'])
+    expect(LEGACY_TABS.playground).toBe('live')
   })
 
-  it('contributes one nav entry per route, all in one group', () => {
-    const routeIds = manifest.contributions.filter((c) => c.kind === 'route').map((c) => c.id)
+  it('contributes one nav entry, Meta-Leader in Clusters', () => {
     const nav = manifest.contributions.filter((c) => c.kind === 'navigation')
-    expect(nav.map((n) => n.route)).toEqual(routeIds)
-    expect(new Set(nav.map((n) => n.group.id))).toEqual(new Set(['multi-cluster']))
+    expect(nav.map((n) => [n.route, n.label, n.group.id, n.group.label])).toEqual([
+      ['meta-leader', 'Meta-Leader', 'clusters', 'Clusters'],
+    ])
+  })
+
+  it('keeps the old links as routes with no rail entry, each forwarding to a tab', () => {
+    const hidden = manifest.contributions
+      .filter((c) => c.kind === 'route' && c.id !== 'meta-leader')
+      .map((r) => [r.id, r.component])
+    expect(hidden).toEqual(Object.keys(LEGACY_TABS).map((id) => [id, 'legacy']))
   })
 })
 
@@ -65,7 +80,7 @@ describe('the embedded route components', () => {
 
   it('renders no AppShell and no rail of its own', () => {
     quiet()
-    for (const C of [PlaygroundRoute, OverviewRoute]) {
+    for (const C of [MetaLeaderRoute, LegacyRoute]) {
       const w = mountRoute(C)
       expect(w.findComponent(AppShell).exists()).toBe(false)
       expect(w.findComponent(NavList).exists()).toBe(false)

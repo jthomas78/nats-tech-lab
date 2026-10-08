@@ -5,7 +5,8 @@
      { components: { [name]: Component }, activate?(): void }
 
    `components` is keyed by the `component` name each route contribution
-   declares in `public/manifest.json`: the playground and the overview.
+   declares in `public/manifest.json`: the Meta-Leader page, and the one
+   component the two old links share.
 
    Nothing here imports a shell module, and nothing renders
    `@ui-shell/AppShell` — `lab-shell` owns the frame when the demo is embedded.
@@ -15,12 +16,12 @@
 import './styles/playground.css'
 
 import { EMBEDDED_COMMAND_API, setCommandApi } from './config.js'
-import OverviewRoute from './plugin/OverviewRoute.vue'
-import PlaygroundRoute from './plugin/PlaygroundRoute.vue'
+import LegacyRoute from './plugin/LegacyRoute.vue'
+import MetaLeaderRoute from './plugin/MetaLeaderRoute.vue'
 
 export const components = {
-  playground: PlaygroundRoute,
-  overview: OverviewRoute,
+  'meta-leader': MetaLeaderRoute,
+  legacy: LegacyRoute,
 }
 
 /* Embedded, the page is on the shell's origin. An absolute call to 20302 is

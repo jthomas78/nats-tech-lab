@@ -5,7 +5,7 @@ import PrimeVue from 'primevue/config'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AT, arrow, event, pageState, serverState, snapshot, spyActions } from '../fixtures.js'
-import PlaygroundRoute from '../plugin/PlaygroundRoute.vue'
+import MetaLeaderRoute from '../plugin/MetaLeaderRoute.vue'
 
 import DarkControl from './DarkControl.vue'
 import Exercise10Guide from './Exercise10Guide.vue'
@@ -181,7 +181,7 @@ describe('the whole page (rules 4 and 5)', () => {
       historySeq: 1,
     })
     vi.stubGlobal('fetch', () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(s) }))
-    const w = mount(PlaygroundRoute, opts({}))
+    const w = mount(MetaLeaderRoute, opts({ tab: 'live' }))
     await new Promise((r) => setTimeout(r, 0))
     await w.vm.$nextTick()
     const text = w.text()

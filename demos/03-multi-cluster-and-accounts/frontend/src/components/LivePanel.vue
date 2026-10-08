@@ -1,30 +1,25 @@
 <script setup>
-// The playground route (PLAYGROUND-PLAN.md, Part 2). One controller, one
-// state, handed to every part. The left column acts on the rig and shows
-// what the nine servers report; the right column is the guide and the
-// history. No AppShell and no router: the lab shell owns the frame.
-import { onMounted, onUnmounted } from 'vue'
-
-import ClientSettings from '../components/ClientSettings.vue'
-import ClusterPanel from '../components/ClusterPanel.vue'
-import Exercise10Guide from '../components/Exercise10Guide.vue'
-import GatewayLinks from '../components/GatewayLinks.vue'
-import HistoryLog from '../components/HistoryLog.vue'
-import LeadershipCard from '../components/LeadershipCard.vue'
-import MetaProbeCard from '../components/MetaProbeCard.vue'
-import MetaSummary from '../components/MetaSummary.vue'
-import RigBar from '../components/RigBar.vue'
-import TransitionsCard from '../components/TransitionsCard.vue'
-import { hms, usePlayground } from '../usePlayground.js'
+// The Live tab (PLAYGROUND-PLAN.md, Part 2). The left column acts on the rig
+// and shows what the nine servers report; the right column is the guide and
+// the history. It owns no controller: MetaLeaderRoute holds the one
+// controller above the tabs and hands down its state and actions, so a tab
+// switch keeps every observation, history line and pending command.
+import ClientSettings from './ClientSettings.vue'
+import ClusterPanel from './ClusterPanel.vue'
+import Exercise10Guide from './Exercise10Guide.vue'
+import GatewayLinks from './GatewayLinks.vue'
+import HistoryLog from './HistoryLog.vue'
+import LeadershipCard from './LeadershipCard.vue'
+import MetaProbeCard from './MetaProbeCard.vue'
+import MetaSummary from './MetaSummary.vue'
+import RigBar from './RigBar.vue'
+import TransitionsCard from './TransitionsCard.vue'
+import { hms } from '../usePlayground.js'
 
 defineProps({
-  routeId: { type: String, default: 'playground' },
+  state: { type: Object, required: true },
+  actions: { type: Object, required: true },
 })
-
-const { state, actions, start, stop } = usePlayground()
-
-onMounted(start)
-onUnmounted(stop)
 </script>
 
 <template>
@@ -49,8 +44,10 @@ onUnmounted(stop)
       </div>
       <MetaSummary :state="state" />
       <ClientSettings
-        v-model:via="state.settings.via"
-        v-model:timeout-s="state.settings.timeoutS"
+        :via="state.settings.via"
+        :timeout-s="state.settings.timeoutS"
+        @update:via="actions.setVia"
+        @update:timeout-s="actions.setTimeoutS"
       />
       <div class="topo">
         <GatewayLinks :arrows="state.snap?.arrows ?? []" />

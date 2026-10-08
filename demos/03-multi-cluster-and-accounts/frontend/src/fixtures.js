@@ -88,7 +88,7 @@ export function pageState(snapOver = {}, over = {}) {
 
 /** Every action as a spy, so a spec can see which command a button sends. */
 export function spyActions(vi) {
-  const names = ['startRig', 'attach', 'stopRig', 'restore', 'freeze', 'resume', 'requestLeadership', 'publish', 'retry', 'verify', 'probe']
+  const names = ['startRig', 'attach', 'stopRig', 'restore', 'freeze', 'resume', 'requestLeadership', 'publish', 'retry', 'verify', 'probe', 'setVia', 'setTimeoutS']
   return Object.fromEntries(names.map((n) => [n, vi.fn()]))
 }
 

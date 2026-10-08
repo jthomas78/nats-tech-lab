@@ -433,18 +433,22 @@ so no report renderer ever reads it.
 | dev port | `20301`, `strictPort` |
 | base | `/plugins/demo-03/` |
 | federation | name `demo_03`, exposes `./plugin`, `remoteEntry.js`; shared `vue`, `@primeuix/styled` singletons |
-| `src/plugin.js` | `components = { playground: PlaygroundRoute, overview: OverviewRoute }`; `activate()` sets the API base to `/demo-api/03-multi-cluster-and-accounts` (demo 04's `setCommandApi`) |
+| `src/plugin.js` | `components = { 'meta-leader': MetaLeaderRoute, legacy: LegacyRoute }`; `activate()` sets the API base to `/demo-api/03-multi-cluster-and-accounts` (demo 04's `setCommandApi`) |
 | `src/App.vue` | standalone only, uses `AppShell` |
 | plugin entry | **no AppShell, no vue-router** (spec, as demo 04's `plugin.spec.js`) |
-| routes (manifest) | `/demo-03/playground` (first, default), `/demo-03/overview`; both get `routeId` |
-| nav | group `multi-cluster`, two items |
+| routes (manifest) | `/demo-03/meta-leader/:tab(overview\|live)?` — one page, two tabs, the tab in the URL. The old links `/demo-03/playground` (still the default, so Home and the bare `/demo-03` open the Live tab) and `/demo-03/overview` are hidden routes; `LegacyRoute` replaces each with its tab, keeping query and hash, and starts no poll |
+| nav | group `clusters` ("Clusters"), one item, "Meta-Leader" |
+| tabs | **Overview** and **Live**, demo 04's `.panel-tabs` style from `shared/unifi-theme`. A bare link opens the tab last used in this page load (Overview after a fresh load). A tab click pushes a history entry; a bare or old link is replaced in place. The plugin reaches the shell's router through the app's `$router`, never by importing `vue-router` |
 | `public/demo.json` | `devServer.port 20301`; `api {devPort: 20302, routes: [/state, /rig/start, /rig/attach, /rig/stop, /clusters/, /meta/probe, /restore]}`; **no** `hostedUpstream` (host processes only; with none, `demoApi.js:112` writes no nginx entry); **no** readiness (see L2); `runCommand` |
 | theme | `@unifi-theme`, `@ui-shell` aliases; judged at 1920x1080 |
 
 ### One shared controller — `usePlayground.js`
 
 A composable, not a store, as demo 04's `useDemoState`: one call in
-`PlaygroundRoute`, one `reactive` state passed down. It:
+`MetaLeaderRoute`, above the tabs, one `reactive` state passed down to the
+Live tab. A tab switch changes only the route param, so the page instance,
+its poll, its history and its pending commands stay. Leaving the page stops
+the poll timer only; navigation never sends a command. It:
 
 - polls `GET /state?after=<seq>` every 500 ms and merges the history;
 - shows the service as unreachable (not the rig) when the poll fails;
@@ -468,6 +472,8 @@ reports.
 
 | Component | Shows |
 |---|---|
+| `MetaLeaderRoute` | the page: the controller, then the two tabs |
+| `LivePanel` | the Live tab — everything below, given the controller's state and actions |
 | `RigBar` | lifecycle state, owner, verified count, Start / Attach / Stop, **Restore all frozen clusters** (enabled whenever a cluster is dark or going dark, also while other commands are pending), service reachability |
 | `MetaSummary` | the summary state, leader and term only when Agreed, fresh / stale / no-answer counts, process counts, the derived quorum line, labelled |
 | `ClientSettings` | client connection (Auto, za, arb, au) and publish timeout; one line on what Auto means; held in the shared controller and sent with each command |
@@ -481,7 +487,7 @@ reports.
 | `MetaProbeCard` | **Try metadata operation** and its three results, with the server used and the time |
 | `Exercise10Guide` | eight steps, ticked only when the matching action is seen in `/state`; hide / show; never acts (rule 10) |
 | `HistoryLog` | every event with a time; pending entries with a running timer; cancelled entries with the reason; errors in red; filter by cluster |
-| `OverviewRoute` | the question, the role, how to start, what each control does, what the page cannot show, links to `REPORT-10.html` and the deck |
+| `OverviewPanel` | the Overview tab: the question, the role, how to start, what each control does, what the page cannot show, links to `REPORT-10.html` and the deck |
 
 ### Tests
 

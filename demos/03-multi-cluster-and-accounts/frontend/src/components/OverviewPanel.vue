@@ -1,11 +1,7 @@
 <script setup>
-// The overview route: what the playground is, what each control does, and
+// The Overview tab: what the playground is, what each control does, and
 // what the page cannot tell you. Static text. Measured results stay in the
-// reports and the deck; this page only links to them.
-defineProps({
-  routeId: { type: String, default: 'overview' },
-})
-
+// reports and the deck; this tab only links to them.
 const START = 'go run ./demos/03-multi-cluster-and-accounts/playground serve -lab demos/03-multi-cluster-and-accounts/lab'
 </script>
 
@@ -83,7 +79,7 @@ const START = 'go run ./demos/03-multi-cluster-and-accounts/playground serve -la
         <div>The control service, from the repo root:</div>
         <pre>{{ START }}</pre>
         <div style="margin-top: 8px">
-          Then open the Playground and press Start rig, or Attach.
+          Then open the Live tab and press Start rig, or Attach.
         </div>
       </div>
       <div class="box">

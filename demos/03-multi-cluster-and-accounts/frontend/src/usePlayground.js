@@ -1,5 +1,5 @@
 // The one shared controller of the playground page (PLAYGROUND-PLAN.md,
-// Part 2). A composable, not a store: one call in PlaygroundRoute, and one
+// Part 2). A composable, not a store: one call in MetaLeaderRoute, and one
 // `reactive` state handed down.
 //
 // What it does, and what it never does:
@@ -143,6 +143,13 @@ export function usePlayground({
       send(`/clusters/${c}/publish`, { via: via(), timeoutS: state.settings.timeoutS, retryOf: msgId }),
     verify: (c) => send(`/clusters/${c}/verify`, { via: via() }),
     probe: () => send('/meta/probe', { via: via() }),
+    // The two client settings. Not commands: nothing is sent.
+    setVia: (v) => {
+      state.settings.via = v
+    },
+    setTimeoutS: (s) => {
+      state.settings.timeoutS = s
+    },
   }
 
   function start() {

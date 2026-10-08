@@ -15,36 +15,34 @@
   "contributions": [
     {
       "kind": "route",
+      "id": "meta-leader",
+      "path": "/demo-03/meta-leader/:tab(overview|live)?",
+      "title": "Clusters — Meta-Leader",
+      "component": "meta-leader"
+    },
+    {
+      "kind": "route",
       "id": "playground",
       "path": "/demo-03/playground",
-      "title": "Multi-cluster — T4 playground",
-      "component": "playground",
+      "title": "Clusters — Meta-Leader",
+      "component": "legacy",
       "default": true
     },
     {
       "kind": "route",
       "id": "overview",
       "path": "/demo-03/overview",
-      "title": "Multi-cluster — Overview",
-      "component": "overview"
+      "title": "Clusters — Meta-Leader",
+      "component": "legacy"
     },
     {
       "kind": "navigation",
-      "id": "playground-nav",
-      "label": "Playground",
-      "route": "playground",
+      "id": "meta-leader-nav",
+      "label": "Meta-Leader",
+      "route": "meta-leader",
       "icon": "pi pi-sitemap",
       "order": 30,
-      "group": { "id": "multi-cluster", "label": "Multi-cluster" }
-    },
-    {
-      "kind": "navigation",
-      "id": "overview-nav",
-      "label": "Overview",
-      "route": "overview",
-      "icon": "pi pi-info-circle",
-      "order": 31,
-      "group": { "id": "multi-cluster", "label": "Multi-cluster" }
+      "group": { "id": "clusters", "label": "Clusters" }
     }
   ],
   "backendServices": []

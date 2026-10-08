@@ -1,25 +1,21 @@
 <script setup>
-// The standalone entry. The rail picks the playground or the overview; both
-// are the same route components the embedded entry hands to the shell.
-import { computed, ref } from 'vue'
+// The standalone entry. One rail item, Meta-Leader, and the same page
+// component the embedded entry hands to the shell. There is no router here,
+// so the page keeps its tab as local state.
+import { ref } from 'vue'
 
 import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
 
-import OverviewRoute from './plugin/OverviewRoute.vue'
-import PlaygroundRoute from './plugin/PlaygroundRoute.vue'
+import MetaLeaderRoute from './plugin/MetaLeaderRoute.vue'
 
-const view = ref('playground')
+const view = ref('meta-leader')
 const sections = [
   {
-    eyebrow: 'Multi-cluster',
-    items: [
-      { key: 'playground', label: 'Playground' },
-      { key: 'overview', label: 'Overview' },
-    ],
+    eyebrow: 'Clusters',
+    items: [{ key: 'meta-leader', label: 'Meta-Leader' }],
   },
 ]
-const title = computed(() => (view.value === 'overview' ? 'Overview' : 'Playground'))
 </script>
 
 <template>
@@ -32,24 +28,17 @@ const title = computed(() => (view.value === 'overview' ? 'Overview' : 'Playgrou
     <template #breadcrumb>
       <span>Demo 03</span>
       <span class="sep">/</span>
-      <b>{{ title }}</b>
+      <b>Meta-Leader</b>
     </template>
 
     <template #sidebar>
       <NavList
         v-model="view"
         :sections="sections"
-        aria-label="Multi-cluster"
+        aria-label="Clusters"
       />
     </template>
 
-    <PlaygroundRoute
-      v-if="view === 'playground'"
-      route-id="playground"
-    />
-    <OverviewRoute
-      v-else
-      route-id="overview"
-    />
+    <MetaLeaderRoute route-id="meta-leader" />
   </AppShell>
 </template>
