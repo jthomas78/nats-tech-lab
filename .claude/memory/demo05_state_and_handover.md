@@ -12,6 +12,8 @@ State of `demos/05-identity-and-permissions/` on 2026-10-06, branch
   terminal → scripts → (later) lab shell, order-svc / analytics-reader
   scenario, scope limited to the two NATS docs pages authentication-basics and
   authorization. Accounts, JWTs, auth callout and TLS set-up are later demos.
+  Demo 05 = centralized auth (config mode), config-listed NKeys included;
+  see [[nats_auth_terminology_and_demo_boundaries]].
 - Everything one exercise needs lives flat in `exercises/`: configs (in
   `exercises/config/`), the `EXERCISE-NN-TERMINAL-STEPS.md`, `exNN-check.sh`,
   and `EXERCISE_OBSERVATIONS.md`.

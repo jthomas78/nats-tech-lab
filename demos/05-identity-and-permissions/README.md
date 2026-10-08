@@ -25,6 +25,14 @@ and [Authorization](https://docs.nats.io/learn/security/authorization) from
 the NATS docs. The rest of the [security section](https://docs.nats.io/learn/security/)
 — accounts, JWTs, auth callout, TLS set-up — belongs to later demos.
 
+**This is centralized authentication.** The server runs in NATS
+**configuration mode**: its config lists every user, credential and
+permission it accepts. Passwords come in through environment variables, but
+the config still defines them. NKey users (exercise 05) are listed in the
+config too, so they are centralized as well. **Decentralized authentication**
+— operator mode, with a signed operator → account → user JWT chain — is
+demo 06. Auth callout is demo 07.
+
 ## Requirements
 
 | ID | Requirement | Exercise | State |

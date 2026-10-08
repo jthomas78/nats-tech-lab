@@ -102,8 +102,12 @@ sibling subject to prove the subscription is live.
 ## Boundaries — for later demos
 
 - **Accounts** — separate subject spaces on one server. Demo 03 uses them.
-- **Operator mode / JWTs / `nsc`** — decentralised identity. Demos 01 and 02.
-- **Auth callout** — an external service decides who gets in.
+- **Operator mode / JWTs / `nsc`** — decentralized authentication: the
+  operator → account → user JWT trust chain. Demo 06. Everything in demo 05
+  is centralized authentication (configuration mode), NKeys included: an
+  NKey listed in the server config is still a config-managed user.
+- **Auth callout** — an external service decides who gets in. It works in
+  either mode; this lab uses it in operator mode only. Demo 07 (WorkOS).
 - **`no_auth_user`** — lets unauthenticated clients in as a named user. The
   docs warn it can undo a lock-down; worth one line in exercise 01's notes
   when it is measured. [AUTHN]
@@ -143,5 +147,5 @@ Authorization [AUTHZ]. It does not cover the other pages under
 | Client exit codes on a denial | AUTHZ | 02–04 | not measured |
 | Queue-group permissions | AUTHZ | — | not covered |
 | Allowing `_INBOX.>` next to a deny | AUTHZ | — | not covered |
-| Accounts, operator mode, JWTs, auth callout | both | — | out of scope |
+| Accounts, operator mode, JWTs, auth callout | both | — | out of scope (operator mode: demo 06; auth callout: demo 07) |
 | TLS, OCSP and the other security pages | — | — | out of scope |

@@ -7,6 +7,17 @@ Demo 05 is one bare `nats-server` on the host, the host `nats` CLI, and shell
 scripts. No Docker, no Go, no Postgres, no UI, no `nsc`, no operator mode.
 Most of the root file does not apply here.
 
+**Demo 05 is centralized authentication and authorization.** That means
+NATS **configuration mode**: the server config defines every accepted user,
+credential and permission. Secrets may come in through environment
+variables; the config still defines them. The opposite is **decentralized
+authentication** = **operator mode**, the operator → account → user JWT
+trust chain (demo 06). The split is "users managed in the server config"
+against "trust delegated through signed JWTs". It is not "files on disk"
+against "no files": operator mode has a config and stores JWTs too.
+**An NKey listed in the server config is still centralized.** NKeys alone
+never mean operator mode.
+
 Three things still apply, repo-wide: the session memory rules, the general
 preferences (stop if asked to do too much; don't read large docs whole;
 delegate wide exploration; one command per `Bash` call), and **the life of a
@@ -42,8 +53,9 @@ Kept for later demos. Mention a boundary in one line where it helps; do not
 build it here:
 
 - accounts, and sharing across accounts (export / import) — demo 03 has some
-- operator mode, JWTs, `nsc`, resolvers — demo 01 and demo 02 use them
-- auth callout
+- operator mode, the operator / account / user JWT trust chain, `nsc`,
+  JWT resolvers — decentralized authentication, demo 06
+- auth callout, in any mode — demo 07 (operator mode only, with WorkOS)
 - full TLS exercises (exercise 06 explains TLS; it does not configure it)
 - clusters, gateways, leaf nodes, JetStream
 - a frontend or a lab-shell menu entry — **not in this task**. When one comes,
