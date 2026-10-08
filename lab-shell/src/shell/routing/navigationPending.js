@@ -23,8 +23,17 @@ export function createNavigationPending(router) {
      never the remote's URL (BR-AS04). */
   const target = ref(null)
 
-  router.beforeEach((to) => {
-    pending.value = Boolean(to.meta?.pluginId)
+  /* Staying on the same route record — a param, query or hash change, such as
+     a page's own tab in its URL — loads nothing: the component is already
+     mounted, and vue-router keeps that instance. Raising the flag there would
+     swap the view for the skeleton and unmount the page under the reader. */
+  const sameRecord = (to, from) => {
+    const record = to.matched?.at(-1)
+    return record !== undefined && record === from?.matched?.at(-1)
+  }
+
+  router.beforeEach((to, from) => {
+    pending.value = Boolean(to.meta?.pluginId) && !sameRecord(to, from)
     target.value = pending.value
       ? {
           pluginId: to.meta.pluginId,
