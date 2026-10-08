@@ -211,15 +211,13 @@ ls .run/resolver/
 
 ## Step 12: The right JWT, the wrong seed
 
-**Concept:** copy `order-svc.creds`, but swap in the `admin` seed. The JWT is real; the signer is not.
+**Concept:** copy `order-svc.creds`, but swap in the `admin` seed. The JWT is real; the signer is not. This is what a person with a stolen JWT, but no seed, has.
 **Terminal C:**
 
-```bash
-python3 -c "import re; s=lambda t: re.search(r'SEED-----\n(.*?)\n', t).group(1); a=open('.run/creds/order-svc.creds').read(); b=open('.run/creds/sys.creds').read(); open('.run/creds/wrong-seed.creds','w').write(a.replace(s(a), s(b)))"
-```
+`exercises/wrong-seed.sh` is **negative-test machinery**, not normal setup. You never build a `.creds` file by hand. It copies the first file and replaces its seed line with the seed line of the second file:
 
 ```bash
-chmod 600 .run/creds/wrong-seed.creds
+exercises/wrong-seed.sh .run/creds/order-svc.creds .run/creds/sys.creds .run/creds/wrong-seed.creds
 ```
 
 ```bash

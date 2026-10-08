@@ -118,6 +118,32 @@ operator into the author's real store, `~/.local/share/nats/nsc`. Measured
 - `lab/up.sh` runs the server with the demo folder as its working directory,
   because the config's resolver `dir` is relative to it.
 
+## Three kinds of file: walkthrough, convenience, validation
+
+The goal is a **transparent** demo, in the NATS docs' style: explicit
+commands, readable config, minimal helper logic. A reader must understand
+and repeat the setup without reading a scripting framework. Keep three
+kinds of file apart:
+
+- **Walkthrough** (`exercises/EXERCISE-NN-TERMINAL-STEPS.md`): direct
+  `nats auth` and `nats-server` commands, readable configuration and short
+  explanations. This is the primary learning experience.
+- **Convenience scripts** (`lab/`): thin wrappers around those same steps.
+  They save typing, but never hide how the trust chain, credentials and
+  resolver are configured.
+- **Validation scripts** (`exercises/exNN-check.sh`): automated assertions
+  and deliberate failures. These may need extra manipulation (for example
+  the wrong-seed `.creds` file), but that machinery stays separate from the
+  normal setup.
+
+Prefer a native NATS command (`nats auth … info`, `account query`, the
+monitor endpoints) to decoding a JWT. Where decoding is needed, keep it
+small and say that decoding a JWT does not verify it. Never use
+`nats auth … --json` in a walkthrough: it prints seeds (measured
+2026-10-08). Use no inline Python in new work. Add another tool (for
+example `jq`) only where it makes a needed step simpler, and check for it
+explicitly.
+
 ## Layout
 
 | What | Where |
@@ -128,6 +154,7 @@ operator into the author's real store, `~/.local/share/nats/nsc`. Measured
 | — numbered terminal steps (`NN` starts at `01`; `00` is invalid) | `exercises/EXERCISE-NN-TERMINAL-STEPS.md` |
 | — measured results, with versions | `exercises/EXERCISE_OBSERVATIONS.md` |
 | — the exercise's check script | `exercises/exNN-check.sh` |
+| — negative-test machinery (wrong-seed `.creds`) | `exercises/wrong-seed.sh` |
 | Shared tools (lib, nats wrapper, trust-conf, up, down) | `lab/` |
 | Run state: key store, creds, resolver, log (gitignored) | `.run/` |
 

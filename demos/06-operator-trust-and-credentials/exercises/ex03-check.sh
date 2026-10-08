@@ -31,9 +31,13 @@ OS="$D06_CREDS/order-svc.creds"
 SYS="$D06_CREDS/sys.creds"
 d06_nats auth account push ORDERS $S --creds "$SYS" >/dev/null 2>&1
 try() { d06_nats "$@" 2>&1; echo "exit=$?"; }
-now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
+# EPOCHREALTIME (unix time with microseconds) needs bash 5.
+(( BASH_VERSINFO[0] >= 5 )) || { echo "ex03-check.sh needs bash 5 (brew install bash)" >&2; exit 1; }
+now() { echo "$EPOCHREALTIME"; }
 # Prefix every line a subscriber prints with the unix time it arrived.
-stamp() { perl -MTime::HiRes=time -ne '$|=1; printf "%.3f %s", time, $_'; }
+stamp() { while IFS= read -r line; do echo "$EPOCHREALTIME $line"; done; }
+# True when two unix times are at most 1 s apart.
+within_1s() { awk -v a="$1" -v b="$2" 'BEGIN { d = a - b; exit !(d <= 1 && d >= -1) }'; }
 # Unix time of the first line matching a pattern in a stamped file.
 first_at() { grep -m1 "$2" "$1" | awk '{print $1}'; }
 
@@ -41,7 +45,7 @@ first_at() { grep -m1 "$2" "$1" | awk '{print $1}'; }
 echo "== 03a  a credential that expires in 10 s"
 SHORT="$D06_CREDS/order-svc-10s.creds"
 d06_nats auth user credential "$SHORT" order-svc ORDERS --expire 10s >/dev/null
-exp=$(d06_claim "$SHORT" exp); iat=$(d06_claim "$SHORT" iat)
+exp=$(d06_claims "$SHORT" | jq -r .exp); iat=$(d06_claims "$SHORT" | jq -r .iat)
 check E1 "the JWT says exp = iat + 10 s" [ $((exp - iat)) -eq 10 ]
 
 out="$D06_RUN/ex03-expiry.out"
@@ -55,7 +59,7 @@ check E2 "before expiry: the short credential connects and receives" grep -q 'be
 while [[ $(date +%s) -lt $((exp + 2)) ]]; do sleep 0.2; done
 cut=$(first_at "$out" 'Disconnected')
 check E3 "the OPEN connection was cut within 1 s of exp (cut at ${cut:-never})" \
-  bash -c "[ -n '$cut' ] && python3 -c 'import sys; sys.exit(0 if abs($cut - $exp) <= 1 else 1)'"
+  within_1s "${cut:-0}" "$exp"
 r=$(try $S --creds "$SHORT" pub orders.created 'after-expiry')
 check E4 "after expiry: a NEW connection is refused" grep -q 'Authorization Violation' <<<"$r"
 d06_nats $S --creds "$OS" pub orders.created 'after-expiry-sent' >/dev/null 2>&1
@@ -91,7 +95,7 @@ d06_nats auth account push ORDERS $S --creds "$SYS" >/dev/null 2>&1
 sleep 1
 cut2=$(first_at "$out2" 'Disconnected')
 check R3 "after the push, the OPEN connection was cut within 1 s (cut at ${cut2:-never})" \
-  bash -c "[ -n '$cut2' ] && python3 -c 'import sys; sys.exit(0 if abs($cut2 - $pushed) <= 1 else 1)'"
+  within_1s "${cut2:-0}" "$pushed"
 r=$(try $S --creds "$AR" sub 'orders.>' --count 1 --wait 1s)
 check R4 "after the push, a NEW connection is refused" grep -q 'Authorization Violation' <<<"$r"
 r=$(try $S --creds "$OS" pub orders.created 'after-revoke')
@@ -99,7 +103,7 @@ check R5 "positive control: order-svc, same account, still publishes" grep -q 'e
 check Q2 "after the push: server copy says Revocations: 1" \
   grep -q 'Revocations: 1' <<<"$(d06_nats auth account query ORDERS $S --creds "$SYS")"
 check R6 "the account JWT on the server lists the revoked user's key" \
-  bash -c "curl -s '$D06_MONITOR/accountz?acc=$(d06_claim "$OS" iss)' | grep -q '$(d06_claim "$AR" sub)'"
+  bash -c "curl -s '$D06_MONITOR/accountz?acc=$(d06_claims "$OS" | jq -r .iss)' | grep -q '$(d06_claims "$AR" | jq -r .sub)'"
 kill "$sub2" 2>/dev/null; wait "$sub2" 2>/dev/null
 
 cp "$D06_LOG" "$D06_RUN/ex03-server.log"

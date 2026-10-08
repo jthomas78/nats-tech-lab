@@ -30,19 +30,19 @@ echo
 S="-s $D06_URL"
 OS="$D06_CREDS/order-svc.creds"
 SYS="$D06_CREDS/sys.creds"
-orders_key=$(d06_claim "$D06_RUN/xdg-data/nats/nsc/stores/D06/accounts/ORDERS/ORDERS.jwt" sub)
+orders_key=$(d06_claims "$D06_RUN/xdg-data/nats/nsc/stores/D06/accounts/ORDERS/ORDERS.jwt" | jq -r .sub)
 try() { d06_nats "$@" 2>&1; echo "exit=$?"; }
 refused() { grep -q 'Authorization Violation' <<<"$1" && grep -q 'exit=1' <<<"$1"; }
 
 # --- inspection only: these read claims and logs; they enforce nothing -------
 echo "== inspection"
-operator_key=$(d06_claim "$D06_RUN/xdg-data/nats/nsc/stores/D06/D06.jwt" sub)
+operator_key=$(d06_claims "$D06_RUN/xdg-data/nats/nsc/stores/D06/D06.jwt" | jq -r .sub)
 check I1 "[inspect] boot log lists Trusted Operators, Operator \"D06\"" \
   bash -c "grep -q 'Trusted Operators' '$D06_LOG' && grep -q 'Operator: \"D06\"' '$D06_LOG'"
 check I2 "[inspect] ORDERS account Issuer is the operator's key" \
   grep -q "Issuer: $operator_key" <<<"$(d06_nats auth account info ORDERS)"
 check I3 "[inspect] --defaults put payload 1048576 in the order-svc JWT" \
-  grep -q '"payload": 1048576' <<<"$(d06_claim "$OS" nats)"
+  [ "$(d06_claims "$OS" | jq .nats.payload)" = 1048576 ]
 
 # --- the server has never heard of ORDERS ---------------------------------
 echo "== before the push"
@@ -81,7 +81,7 @@ RC="$D06_CREDS/rogue-order-svc.creds"
 rogue auth operator add ROGUE >/dev/null
 rogue auth account add ORDERS --defaults >/dev/null
 rogue auth user add order-svc ORDERS --defaults --credential "$RC" >/dev/null
-rogue_key=$(d06_claim "$D06_RUN/rogue/xdg-data/nats/nsc/stores/ROGUE/accounts/ORDERS/ORDERS.jwt" sub)
+rogue_key=$(d06_claims "$D06_RUN/rogue/xdg-data/nats/nsc/stores/ROGUE/accounts/ORDERS/ORDERS.jwt" | jq -r .sub)
 
 r=$(try $S --creds "$RC" pub orders.created 'rogue-not-pushed')
 check C6 "ROGUE user, account never pushed: refused" refused "$r"
@@ -99,13 +99,7 @@ check C11 "that refusal needed no account fetch (signature rejected locally)" [ 
 
 # The real order-svc JWT, with the SYSTEM admin's seed: the nonce signature fails.
 WS="$D06_CREDS/wrong-seed.creds"
-python3 - "$OS" "$SYS" "$WS" <<'PY'
-import re, sys
-seed = lambda t: re.search(r"-----BEGIN USER NKEY SEED-----\n(.*?)\n------END", t, re.S).group(1)
-a, b = open(sys.argv[1]).read(), open(sys.argv[2]).read()
-open(sys.argv[3], "w").write(a.replace(seed(a), seed(b)))
-PY
-chmod 600 "$WS"
+"$D06_DIR/exercises/wrong-seed.sh" "$OS" "$SYS" "$WS" >/dev/null
 r=$(try $S --creds "$WS" pub orders.created 'wrong-seed')
 check C12 "real order-svc JWT with the wrong seed: refused" refused "$r"
 

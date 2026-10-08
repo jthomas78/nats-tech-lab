@@ -60,8 +60,11 @@ with the date and tool versions. Anything else in this README marked
 - `nats-server` and the `nats` CLI on the host. Measured with
   `nats-server v2.14.6` and `nats` CLI `0.4.0` (it has `nats auth`; `nsc` is
   not used).
-- `python3`, `perl`, `curl`, `lsof` (all on macOS already).
-- Nothing else. No Docker.
+- `curl` and `lsof` (on macOS already).
+- For the check scripts only: `jq`, and bash 5 for `ex03-check.sh`
+  (`brew install jq bash`). Each script stops with a clear message if one
+  is missing. The steps you type by hand need neither.
+- Nothing else. No Docker, no Python.
 
 ## Ports and names
 

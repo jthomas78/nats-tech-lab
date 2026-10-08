@@ -216,3 +216,27 @@ resolver directory, outside the repo). Not in any check script.
 - The CLI writes every `.creds` file and seed mode 600.
 - `lab/nats.sh` keeps the real store untouched: nothing under
   `~/.local/share/nats` or `~/.config/nats` changed.
+- `nats auth account info SYSTEM --json` prints the account's seed and
+  its users' seeds. Never use `--json` in a walkthrough.
+
+## Re-run after removing Python and Perl (2026-10-08)
+
+The scripts changed; the checks did not. Each check tests the same thing
+as before.
+
+- **What changed:** JWT claims are read with `base64` + `jq`
+  (`d06_claims` in `lab/lib.sh`) instead of Python. `lab/trust-conf.sh`
+  reads the SYSTEM key from `nats auth account info SYSTEM`. The wrong-seed
+  file is made by `exercises/wrong-seed.sh` (`awk` + `sed`). `ex03-check.sh`
+  stamps times with bash 5's `EPOCHREALTIME` instead of Perl, and compares
+  them with `awk`.
+- **Versions:** as above, plus jq at `/opt/homebrew/bin/jq`, GNU bash 5.3.15.
+- **Runs:** ex01 (24 checks), ex02 (15) and ex03 (16), 3 times each, in
+  that order. All 9 runs: **ALL PASS**, exit 0.
+- **The helpers can fail:** `within_1s`'s `awk` test exited 1 for times
+  2.5 s apart. `wrong-seed.sh` output differed from `order-svc.creds` in
+  the seed line only.
+- **Walkthrough change, not run as one walkthrough:** EXERCISE-03 Step 3
+  now has the reader add 60 s to `date` instead of decoding the JWT. The
+  `nats` CLI has no command that shows the `exp` inside a `.creds` file.
+  `D06-R9` is still open.

@@ -63,18 +63,19 @@ tail -f .run/server.log
 **Terminal C:**
 
 ```bash
+date '+%H:%M:%S'
+```
+
+```bash
 lab/nats.sh auth user credential .run/creds/order-svc-60s.creds order-svc ORDERS --expire 60s
 ```
 
-## Step 3: Read the end time
+## Step 3: Work out the end time
 
-**Terminal C:**
+**Concept:** `--expire 60s` writes an end time (`exp`) into the new user JWT: the time it was signed plus 60 s. The server reads `exp` on every connection.
+**Purpose:** add 60 s to the time `date` printed. Write it down. That is the end time, to within a second.
 
-```bash
-python3 -c "import base64,json,re,datetime as d; t=open('.run/creds/order-svc-60s.creds').read(); p=re.search(r'JWT-----\n(.*?)\n',t).group(1).split('.')[1]; c=json.loads(base64.urlsafe_b64decode(p+'='*(-len(p)%4))); print('issued ', d.datetime.fromtimestamp(c['iat']).time()); print('expires', d.datetime.fromtimestamp(c['exp']).time())"
-```
-
-**Purpose:** write down the `expires` time.
+The `nats` CLI has no command that shows the end time inside a `.creds` file. `exercises/ex03-check.sh` reads it from the JWT. It checks that the end time is exactly 10 s after the signing time (check `E1`).
 
 ## Step 4: Listen with the short credential
 

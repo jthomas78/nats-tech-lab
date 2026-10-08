@@ -28,20 +28,20 @@ d06_port_busy() {
   lsof -nP -iTCP:4922 -sTCP:LISTEN >/dev/null 2>&1
 }
 
-# Print one claim from a JWT. The argument is a .jwt file or a .creds file.
-#   d06_claim .run/creds/order-svc.creds sub      -> the user's public key
-#   d06_claim .run/creds/order-svc.creds exp      -> expiry, unix seconds
-d06_claim() {
-  python3 - "$1" "$2" <<'PY'
-import base64, json, re, sys
-text = open(sys.argv[1]).read()
-m = re.search(r"-----BEGIN NATS USER JWT-----\n(.*?)\n------END", text, re.S)
-jwt = (m.group(1) if m else text).strip()
-p = jwt.split(".")[1]
-claims = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
-v = claims.get(sys.argv[2], "")
-print(json.dumps(v) if isinstance(v, (dict, list)) else v)
-PY
+# Validation scripts only. Print the claims (the middle part) of a JWT as
+# JSON, then read them with jq. The argument is a .jwt file or a .creds file.
+#   d06_claims .run/creds/order-svc.creds | jq -r .sub   -> the user's public key
+#   d06_claims .run/creds/order-svc.creds | jq -r .exp   -> expiry, unix seconds
+# Decoding a JWT does NOT verify it. Only the server checks the signatures.
+d06_claims() {
+  command -v jq >/dev/null || { echo "d06_claims needs jq (brew install jq)" >&2; return 1; }
+  local jwt payload
+  # A .creds file holds the JWT on the line after the BEGIN line; a .jwt file is the JWT.
+  jwt=$(awk '/BEGIN NATS USER JWT/ { getline; print; exit }' "$1")
+  [[ -n "$jwt" ]] || jwt=$(tr -d '[:space:]' <"$1")
+  payload=$(cut -d. -f2 <<<"$jwt" | tr '_-' '/+')
+  while (( ${#payload} % 4 )); do payload+="="; done
+  base64 -d <<<"$payload"
 }
 
 # The PID in the PID file, but only if that process is a nats-server started

@@ -40,10 +40,10 @@ try() { d06_nats "$@" 2>&1; echo "exit=$?"; }
 echo "== 02a  user permissions, issued while the server runs"
 d06_nats auth user add analytics-reader ORDERS --defaults \
   --sub-allow 'orders.>' --pub-deny '>' --credential "$AR" >/dev/null
-ar_key=$(d06_claim "$AR" sub)
-ar_perms=$(d06_claim "$AR" nats)
+ar_key=$(d06_claims "$AR" | jq -r .sub)
+ar_perms=$(d06_claims "$AR" | jq -c '{pub: .nats.pub, sub: .nats.sub}')
 check P1 "analytics-reader JWT carries sub allow orders.> and pub deny >" \
-  grep -q '"pub": {"deny": \[">"\]}, "sub": {"allow": \["orders.>"\]}' <<<"$ar_perms"
+  [ "$ar_perms" = '{"pub":{"deny":[">"]},"sub":{"allow":["orders.>"]}}' ]
 
 out="$D06_RUN/ex02-reader.out"
 d06_nats $S --creds "$AR" sub 'orders.>' --count 5 --wait 10s > "$out" 2>&1 & sub=$!
@@ -73,7 +73,7 @@ d06_nats auth account keys add ORDERS reader --sub-allow 'orders.>' --pub-deny '
 # Ask for more than the role allows. The CLI drops the request (measured).
 d06_nats auth user add greedy-reader ORDERS --key reader --pub-allow '>' --defaults \
   --credential "$GR" >/dev/null
-gr_pub=$(d06_claim "$GR" nats | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pub"))')
+gr_pub=$(d06_claims "$GR" | jq -c .nats.pub)
 check P8 "greedy-reader JWT has NO publish permission of its own (asked for >)" [ "$gr_pub" = "{}" ]
 
 r=$(try $S --creds "$GR" pub orders.created 'greedy-before-push')

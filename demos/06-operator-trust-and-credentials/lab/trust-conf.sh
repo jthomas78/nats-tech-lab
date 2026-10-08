@@ -15,12 +15,10 @@ sys_jwt="$store/accounts/SYSTEM/SYSTEM.jwt"
   exit 1
 }
 
-# The account's public key is the JWT's "sub" claim.
-sys_key=$(python3 -c '
-import base64, json, sys
-p = open(sys.argv[1]).read().strip().split(".")[1]
-print(json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))["sub"])
-' "$sys_jwt")
+# The SYSTEM account's public key. `auth account info` prints it on its first
+# line: Account SYSTEM (ADOA…). Do not use --json here: it prints the seeds.
+sys_key=$(d06_nats auth account info SYSTEM | sed -n '1s/^Account SYSTEM (\(A[A-Z0-9]*\))$/\1/p')
+[[ -n "$sys_key" ]] || { echo "could not read the SYSTEM account key" >&2; exit 1; }
 
 mkdir -p "$D06_RESOLVER"
 cat > "$D06_RUN/trust.conf" <<EOF
