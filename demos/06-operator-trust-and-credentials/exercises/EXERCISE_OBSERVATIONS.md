@@ -82,7 +82,11 @@ All three exercises below:
 - **Two refusals look the same to the client.** "Account not pushed" and
   "foreign operator" both print only `Authorization Violation`. Only the
   server log tells them apart: the first one waits ~1.9 s for a fetch, the
-  second one does not fetch.
+  second one does not fetch. **Correction (walkthrough, 2026-10-08):** that
+  holds for the `ROGUE` user **after** its account push only. Before the
+  push (C6), the `ROGUE` user also waited ~1.9 s for a fetch, the same as
+  C1. The server refuses an unknown account key before it ever reaches the
+  operator check.
 
 **Open question — C17 in run 3.** C1 logged 3 `authentication error` lines
 within 0.3 s, each after its own 1.9 s account fetch. In the other 5 runs it
@@ -240,3 +244,39 @@ as before.
   now has the reader add 60 s to `date` instead of decoding the JWT. The
   `nats` CLI has no command that shows the `exp` inside a `.creds` file.
   `D06-R9` is still open.
+
+## Walkthrough — exercise 01 by hand (2026-10-08)
+
+The user ran `EXERCISE-01-TERMINAL-STEPS.md` in their own terminals, with
+Claude guiding each step. Guided, so it does **not** close `D06-R9`.
+Versions as above.
+
+- **Result:** every step matched "What you should have seen", after the
+  Step 1 fix below.
+- **Step 1 was wrong.** `nats auth user add … --credential
+  .run/creds/order-svc.creds` failed with `open .run/creds/order-svc.creds:
+  no such file or directory`, because `.run/creds/` did not exist. The user
+  JWT was still written to the store; only the `.creds` file was missing.
+  `lab/chain.sh` makes the folder first, so the check scripts never hit
+  this. Fixed: Step 1 now runs `mkdir -p .run/creds`. Recovery without a
+  restart: `lab/nats.sh auth user credential .run/creds/order-svc.creds
+  order-svc ORDERS`.
+- **Step 3 changed, not yet run.** The user asked for the raw
+  `nats-server -c … 2>&1 | tee .run/server.log` as the main command, with
+  `lab/up.sh` optional. This run used `lab/up.sh`; the `tee` form is
+  untested.
+- **Rogue user before its push (Step 9):** `Account [A…] fetch took
+  1.901208084s`, `fetching jwt timed out`, then `authentication error` —
+  the same as Step 4. After the push (Step 10): `authentication error` only,
+  no fetch. See the correction under Surprises above.
+- **The rogue push logged nothing** on the server. The `ROGUE` JWT appeared
+  in `.run/resolver/`; `/accountz` listed `ORDERS`, `SYSTEM` and `$G` only.
+- **`/connz?auth=1`** names the user by key, not name: `authorized_user` =
+  the `U…` key, `account` and `issuer_key` = the `ORDERS` `A…` key,
+  `name_tag` = `ORDERS`. The name `order-svc` is only inside the `jwt` field.
+- **`nats auth operator add` also made an operator signing key**
+  (`O…`, listed under `Signing Keys`). `ORDERS` was still signed by the
+  identity key (`Issuer:` in both the local and the server copy), as I2 says.
+- **Error count:** 6 `authentication error` lines for 6 refused attempts
+  (the user ran Step 8 twice; the two lines are 45 s apart). One line per
+  attempt, so this run says nothing new about the C17 open question.

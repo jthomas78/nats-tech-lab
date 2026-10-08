@@ -56,6 +56,12 @@ The account `ORDERS`, signed by the operator:
 lab/nats.sh auth account add ORDERS --defaults
 ```
 
+The folder for the `.creds` files. `nats auth` does not make it, and without it the next command fails with `no such file or directory`:
+
+```bash
+mkdir -p .run/creds
+```
+
 The user `order-svc`, signed by the account. The `.creds` file holds the user JWT and its seed (secret key):
 
 ```bash
@@ -74,7 +80,7 @@ The trust file the server loads (`.run/trust.conf`):
 lab/trust-conf.sh
 ```
 
-**Purpose:** make every key and JWT, and write `.run/trust.conf`. (`lab/chain.sh` runs these five commands in one go. The check script uses it.)
+**Purpose:** make every key and JWT, and write `.run/trust.conf`. (`lab/chain.sh` runs these commands in one go. The check script uses it.)
 **Predict:** how many user names will the server config hold?
 
 ## Step 2: Read what the server will trust
@@ -107,19 +113,24 @@ lab/nats.sh auth user info order-svc ORDERS
 
 ## Step 3: Start the server and watch its log
 
-**Terminal C:**
+**Terminal A:**
+
+```bash
+nats-server -c exercises/config/ex01-nats-operator.conf 2>&1 | tee .run/server.log
+```
+
+**Purpose:** start the server in the foreground. Its log prints in terminal A. `2>&1 | tee .run/server.log` also writes a copy to `.run/server.log`; Step 14 counts lines in it. Run it from the demo folder: the config's resolver `dir` (`.run/resolver`) is relative to it.
+
+**Optional — the convenience script.** It starts the same server in the background, writes the log to `.run/server.log` and waits until the server is healthy. Use it instead of the command above, not as well. Then follow the log in terminal A:
 
 ```bash
 lab/up.sh ex01-nats-operator
 ```
 
-**Terminal A:**
-
 ```bash
 tail -f .run/server.log
 ```
 
-**Purpose:** start the server in the background, then follow its log.
 **Predict:** does the log name any account other than `SYSTEM`?
 **Inspection only:** find the `Trusted Operators` block in the log. It names `Operator: "D06"`, when it was issued, and `Expires : Never`.
 
@@ -290,7 +301,9 @@ grep -c 'authentication error' .run/server.log
 
 ## Step 15: Stop
 
-Stop terminals A and B with `Ctrl-C`. Then, **terminal C:**
+Stop terminals A and B with `Ctrl-C`. `Ctrl-C` in terminal A stops the server.
+
+**Optional:** if you started the server with `lab/up.sh`, `Ctrl-C` in terminal A stops only `tail`. Stop the server in **terminal C**:
 
 ```bash
 lab/down.sh
@@ -302,7 +315,7 @@ Leave `.run/` in place for exercise 02. To delete every key: `lab/down.sh --clea
 
 - Before the push, `order-svc` was refused. The log shows `fetch took ~1.9s` and `fetching jwt timed out`. `account query` failed: `did not receive a valid token from the server`.
 - After the push, `account query` returned `ORDERS`. The server's copy said `Users: 0`; your local copy said `Users: 1`. The server holds accounts, not users.
-- After the push, `order-svc` got in, and `/connz` named it by account key.
+- After the push, `order-svc` got in. `/connz` named it by keys, not by user name: `authorized_user` is the user's `U…` key, `account` and `issuer_key` are the `ORDERS` `A…` key, and `name_tag` is `ORDERS` (the account's name).
 - No credentials, the rogue user (before and after its push), and the wrong seed were all refused.
 - The rogue push printed `Success 1 Failed 0` and left a file in `.run/resolver/`. But `/accountz` did not list it. **The push report is not evidence.**
 - Terminal B received exactly one message: `order-svc-order`.
