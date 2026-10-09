@@ -422,11 +422,11 @@ keys and `.creds` live in its gitignored `.run/`.
 
 **`demos/07-auth-callout-workos/` has its own `CLAUDE.md`. Read that, not
 this file, for anything inside that folder.** It is a sealed unit — one bare
-`nats-server` in **operator mode** on the host, the host `nats auth` CLI, one
-small Go auth callout service and shell scripts. Role: showcase +
-validation — **decentralized** authentication with an external **auth
-callout** that checks a real **WorkOS** identity. In stage 01 (started
-2026-10-09); ports come in stage 02.
+`nats-server` in **operator mode** on the host (`127.0.0.1:4822`, monitor
+`8822`), the host `nsc` and `nats` CLIs, one small Go auth callout service
+and shell scripts. Role: showcase + validation — **decentralized**
+authentication with an external **auth callout** that checks a real
+**WorkOS** identity.
 
 Two rules worth knowing from outside: never copy the NATS docs' callout
 example, because it switches to configuration mode; and WorkOS keys live in

@@ -19,6 +19,7 @@ rules: [README.md](README.md). Each ADR lives in the folder for its scope -
 | [ADR-054](v3/ADR-054-v3-platform-portability-rules-multi-region.md) | v3 | platform | Accepted | 2026-09-07 | Portability Rules for Multi-Region Deployment and Integration |
 | [ADR-055](lab/ADR-055-lab-platform-compose-split-cell-and-global.md) | lab | platform | Accepted | 2026-09-08 | Split the Lab Compose File into Cell Tiers, and Make Every Host Port a Variable |
 | [ADR-056](v3/ADR-056-v3-platform-five-axes-placement-ownership-authority.md) | v3 | platform | Accepted | 2026-09-18 | Five Independent Axes — Region, Tenant, Account, Cell, JetStream Domain |
+| [ADR-057](lab/ADR-057-lab-nats-external-identity-auth-callout.md) | lab | nats | Proposed | 2026-10-09 | An Auth Callout in Operator Mode Turns a WorkOS Identity into NATS Access |
 
 Scopes: `lab` = tech-lab / Dictionary POC decision (implemented in this repo);
 `v3` = Proposed Linebooker V3 platform principle (governs lab decisions, not

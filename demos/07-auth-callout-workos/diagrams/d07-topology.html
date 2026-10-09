@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo 07 rig — auth callout in operator mode</title>
+<style>
+:root {
+  color-scheme: dark;
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code { font-family: var(--mono); font-size: 11px; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Demo 07 · stage 02 · D07-R1, R2, R6</span>
+      <h1>Demo 07 rig — auth callout in operator mode</h1>
+      <p class="sub">One local server and a separate Go process use a real WorkOS identity to decide admission and permissions in ORDERS.</p>
+    </div>
+  </header>
+  <figure>
+    <div class="fig-body">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1170 560" role="img" aria-label="The planned Demo 07 rig runs the nats CLI, nsc setup tool, one bare operator-mode nats-server, and a separate Go callout service on host 127.0.0.1. WorkOS AuthKit is an Internet service. Setup pushes account JWTs into the server. Step 1 connects with sentinel credentials and a WorkOS access token, predicting routing to the AUTH account callout. Step 2 sends the server's authorization request to the Go service, connected as callout-svc, which skips the callout. Step 3 fetches WorkOS signing keys and verifies the token. Step 4 returns a response signed with the AUTH key. Step 5 admits a per-connection user into ORDERS with dispatcher publish-and-subscribe or viewer subscribe-only permissions. SYS contains the system admin. The server config lists no user; callout settings live in the AUTH account JWT. Sentinel routing remains a prediction for exercise 01, and the WorkOS token is never logged.">
+        <defs>
+          <marker id="t-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="t-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="t-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+        </defs>
+
+        <!-- Widths include >=20px beyond the longest monospace label.
+             Account gutters: 24px. Horizontal lanes: y198, y312, y404,
+             y432, y494. WorkOS sits beside the Go service it is called by. -->
+        <rect class="nb" x="336" y="12" width="774" height="324" rx="4"/>
+        <text class="grp" x="348" y="34">HOST 127.0.0.1 — ONE BARE nats-server (d07-server :4822, monitor :8822)</text>
+        <rect class="nb" x="360" y="60" width="308" height="232" rx="4"/>
+        <text class="grp" x="372" y="82">ACCOUNT AUTH — callout settings in its JWT</text>
+        <rect class="nb" x="692" y="60" width="262" height="232" rx="4"/>
+        <text class="grp" x="704" y="82">ACCOUNT ORDERS — orders.*</text>
+        <rect class="nb" x="978" y="60" width="108" height="232" rx="4"/>
+        <text class="grp" x="990" y="82">ACCOUNT SYS</text>
+
+        <rect class="n" x="372" y="102" width="284" height="44" rx="3"/>
+        <text class="lbl" x="382" y="121">callout-svc</text>
+        <text class="lbl2" x="382" y="134">auth_user — skips the callout</text>
+        <rect class="n" x="372" y="224" width="288" height="44" rx="3"/>
+        <text class="lbl" x="382" y="243">sentinel</text>
+        <text class="lbl2" x="382" y="256">no rights — routes the client to AUTH's callout</text>
+        <rect class="n" x="704" y="174" width="238" height="44" rx="3"/>
+        <text class="lbl" x="714" y="193">user made per connection</text>
+        <text class="lbl2" x="714" y="206">dispatcher: pub+sub · viewer: sub only</text>
+        <rect class="n" x="990" y="102" width="84" height="44" rx="3"/>
+        <text class="lbl" x="1000" y="121">admin</text>
+        <text class="lbl2" x="1000" y="134">system user</text>
+
+        <rect class="n" x="16" y="224" width="296" height="44" rx="3"/>
+        <text class="lbl" x="26" y="243">nats CLI (client)</text>
+        <text class="lbl2" x="26" y="256">--creds sentinel + --token &lt;WorkOS access token&gt;</text>
+        <rect class="n" x="16" y="348" width="288" height="44" rx="3"/>
+        <text class="lbl" x="26" y="367">nsc (setup only)</text>
+        <text class="lbl2" x="26" y="380">builds operator D07, accounts, users into .run/</text>
+        <rect class="n" x="372" y="464" width="284" height="44" rx="3"/>
+        <text class="lbl" x="382" y="483">Go callout service (callout/)</text>
+        <text class="lbl2" x="382" y="496">nats.go + jwt/v2 · connects as callout-svc</text>
+        <text class="lbl2" x="372" y="524">Separate process on 127.0.0.1</text>
+
+        <rect class="nb" x="836" y="444" width="312" height="104" rx="4"/>
+        <text class="grp" x="848" y="462">INTERNET</text>
+        <rect class="n" x="860" y="470" width="264" height="68" rx="3"/>
+        <text class="lbl" x="870" y="492">WorkOS (AuthKit)</text>
+        <text class="lbl2" x="870" y="506">device-flow login → access token</text>
+        <text class="lbl2" x="870" y="520">JWKS: api.workos.com/sso/jwks/&lt;client_id&gt;</text>
+
+        <path class="flow" marker-end="url(#t-sync)" d="M164 224 V198 H514 V214"/>
+        <text class="edge" x="176" y="192">1 connect (sentinel + token)</text>
+        <path class="flow" marker-end="url(#t-sync)" d="M396 336 V404 H442 V454"/>
+        <text class="edge" x="404" y="398">2 authorization request ($SYS.REQ.USER.AUTH)</text>
+        <path class="rep" marker-end="url(#t-rep)" d="M656 494 H850"/>
+        <text class="edge" x="668" y="488">3 verify token (JWKS)</text>
+        <path class="proj" marker-end="url(#t-proj)" d="M586 464 V432 H940 V346"/>
+        <text class="edge" x="664" y="426">4 signed response (AUTH key)</text>
+        <path class="flow" marker-end="url(#t-sync)" d="M823 336 V228"/>
+        <text class="edge" x="835" y="314">5 admit into ORDERS</text>
+        <path class="rep" marker-end="url(#t-rep)" d="M160 348 V312 H326"/>
+        <text class="edge" x="169" y="306">setup: push accounts</text>
+      </svg>
+    </div>
+    <figcaption><b>Rig topology.</b> The server config lists no user; the callout settings live in the <code>AUTH</code> account JWT. <code>sentinel</code> routing is a prediction to be proved in exercise 01. All local processes run on <code>127.0.0.1</code>; WorkOS is the external identity provider. The WorkOS token is never logged.</figcaption>
+  </figure>
+</main>
+</body>
+</html>

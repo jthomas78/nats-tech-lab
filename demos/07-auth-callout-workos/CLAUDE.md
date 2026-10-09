@@ -4,9 +4,15 @@
 for anything inside it.**
 
 Demo 07 is one bare `nats-server` on the host in **operator mode**, the host
-`nats` CLI (`nats auth`), one small Go auth callout service, and shell
-scripts. The callout service checks a **real WorkOS** identity. No Docker, no
-Postgres, no UI, no `nsc`. Most of the root file does not apply here.
+`nsc` (the whole trust chain) and `nats` CLIs (client connections), one small
+Go auth callout service, and shell scripts. The callout service checks a
+**real WorkOS** identity. No Docker, no Postgres, no UI. Most of the root
+file does not apply here.
+
+**Why `nsc` and not `nats auth`** (unlike demo 06): `nats auth` CLI `0.4.0`
+has no command to set an auth callout on an account; `nsc edit authcallout`
+has. The user chose one tool for the whole chain over mixing two (decided
+2026-10-09).
 
 Three things still apply, repo-wide: the session memory rules, the general
 preferences (stop if asked to do too much; don't read large docs whole;
@@ -75,20 +81,37 @@ Do not modify any other demo from here.
 
 ## Ports, names, and run state
 
-Stage `02` sets the port pair and names. Until then this table is open.
-
 | Thing | Value |
 |---|---|
-| NATS client | stage 02 |
-| NATS monitor | stage 02 |
-| `server_name` | `d07-server` (proposed) |
+| NATS client | `127.0.0.1:4822` (loopback only) |
+| NATS monitor | `127.0.0.1:8822` (loopback only) |
+| `server_name` | `d07-server` |
+| Operator | `D07` |
+| Accounts | `AUTH`, `ORDERS`, `SYS` |
+| Users | `AUTH`: `callout-svc` (the callout's auth user), `sentinel`; `ORDERS`: none stored |
+| WorkOS roles | `dispatcher`, `viewer` (and one test user with neither) |
 | Env var prefix | `D07_` |
+| WorkOS client ID (gitignored, written by the user) | `.env.workos`, `D07_WORKOS_CLIENT_ID` |
 | Run state (gitignored) | `.run/` |
-| WorkOS keys (gitignored, written by the user) | stage 02 names the file |
 
-**Every `nats` command goes through a demo-local wrapper** (as demo 06's
-`lab/nats.sh` does — copy the idea, not the file). It adds `--no-context` and
-keeps this demo's keys inside `.run/`.
+`4822` / `8822` appear nowhere else in the repo and nothing listened on them
+(checked 2026-10-09).
+
+**Every `nsc` command goes through `lab/nsc.sh`** and **every `nats` command
+through `lab/nats.sh`** (demo 06 shows the idea — copy the idea, not the
+file). `nsc.sh` points `nsc`'s config, data and key store into `.run/`, so
+nothing lands in the author's real `~/.local/share/nats/nsc` or
+`~/.nkeys`. `nats.sh` adds `--no-context`. Stage 03 measures that the real
+stores did not change.
+
+## Code
+
+The Go callout service lives in `callout/`, its own Go module. It uses plain
+`nats.go` + `github.com/nats-io/jwt/v2`, plus one small JWKS library for the
+WorkOS token. It reads the authorization request and signs the response in
+its own code, so a reader sees every step; the Synadia callout library is
+not used (it hides the signing that `D07-R6` and `D07-R7` test). Keep it
+small: one `main.go` if it fits.
 
 ## Secrets
 
@@ -96,7 +119,11 @@ keeps this demo's keys inside `.run/`.
   user writes them into the gitignored env file.
 - `.run/` holds every seed and `.creds` file. It is in the root `.gitignore`.
   Never commit a key, seed, `.creds` file or the WorkOS env file.
-- Never use `nats auth … --json` in a walkthrough: it prints seeds.
+- Never print a seed in a walkthrough (demo 06 found `nats auth … --json`
+  does). Check the same for any `nsc` output used.
+- A WorkOS access token is a live credential while it is valid. Never paste
+  one into a committed file or an observation; record its claims, not the
+  token.
 
 ## Process rules
 
@@ -128,10 +155,32 @@ readable. No inline Python anywhere.
 - **Client report and server enforcement are different evidence.** Record
   the client's error line and the server's log line, and the callout
   service's own log where it decided.
+- **An admission must show its whole path.** Exercise 01 records visible
+  evidence for each link, from one run: NATS sends the authorization request
+  → Go validates the WorkOS token → Go returns a signed authorization
+  response → NATS admits the user. The README's exercise 01 table lists the
+  evidence per link. A client that "got in" without that chain is not a
+  result. The callout logs claims and public keys, never a token or seed.
 - **Authentication and authorization apart, every time.**
 - **Real WorkOS and stand-in apart, every time.**
 
-## Requirements
+## Layout (planned)
+
+| What | Where |
+|---|---|
+| Lab-shell intro, requirements, ports, exercises | `README.md` |
+| The Go callout service | `callout/` |
+| Server configs | `exercises/config/exNN-nats-*.conf` |
+| Numbered terminal steps (`NN` starts at `01`) | `exercises/EXERCISE-NN-TERMINAL-STEPS.md` |
+| Measured results, with versions | `exercises/EXERCISE_OBSERVATIONS.md` |
+| Check scripts | `exercises/exNN-check.sh` |
+| Negative-test machinery (wrong signing key) | `exercises/` — named as such |
+| Thin wrappers (`nsc.sh`, `nats.sh`, `up.sh`, `down.sh`) | `lab/` |
+| Run state | `.run/` |
+
+## Requirements and decisions
 
 The `D07-R*` table lives in `README.md`. Every exercise and card points back
-to an ID there.
+to an ID there. The platform choice this demo informs is the proposed
+[ADR-057](../../obsidian/V3-Platform/Architecture/ADR/lab/ADR-057-lab-nats-external-identity-auth-callout.md);
+stage 03 closes it.
