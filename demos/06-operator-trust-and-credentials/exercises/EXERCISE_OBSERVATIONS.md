@@ -386,3 +386,36 @@ How the client behaves above the limit is a prediction until observed.
 Prediction: the client sends the message, because it knows only the
 server's 1 MiB. The server then closes the connection with
 `Maximum Payload Violation`.
+
+### Payload probe — run by hand (2026-10-09)
+
+Same server config and versions; new server process (PID 99769). Key
+`probe` (`ACG46AVR…`) with `--pub-allow 'probe.>' --sub-allow 'probe.>'
+--payload 100`; user `probe-writer` (`UBWHMP26…`, `Scoped: true`); account
+pushed. The server's copy (`.run/resolver/<ORDERS>.jwt`) holds the
+template `"payload":100` (decoded, not verified).
+
+| Check | Prediction | Client reported | Server logged | Delivered? | Verdict |
+|---|---|---|---|---|---|
+| Q1 publish 50 B to `probe.small` | delivered | `Published 50 bytes`, exit 0 | nothing | **yes**, subscriber (same user) received it | measured ✓ |
+| Q2 publish 200 B to `probe.big` | client sends; server closes with `Maximum Payload Violation` | `nats: maximum payload exceeded`, exit 1 | **nothing** | no | **prediction wrong** |
+
+**Verdict: inconclusive for server enforcement.** Pass needed both a
+delivery below the limit (met) and a server-attributed rejection above it
+(**not met**: the server logged nothing).
+
+The client refused the message itself, before sending. `maximum payload
+exceeded` is nats.go's own `ErrMaxPayload`, raised when the message is
+larger than `nc.info.MaxPayload`
+([nats.go v1.52.0 `nats.go` L4458–4464](https://github.com/nats-io/nats.go/blob/v1.52.0/nats.go#L4458-L4464)).
+So the client knew a limit of at most 199 bytes, not the server-wide
+1 MiB. Source explanation (not observed on the wire): after the first PONG
+the server sends the client a second INFO whose `max_payload` is that
+connection's own limit
+([nats-server v2.14.6 `client.go` L2771–2792](https://github.com/nats-io/nats-server/blob/v2.14.6/server/client.go#L2771-L2792),
+with `generateClientInfoJSON` at L2706).
+
+What this run shows: the 100-byte scoped limit reached the client through
+the server. What it does not show: the server rejecting an oversized
+message itself. A client that skips its own check would be needed for
+that; the `nats` CLI has no such flag.
