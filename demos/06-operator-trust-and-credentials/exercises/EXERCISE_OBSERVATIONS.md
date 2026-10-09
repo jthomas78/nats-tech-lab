@@ -519,3 +519,15 @@ a second" ignores the typing gap between `date` and the credential
 command; EXERCISE-01 runs `lab/trust-conf.sh` without showing its three
 lines (Step 2 shows the result with `cat`); some refusals (ex02 P4/P9/P11,
 ex03 E4/R4) check only the client text, not the server log.
+
+### Walkthrough points 5 and 6 fixed (2026-10-09)
+
+- **EXERCISE-01 Step 1** now shows the three `trust.conf` lines and where
+  each value comes from. `lab/trust-conf.sh` stays as the shortcut. Checked
+  against a generated `.run/trust.conf`. ex01-check ALL PASS.
+- **EXERCISE-03 Steps 2–3:** the credential command and `date` now run on
+  one line, so the printed time is the signing time. A timing note says to
+  read Steps 3–5 first, and a "missed the window" note says to re-issue.
+  Measured for that note, `nats` CLI 0.4.0: `auth user credential` to a
+  file that exists exits 1 with `file … already exist`. With `--force` it
+  overwrites the file.

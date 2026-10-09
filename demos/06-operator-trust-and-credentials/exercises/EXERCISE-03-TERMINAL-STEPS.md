@@ -59,21 +59,22 @@ tail -f .run/server.log
 
 ## Step 2: A credential that lives for 60 seconds
 
-**Concept:** the same user `order-svc`, a new credential file with an end time. 60 s gives you time to type. (The script uses 10 s.)
+**Concept:** the same user `order-svc`, a new credential file with an end time. (The script uses 10 s.)
+**Timing:** the 60 s start when this command runs. Steps 4 and 5 must both be done before the end time. Read Steps 3 to 5 first, and have the Step 4 command ready to paste in terminal B.
 **Terminal C:**
 
-```bash
-date '+%H:%M:%S'
-```
+One line: make the credential, then print the time at once. `date` runs right after the JWT is signed, so its time is the signing time. `--force` lets you re-issue the file if you must start again.
 
 ```bash
-lab/nats.sh auth user credential .run/creds/order-svc-60s.creds order-svc ORDERS --expire 60s
+lab/nats.sh auth user credential .run/creds/order-svc-60s.creds order-svc ORDERS --expire 60s --force; date '+%H:%M:%S'
 ```
 
 ## Step 3: Work out the end time
 
 **Concept:** `--expire 60s` writes an end time (`exp`) into the new user JWT: the time it was signed plus 60 s. The server reads `exp` on every connection.
-**Purpose:** add 60 s to the time `date` printed. Write it down. That is the end time, to within a second.
+**Purpose:** add 60 s to the time `date` printed. Write it down. That is the end time, to within about a second. Then go straight to Steps 4 and 5.
+
+**If you miss the window:** Step 4 is refused, or terminal B does not show `before-expiry` before the end time. Then the rest of Part 03a shows nothing. Stop terminal B with `Ctrl-C` and go back to Step 2. `--force` overwrites the old file with a new 60 s credential.
 
 The `nats` CLI has no command that shows the end time inside a `.creds` file. `exercises/ex03-check.sh` reads it from the JWT. It checks that the end time is exactly 10 s after the signing time (check `E1`).
 
