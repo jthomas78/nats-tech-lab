@@ -11,8 +11,8 @@ Three things still apply, repo-wide: the session memory rules, the general
 preferences (stop if asked to do too much; don't read large docs whole;
 delegate wide exploration; one command per `Bash` call), and **the life of a
 demo** — `demo-playbook.html`, four stages ending in a pattern cards PDF.
-Demo 06's deck will be `docs/demo-06-pattern-cards.html` and `.pdf`. It does
-not exist yet.
+Demo 06's deck is `docs/demo-06-pattern-cards.html` (the source) and `.pdf`
+(the export). After any edit, re-export it and run `docs/cards-check.sh`.
 
 **Demo 06 builds everything from nothing.** It does not use, copy or start
 demo 01's stack, keys or `nats/` folder. Demo 01 is background reading only.
@@ -156,6 +156,8 @@ explicitly.
 | — the exercise's check script | `exercises/exNN-check.sh` |
 | — negative-test machinery (wrong-seed `.creds`) | `exercises/wrong-seed.sh` |
 | Shared tools (lib, nats wrapper, trust-conf, up, down) | `lab/` |
+| Pattern cards deck (HTML source + PDF export) | `docs/demo-06-pattern-cards.{html,pdf}` |
+| — the deck's shape guard (shape only, never truth) | `docs/cards-check.sh` |
 | Run state: key store, creds, resolver, log (gitignored) | `.run/` |
 
 ## Quality rules
@@ -183,4 +185,5 @@ The demo is not complete until, under the playbook:
 
 1. exercises 01–03 are built and recorded as measured, each with a check script;
 2. **another person** runs the README with no help (the showcase exit test);
-3. the pattern cards deck exists (`pattern-cards` skill, stage 04).
+3. the pattern cards deck exists (`pattern-cards` skill, stage 04) — done
+   2026-10-09.

@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NATS Operator Trust — Pattern Cards</title>
+<style>
+  :root{
+    --bg:#0d0f11; --bg2:#131416; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf;
+    --accent:#3b8bff; --dim:#8b929b;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px; font-feature-settings:"cv05","ss01";
+  }
+  .page{
+    width:210mm; height:297mm; overflow:hidden; padding:15mm 13mm 11mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);
+  }
+  .page:last-child{page-break-after:auto}
+
+  /* ---------- cover ---------- */
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:47px;line-height:54px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:78%;margin-top:16px}
+  .cover-q{
+    margin-top:26px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:16px 20px;max-width:92%;
+  }
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:14px;line-height:23px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 30px;margin-top:10px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:16px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  /* ---------- card chrome ---------- */
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{
+    margin-top:16px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:16px 20px 18px;
+    display:grid;grid-template-columns:56px 1fr;gap:4px 14px;
+  }
+  .num{font-size:30px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:34px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:25px;line-height:31px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+  .decision{
+    margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    padding:14px 18px;display:grid;grid-template-columns:78px 1fr;gap:14px;align-items:start;
+  }
+  .decision .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fam);padding-top:3px}
+  .decision p{font-size:14px;line-height:22px}
+  .decision b{color:var(--tx)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:13px 16px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:10px}
+  .panel.pro{border-left:2px solid var(--green)}
+  .panel.con{border-left:2px solid var(--red)}
+  .panel.pro > .lbl{color:var(--green)}
+  .panel.con > .lbl{color:var(--red)}
+  .panel.note{border-left:2px solid var(--amber)}
+  .panel.note > .lbl{color:var(--amber)}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"›";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  .flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:2px}
+  .step{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:6px 10px;
+    font-size:11px;color:var(--tx);line-height:15px}
+  .step.hi{border-color:var(--fam);color:var(--fam)}
+  .arw{color:var(--stroke);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 8px 0;font-weight:500}
+  td{padding:5px 8px 5px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16px}
+  td b{color:var(--tx);font-weight:600}
+  td b.good{color:var(--green)} td b.bad{color:var(--red)}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .verdict{
+    margin-top:auto;padding-top:14px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;
+  }
+  .pill{border:1px solid var(--fam);color:var(--fam);border-radius:5px;padding:6px 11px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .verdict p{font-size:12.5px;line-height:19px}
+  .verdict .side{font-size:10.5px;color:var(--tx3);letter-spacing:.06em;white-space:nowrap}
+  .spacer{flex:1}
+  /* Two cards carry more material than the others; step their body type down a
+     notch rather than cutting content, so every card still fits exactly one page. */
+  .page.tight li{font-size:11.1px;line-height:16px;margin-bottom:5px}
+  .page.tight .lede{font-size:12px;line-height:18px}
+  .page.tight .panel{padding:11px 15px}
+  .page.tight td{font-size:11px}
+  .src{font-size:10px;line-height:15px;color:var(--tx3);padding:11px 13px;break-inside:avoid}
+  .src li{font-size:10px;line-height:15px;margin-bottom:5px}
+  .src .lbl{margin-bottom:7px}
+  .srcwrap{column-count:2;column-gap:12px}
+  .srcwrap .panel{margin:0 0 12px!important}
+  .src a{color:var(--tx3);text-decoration:none}
+
+  /* ---------- inline SVG figures ----------
+     Same primitives as diagrams/gateway-vs-wan-cut.html, re-pointed at the
+     card palette so a figure on a card and the same figure on the web page
+     read as one drawing. Every figure sets its own viewBox and scales to the
+     panel width, so a card never has to reserve a fixed height. */
+  .fig{display:block;width:100%;height:auto;margin:2px 0 0}
+  .fig .clu{fill:var(--bg2);stroke:var(--line2);stroke-width:1}
+  .fig .srv{fill:var(--panel2);stroke:var(--stroke);stroke-width:1}
+  .fig .srv.hi{stroke:var(--fam);fill:color-mix(in srgb,var(--fam) 10%,var(--panel2))}
+  .fig .srv.off{stroke:var(--red);fill:color-mix(in srgb,var(--red) 10%,var(--panel2))}
+  .fig .lbl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:var(--tx)}
+  .fig .grp{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx3);letter-spacing:.07em}
+  .fig .edge{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;fill:var(--tx2)}
+  .fig .gwline{fill:none;stroke:var(--blue);stroke-width:1.6}
+  .fig .cut{fill:none;stroke:var(--red);stroke-width:1.6}
+  .fig .none{fill:none;stroke:var(--stroke);stroke-width:1.4;stroke-dasharray:3 4;stroke-opacity:.6}
+  .fig .leaf{fill:none;stroke:var(--fam);stroke-width:1.4;stroke-dasharray:5 3}
+  .fig .chipOK{fill:color-mix(in srgb,var(--green) 14%,var(--panel2));stroke:var(--green);stroke-width:1;stroke-opacity:.7}
+  .fig .chipNO{fill:color-mix(in srgb,var(--red) 12%,var(--panel2));stroke:var(--red);stroke-width:1;stroke-opacity:.7}
+  .fig .chipF {fill:color-mix(in srgb,var(--fam) 12%,var(--panel2));stroke:var(--fam);stroke-width:1;stroke-opacity:.7}
+  .fig .chipT{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;fill:var(--tx)}
+  .fig .chipT.ok{fill:var(--green)} .fig .chipT.no{fill:var(--red)} .fig .chipT.fam{fill:var(--fam)}
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Decentralized authentication · demos/06-operator-trust-and-credentials</span></div>
+  <h1 class="cover">One Operator,<br>No User List,<br>One <span class="hl">Push</span></h1>
+  <p class="cover-sub">Eight patterns measured on one bare NATS server in operator mode, driven by the
+    <code>nats auth</code> CLI. Each card states the mechanism, what it buys, what it costs, and what the server
+    actually did. One claim in here was wrong first, and the correction travels with it.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The question every card serves</div>
+    <p>Can a NATS server admit a user it has <b>never seen by name</b>, only through a signed
+      operator &rarr; account &rarr; user chain &mdash; and then <b>refuse that user</b> when its credential
+      expires or is revoked?</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:14px">
+    <div class="lbl" style="color:var(--amber)">The rule that orders the deck</div>
+    <p>The server trusts <b>one operator key</b> and stores <b>accounts</b>, never users. So anything that
+      lives in a user JWT works with no server change, and anything that lives in an account JWT
+      <b>does nothing until it is pushed</b>.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The eight patterns</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>01 · The server trusts one key, not a user list</div>
+      <div class="fam"><span class="sw" style="background:var(--teal)"></span>05 · A scoped signing key: the role wins</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>02 · An account must be pushed before its users get in</div>
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>06 · Expiry ends access without a push</div>
+      <div class="fam"><span class="sw" style="background:var(--red)"></span>03 · A push report is not evidence of trust</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>07 · A revocation is only as fast as its push</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>04 · Permissions travel inside the user JWT</div>
+      <div class="fam"><span class="sw" style="background:var(--tx2)"></span>08 · The client cannot tell you why it was refused</div>
+    </div>
+    <div class="cover-meta"><span>Measured on nats-server v2.14.6 · nats CLI 0.4.0 · one server · October 2026</span><span>8 patterns · 1 selection guide</span></div>
+  </div>
+</section>
+
+<!-- ============ 01 ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Trust · Card 01 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">01</div><div class="fam-lbl">Trust</div>
+    <h2>The server trusts one key, not a user list</h2>
+    <p class="lede">In operator mode the server config names <b>one operator JWT</b> and the <code>SYSTEM</code>
+      account. The operator signs accounts; an account signs users. A user gets in by showing its JWT and
+      signing a nonce with its own seed. The server checks the chain, not a list.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Does the server need to know each user? <b>No.</b> It needs the operator key and the account JWTs.
+      Users are issued, changed and dropped without touching the server's config.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <svg class="fig" viewBox="0 0 900 140" role="img" aria-label="The server config holds only the operator JWT and the SYSTEM account. The operator signs the ORDERS account, which is pushed to the server's resolver. The account signs the user order-svc, whose JWT and seed stay with the client.">
+      <rect class="clu" x="16" y="14" width="250" height="112" rx="4"/>
+      <text class="grp" x="28" y="32">SERVER CONFIG (trust.conf)</text>
+      <rect class="srv hi" x="28" y="42" width="226" height="28" rx="3"/>
+      <text class="lbl" x="40" y="61">operator: D06.jwt</text>
+      <rect class="srv" x="28" y="78" width="226" height="28" rx="3"/>
+      <text class="lbl" x="40" y="97">system_account + preload</text>
+      <path class="gwline" d="M266 56 H330"/><text class="edge" x="276" y="48">signs</text>
+      <rect class="clu" x="334" y="14" width="230" height="112" rx="4"/>
+      <text class="grp" x="346" y="32">RESOLVER DIR (full)</text>
+      <rect class="srv hi" x="346" y="42" width="206" height="28" rx="3"/>
+      <text class="lbl" x="358" y="61">account ORDERS (pushed)</text>
+      <text class="edge" x="346" y="98">no user file, ever</text>
+      <path class="gwline" d="M564 56 H628"/><text class="edge" x="574" y="48">signs</text>
+      <rect class="clu" x="632" y="14" width="252" height="112" rx="4"/>
+      <text class="grp" x="644" y="32">CLIENT ONLY</text>
+      <rect class="srv" x="644" y="42" width="228" height="28" rx="3"/>
+      <text class="lbl" x="656" y="61">order-svc.creds</text>
+      <rect class="chipOK" x="644" y="80" width="228" height="30" rx="3"/>
+      <text class="chipT ok" x="758" y="100" text-anchor="middle">user JWT + seed</text>
+    </svg>
+    <ul style="margin-top:11px">
+      <li><b>No user in the config, none on disk.</b> <code>.run/trust.conf</code> holds three settings:
+        <code>operator</code>, <code>system_account</code>, <code>resolver_preload</code> (<code>D06-R1</code>).
+        The resolver directory never held a <code>U…</code> file (<code>D06-R4</code>, check C16).</li>
+      <li><b>A user issued while the server runs gets in</b> &mdash; no push, no restart (check P2). The
+        server PID did not change through all of exercise 02 (P13).</li>
+      <li><b>The seed proves the holder.</b> The right <code>order-svc</code> JWT with another user's seed was
+        refused (C12). The server log names users by key (<code>jwt:U…</code>), never by name (P5&ndash;P6).</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>The server config stops changing</b> when people and services come and go.</li>
+      <li><b>Delegation.</b> Whoever holds an account key can issue users for that account, and only that one.</li>
+      <li><b>No user secret on the server.</b> From the docs, not measured: the seed never leaves the client.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Keys become your problem.</b> Every seed sits in a key store (mode 600, measured). Lose the
+        operator seed and you rebuild the chain.</li>
+      <li><b><code>nats auth … --json</code> prints seeds</b> (measured). Never paste it anywhere.</li>
+      <li><b>Logs name keys, not people.</b> Tracing a refusal back to a user needs a key-to-name map.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Use operator mode when users change faster than you want to edit server config. Treat the
+      <b>operator and account seeds</b> as the real secrets &mdash; they are now the user list.</p>
+    <span class="side">Card 01 · Trust</span></div>
+</section>
+
+<!-- ============ 02 ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Trust · Card 02 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">02</div><div class="fam-lbl">Trust</div>
+    <h2>An account must be pushed before its users get in</h2>
+    <p class="lede">With the <code>full</code> resolver the server learns an account only when its JWT is
+      <b>pushed</b> by a <code>SYSTEM</code> user. Until then every user of that account is refused,
+      however valid its own JWT is.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Is a push a deploy step or an optional sync? <b>A deploy step.</b> Make it part of the pipeline,
+      and check its result on the server, not in the push output.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-10-08 · nats-server v2.14.6 on the author's Mac · checks C1&ndash;C3, Q1&ndash;Q2, P9&ndash;P10</div>
+    <table>
+      <thead><tr><th>What was tried</th><th>Client</th><th>Server</th></tr></thead>
+      <tbody>
+        <tr><td><code>order-svc</code>, account <b>not</b> pushed</td><td class="bad">Authorization Violation</td><td>account fetch ~<b>1.9 s</b>, <code>fetching jwt timed out</code>, <code>authentication error</code></td></tr>
+        <tr><td><code>auth account query ORDERS</code>, before the push</td><td class="bad">did not receive a valid token</td><td>no copy to return</td></tr>
+        <tr><td><code>auth account push ORDERS</code> as <code>SYSTEM</code> <code>admin</code></td><td class="good">success</td><td>JWT written to the resolver directory</td></tr>
+        <tr><td><code>order-svc</code>, after the push</td><td class="good">published, exit 0</td><td>nothing logged; message delivered</td></tr>
+        <tr><td>user of a <b>new scoped key</b>, before the push</td><td class="bad">Authorization Violation</td><td><code>authentication error</code> (no fetch: the account was known)</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>What needs a push:</b> a new account, and any change to an account JWT &mdash; here a new signing
+        key and a revocation (card 07). <b>What does not:</b> a new user signed by a key the server already has.</li>
+      <li><b>Two copies, two counts.</b> After the push the server copy said <code>Users: 0</code> and the local
+        one <code>Users: 1</code>. That is normal: the server stores no user JWTs.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>One gate per account.</b> Nothing in an account works until somebody with <code>SYSTEM</code>
+        rights publishes it.</li>
+      <li><b>A readable server copy.</b> <code>auth account query</code> shows what the server holds, so
+        drift is visible.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>A forgotten push looks like bad credentials.</b> The client prints the same text either way.</li>
+      <li><b>An unknown account costs a ~1.9 s fetch</b> before the refusal &mdash; per attempt.</li>
+      <li><b>Local and server copies drift</b> silently until you query.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Push every account change, then confirm with <code>auth account query</code>. A user that
+      "suddenly cannot connect" after an account edit is a missing push first.</p>
+    <span class="side">Card 02 · Trust</span></div>
+</section>
+
+<!-- ============ 03 ============ -->
+<section class="page tight" style="--fam:var(--red)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Trust · Card 03 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">03</div><div class="fam-lbl">Trust</div>
+    <h2>A push report is not evidence of trust</h2>
+    <p class="lede">A second, throwaway operator <code>ROGUE</code> made an account and a user with the
+      <b>same names</b>: <code>ORDERS</code> and <code>order-svc</code>. The server never trusted it. The CLI
+      still reported the rogue push as a success.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>How do you know the server accepted an account? <b>Ask the server</b> &mdash;
+      <code>/accountz</code> or <code>account query</code>. The push output and the resolver directory
+      both say yes to an account the server refused.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-10-08 · checks C6&ndash;C11 · prediction for C7 was wrong</div>
+    <table>
+      <thead><tr><th>Evidence</th><th>Says</th><th>True?</th></tr></thead>
+      <tbody>
+        <tr><td>CLI output of the rogue <code>account push</code></td><td><code>Success 1 Failed 0</code></td><td><b class="bad">No</b></td></tr>
+        <tr><td><code>.run/resolver/</code> directory</td><td>the <code>ROGUE</code> account JWT is there</td><td><b class="bad">No</b></td></tr>
+        <tr><td><code>/accountz</code></td><td><code>ORDERS</code>, <code>SYSTEM</code>, <code>$G</code> only</td><td><b class="good">Yes</b></td></tr>
+        <tr><td>the rogue user tries to connect</td><td>refused, <code>authentication error</code></td><td><b class="good">Yes</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What holds</div><ul>
+      <li><b>The trust check is real.</b> Same names, wrong operator: refused, before and after its push.</li>
+      <li><b>The server log does not lie:</b> the rogue push logged nothing; the refusals logged one line each.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What misleads</div><ul>
+      <li><b>The push says "success"</b> and the file lands on disk. Neither is the server's decision.</li>
+      <li><b>An open question:</b> in one run of six, one refusal logged three lines, not one. Not explained.</li>
+    </ul></div>
+  </div>
+
+  <div class="panel con" style="margin-top:11px">
+    <div class="lbl">Retraction &mdash; "a foreign operator is refused with no fetch" was too wide</div>
+    <p style="color:var(--tx2);font-size:11.1px;line-height:16px">The first write-up said the two refusals
+      differ in the server log: an unpushed account waits ~1.9 s for a fetch, a foreign operator's user does
+      not. The hand walkthrough on 2026-10-08 showed that holds <b>only after the rogue account was pushed</b>.
+      Before its push, the rogue user waited the same ~1.9 s fetch as an unpushed <code>ORDERS</code>
+      user. The server refuses an <b>unknown account key</b> first, and only reaches the operator check
+      once it holds a JWT for that key. The lesson survived; its scope shrank.</p>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Verify an account on the server, by key, after every push. Never treat a CLI success line or a file
+      in the resolver directory as proof of trust.</p>
+    <span class="side">Card 03 · Trust</span></div>
+</section>
+
+<!-- ============ 04 ============ -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Permissions · Card 04 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">04</div><div class="fam-lbl">Permissions</div>
+    <h2>Permissions travel inside the user JWT</h2>
+    <p class="lede"><code>analytics-reader</code> was issued with <code>--sub-allow 'orders.&gt;'</code> and
+      <code>--pub-deny '&gt;'</code> while the server ran. Those rules were written into its signed JWT, and
+      the server enforced them on the first connection &mdash; with no push and no restart.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Where should a user's permissions live? <b>In its JWT</b>, signed by the account. The server reads
+      them at connect time; nobody edits server config.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-10-08 · checks P1&ndash;P7, P4b · <code>D06-R5</code></div>
+    <div class="flow" style="margin-bottom:10px">
+      <span class="step">auth user add … --sub-allow orders.&gt; --pub-deny &gt;</span><span class="arw">&rarr;</span>
+      <span class="step hi">JWT: pub deny [&gt;], sub allow [orders.&gt;]</span><span class="arw">&rarr;</span>
+      <span class="step">connect: admitted</span><span class="arw">&rarr;</span>
+      <span class="step">publish: denied</span>
+    </div>
+    <table>
+      <thead><tr><th>Action</th><th>Client</th><th>Server log</th></tr></thead>
+      <tbody>
+        <tr><td>subscribe <code>orders.&gt;</code></td><td class="good">receives <code>order-svc</code>'s message</td><td>nothing</td></tr>
+        <tr><td>publish <code>orders.created</code></td><td class="bad">Permissions Violation for Publish</td><td><code>jwt:U…" - Publish Violation</code></td></tr>
+        <tr><td>subscribe <code>invoices.&gt;</code></td><td class="bad">Permissions Violation for Subscription</td><td><code>jwt:U…" - Subscription Violation</code></td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>Authentication and authorization are separate results.</b> The reader was admitted, then each
+        forbidden action was denied on its own. The connection stayed up.</li>
+      <li><b>Read the whole client output.</b> The CLI printed <code>Subscribing on invoices.&gt;</code> before
+        the violation. The first line does not mean the server allowed it.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>A new role is a new credential,</b> issued by the account owner with no server change.</li>
+      <li><b>The rules are signed,</b> so the holder cannot widen them.</li>
+      <li><b>Each denial is logged</b> with the user's key and the subject.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Changing a user's rules means a new JWT.</b> Not measured here: the old JWT keeps its old
+        rules until it expires or is revoked (cards 06, 07).</li>
+      <li><b>Every user carries its own copy</b> of the rules. Many users with one role means many copies
+        &mdash; card 05 is the fix.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Put per-user rules in the user JWT and pair them with a short lifetime, so a rule change reaches
+      every holder within one expiry.</p>
+    <span class="side">Card 04 · Permissions</span></div>
+</section>
+
+<!-- ============ 05 ============ -->
+<section class="page tight" style="--fam:var(--teal)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Permissions · Card 05 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">05</div><div class="fam-lbl">Permissions</div>
+    <h2>A scoped signing key: the role wins</h2>
+    <p class="lede">A <b>scoped signing key</b> is an account key with a permission template attached. Here the
+      key <code>reader</code> carries "subscribe <code>orders.&gt;</code>, publish nothing". A user signed with
+      it gets the <b>key's</b> rules, whatever the user asked for.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>One role, many users &mdash; where should the rules live? <b>On a scoped key in the account JWT.</b>
+      The user JWT then carries no rules of its own, and cannot be issued with wider ones.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-10-08 · checks P8&ndash;P11, P9b, P11b · <code>D06-R6</code></div>
+    <table>
+      <thead><tr><th>Step</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>greedy-reader</code> issued with <code>--key reader --pub-allow '&gt;'</code></td><td>exit 0, but the JWT's <code>pub</code> is <code>{}</code>. <b>The CLI dropped the request</b> and printed the role.</td></tr>
+        <tr><td>connect, before the account push</td><td class="bad">refused &mdash; the server did not know the new key yet</td></tr>
+        <tr><td>connect, after the push</td><td class="good">admitted, receives <code>orders.&gt;</code></td></tr>
+        <tr><td>publish <code>orders.created</code></td><td class="bad">denied by the role; server logs <code>jwt:&lt;greedy key&gt;" - Publish Violation</code></td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>From the source, not measured:</b> at login the server replaces the user's whole permission
+        and limit set with the key's template (nats-server v2.14.6 <code>auth.go</code>).</li>
+      <li><b>Payload limits are not settled.</b> The CLI showed the role's payload as <code>0</code>, then as
+        <code>unlimited</code>; the source says both mean "no role limit". A probe with an explicit
+        100-byte limit was <b>inconclusive</b>: the client refused the 200-byte message itself, and the server
+        logged nothing.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>A role defined once,</b> in the account JWT, instead of copied into every user.</li>
+      <li><b>No privilege creep at issue time.</b> The CLI would not write wider rules than the role.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>A new key needs an account push</b> before its users get in (card 02).</li>
+      <li><b>The drop is silent.</b> <code>--pub-allow '&gt;'</code> exits 0 and does nothing. Read the
+        printed rules.</li>
+      <li><b>Limits on a role are not proven here</b> &mdash; only permissions are.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Use one scoped key per role for services and readers. Keep per-user JWT rules for the rare user
+      who does not fit a role.</p>
+    <span class="side">Card 05 · Permissions</span></div>
+</section>
+
+<!-- ============ 06 ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Lifetime · Card 06 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">06</div><div class="fam-lbl">Lifetime</div>
+    <h2>Expiry ends access without a push</h2>
+    <p class="lede"><code>--expire</code> writes an end time (<code>exp</code>) into the user JWT. After it, the
+      server refuses the credential. Nothing is pushed and nothing on the server changes: the end time
+      travels with the credential.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Does an expiry also end an <b>open</b> connection, or only new ones? <b>Both.</b> The open connection
+      was cut within one second of <code>exp</code>.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-10-08 and 2026-10-09 · checks E1&ndash;E6, E4b · <code>D06-R7</code></div>
+    <svg class="fig" viewBox="0 0 900 112" role="img" aria-label="A timeline. The credential is issued, connects and receives. At the end time the open connection is cut with no log line. After that, every reconnect and every new connection is refused, and the cut listener still exits 0.">
+      <path class="none" d="M30 56 H870"/>
+      <path class="gwline" d="M30 56 H470" stroke="var(--green)"/>
+      <path class="cut" d="M470 56 H870"/>
+      <circle cx="30" cy="56" r="5" fill="var(--green)"/>
+      <text class="edge" x="30" y="40">issued, connects</text>
+      <text class="edge" x="200" y="40">receives (E2)</text>
+      <path d="M470 22 V90" stroke="var(--amber)" stroke-width="1.6"/>
+      <text class="edge" x="478" y="24" fill="var(--amber)">exp &mdash; open connection cut (E3)</text>
+      <text class="edge" x="478" y="82">no log line at the cut</text>
+      <text class="edge" x="640" y="40" fill="var(--red)">new connections refused (E4)</text>
+      <text class="edge" x="640" y="82">reconnects refused, 1 line each</text>
+      <text class="grp" x="30" y="104">TIME &rarr;   the cut listener's exit code at the end: 0 (E6)</text>
+    </svg>
+    <ul style="margin-top:9px">
+      <li><b>On time.</b> Script runs: cut within 1 s of <code>exp</code>. Hand run: <code>exp</code> 11:53:29,
+        cut 11:53:29.</li>
+      <li><b>The server logs nothing at the cut.</b> The log shows only the refused reconnects after it.</li>
+      <li><b>The trap:</b> <code>nats sub --wait</code> printed <code>Disconnected due to: EOF</code>, kept
+        reconnecting, and <b>exited 0</b>. A script that trusts the exit code misses the cut.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>Access that ends by itself,</b> on every connection, with no server action.</li>
+      <li><b>A hard bound on a leaked credential:</b> at most one lifetime.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>Somebody must re-issue before the end,</b> and get the new file to the client in time.</li>
+      <li><b>Clients see a plain disconnect.</b> Nothing in the client output says "expired".</li>
+      <li><b>Clock trust:</b> the end time is absolute; skewed clocks shift it (not tested).</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Give service credentials a lifetime you can re-issue inside, and watch connections, not exit codes,
+      to see a credential end.</p>
+    <span class="side">Card 06 · Lifetime</span></div>
+</section>
+
+<!-- ============ 07 ============ -->
+<section class="page tight" style="--fam:var(--purple)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Lifetime · Card 07 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">07</div><div class="fam-lbl">Lifetime</div>
+    <h2>A revocation is only as fast as its push</h2>
+    <p class="lede">The server stores no users, so it cannot delete one. A revocation is a line in the
+      <b>account</b> JWT: "stop trusting this user key". <code>auth user rm --revoke</code> writes that line on
+      your disk. The server learns it only at <code>auth account push</code>.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>How fast can you cut off one user? <b>As fast as you push.</b> After the push, the open connection
+      was cut within a second. Before it, nothing changed at all.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-10-08 and 2026-10-09 · checks Q1&ndash;Q2, R1&ndash;R6, R4b · <code>D06-R8</code></div>
+    <table>
+      <thead><tr><th>State</th><th>Local copy</th><th>Server copy</th><th>New connection</th><th>Open connection</th></tr></thead>
+      <tbody>
+        <tr><td><b>Revoked, not pushed</b></td><td><code>Revocations: 1</code></td><td><code>Revocations: 0</code></td><td class="bad">still admitted</td><td class="bad">still receives</td></tr>
+        <tr><td><b>Pushed</b></td><td><code>Revocations: 1</code></td><td><code>Revocations: 1</code></td><td class="good">refused</td><td class="good">cut within 1 s</td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>Hand run, server side:</b> account updated 21:36:07.69, first refused reconnect 21:36:08.49
+        &mdash; about <b>0.8 s</b>.</li>
+      <li><b>Only that user.</b> <code>order-svc</code>, in the same account, kept publishing (R5).
+        <code>/accountz</code> lists the reader's key under <code>revoked_user</code> (R6).</li>
+      <li><b>The recorded time is the <code>rm</code> time,</b> not the push time. The server acted only at
+        the push.</li>
+      <li><b>Not tested:</b> a JWT for the same key signed <i>after</i> the revocation time may be admitted;
+        <code>auth user rm</code> without <code>--revoke</code> only deletes the local copy. Both are from the
+        source, not this lab. The rule "an account change waits for its push" was measured for a
+        revocation only.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What it buys</div><ul>
+      <li><b>An off switch for one user</b> before its credential expires.</li>
+      <li><b>Fast once pushed:</b> open and new connections both end within a second.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What it costs</div><ul>
+      <li><b>A revocation without a push is a false sense of safety.</b> The CLI says done; the user is
+        still in.</li>
+      <li><b>The account JWT grows</b> with every revoked key.</li>
+      <li><b>Pushing needs <code>SYSTEM</code> rights,</b> so the off switch has its own credential to guard.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Treat "revoke" and "push" as one action, and confirm it with <code>account query</code>. Use short
+      expiry as the default way access ends; keep revocation for the emergency.</p>
+    <span class="side">Card 07 · Lifetime</span></div>
+</section>
+
+<!-- ============ 08 ============ -->
+<section class="page tight" style="--fam:var(--tx2)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Evidence · Card 08 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">08</div><div class="fam-lbl">Evidence</div>
+    <h2>The client cannot tell you why it was refused</h2>
+    <p class="lede">Six different causes gave the client the same line: <code>Authorization Violation</code>,
+      exit 1. The server log tells some of them apart, and at its default level it gives no reason at all.
+      A refusal is only evidence next to a positive control and its server line.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>What do you record for a refusal? <b>Both sides:</b> the client's text and exit code, and the
+      server's log line &mdash; next to a valid user that got through on the same server, in the same run.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Measured · 2026-10-08 and 2026-10-09 · exercises 01&ndash;03</div>
+    <table>
+      <thead><tr><th>Cause</th><th>Client</th><th>Server log (default level)</th></tr></thead>
+      <tbody>
+        <tr><td>account not pushed</td><td>Authorization Violation</td><td>~1.9 s fetch, timed out, <code>authentication error</code></td></tr>
+        <tr><td>foreign operator, account not pushed</td><td>Authorization Violation</td><td>the same fetch, then <code>authentication error</code></td></tr>
+        <tr><td>foreign operator, account pushed</td><td>Authorization Violation</td><td><code>authentication error</code> only</td></tr>
+        <tr><td>no credentials · wrong seed</td><td>Authorization Violation</td><td><code>authentication error</code> only</td></tr>
+        <tr><td>expired · revoked and pushed</td><td>Authorization Violation</td><td><code>authentication error</code> only</td></tr>
+        <tr><td>a forbidden publish or subscribe</td><td>Permissions Violation for …</td><td><code>jwt:U…" - Publish / Subscription Violation</code></td></tr>
+      </tbody>
+    </table>
+    <ul style="margin-top:9px">
+      <li><b>One refused connect, one line.</b> Each refusal checked (P9b, E4b, R4b) added exactly one
+        <code>authentication error</code>.</li>
+      <li><b>A cut client keeps knocking.</b> A cut listener retried about every 2 s, one line per try
+        &mdash; 16 lines in one 2026-10-09 run. Count a refusal only after it has stopped.</li>
+      <li><b>From the source, not tried:</b> the reason exists only at debug level.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">What does tell you</div><ul>
+      <li><b>The fetch line</b> splits "unknown account" from the rest.</li>
+      <li><b><code>/accountz</code>, <code>/connz?auth=1</code>, <code>account query</code></b> show what the
+        server holds, by key.</li>
+      <li><b>Violation lines</b> name the user key and the subject.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">What does not</div><ul>
+      <li><b>The client's error text</b> &mdash; one line for six causes.</li>
+      <li><b>The exit code</b> of a cut subscriber (0) and of a push (success for a refused account).</li>
+      <li><b>The boot log's <code>System : ""</code></b> &mdash; <code>/varz</code> showed the system account
+        was set from the operator JWT.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Debug auth from the server side. Give operators the monitor endpoints and the log, and give users
+      one runbook line: "Authorization Violation means ask, it does not say why".</p>
+    <span class="side">Card 08 · Evidence</span></div>
+</section>
+
+<!-- ============ GUIDE ============ -->
+<section class="page tight" style="--fam:var(--accent)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Selection guide</span></div>
+  <div class="titleblock">
+    <div class="num">?</div><div class="fam-lbl">Quick reference</div>
+    <h2>Which card answers your question</h2>
+    <p class="lede">Start from the thing you are trying to decide, not from the command you were reading
+      about.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <table>
+      <thead><tr><th>You are asking…</th><th>Card</th><th>Short answer</th></tr></thead>
+      <tbody>
+        <tr><td>Does the server need a user list?</td><td><b>01</b> The server trusts one key, not a user list</td><td>No. One operator key; users are checked by chain.</td></tr>
+        <tr><td>Why is a valid user refused?</td><td><b>02</b> An account must be pushed before its users get in</td><td>Check the push first. Then ask the server log.</td></tr>
+        <tr><td>Did the server accept my account?</td><td><b>03</b> A push report is not evidence of trust</td><td>Ask <code>/accountz</code> or <code>account query</code>, not the push output.</td></tr>
+        <tr><td>Where do a user's permissions live?</td><td><b>04</b> Permissions travel inside the user JWT</td><td>In its signed JWT. No server change, no push.</td></tr>
+        <tr><td>Many users, one role?</td><td><b>05</b> A scoped signing key: the role wins</td><td>A scoped key. One push, and the role beats the request.</td></tr>
+        <tr><td>How should access end by default?</td><td><b>06</b> Expiry ends access without a push</td><td>Short lifetimes. Open connections are cut too.</td></tr>
+        <tr><td>I must cut one user off now.</td><td><b>07</b> A revocation is only as fast as its push</td><td>Revoke <b>and</b> push. Then confirm.</td></tr>
+        <tr><td>What does this refusal mean?</td><td><b>08</b> The client cannot tell you why it was refused</td><td>Read the server log; compare with a positive control.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grid2" style="margin-top:12px">
+    <div class="panel pro"><div class="lbl">Defaults worth copying</div><ul>
+      <li><b>Run every <code>nats</code> call with <code>--no-context</code></b> and its own key store
+        (<code>XDG_DATA_HOME</code>). Without it, <code>nats auth</code> writes into your real store.</li>
+      <li><b>Push, then query.</b> Every account change ends with <code>auth account query</code>.</li>
+      <li><b>Bind the server to loopback</b> for a lab. One server per port; stop it by PID, never
+        <code>pkill nats-server</code>.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Traps this demo walked into</div><ul>
+      <li><b>A rogue push said "success".</b> Card 03.</li>
+      <li><b><code>--json</code> printed seeds.</b> Never use it in a walkthrough or a ticket.</li>
+      <li><b>A cut subscriber exited 0,</b> and a cut listener's retries inflated the error count.</li>
+      <li><b><code>auth user credential</code> refuses to overwrite</b> a file without <code>--force</code>.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>User JWTs change without the server; account JWTs change only with a push. Everything else in this
+      deck follows from that split.</p>
+    <span class="side">Selection guide</span></div>
+</section>
+
+<!-- ============ PROVENANCE ============ -->
+<section class="page tight" style="--fam:var(--dim)">
+  <div class="chead"><span>Operator trust · nats-tech-lab</span><span class="r">Provenance</span></div>
+  <div class="titleblock">
+    <div class="num">&sect;</div><div class="fam-lbl">Method</div>
+    <h2>Where every number came from</h2>
+    <p class="lede">A figure with no date and no machine becomes a constant, and a constant goes stale
+      quietly. Each number in this deck is listed with the day it was taken and the thing it ran on.</p>
+  </div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">The machine</div>
+    <ul>
+      <li><b>nats-server v2.14.6</b>, one bare process on the author's Mac (Darwin 25.4.0), loopback
+        <code>127.0.0.1:4922</code>, monitor <code>8922</code>. Operator mode, <code>full</code> resolver. No
+        Docker, no cluster, no JetStream, no TLS.</li>
+      <li><b><code>nats</code> CLI 0.4.0</b> (<code>nats auth</code>; no <code>nsc</code>), always with
+        <code>--no-context</code> and a key store inside the demo's <code>.run/</code>.</li>
+      <li>One operator <code>D06</code>, one account <code>ORDERS</code> plus <code>SYSTEM</code>; a throwaway
+        <code>ROGUE</code> operator only to be refused.</li>
+    </ul>
+  </div>
+
+  <div class="panel flat" style="margin-top:10px">
+    <div class="lbl">The numbers</div>
+    <table>
+      <thead><tr><th>Card</th><th>Figure</th><th>Taken</th><th>On what</th></tr></thead>
+      <tbody>
+        <tr><td>02, 03, 08</td><td>account fetch ~<b>1.9 s</b> before an unknown-account refusal (1.901 s in the walkthrough)</td><td style="white-space:nowrap">2026-10-08</td><td>ex01 C1&ndash;C2 and C6, script and hand runs</td></tr>
+        <tr><td>03</td><td>one refusal logged 3 lines in 1 run of 6; 1 line in the other 5</td><td style="white-space:nowrap">2026-10-08</td><td>ex01 C17, open question</td></tr>
+        <tr><td>06</td><td>open connection cut within <b>1 s</b> of <code>exp</code>; hand run 11:53:29 / 11:53:29</td><td style="white-space:nowrap">2026-10-08, -09</td><td>ex03 E3, 10 s credential (script), 60 s (hand)</td></tr>
+        <tr><td>07</td><td>open connection cut within <b>1 s</b> of the push; hand run ~<b>0.8 s</b></td><td style="white-space:nowrap">2026-10-08, -09</td><td>ex03 R3; <code>/accountz</code> update_time vs first refused reconnect</td></tr>
+        <tr><td>08</td><td>retries about every <b>2 s</b>; 16 <code>authentication error</code> lines in one run</td><td style="white-space:nowrap">2026-10-09</td><td>saved ex03 server log, two cut listeners</td></tr>
+        <tr><td>08</td><td>exactly <b>1</b> log line per refused connect</td><td style="white-space:nowrap">2026-10-09</td><td>checks P9b, E4b, R4b</td></tr>
+        <tr><td>01</td><td>user <code>Max Payload</code> 1 048 576 from <code>--defaults</code> (not enforced in a test)</td><td style="white-space:nowrap">2026-10-08</td><td><code>auth user info order-svc</code></td></tr>
+        <tr><td>05</td><td>100-byte scoped limit: 50 B delivered, 200 B refused by the client</td><td style="white-space:nowrap">2026-10-09</td><td>optional payload probe, by hand, inconclusive</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel note" style="margin-top:10px">
+    <div class="lbl">How to read them</div>
+    <ul>
+      <li><b>Read the behaviour, not the value.</b> "Cut within a second of the push" transfers; "0.8 s" is one
+        laptop on one evening.</li>
+      <li><b>Every check script re-runs from nothing:</b> <code>exercises/ex01-check.sh</code>,
+        <code>ex02-check.sh</code>, <code>ex03-check.sh</code>. All three printed ALL PASS on 2026-10-09.</li>
+      <li><b>One claim here has already been narrowed.</b> The retraction on card 03 is kept beside the
+        card it corrected.</li>
+      <li><b>"From the source"</b> means read in the code of the installed versions, not observed. Those
+        lines are labelled on each card.</li>
+      <li><b>Not yet done:</b> <code>D06-R9</code>, a walkthrough by another person with no help.</li>
+    </ul>
+  </div>
+
+  <div class="src">
+    <b>Sources in the repo:</b> <code>demos/06-operator-trust-and-credentials/README.md</code> ·
+    <code>exercises/EXERCISE_OBSERVATIONS.md</code> · <code>exercises/EXERCISE-0{1,2,3}-TERMINAL-STEPS.md</code> ·
+    <code>exercises/ex0{1,2,3}-check.sh</code>. Docs: docs.nats.io/learn/security/operator-mode and
+    /decentralized-auth.
+  </div>
+</section>
+
+</body>
+</html>

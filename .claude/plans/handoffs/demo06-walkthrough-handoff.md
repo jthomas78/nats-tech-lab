@@ -70,8 +70,9 @@ Ask the user which one to start. Do not do them all at once.
 1. **`D06-R9`** — another person runs the README with no help. The user
    arranges this; Claude cannot close it. Record the result in
    `EXERCISE_OBSERVATIONS.md` when it happens.
-2. **Pattern cards deck** (stage 04) — `pattern-cards` skill →
-   `docs/demo-06-pattern-cards.html` / `.pdf`. Read the skill first.
+2. ~~**Pattern cards deck**~~ — done 2026-10-09:
+   `docs/demo-06-pattern-cards.html` / `.pdf`, 8 cards, guard
+   `docs/cards-check.sh` (ALL PASS). Re-check the deck after `D06-R9`.
 3. Commit only files changed in the session. Never push.
 
 ## Decisions made — do not re-open

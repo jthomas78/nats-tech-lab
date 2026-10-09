@@ -45,10 +45,10 @@ operator mode. Demo 07 builds its own chain; it does not need this demo.
 | `D06-R7` | When a credential expires, new connections are refused and an open connection is cut. | 03 | **measured** |
 | `D06-R8` | A revocation does nothing until the account is pushed. After the push, open connections are cut and new ones refused. | 03 | **measured** |
 | `D06-R9` | Another person runs this README with no help and sees every exercise work. | all | not started |
-| `D06-R10` | A pattern cards deck closes the demo (playbook stage 04). | — | not started |
+| `D06-R10` | A pattern cards deck closes the demo (playbook stage 04). | — | **done** — [`docs/demo-06-pattern-cards.pdf`](docs/demo-06-pattern-cards.pdf) (source: `.html`; shape guard: `docs/cards-check.sh`) |
 
 **Demo 06 is not complete yet.** `D06-R9` (a walkthrough by another person)
-and `D06-R10` (the pattern cards) are open.
+is open. The deck must be re-checked after it.
 
 **measured** = run, and recorded in
 [`exercises/EXERCISE_OBSERVATIONS.md`](exercises/EXERCISE_OBSERVATIONS.md)
