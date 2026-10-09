@@ -12,15 +12,18 @@ pass() { echo "PASS  $1  $2"; }
 fail() { echo "FAIL  $1  $2"; fails=$((fails + 1)); }
 check() { local id=$1 msg=$2; shift 2; if "$@"; then pass "$id" "$msg"; else fail "$id" "$msg"; fi; }
 
-cleanup() { "$D06_DIR/lab/down.sh" >/dev/null 2>&1 || true; kill "${sub:-}" 2>/dev/null || true; }
-trap cleanup EXIT
-
+# Preflight, before the cleanup trap: an exit here must not stop a server
+# that this run did not start.
 if d06_port_busy; then
   echo "port 4922 is in use. Stop the other demo 06 server first." >&2
   exit 1
 fi
+command -v jq >/dev/null || { echo "ex01-check.sh needs jq (brew install jq)" >&2; exit 1; }
 
-echo "nats-server $(nats-server --version | awk '{print $2}') · nats CLI $(nats --version) · $(date '+%Y-%m-%d %H:%M %Z')"
+cleanup() { "$D06_DIR/lab/down.sh" >/dev/null 2>&1 || true; kill "${sub:-}" 2>/dev/null || true; }
+trap cleanup EXIT
+
+echo "nats-server $(nats-server --version | awk '{print $2}') · nats CLI $(d06_nats --version) · $(date '+%Y-%m-%d %H:%M %Z')"
 echo
 
 "$D06_DIR/lab/down.sh" --clean >/dev/null
@@ -89,8 +92,15 @@ check C6 "ROGUE user, account never pushed: refused" refused "$r"
 p=$(rogue auth account push ORDERS $S --creds "$SYS" 2>&1)
 check C7 "ROGUE account push: the CLI reports success (misleading)" grep -q 'Success 1 Failed 0' <<<"$p"
 check C8 "ROGUE account JWT was written to the resolver directory" test -f "$D06_RESOLVER/$rogue_key.jwt"
-check C9 "ROGUE account is not loaded (/accountz)" \
-  bash -c "! curl -s '$D06_MONITOR/accountz' | grep -q '$rogue_key'"
+# True when /accountz answers with an account list and key $1 is not in it.
+# A failed curl or an error document is not "absent".
+not_loaded() {
+  local j
+  [[ -n "$1" ]] || return 1
+  j=$(curl -sf "$D06_MONITOR/accountz") || return 1
+  jq -e --arg k "$1" '(.accounts | type == "array") and (.accounts | index($k) == null)' <<<"$j" >/dev/null
+}
+check C9 "ROGUE account is not loaded (/accountz)" not_loaded "$rogue_key"
 before=$(grep -c "fetch took" "$D06_LOG")
 r=$(try $S --creds "$RC" pub orders.created 'rogue-pushed')
 check C10 "ROGUE user, account pushed: still refused" refused "$r"

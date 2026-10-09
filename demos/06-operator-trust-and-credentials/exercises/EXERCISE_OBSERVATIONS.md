@@ -486,3 +486,36 @@ by hand missed it.
 user's JWTs issued *before* the revocation time; a new JWT for the same
 key signed later may be admitted. `auth user rm` without `--revoke` only
 deletes the user from the local key store and does not stop its `.creds`.
+
+## Check-script fixes after a Codex review (2026-10-09)
+
+A Codex review (inspection only) flagged weak checks. Each was confirmed by
+reading the code, then fixed. No measured result changed.
+
+- **All three scripts:** the cleanup trap now comes after the preflight
+  (port busy, `jq`, and bash 5 for ex03). Before, an exit on "port 4922 is
+  in use" ran `lab/down.sh` and stopped the server that was already
+  running. Tested: with a server up (PID 17012), `ex01-check.sh` exited 1
+  and the server was still alive. `nats --version` now goes through the
+  wrapper.
+- **ex03 E5:** new positive control `E5a`. The publish must exit 0 and a
+  valid subscriber must receive it. Before, a failed publish also passed E5.
+- **ex03 R1:** the new connection must receive a message. Before, any
+  error other than `Authorization Violation` passed.
+- **ex03 R6:** reads `.account_detail.revoked_user` with `jq`, not a grep
+  of the whole response. Before, with `jq` missing, it grepped for an empty
+  string and passed.
+- **ex01 C9:** `curl` must succeed and return an `accounts` list. Before, a
+  failed `curl` passed.
+- **README:** "the seed never leaves the client" was labelled measured by
+  C12. C12 measures that a wrong seed is refused. Non-transmission is now
+  labelled "from the docs, not measured".
+
+After the fixes: ex01, ex02 and ex03 each printed ALL PASS (21:51 SAST),
+`nats-server` v2.14.6, `nats` CLI 0.4.0.
+
+**Open, not fixed (walkthrough design):** EXERCISE-03 Step 3's "to within
+a second" ignores the typing gap between `date` and the credential
+command; EXERCISE-01 runs `lab/trust-conf.sh` without showing its three
+lines (Step 2 shows the result with `cat`); some refusals (ex02 P4/P9/P11,
+ex03 E4/R4) check only the client text, not the server log.

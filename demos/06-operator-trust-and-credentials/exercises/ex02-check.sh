@@ -12,15 +12,18 @@ pass() { echo "PASS  $1  $2"; }
 fail() { echo "FAIL  $1  $2"; fails=$((fails + 1)); }
 check() { local id=$1 msg=$2; shift 2; if "$@"; then pass "$id" "$msg"; else fail "$id" "$msg"; fi; }
 
-cleanup() { "$D06_DIR/lab/down.sh" >/dev/null 2>&1 || true; kill "${sub:-}" "${sub2:-}" 2>/dev/null || true; }
-trap cleanup EXIT
-
+# Preflight, before the cleanup trap: an exit here must not stop a server
+# that this run did not start.
 if d06_port_busy; then
   echo "port 4922 is in use. Stop the other demo 06 server first." >&2
   exit 1
 fi
+command -v jq >/dev/null || { echo "ex02-check.sh needs jq (brew install jq)" >&2; exit 1; }
 
-echo "nats-server $(nats-server --version | awk '{print $2}') · nats CLI $(nats --version) · $(date '+%Y-%m-%d %H:%M %Z')"
+cleanup() { "$D06_DIR/lab/down.sh" >/dev/null 2>&1 || true; kill "${sub:-}" "${sub2:-}" 2>/dev/null || true; }
+trap cleanup EXIT
+
+echo "nats-server $(nats-server --version | awk '{print $2}') · nats CLI $(d06_nats --version) · $(date '+%Y-%m-%d %H:%M %Z')"
 echo
 
 "$D06_DIR/lab/down.sh" --clean >/dev/null

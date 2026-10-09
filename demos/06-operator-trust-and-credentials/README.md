@@ -121,7 +121,8 @@ this list.
 | Account `Issuer` is the operator | 01 | inspection (I2) |
 | `--defaults` puts a 1 MiB payload limit in the user JWT | 01 | inspection (I3); enforcement not tested |
 | Boot log: Trusted Operators, issued, expires | 01 | inspection (I1) |
-| `.creds` = user JWT + seed; the seed never leaves the client | 01 | measured (C12 wrong seed) |
+| `.creds` = user JWT + seed; a `.creds` whose seed does not match its JWT is refused | 01 | measured (C12 wrong seed) |
+| The seed never leaves the client (only a nonce signature is sent) | — | from the docs, not measured |
 | `.creds` file mode 600 | 01 | measured once (CLI writes 600) |
 | No account JWT → `Authorization Violation` | 01 | measured (C1–C2) |
 | `full` resolver, `system_account`, `resolver_preload` | 01–03 | measured (every run uses them) |

@@ -11,15 +11,20 @@ pass() { echo "PASS  $1  $2"; }
 fail() { echo "FAIL  $1  $2"; fails=$((fails + 1)); }
 check() { local id=$1 msg=$2; shift 2; if "$@"; then pass "$id" "$msg"; else fail "$id" "$msg"; fi; }
 
-cleanup() { "$D06_DIR/lab/down.sh" >/dev/null 2>&1 || true; kill "${sub:-}" "${sub2:-}" 2>/dev/null || true; }
-trap cleanup EXIT
-
+# Preflight, before the cleanup trap and before .run/ is deleted: an exit
+# here must not stop a server that this run did not start.
 if d06_port_busy; then
   echo "port 4922 is in use. Stop the other demo 06 server first." >&2
   exit 1
 fi
+command -v jq >/dev/null || { echo "ex03-check.sh needs jq (brew install jq)" >&2; exit 1; }
+# EPOCHREALTIME (unix time with microseconds) needs bash 5.
+(( BASH_VERSINFO[0] >= 5 )) || { echo "ex03-check.sh needs bash 5 (brew install bash)" >&2; exit 1; }
 
-echo "nats-server $(nats-server --version | awk '{print $2}') · nats CLI $(nats --version) · $(date '+%Y-%m-%d %H:%M %Z')"
+cleanup() { "$D06_DIR/lab/down.sh" >/dev/null 2>&1 || true; kill "${sub:-}" "${sub2:-}" "${ctl_pid:-}" "${new_pid:-}" 2>/dev/null || true; }
+trap cleanup EXIT
+
+echo "nats-server $(nats-server --version | awk '{print $2}') · nats CLI $(d06_nats --version) · $(date '+%Y-%m-%d %H:%M %Z')"
 echo
 
 "$D06_DIR/lab/down.sh" --clean >/dev/null
@@ -31,8 +36,6 @@ OS="$D06_CREDS/order-svc.creds"
 SYS="$D06_CREDS/sys.creds"
 d06_nats auth account push ORDERS $S --creds "$SYS" >/dev/null 2>&1
 try() { d06_nats "$@" 2>&1; echo "exit=$?"; }
-# EPOCHREALTIME (unix time with microseconds) needs bash 5.
-(( BASH_VERSINFO[0] >= 5 )) || { echo "ex03-check.sh needs bash 5 (brew install bash)" >&2; exit 1; }
 now() { echo "$EPOCHREALTIME"; }
 # Prefix every line a subscriber prints with the unix time it arrived.
 stamp() { while IFS= read -r line; do echo "$EPOCHREALTIME $line"; done; }
@@ -62,8 +65,16 @@ check E3 "the OPEN connection was cut within 1 s of exp (cut at ${cut:-never})" 
   within_1s "${cut:-0}" "$exp"
 r=$(try $S --creds "$SHORT" pub orders.created 'after-expiry')
 check E4 "after expiry: a NEW connection is refused" grep -q 'Authorization Violation' <<<"$r"
-d06_nats $S --creds "$OS" pub orders.created 'after-expiry-sent' >/dev/null 2>&1
+# Positive control for E5: a valid subscriber must receive the same message,
+# or "the cut subscriber received nothing" proves nothing.
+ctl="$D06_RUN/ex03-control.out"
+( d06_nats $S --creds "$OS" sub 'orders.>' --count 1 --wait 5s 2>&1 ) > "$ctl" & ctl_pid=$!
+sleep 0.5
+r=$(try $S --creds "$OS" pub orders.created 'after-expiry-sent')
+wait "$ctl_pid" 2>/dev/null
 wait "$sub" 2>/dev/null
+check E5a "positive control: the publish succeeded and a valid subscriber received it" \
+  bash -c "grep -q 'exit=0' <<<'$r' && grep -q 'after-expiry-sent' '$ctl'"
 check E5 "the cut subscriber received nothing sent after expiry" bash -c "! grep -q 'after-expiry-sent' '$out'"
 check E6 "trap: the cut subscriber still exited 0" grep -q 'exit=0' "$out"
 
@@ -83,11 +94,14 @@ local_copy=$(d06_nats auth account info ORDERS)
 server_copy=$(d06_nats auth account query ORDERS $S --creds "$SYS")
 check Q1 "not pushed: local copy says Revocations: 1, server copy says 0" \
   bash -c "grep -q 'Revocations: 1' <<<'$local_copy' && grep -q 'Revocations: 0' <<<'$server_copy'"
-r=$(try $S --creds "$AR" sub 'orders.>' --count 1 --wait 1s)
-check R1 "revoked but NOT pushed: a new connection is still admitted" \
-  bash -c "! grep -q 'Authorization Violation' <<<'$r'"
-d06_nats $S --creds "$OS" pub orders.created 'revoked-not-pushed' >/dev/null 2>&1
+# A new connection counts as admitted only if it receives a message.
+new="$D06_RUN/ex03-revoke-new.out"
+( d06_nats $S --creds "$AR" sub 'orders.>' --count 1 --wait 5s 2>&1 ) > "$new" & new_pid=$!
 sleep 0.5
+d06_nats $S --creds "$OS" pub orders.created 'revoked-not-pushed' >/dev/null 2>&1
+wait "$new_pid" 2>/dev/null
+check R1 "revoked but NOT pushed: a new connection is still admitted (received a message)" \
+  grep -q 'revoked-not-pushed' "$new"
 check R2 "revoked but NOT pushed: the open connection still receives" grep -q 'revoked-not-pushed' "$out2"
 
 pushed=$(now)
@@ -102,8 +116,13 @@ r=$(try $S --creds "$OS" pub orders.created 'after-revoke')
 check R5 "positive control: order-svc, same account, still publishes" grep -q 'exit=0' <<<"$r"
 check Q2 "after the push: server copy says Revocations: 1" \
   grep -q 'Revocations: 1' <<<"$(d06_nats auth account query ORDERS $S --creds "$SYS")"
-check R6 "the account JWT on the server lists the revoked user's key" \
-  bash -c "curl -s '$D06_MONITOR/accountz?acc=$(d06_claims "$OS" | jq -r .iss)' | grep -q '$(d06_claims "$AR" | jq -r .sub)'"
+# True when /accountz for account $1 lists user key $2 under revoked_user.
+revoked_on_server() {
+  [[ -n "$1" && -n "$2" ]] || return 1
+  curl -sf "$D06_MONITOR/accountz?acc=$1" | jq -e --arg k "$2" '.account_detail.revoked_user | has($k)' >/dev/null
+}
+check R6 "the server lists the reader's key under revoked_user (/accountz)" \
+  revoked_on_server "$(d06_claims "$OS" | jq -r .iss)" "$(d06_claims "$AR" | jq -r .sub)"
 kill "$sub2" 2>/dev/null; wait "$sub2" 2>/dev/null
 
 cp "$D06_LOG" "$D06_RUN/ex03-server.log"
