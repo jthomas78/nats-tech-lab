@@ -114,6 +114,7 @@ lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc-60s.creds pub 
 
 ## Step 8: Is the cut listener still receiving?
 
+**Timing:** run this after terminal B is cut and before its `--wait 90s` ends. That window is only about 30 s. Too early, and terminal B is still connected; too late, and it has already exited.
 **Terminal C:**
 
 ```bash

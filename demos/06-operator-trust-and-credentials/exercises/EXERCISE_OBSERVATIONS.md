@@ -450,7 +450,7 @@ local (SAST, UTC+2).
   and redo 2). The trap holds: a script that checks only the exit code
   would not notice the cut.
 
-**Steps file weakness (not fixed):** Step 8 does not say it must run in
+**Steps file weakness (fixed after this run):** Step 8 did not say it must run in
 the window after the cut and before `--wait 90s` ends. Two of three tries
 by hand missed it.
 
