@@ -38,6 +38,11 @@ AR="$D06_CREDS/analytics-reader.creds"
 GR="$D06_CREDS/greedy-reader.creds"
 d06_nats auth account push ORDERS $S --creds "$SYS" >/dev/null 2>&1
 try() { d06_nats "$@" 2>&1; echo "exit=$?"; }
+# The client prints the same text for many causes; the server log tells them
+# apart. log_mark = lines in the log now; auth_errors_since N = how many
+# `authentication error` lines were written after line N.
+log_mark() { wc -l < "$D06_LOG" | tr -d ' '; }
+auth_errors_since() { tail -n +$(( $1 + 1 )) "$D06_LOG" | grep -c 'authentication error'; }
 
 # --- 02a: permissions in the user JWT ---------------------------------------
 echo "== 02a  user permissions, issued while the server runs"
@@ -62,6 +67,8 @@ check P3 "reader publish denied: client told Permissions Violation" \
   grep -q 'Permissions Violation for Publish to "orders.created"' <<<"$r_rpub"
 check P4 "reader subscribe invoices.> denied: client told Permissions Violation" \
   grep -q 'Permissions Violation for Subscription to "invoices.>"' <<<"$r_rsub"
+check P4b "server logged the subscribe violation, naming the reader's key" \
+  grep -q "jwt:$ar_key\" - Subscription Violation - Subject \"invoices.>\"" "$D06_LOG"
 check P5 "server logged the publish violation, naming the user by public key" \
   grep -q "jwt:$ar_key\" - Publish Violation - Subject \"orders.created\"" "$D06_LOG"
 check P6 "server log never names the user analytics-reader" \
@@ -79,9 +86,13 @@ d06_nats auth user add greedy-reader ORDERS --key reader --pub-allow '>' --defau
 gr_pub=$(d06_claims "$GR" | jq -c .nats.pub)
 check P8 "greedy-reader JWT has NO publish permission of its own (asked for >)" [ "$gr_pub" = "{}" ]
 
+gr_key=$(d06_claims "$GR" | jq -r .sub)
+mark=$(log_mark)
 r=$(try $S --creds "$GR" pub orders.created 'greedy-before-push')
 check P9 "greedy-reader refused before the push: server does not know the key" \
   grep -q 'Authorization Violation' <<<"$r"
+check P9b "server logged exactly 1 authentication error for that refusal" \
+  [ "$(auth_errors_since "$mark")" -eq 1 ]
 
 d06_nats auth account push ORDERS $S --creds "$SYS" >/dev/null 2>&1
 out2="$D06_RUN/ex02-greedy.out"
@@ -95,6 +106,8 @@ kill "$sub2" 2>/dev/null; wait "$sub2" 2>/dev/null
 check P10 "after the push, greedy-reader is admitted and receives orders" grep -q 'for-greedy' "$out2"
 check P11 "greedy-reader publish denied by the role, not by its own JWT" \
   grep -q 'Permissions Violation for Publish to "orders.created"' <<<"$r_gpub"
+check P11b "server logged the publish violation, naming greedy-reader's key" \
+  grep -q "jwt:$gr_key\" - Publish Violation - Subject \"orders.created\"" "$D06_LOG"
 check P12 "positive control: order-svc publishes accepted, exit 0" \
   bash -c "grep -q 'exit=0' <<<'$r_good' && grep -q 'exit=0' <<<'$r_good2'"
 check P13 "the same server process the whole time (no restart)" [ "$(cat "$D06_PID")" = "$pid0" ]

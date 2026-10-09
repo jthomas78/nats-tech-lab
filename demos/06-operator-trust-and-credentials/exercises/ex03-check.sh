@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Exercise 03, end to end, with PASS / FAIL per check. Leaves nothing running.
 #   exercises/ex03-check.sh
-# DELETES .run/ first and builds a new chain (lab/chain.sh). Takes ~30 s.
+# DELETES .run/ first and builds a new chain (lab/chain.sh). Takes ~45 s.
 # Expiry and revocation, each on a NEW connection and on an OPEN one.
 set -uo pipefail
 source "$(dirname "$0")/../lab/lib.sh"
@@ -43,6 +43,13 @@ stamp() { while IFS= read -r line; do echo "$EPOCHREALTIME $line"; done; }
 within_1s() { awk -v a="$1" -v b="$2" 'BEGIN { d = a - b; exit !(d <= 1 && d >= -1) }'; }
 # Unix time of the first line matching a pattern in a stamped file.
 first_at() { grep -m1 "$2" "$1" | awk '{print $1}'; }
+# The client prints `Authorization Violation` for many causes; the server log
+# is the other evidence. log_mark = lines in the log now; auth_errors_since N
+# = how many `authentication error` lines were written after line N.
+# A cut listener retries every ~2 s and each try logs one such line, so count
+# only after the cut listener has exited.
+log_mark() { wc -l < "$D06_LOG" | tr -d ' '; }
+auth_errors_since() { tail -n +$(( $1 + 1 )) "$D06_LOG" | grep -c 'authentication error'; }
 
 # --- 03a: expiry --------------------------------------------------------------
 echo "== 03a  a credential that expires in 10 s"
@@ -63,8 +70,6 @@ while [[ $(date +%s) -lt $((exp + 2)) ]]; do sleep 0.2; done
 cut=$(first_at "$out" 'Disconnected')
 check E3 "the OPEN connection was cut within 1 s of exp (cut at ${cut:-never})" \
   within_1s "${cut:-0}" "$exp"
-r=$(try $S --creds "$SHORT" pub orders.created 'after-expiry')
-check E4 "after expiry: a NEW connection is refused" grep -q 'Authorization Violation' <<<"$r"
 # Positive control for E5: a valid subscriber must receive the same message,
 # or "the cut subscriber received nothing" proves nothing.
 ctl="$D06_RUN/ex03-control.out"
@@ -77,6 +82,12 @@ check E5a "positive control: the publish succeeded and a valid subscriber receiv
   bash -c "grep -q 'exit=0' <<<'$r' && grep -q 'after-expiry-sent' '$ctl'"
 check E5 "the cut subscriber received nothing sent after expiry" bash -c "! grep -q 'after-expiry-sent' '$out'"
 check E6 "trap: the cut subscriber still exited 0" grep -q 'exit=0' "$out"
+# The cut subscriber has exited, so the log is quiet: one refusal, one line.
+mark=$(log_mark)
+r=$(try $S --creds "$SHORT" pub orders.created 'after-expiry')
+check E4 "after expiry: a NEW connection is refused" grep -q 'Authorization Violation' <<<"$r"
+check E4b "server logged exactly 1 authentication error for that refusal" \
+  [ "$(auth_errors_since "$mark")" -eq 1 ]
 
 # --- 03b: revocation ------------------------------------------------------------
 echo "== 03b  revoke analytics-reader"
@@ -110,8 +121,14 @@ sleep 1
 cut2=$(first_at "$out2" 'Disconnected')
 check R3 "after the push, the OPEN connection was cut within 1 s (cut at ${cut2:-never})" \
   within_1s "${cut2:-0}" "$pushed"
+# The cut reader retries until its --wait 20s ends. Wait for that, so the
+# log is quiet: one refusal, one line.
+wait "$sub2" 2>/dev/null
+mark=$(log_mark)
 r=$(try $S --creds "$AR" sub 'orders.>' --count 1 --wait 1s)
 check R4 "after the push, a NEW connection is refused" grep -q 'Authorization Violation' <<<"$r"
+check R4b "server logged exactly 1 authentication error for that refusal" \
+  [ "$(auth_errors_since "$mark")" -eq 1 ]
 r=$(try $S --creds "$OS" pub orders.created 'after-revoke')
 check R5 "positive control: order-svc, same account, still publishes" grep -q 'exit=0' <<<"$r"
 check Q2 "after the push: server copy says Revocations: 1" \
@@ -123,7 +140,6 @@ revoked_on_server() {
 }
 check R6 "the server lists the reader's key under revoked_user (/accountz)" \
   revoked_on_server "$(d06_claims "$OS" | jq -r .iss)" "$(d06_claims "$AR" | jq -r .sub)"
-kill "$sub2" 2>/dev/null; wait "$sub2" 2>/dev/null
 
 cp "$D06_LOG" "$D06_RUN/ex03-server.log"
 

@@ -135,6 +135,23 @@ echo $?
 
 **Predict:** 0 or not 0? Would a script notice the cut?
 
+**The server's side of Step 7.** While terminal B ran, it retried about every 2 s, and each try logged one `authentication error` line. Now it has exited, so the log is quiet. Count the lines, run Step 7's command again, and count again.
+**Terminal C:**
+
+```bash
+grep -c 'authentication error' .run/server.log
+```
+
+```bash
+lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc-60s.creds pub orders.created 'after-expiry'
+```
+
+```bash
+grep -c 'authentication error' .run/server.log
+```
+
+**Predict:** by how much does the count go up?
+
 ---
 
 ## Part 03b — revocation
@@ -217,18 +234,30 @@ lab/nats.sh auth account query ORDERS -s nats://127.0.0.1:4922 --creds .run/cred
 
 ## Step 15: New connections, both users
 
-**Terminal C:**
+First stop terminal B with `Ctrl-C`. Its connection was cut in Step 14. It now retries about every 2 s, and each try logs one `authentication error` line.
+
+**Terminal C:** count the lines, try the revoked user, and count again:
+
+```bash
+grep -c 'authentication error' .run/server.log
+```
 
 ```bash
 lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/analytics-reader.creds sub 'orders.>' --count 1 --wait 1s
 ```
 
 ```bash
+grep -c 'authentication error' .run/server.log
+```
+
+Then the positive control:
+
+```bash
 lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/order-svc.creds pub orders.created 'after-revoke'
 ```
 
 **Purpose:** the revoked user, then a positive control in the same account.
-**Predict:** which one gets in?
+**Predict:** which one gets in? By how much does the count go up?
 
 ## Step 16: The revocation on the server
 
@@ -248,7 +277,7 @@ curl -s 'http://127.0.0.1:8922/accountz?acc=ORDERS-KEY'
 
 ## Step 17: Stop
 
-Stop terminals A and B with `Ctrl-C`. Then, **terminal C:**
+Stop terminal A with `Ctrl-C`. Then, **terminal C:**
 
 ```bash
 lab/down.sh
@@ -257,9 +286,9 @@ lab/down.sh
 ## What you should have seen
 
 - **Expiry, open connection:** cut at the end time, within one second. The client printed `Disconnected due to: EOF, will attempt reconnect`. The server logged nothing at the cut, only the refused reconnects.
-- **Expiry, new connection:** refused.
+- **Expiry, new connection:** refused. The server logged one `authentication error` line for it.
 - **The trap:** the cut listener still exited 0.
 - **Revoked, not pushed:** nothing changed. New connections got in; the open one kept receiving. `account query` showed why: local `Revocations: 1`, server `Revocations: 0`.
 - **The general rule this shows:** an account change does nothing until it is pushed. Measured here for a revocation only. Other account changes (for example a connection limit) were not tested.
-- **Revoked, pushed:** the open connection was cut within a second, and new connections were refused. `order-svc` in the same account was not touched.
+- **Revoked, pushed:** the open connection was cut within a second, and new connections were refused, one `authentication error` line each. `order-svc` in the same account was not touched.
 - **Choice this supports:** a revocation is only as fast as your push. Short-lived credentials end access with no push at all.

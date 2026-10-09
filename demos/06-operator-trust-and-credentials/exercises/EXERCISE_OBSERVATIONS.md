@@ -514,13 +514,13 @@ reading the code, then fixed. No measured result changed.
 After the fixes: ex01, ex02 and ex03 each printed ALL PASS (21:51 SAST),
 `nats-server` v2.14.6, `nats` CLI 0.4.0.
 
-**Open, not fixed (walkthrough design):** EXERCISE-03 Step 3's "to within
+**Open at the time, fixed below (walkthrough design):** EXERCISE-03 Step 3's "to within
 a second" ignores the typing gap between `date` and the credential
 command; EXERCISE-01 runs `lab/trust-conf.sh` without showing its three
 lines (Step 2 shows the result with `cat`); some refusals (ex02 P4/P9/P11,
 ex03 E4/R4) check only the client text, not the server log.
 
-### Walkthrough points 5 and 6 fixed (2026-10-09)
+### Walkthrough points 5, 6 and 7 fixed (2026-10-09)
 
 - **EXERCISE-01 Step 1** now shows the three `trust.conf` lines and where
   each value comes from. `lab/trust-conf.sh` stays as the shortcut. Checked
@@ -531,3 +531,25 @@ ex03 E4/R4) check only the client text, not the server log.
   Measured for that note, `nats` CLI 0.4.0: `auth user credential` to a
   file that exists exits 1 with `file … already exist`. With `--force` it
   overwrites the file.
+- **Refusals now have server-log evidence (point 7).** New checks, each
+  next to the client-text check it backs up:
+  - ex02 `P4b`: `jwt:<reader key>" - Subscription Violation - Subject "invoices.>"`.
+  - ex02 `P9b`: exactly 1 new `authentication error` line for the
+    greedy-reader refusal before the push.
+  - ex02 `P11b`: `jwt:<greedy-reader key>" - Publish Violation - Subject "orders.created"`.
+  - ex03 `E4b` and `R4b`: exactly 1 new `authentication error` line per
+    refusal.
+
+  Found while building `E4b`/`R4b`: a cut listener retries about every
+  2 s, and each try logs one `authentication error` line (the 2026-10-09
+  ex03 log had 16 such lines). A plain count would include them. So `E4`
+  now runs after the cut expiry listener has exited, and `R4` after the
+  cut reader's `--wait 20s` ends. The hand steps match: EXERCISE-03 Step 9
+  repeats Step 7's command once terminal B has exited, and Step 15 stops
+  terminal B first. ex03-check now takes ~42 s (was ~30 s).
+  The refused CLI connects once: each refusal gave exactly one line.
+
+  Results: ex02 ALL PASS and ex03 ALL PASS (22:03 SAST), ex01 ALL PASS
+  earlier the same evening. `nats-server` v2.14.6, `nats` CLI 0.4.0.
+  The server log at default level shows no cause for an `authentication
+  error` (expired, revoked, unknown key all look the same). Not changed.

@@ -118,6 +118,14 @@ lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/analytics-reader.creds s
 
 **Predict:** allowed or denied?
 
+The client's text is one piece of evidence. The server log is the other:
+
+```bash
+grep 'Subscription Violation' .run/server.log
+```
+
+**Look for:** one line with `Subject "invoices.>"`, and the same `jwt:U…` key as the Step 7 line.
+
 ## Step 9: Add a scoped signing key `reader`
 
 **Concept:** the role "read orders, publish nothing" now lives in the account JWT, under the key.
@@ -148,6 +156,14 @@ lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/greedy-reader.creds pub 
 
 **Predict:** admitted or refused? The reader in Step 5 needed no push. Why might this one?
 
+The server logs one `authentication error` line for each refused connection:
+
+```bash
+grep -c 'authentication error' .run/server.log
+```
+
+**Predict:** how many? This is the first refused connection in this run.
+
 ## Step 12: Push, then publish again
 
 **Terminal C:**
@@ -161,6 +177,16 @@ lab/nats.sh -s nats://127.0.0.1:4922 --creds .run/creds/greedy-reader.creds pub 
 ```
 
 **Predict:** admitted now? Is the publish allowed?
+
+```bash
+grep 'Publish Violation' .run/server.log
+```
+
+**Look for:** two lines now, Step 7's and this one, with different `jwt:U…` keys. To see which key is `greedy-reader`'s:
+
+```bash
+lab/nats.sh auth user info greedy-reader ORDERS
+```
 
 ## Step 13: The greedy reader listens
 
@@ -199,8 +225,8 @@ lab/down.sh
 ## What you should have seen
 
 - `analytics-reader` got in with no push and no restart. Its permissions were in its JWT.
-- Its publish and its `invoices.>` subscribe were denied: `Permissions Violation`.
+- Its publish and its `invoices.>` subscribe were denied: `Permissions Violation`. The server logged a `Publish Violation` and a `Subscription Violation` line.
 - The server log named it `jwt:<public key>`, never `analytics-reader`.
 - The CLI dropped `greedy-reader`'s `--pub-allow '>'` and printed the role.
-- `greedy-reader` was refused until the push, because the server did not know the `reader` key yet. After the push it could read, and its publish was denied by the role.
+- `greedy-reader` was refused until the push, because the server did not know the `reader` key yet (one `authentication error` line). After the push it could read, and its publish was denied by the role.
 - The PID did not change.
