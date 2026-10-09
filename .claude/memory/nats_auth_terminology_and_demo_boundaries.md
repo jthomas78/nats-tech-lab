@@ -32,8 +32,10 @@ metadata:
 - **Demo 06** (`demos/06-operator-trust-and-credentials/`) — operator mode and
   decentralized auth only. NATS-native credentials, trust checks, permission
   enforcement. No auth callout, no external IdP. Builds its own chain.
-- **Demo 07** — decentralized auth with external auth callout. **Folder does
-  not exist; lifecycle not started — do not create it unasked.** Operator mode
+- **Demo 07** (`demos/07-auth-callout-workos/`, created 2026-10-09) —
+  decentralized auth with external auth callout. Go callout service, real
+  WorkOS preferred; a local stand-in only for tests and never as proof.
+  Its own `CLAUDE.md` holds the detail. Operator mode
   only, keeping the NATS operator/account trust base. The callout service
   validates a WorkOS identity and maps it to NATS access through the signed
   NATS authorization request/response. An online external auth service does

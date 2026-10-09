@@ -58,3 +58,9 @@ demos/05-identity-and-permissions/.run/
 # Demo 06's run state — the operator / account / user keys and JWTs, .creds
 # files, resolver directory, PID file and logs. Holds seeds; never commit it.
 demos/06-operator-trust-and-credentials/.run/
+
+# Demo 07's run state — operator / account / user keys and JWTs, .creds
+# files, resolver directory, PID files and logs. Plus the user's WorkOS keys.
+# Holds seeds and secrets; never commit either.
+demos/07-auth-callout-workos/.run/
+demos/07-auth-callout-workos/.env*

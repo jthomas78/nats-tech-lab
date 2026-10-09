@@ -418,6 +418,20 @@ Two rules worth knowing from outside: every `nats` call goes through its
 `lab/nats.sh`, which keeps its keys out of `~/.local/share/nats`; and its
 keys and `.creds` live in its gitignored `.run/`.
 
+### Running demo 07
+
+**`demos/07-auth-callout-workos/` has its own `CLAUDE.md`. Read that, not
+this file, for anything inside that folder.** It is a sealed unit — one bare
+`nats-server` in **operator mode** on the host, the host `nats auth` CLI, one
+small Go auth callout service and shell scripts. Role: showcase +
+validation — **decentralized** authentication with an external **auth
+callout** that checks a real **WorkOS** identity. In stage 01 (started
+2026-10-09); ports come in stage 02.
+
+Two rules worth knowing from outside: never copy the NATS docs' callout
+example, because it switches to configuration mode; and WorkOS keys live in
+a gitignored env file the user writes, never in a commit.
+
 **Auth demos (05, 06, 07) are transparent and terminal-first.** Three
 kinds of file, kept apart: the walkthrough (direct commands, the teaching
 path), thin convenience scripts, and validation scripts (assertions and
