@@ -419,3 +419,70 @@ What this run shows: the 100-byte scoped limit reached the client through
 the server. What it does not show: the server rejecting an oversized
 message itself. A client that skips its own check would be needed for
 that; the `nats` CLI has no such flag.
+
+## Walkthrough — exercise 03 by hand (2026-10-09)
+
+The user ran `EXERCISE-03-TERMINAL-STEPS.md` in their own terminals, with
+Claude guiding each step and reading `.run/server.log`. Guided, so it does
+**not** close `D06-R9`. Versions: `nats-server` v2.14.6, `nats` CLI 0.4.0.
+Step 1 built a new chain (`lab/down.sh --clean`, `lab/chain.sh`); one server
+process for the whole exercise (PID 6707, started 11:37:32). All times are
+local (SAST, UTC+2).
+
+### Part 03a — expiry
+
+- **Steps 2–6, open connection:** the 60 s ticket ended at 11:53:29;
+  terminal B was cut at 11:53:29. The server logged nothing at the cut,
+  then one `authentication error` per reconnect try, from 11:53:30.
+- **Reconnect lines ran past `--wait 90s` on the first run** (not
+  explained). They continued to 11:54:54, about 50 s after the listener's
+  `--wait 90s` should have ended (about 11:54:06). The 11:55:01 line is
+  most likely the Step 7 attempt. The two later runs stopped within the
+  expected window.
+- **Step 7, new connection:** refused; client `Authorization Violation`.
+- **Steps 8–9 needed two redos.** Step 8 is only a valid test inside a
+  window of about 30 s: after the 60 s expiry and before `--wait 90s`
+  ends. Run 1: the check came from a new connection at 21:14, not the cut
+  listener. Redo 1: Step 8 published at 21:16:19, before the cut at
+  21:17:03 (too early). Redo 2 (valid): ticket ended 21:27:11, cut
+  21:27:11, `after-cut` published 21:27:29 (exit 0) and **not received**.
+- **Step 9, exit code:** the cut listener exited **0**. Seen twice (runs 1
+  and redo 2). The trap holds: a script that checks only the exit code
+  would not notice the cut.
+
+**Steps file weakness (not fixed):** Step 8 does not say it must run in
+the window after the cut and before `--wait 90s` ends. Two of three tries
+by hand missed it.
+
+### Part 03b — revocation
+
+- **Step 10:** reader `analytics-reader`, key `UABLIFMP…`.
+- **Step 12 (revoked, not pushed):** local `account info`
+  `Revocations: 1`, `Users: 1`; server `account query` `Revocations: 0`,
+  `Users: 0`. `Users: 0` on the server is normal: the server stores no
+  user JWTs.
+- **Step 13:** new reader connection **admitted** at 21:34:19 (`Subscribing
+  on orders.>`, no violation). The open listener in terminal B received
+  `revoked-not-pushed` (published 21:34:51). Nothing changed, as the file
+  says.
+- **Step 14 (push):** `/accountz` `update_time` 21:36:07.69. First refused
+  reconnect in the server log 21:36:08.49: the open connection was cut
+  about **0.8 s** after the push (server side). Refused reconnects then
+  continued until the user pressed `Ctrl-C` (exit 130): the listener had
+  no `--wait`. The client's own text at the cut was not captured. Server
+  `account query` then showed `Revocations: 1`.
+- **Step 15:** revoked reader, new connection: refused (client
+  `Authorization Violation`, server `authentication error` 21:39:27; the
+  user also ran it at 21:39:00, also refused). Positive control
+  `order-svc`, same account: published 21:39:31. The revocation touched
+  only the reader.
+- **Step 16:** `/accountz?acc=<ORDERS>` `revoked_user` lists `UABLIFMP…`
+  at `2026-10-09T21:29:25+02:00`. That is when `auth user rm … --revoke`
+  ran, not when it was pushed; the server acted only at the push.
+  `client_connections: 0`.
+- **Step 17:** `lab/down.sh` stopped 6707; port 4922 free.
+
+**Not tested here (source knowledge only):** a revocation refuses the
+user's JWTs issued *before* the revocation time; a new JWT for the same
+key signed later may be admitted. `auth user rm` without `--revoke` only
+deletes the user from the local key store and does not stop its `.creds`.
