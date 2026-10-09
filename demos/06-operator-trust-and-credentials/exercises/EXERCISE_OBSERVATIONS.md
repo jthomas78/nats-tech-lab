@@ -280,3 +280,109 @@ Versions as above.
 - **Error count:** 6 `authentication error` lines for 6 refused attempts
   (the user ran Step 8 twice; the two lines are 45 s apart). One line per
   attempt, so this run says nothing new about the C17 open question.
+
+## Walkthrough — exercise 02 by hand (2026-10-08 to 2026-10-09)
+
+The user ran `EXERCISE-02-TERMINAL-STEPS.md` in their own terminals, with
+Claude guiding each step. Guided, so it does **not** close `D06-R9`.
+Versions: `nats-server` v2.14.6, `nats` CLI 0.4.0. Started on the `.run/`
+left by exercise 01 (no `lab/chain.sh`).
+
+- **Result:** all 15 steps matched "What you should have seen". No step
+  file change was needed.
+- **Step 8:** the client printed `Subscribing on invoices.>` *before* the
+  `Permissions Violation for Subscription` error. The first line does not
+  mean the server allowed the subscribe.
+- **Step 11** (`greedy-reader` before the push): client `Authorization
+  Violation`; server `authentication error` only, no fetch line (the server
+  already had `ORDERS`). The log gives no reason. The reason "issuer not
+  known" is from source (`auth.go` L1031–1033, a debug-level message), not
+  from this log.
+- **Step 12:** after the push, the server logged `…/ORDERS/jwt:<greedy key>
+  - Publish Violation`: admitted, then denied by the role. The push report
+  (`Success 1`) alone was not the evidence; the admission was.
+- **Step 14:** the PID file said 44901. `ps` confirmed process 44901 alive,
+  started 2026-10-08 14:17:13 with `ex01-nats-operator.conf`, and the log
+  had one `Server is ready` line. The server ran overnight; Step 13 ran the
+  next morning on the same process.
+- **Step 15:** `lab/down.sh` stopped 44901; port 4922 free (checked with
+  `ps` and `lsof`).
+
+### Scoped signing key: `Max Payload: 0` vs `unlimited` — source-derived, not runtime-verified
+
+In this run, `nats auth account keys add ORDERS reader …` printed
+`Max Payload: 0` for the role. The next `nats auth user add greedy-reader
+… --key reader` printed `Max Payload: unlimited` for the same role.
+
+**Status: source-derived evidence only.** Read from the source of the
+installed versions, plus the raw claims and `/varz` of this run. **No
+publish has tested the payload limit of a scoped user.** `greedy-reader`
+cannot publish, so its denied publish proves nothing about payload.
+
+Raw claims in this run (decoded, not verified):
+
+- Account JWT, `signing_keys[0].template`: `pub.deny [">"]`,
+  `sub.allow ["orders.>"]`, `subs: -1`, `data: -1`, **no `payload` field**.
+- `greedy-reader` user JWT: `iss` = the `reader` key, `pub {}`, `sub {}`,
+  no limits at all.
+- `ORDERS` account limits: `payload: -1`. `/varz` `max_payload`: `1048576`.
+  No `max_payload` in the server config.
+
+**1. What the server enforces for a scoped user (source):**
+
+- The server refuses a scoped user whose JWT has any permissions or limits
+  set: [jwt v2.8.2 `signingkeys.go` L94–106](https://github.com/nats-io/jwt/blob/v2.8.2/v2/signingkeys.go#L94-L106).
+- On login, the server replaces the user's whole `UserPermissionLimits`
+  (pub/sub, src, times, locale, subs, data, payload, bearer, connection
+  types) with the key's template:
+  [nats-server v2.14.6 `auth.go` L1031–1045](https://github.com/nats-io/nats-server/blob/v2.14.6/server/auth.go#L1031-L1045).
+- The server takes payload and subs from the template, then lowers them to
+  the account limit and to the server's `max_payload`:
+  [nats-server v2.14.6 `client.go` L942–987](https://github.com/nats-io/nats-server/blob/v2.14.6/server/client.go#L942-L987).
+- The CLI never writes a scoped user's own permissions. `updateUser`
+  returns early, so `--pub-allow '>'` and `--defaults` were dropped:
+  [natscli v0.4.0 `auth_user_command.go` L434–437](https://github.com/nats-io/natscli/blob/v0.4.0/cli/auth_user_command.go#L434-L437).
+
+**2. What `0` and `unlimited` mean in these CLI displays (source):**
+
+1. `keys add` has no default for `--payload`
+   ([natscli v0.4.0 `auth_account_command.go` L292](https://github.com/nats-io/natscli/blob/v0.4.0/cli/auth_account_command.go#L292)).
+   `skAddAction` sets `limits.Payload = 0`, then prints that in-memory
+   value ([L556–614](https://github.com/nats-io/natscli/blob/v0.4.0/cli/auth_account_command.go#L556-L614)).
+   That is the `0`.
+2. `payload` is `omitempty`
+   ([jwt v2.8.2 `account_claims.go` L50](https://github.com/nats-io/jwt/blob/v2.8.2/v2/account_claims.go#L50)),
+   so the `0` is not written. The JWT on disk has no `payload` field.
+3. On decode, each scope starts as `NewUserScope()` with
+   `subs`/`data`/`payload` = `-1` (no limit). A missing field stays `-1`:
+   [jwt v2.8.2 `signingkeys.go` L77–82, L144–175](https://github.com/nats-io/jwt/blob/v2.8.2/v2/signingkeys.go#L77-L82).
+   The CLI builds against jwt v2.8.1, which has the same code:
+   [v2.8.1 `signingkeys.go`](https://github.com/nats-io/jwt/blob/v2.8.1/v2/signingkeys.go#L77-L82).
+4. `user add` re-reads the account from disk and renders the scope's
+   template for a scoped user
+   ([natscli v0.4.0 `auth_user_command.go` L505–511](https://github.com/nats-io/natscli/blob/v0.4.0/cli/auth_user_command.go#L505-L511);
+   [jwt-auth-builder v0.0.9 `scope.go` L239–241](https://github.com/synadia-io/jwt-auth-builder.go/blob/v0.0.9/scope.go#L239-L241)).
+   `RenderUserLimits` prints `unlimited` only for `-1`
+   ([natscli v0.4.0 `internal/auth/auth.go` L320](https://github.com/nats-io/natscli/blob/v0.4.0/internal/auth/auth.go#L320)).
+   That is the `unlimited`.
+
+**Source-derived conclusion:** `0` is a value in the CLI's memory that the
+JWT can never hold. The server decodes the omitted field as `-1`, the same
+as the second display. So `greedy-reader` gets no payload limit from its
+role, and the effective limit is the server's `max_payload`, 1 MiB.
+**Not runtime-verified.**
+
+**Optional probe (not run).** It tests something different: whether the
+server enforces an **explicit** scoped payload limit (`--payload 100` on a
+throwaway `probe` key, with `probe.>` permissions). It does **not** test the
+omitted-field / `0` / `unlimited` behavior above. If it is run, it passes
+only with both of these:
+
+- confirmed delivery of a message below the limit, seen by a subscriber;
+- a payload rejection above the limit, logged by the **server** and tied
+  to that connection.
+
+How the client behaves above the limit is a prediction until observed.
+Prediction: the client sends the message, because it knows only the
+server's 1 MiB. The server then closes the connection with
+`Maximum Payload Violation`.
