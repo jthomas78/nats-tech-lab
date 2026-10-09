@@ -74,7 +74,35 @@ The `SYSTEM` user `admin`. It pushes accounts to the server later:
 lab/nats.sh auth user add admin SYSTEM --defaults --credential .run/creds/sys.creds
 ```
 
-The trust file the server loads (`.run/trust.conf`):
+The trust file the server loads (`.run/trust.conf`). The exercise config
+`include`s it. It holds three settings, and each value comes from the store
+that `nats auth` just wrote:
+
+```text
+operator: "<demo folder>/.run/xdg-data/nats/nsc/stores/D06/D06.jwt"
+system_account: A…
+resolver_preload {
+  A…: eyJ…
+}
+```
+
+- `operator` — the path to the operator JWT. `auth operator add D06` wrote
+  it to `.run/xdg-data/nats/nsc/stores/D06/D06.jwt`. This is the only key
+  the server trusts.
+- `system_account` — the public key of the `SYSTEM` account. It is on the
+  first line of `auth account info`, in the form `Account SYSTEM (A…)`:
+
+  ```bash
+  lab/nats.sh auth account info SYSTEM
+  ```
+
+- `resolver_preload` — the `SYSTEM` account JWT, under that same key. The
+  file is `.run/xdg-data/nats/nsc/stores/D06/accounts/SYSTEM/SYSTEM.jwt`.
+  The server knows `SYSTEM` from the start, so the `admin` user can connect
+  and push other accounts. No other account is preloaded.
+
+You can write the file by hand from those three values. The script does the
+same thing and saves typing:
 
 ```bash
 lab/trust-conf.sh
