@@ -11,10 +11,10 @@ recommendation.
 ## Goal
 
 All three exercises of `demos/06-operator-trust-and-credentials` are now
-walked by hand and recorded. What is left: the three open walkthrough
-design points from the Codex review, then the demo's completion items. A
-walkthrough guided by Claude does **not** close `D06-R9` (another person
-runs the README with no help).
+walked by hand and recorded, and the three Codex walkthrough points (5, 6,
+7) are fixed. What is left: the demo's completion items. A walkthrough
+guided by Claude does **not** close `D06-R9` (another person runs the
+README with no help).
 
 ## Done so far (branch `poc/demo06`, nothing pushed)
 
@@ -41,9 +41,23 @@ This walkthrough (2026-10-08 to 2026-10-09):
   `/accountz` with `jq`; README seed claim relabelled "from the docs, not
   measured". ex01/02/03 each ALL PASS (2026-10-09 21:51).
 
+Codex walkthrough points, fixed 2026-10-09:
+
+- `e4f539d` point 6: EXERCISE-01 Step 1 shows the three `trust.conf`
+  lines (`operator`, `system_account`, `resolver_preload`) and where each
+  value comes from. `lab/trust-conf.sh` stays as the shortcut.
+- `7223ac7` point 5: EXERCISE-03 Step 2 runs the credential command and
+  `date` on one line (`--force; date`), with a Timing line and an "if you
+  miss the window" re-issue note.
+- `590b3fc` point 7: server-log checks `P4b`, `P9b`, `P11b` (ex02) and
+  `E4b`, `R4b` (ex03), plus matching `grep` commands in the steps files.
+  ex03-check now takes ~42 s.
+
+ex01/02/03 each ALL PASS (2026-10-09, ~22:03 SAST).
+
 All results are in `exercises/EXERCISE_OBSERVATIONS.md` under the
 "Walkthrough — exercise NN by hand" and "Check-script fixes after a Codex
-review" sections.
+review" sections (the last subsection covers points 5–7).
 
 **State now:** no server running; port 4922 free. `.run/` holds a chain
 left by the last `ex03-check.sh` — not the walkthrough's keys. Any new hand
@@ -53,24 +67,12 @@ run starts with `lab/down.sh --clean`.
 
 Ask the user which one to start. Do not do them all at once.
 
-1. **Codex point 5 — EXERCISE-03 Step 3.** "To within a second" ignores the
-   typing gap between `date` and the credential command; Steps 3–5 can also
-   eat the 60 s. Option: one timed sequence, plus "re-issue if you missed
-   the pre-expiry message".
-   **Check:** `exercises/ex03-check.sh` prints ALL PASS.
-2. **Codex point 6 — EXERCISE-01 Step 1.** `lab/trust-conf.sh` writes three
-   lines (`operator`, `system_account`, `resolver_preload`) that the step
-   does not show. Step 2 shows the result with `cat`. Option: show the
-   three lines and how each value is read; keep the script as a shortcut.
-   **Check:** `exercises/ex01-check.sh` prints ALL PASS.
-3. **Codex point 7 — refusals checked by client text only:** ex02
-   P4/P9/P11, ex03 E4/R4. Add a server-log assertion (count of
-   `authentication error` or the violation line) per refusal, and the
-   matching command in the steps files.
-   **Check:** all three check scripts print ALL PASS.
-4. Commit only files changed in the session. Never push.
-5. Later, not this session unless asked: `D06-R9` (another person) and the
-   pattern cards deck (`pattern-cards` skill → `docs/demo-06-pattern-cards.html`/`.pdf`).
+1. **`D06-R9`** — another person runs the README with no help. The user
+   arranges this; Claude cannot close it. Record the result in
+   `EXERCISE_OBSERVATIONS.md` when it happens.
+2. **Pattern cards deck** (stage 04) — `pattern-cards` skill →
+   `docs/demo-06-pattern-cards.html` / `.pdf`. Read the skill first.
+3. Commit only files changed in the session. Never push.
 
 ## Decisions made — do not re-open
 
@@ -106,6 +108,10 @@ Ask the user which one to start. Do not do them all at once.
 - `auth user rm … --revoke` changes only the local account JWT. Nothing
   happens until `auth account push`. The `revoked_user` time is the `rm`
   time, not the push time.
+- A cut listener keeps retrying about every 2 s; each try logs one
+  `authentication error`. Count refusal lines only after it has exited.
+- `auth user credential` to an existing file fails (`already exist`);
+  `--force` overwrites it.
 - Not explained: on the first expiry run, reconnect lines ran ~50 s past
   `--wait 90s`. Recorded; not reproduced.
 - Never `pkill nats-server`; demos 03 and 05 run bare servers too. Use
