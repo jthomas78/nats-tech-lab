@@ -55,7 +55,7 @@ func TestRegistrySubjectsServeTheWireContract(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	t.Cleanup(nc.Close)
 	svc := &stubService{doc: doc(12, entry("fleet", "http://localhost:7110/r.js")), origins: []string{"http://localhost:7110"}}
-	a, err := Mount(nc, endpoints(svc), nil)
+	a, err := Mount(nc, endpoints(svc), nil, nil)
 	g.Expect(err).NotTo(HaveOccurred())
 	t.Cleanup(func() { _ = a.Stop() })
 	request := func(subject, payload string) (*nats.Msg, map[string]any) {

@@ -37,6 +37,7 @@ import (
 
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 const (
@@ -62,6 +63,18 @@ type UsersAdapter struct {
 	revoker *UserRevoker
 	log     *slog.Logger
 	tracer  *natstrace.Tracer
+	otel    *otelnats.Provider
+}
+
+// UsersOption configures NewUsersAdapter.
+type UsersOption func(*UsersAdapter)
+
+// WithUsersTracing makes each endpoint an OTel SERVER span on the PLATFORM
+// account that starts a new root (Phase 54b-5, BR-069, BR-071 EdgeAPI). A
+// nil provider is the same as not passing the option, which keeps natstrace
+// (decision 16).
+func WithUsersTracing(p *otelnats.Provider) UsersOption {
+	return func(a *UsersAdapter) { a.otel = p }
 }
 
 // UserGetRequest is .get.v1's body. The user NKey is the identity everything
@@ -90,8 +103,11 @@ type UserListResponse struct {
 // every request with an error. That is deliberate: an endpoint that is
 // absent looks to a browser exactly like a NATS timeout, whereas one that
 // refuses can say why.
-func NewUsersAdapter(nc *nats.Conn, reader *UserClaimsReader, revoker *UserRevoker, log *slog.Logger) (*UsersAdapter, error) {
+func NewUsersAdapter(nc *nats.Conn, reader *UserClaimsReader, revoker *UserRevoker, log *slog.Logger, opts ...UsersOption) (*UsersAdapter, error) {
 	a := &UsersAdapter{reader: reader, revoker: revoker, log: log, tracer: natstrace.New(nc)}
+	for _, opt := range opts {
+		opt(a)
+	}
 
 	svc, err := micro.AddService(nc, micro.Config{
 		// Matches this connection's own nats.Name (natsconn.Options
@@ -107,12 +123,22 @@ func NewUsersAdapter(nc *nats.Conn, reader *UserClaimsReader, revoker *UserRevok
 	a.svc = svc
 
 	for _, ep := range a.endpoints() {
-		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
+		h := a.tracer.Middleware(ep.handler)
+		if a.otel != nil {
+			h = a.otel.Middleware(otelnats.EdgeAPI, platformTrust, ep.handler)
+		}
+		if err := svc.AddEndpoint(ep.name, h, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
 	}
 	return a, nil
+}
+
+// platformTrust names the receiving account. The adapter is mounted on the
+// PLATFORM connection only.
+func platformTrust(micro.Request) otelnats.Trust {
+	return otelnats.Trust{ReceivingAccount: "PLATFORM"}
 }
 
 type usersEndpoint struct {

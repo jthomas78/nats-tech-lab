@@ -34,6 +34,7 @@ import (
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/docs"
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 func main() {
@@ -206,6 +207,16 @@ func run(log *slog.Logger) error {
 	}
 	go accounts.NewSessionReaper(store, reaperCfg, log).Run(ctx)
 
+	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set; nil keeps
+	// natstrace on the Users adapter, the notify.* publishes and the REST
+	// API.
+	tracing, err := otelnats.InitFromEnv(ctx, "accounts-service")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tracing.Shutdown(context.Background()) }()
+	log.Info("tracing", "otel", tracing != nil)
+
 	// Phase 50b (BR-AC40) — the Admin UI's Users panel, served on the
 	// PLATFORM connection the Admin UI's own browser credential authenticates
 	// into. Mounting it here and nowhere else is what makes "PLATFORM-only" a
@@ -219,7 +230,8 @@ func run(log *slog.Logger) error {
 		// process that can re-sign an account JWT.
 		usersAdapter, err := accounts.NewUsersAdapter(platformNC,
 			accounts.NewUserClaimsReader(store, provisioner, log),
-			accounts.NewUserRevoker(store, provisioner, log), log)
+			accounts.NewUserRevoker(store, provisioner, log), log,
+			accounts.WithUsersTracing(tracing))
 		if err != nil {
 			log.Warn("users api adapter: not registered", "err", err)
 		} else {
@@ -242,6 +254,7 @@ func run(log *slog.Logger) error {
 		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
 	}
 	handlers.RefdataURL = refdataURL
+	handlers.Tracing = tracing
 	mux := http.NewServeMux()
 	handlers.Mount(mux, authSecret)
 
@@ -268,7 +281,7 @@ func run(log *slog.Logger) error {
 	// Phase 28e — one http.Handler decorator wrapping the whole mux covers
 	// every accounts/auth REST endpoint, symmetric to the other four
 	// services' micro.Handler Middleware wrapping every svc.AddEndpoint call.
-	server := &http.Server{Addr: httpAddr, Handler: tracer.HTTPMiddleware("_platform", "accounts", mux)}
+	server := &http.Server{Addr: httpAddr, Handler: accounts.TraceHTTP(mux, tracing, tracer)}
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("accounts-service: http server listening", "addr", httpAddr)

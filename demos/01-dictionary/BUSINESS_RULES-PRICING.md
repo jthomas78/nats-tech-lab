@@ -465,6 +465,18 @@ Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing pub
 - **Enforced in:** `pricing/internal/natstrace` (new package, Phase 28b) — mirrors `dictionary/internal/natstrace`'s `Tracer.publish()` redaction-then-truncate ordering and `traceSpan` struct field-for-field.
 - **Test:** `pricing/internal/natstrace/natstrace_test.go` — the shared cross-service contract test (BR-036's clone) asserting the `traceSpan` JSON shape decodes identically to shipping-service's, and that an old-shape `obsEnvelope` with none of the Phase 28 fields still decodes.
 
+> **OTel path (Phase 54b-5, 2026-10-15).** With `MountAPI(..., tracing)` set
+> (`OTEL_EXPORTER_OTLP_ENDPOINT` in `deploy/cell/compose.otel.yaml`), every
+> one of the 33 `api.*` endpoints is an OTel SERVER span named for its
+> subject, on the tenant's account (BR-069), that starts a new root and
+> links a sent `traceparent` (BR-071). The span's context reaches the
+> repository: all 33 handlers use `sharedbrowserrpc.SpanContext(req)`, not
+> `context.Background()`. The tenant lifecycle is traced through
+> `natstenants.WithTracing`. No `obs.trace.*` span is published on that
+> path. Without a Provider this rule still describes the service.
+> Test: `pricing/browserrpc_otel_test.go` (every endpoint, the link, no
+> natstrace, and the nil-Provider guard).
+
 ### BR-P26 (Phase 33.4) — Business operations are reachable only over `api.*`/`rpc.*`; REST reduces to infra health
 
 All 34 `/api/pricing/{context}/...` REST routes (FeeScale, RateSheet, FixedRate, and the diesel price index/overlay endpoints) are deleted now that `internal/browserrpc`'s `api.*` adapter (Phase 25f) has full 1:1 parity with them. Nothing outside pricing-service ever called them: `frontend/seafreight-app`, `frontend/admin`, and every other frontend in the repo already talk to pricing-service exclusively over `api.*`. REST's only remaining surface is `GET /healthz`, mirroring the convention `dictionary/internal/rest` already established. pricing-service has no admin-only or BasicAuth-gated REST routes to carve out an exception for — unlike `refdata-service`'s `/api/refdata/admin/*`, every pricing operation is tenant-facing business data, so there is no third "admin REST" category here, only the two: infra (`/healthz`) and business (`api.*`/`rpc.*`).

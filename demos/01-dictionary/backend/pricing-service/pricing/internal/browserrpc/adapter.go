@@ -23,7 +23,6 @@
 package browserrpc
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -36,6 +35,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/domain"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // Subject constants — {context} is a wildcard token resolved per-request
@@ -99,6 +99,10 @@ type Deps struct {
 	// Services panel to label same-named instances by tenant (mirrors
 	// shipping-service's browserrpc.Deps.Tenant, Phase 17c).
 	Tenant string
+	// Tracing, when set, traces every endpoint with OTel instead of natstrace
+	// (Phase 54b-5; set only on the OTel stack). Nil keeps natstrace on every
+	// endpoint.
+	Tracing *otelnats.Provider
 }
 
 // Adapter is pricing-service's api.* frontend-to-service adapter for one
@@ -111,6 +115,8 @@ type Adapter struct {
 	log        *slog.Logger
 	svc        micro.Service
 	tracer     *natstrace.Tracer
+	otel       *otelnats.Provider
+	tenant     string
 }
 
 func isNotFoundErr(err error) bool {
@@ -265,6 +271,8 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		fixedRates: deps.FixedRates,
 		log:        deps.Log,
 		tracer:     natstrace.New(nc),
+		otel:       deps.Tracing,
+		tenant:     deps.Tenant,
 	}
 
 	svc, err := micro.AddService(nc, micro.Config{
@@ -324,7 +332,14 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"rate-sheet-apply-overlay", a.handleRateSheetApplyOverlay, RateSheetApplyOverlaySubject},
 	}
 	for _, ep := range endpoints {
-		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
+		handler := a.tracer.Middleware(ep.handler)
+		if a.otel != nil {
+			// A browser call: a new root, any sent traceparent only a link
+			// (BR-071). The receiving account is this adapter's tenant, and
+			// the originating tenant stays empty (BR-069).
+			handler = a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
+		}
+		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
@@ -350,7 +365,7 @@ func (a *Adapter) handleFeeScaleRegister(req micro.Request) {
 		return
 	}
 	fs := domain.FeeScale{Context: sharedbrowserrpc.ContextFromSubject(subject), Name: in.Name}
-	err := a.feeScales.Register(context.Background(), fs)
+	err := a.feeScales.Register(sharedbrowserrpc.SpanContext(req), fs)
 	a.reply(req, feeScaleResponse{FeeScale: fs}, err)
 }
 
@@ -358,7 +373,7 @@ func (a *Adapter) handleFeeScaleRegister(req micro.Request) {
 // excludes soft-deleted fee scales.
 func (a *Adapter) handleFeeScaleList(req micro.Request) {
 	subject := req.Subject()
-	feeScales, err := a.feeScales.List(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
+	feeScales, err := a.feeScales.List(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, feeScalesResponse{FeeScales: feeScales}, err)
 }
 
@@ -369,7 +384,7 @@ func (a *Adapter) handleFeeScaleGet(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	fs, err := a.feeScales.Get(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	fs, err := a.feeScales.Get(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleResponse{FeeScale: fs}, err)
 }
 
@@ -380,7 +395,7 @@ func (a *Adapter) handleFeeScaleCreateDraft(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.feeScales.CreateDraft(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	v, err := a.feeScales.CreateDraft(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleVersionResponse{Version: v}, err)
 }
 
@@ -391,7 +406,7 @@ func (a *Adapter) handleFeeScaleAddRange(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	err := a.feeScales.AddRange(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.Range)
+	err := a.feeScales.AddRange(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.Range)
 	a.reply(req, struct{}{}, err)
 }
 
@@ -402,7 +417,7 @@ func (a *Adapter) handleFeeScalePublish(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.feeScales.Publish(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	v, err := a.feeScales.Publish(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleVersionResponse{Version: v}, err)
 }
 
@@ -413,7 +428,7 @@ func (a *Adapter) handleFeeScaleRollback(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.feeScales.Rollback(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
+	v, err := a.feeScales.Rollback(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
 	a.reply(req, feeScaleVersionResponse{Version: v}, err)
 }
 
@@ -424,7 +439,7 @@ func (a *Adapter) handleFeeScaleVersions(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	versions, err := a.feeScales.Versions(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	versions, err := a.feeScales.Versions(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleVersionsResponse{Versions: versions}, err)
 }
 
@@ -435,7 +450,7 @@ func (a *Adapter) handleFeeScaleActive(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.feeScales.ActiveVersion(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	v, err := a.feeScales.ActiveVersion(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleVersionResponse{Version: v}, err)
 }
 
@@ -446,7 +461,7 @@ func (a *Adapter) handleFeeScaleCalculateFee(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	fee, err := a.feeScales.CalculateFee(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.CentBid)
+	fee, err := a.feeScales.CalculateFee(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.CentBid)
 	a.reply(req, feeAmountResponse{CentFee: fee}, err)
 }
 
@@ -460,14 +475,14 @@ func (a *Adapter) handleRateSheetRegister(req micro.Request) {
 		return
 	}
 	rs := domain.RateSheet{Context: sharedbrowserrpc.ContextFromSubject(subject), Name: in.Name, CustomerKey: in.CustomerKey, Type: in.Type, Active: in.Active}
-	err := a.rateSheets.Register(context.Background(), rs)
+	err := a.rateSheets.Register(sharedbrowserrpc.SpanContext(req), rs)
 	a.reply(req, rateSheetResponse{RateSheet: rs}, err)
 }
 
 // handleRateSheetList takes no input beyond {context}.
 func (a *Adapter) handleRateSheetList(req micro.Request) {
 	subject := req.Subject()
-	rateSheets, err := a.rateSheets.List(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
+	rateSheets, err := a.rateSheets.List(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, rateSheetsResponse{RateSheets: rateSheets}, err)
 }
 
@@ -478,7 +493,7 @@ func (a *Adapter) handleRateSheetGet(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	rs, err := a.rateSheets.Get(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	rs, err := a.rateSheets.Get(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetResponse{RateSheet: rs}, err)
 }
 
@@ -489,7 +504,7 @@ func (a *Adapter) handleRateSheetCreateDraft(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.CreateDraft(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	v, err := a.rateSheets.CreateDraft(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -500,7 +515,7 @@ func (a *Adapter) handleRateSheetAddEntry(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	err := a.rateSheets.AddEntry(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.Entry)
+	err := a.rateSheets.AddEntry(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.Entry)
 	a.reply(req, struct{}{}, err)
 }
 
@@ -511,7 +526,7 @@ func (a *Adapter) handleRateSheetSetFeeScaleOverride(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	err := a.rateSheets.SetFeeScaleOverride(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.FeeScaleName)
+	err := a.rateSheets.SetFeeScaleOverride(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.FeeScaleName)
 	a.reply(req, struct{}{}, err)
 }
 
@@ -522,7 +537,7 @@ func (a *Adapter) handleRateSheetPublish(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.Publish(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	v, err := a.rateSheets.Publish(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -533,7 +548,7 @@ func (a *Adapter) handleRateSheetRollback(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.Rollback(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
+	v, err := a.rateSheets.Rollback(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -544,7 +559,7 @@ func (a *Adapter) handleRateSheetVersions(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	versions, err := a.rateSheets.Versions(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	versions, err := a.rateSheets.Versions(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetVersionsResponse{Versions: versions}, err)
 }
 
@@ -555,7 +570,7 @@ func (a *Adapter) handleRateSheetActive(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.ActiveVersion(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	v, err := a.rateSheets.ActiveVersion(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -566,7 +581,7 @@ func (a *Adapter) handleRateSheetDropsCharge(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	charge, err := a.rateSheets.AdditionalDropsCharge(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.RouteKey, in.VehicleType, in.AddressCount)
+	charge, err := a.rateSheets.AdditionalDropsCharge(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.RouteKey, in.VehicleType, in.AddressCount)
 	a.reply(req, dropsChargeResponse{CentCharge: charge}, err)
 }
 
@@ -580,14 +595,14 @@ func (a *Adapter) handleFixedRateRegister(req micro.Request) {
 		return
 	}
 	fr := domain.FixedRate{Context: sharedbrowserrpc.ContextFromSubject(subject), Name: in.Name, CustomerKey: in.CustomerKey, RouteKey: in.RouteKey, Active: in.Active}
-	err := a.fixedRates.Register(context.Background(), fr)
+	err := a.fixedRates.Register(sharedbrowserrpc.SpanContext(req), fr)
 	a.reply(req, fixedRateResponse{FixedRate: fr}, err)
 }
 
 // handleFixedRateList takes no input beyond {context}.
 func (a *Adapter) handleFixedRateList(req micro.Request) {
 	subject := req.Subject()
-	fixedRates, err := a.fixedRates.List(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
+	fixedRates, err := a.fixedRates.List(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, fixedRatesResponse{FixedRates: fixedRates}, err)
 }
 
@@ -598,7 +613,7 @@ func (a *Adapter) handleFixedRateGet(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	fr, err := a.fixedRates.Get(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	fr, err := a.fixedRates.Get(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, fixedRateResponse{FixedRate: fr}, err)
 }
 
@@ -609,7 +624,7 @@ func (a *Adapter) handleFixedRateCreateDraft(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.fixedRates.CreateDraft(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.CentRate, in.PointCount, in.CentAdditionalDropRate)
+	v, err := a.fixedRates.CreateDraft(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.CentRate, in.PointCount, in.CentAdditionalDropRate)
 	a.reply(req, fixedRateVersionResponse{Version: v}, err)
 }
 
@@ -620,7 +635,7 @@ func (a *Adapter) handleFixedRatePublish(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.fixedRates.Publish(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	v, err := a.fixedRates.Publish(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, fixedRateVersionResponse{Version: v}, err)
 }
 
@@ -631,7 +646,7 @@ func (a *Adapter) handleFixedRateRollback(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.fixedRates.Rollback(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
+	v, err := a.fixedRates.Rollback(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
 	a.reply(req, fixedRateVersionResponse{Version: v}, err)
 }
 
@@ -642,7 +657,7 @@ func (a *Adapter) handleFixedRateVersions(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	versions, err := a.fixedRates.Versions(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	versions, err := a.fixedRates.Versions(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, fixedRateVersionsResponse{Versions: versions}, err)
 }
 
@@ -653,7 +668,7 @@ func (a *Adapter) handleFixedRateActive(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.fixedRates.ActiveVersion(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
+	v, err := a.fixedRates.ActiveVersion(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, fixedRateVersionResponse{Version: v}, err)
 }
 
@@ -664,7 +679,7 @@ func (a *Adapter) handleFixedRateDropsCharge(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	charge, err := a.fixedRates.AdditionalDropsCharge(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.AddressCount)
+	charge, err := a.fixedRates.AdditionalDropsCharge(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.AddressCount)
 	a.reply(req, dropsChargeResponse{CentCharge: charge}, err)
 }
 
@@ -678,13 +693,13 @@ func (a *Adapter) handleDieselPriceIndex(req micro.Request) {
 		return
 	}
 	price := domain.DieselPrice{ActiveDate: in.ActiveDate, CoastalCents: in.CoastalCents, InlandCents: in.InlandCents}
-	err := a.rateSheets.IndexDieselPrice(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), price)
+	err := a.rateSheets.IndexDieselPrice(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), price)
 	a.reply(req, struct{}{}, err)
 }
 
 func (a *Adapter) handleDieselPriceList(req micro.Request) {
 	subject := req.Subject()
-	prices, err := a.rateSheets.ListDieselPrices(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
+	prices, err := a.rateSheets.ListDieselPrices(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, dieselPricesResponse{Prices: prices}, err)
 }
 
@@ -695,7 +710,7 @@ func (a *Adapter) handleRateSheetApplyOverlay(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.ApplyDieselOverlay(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.ActiveDate)
+	v, err := a.rateSheets.ApplyDieselOverlay(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.ActiveDate)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -708,4 +723,10 @@ func (a *Adapter) handleRateSheetApplyOverlay(req micro.Request) {
 // Nats-Responder.
 func (a *Adapter) reply(req micro.Request, result any, err error) {
 	sharedbrowserrpc.Reply(req, a.svc, a.log, isNotFoundErr, result, err)
+}
+
+// trust is BR-069's tenant attribution for an OTel SERVER span: the account
+// this adapter's connection lives in, never anything the caller sent.
+func (a *Adapter) trust(micro.Request) otelnats.Trust {
+	return otelnats.Trust{ReceivingAccount: a.tenant}
 }

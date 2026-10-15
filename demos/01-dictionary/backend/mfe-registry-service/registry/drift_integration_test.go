@@ -65,7 +65,7 @@ var _ = Describe("Phase 8c — background observations through the composed modu
 			nc, err := nats.Connect(srv.ClientURL(), nats.Name("registry-drift-integration-test"))
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(nc.Close)
-			module, err := registry.Startup(ctx, pgDB, nil, nc, allowed, slog.Default(), origins)
+			module, err := registry.Startup(ctx, pgDB, nil, nc, allowed, slog.Default(), registry.WithFetchOrigins(origins))
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(module.Stop)
 			Eventually(started).Should(BeClosed())

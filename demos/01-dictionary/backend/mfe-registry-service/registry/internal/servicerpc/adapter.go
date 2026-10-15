@@ -13,6 +13,7 @@ import (
 	shared "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/micro"
 )
@@ -221,7 +222,10 @@ var errManifest = errors.New("registry: manifest refused")
 
 type Adapter struct{ svc micro.Service }
 
-func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger) (*Adapter, error) {
+// Mount serves the rpc.* announcement endpoints. tracing, when set, makes
+// each one an OTel SERVER span that continues the trusted caller's trace
+// (BR-071 EdgeRPC). Nil keeps natstrace (decision 16).
+func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger, tracing *otelnats.Provider) (*Adapter, error) {
 	svc, err := micro.AddService(nc, micro.Config{Name: "mfe-registry-announcements", Version: "1.0.0", Description: "publisher registry rpc.*"})
 	if err != nil {
 		return nil, err
@@ -259,15 +263,27 @@ func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger) (*Adapter, err
 		message, code, status := classify(err, "the withdrawal could not be recorded")
 		shared.RespondErrorBody(req, svc, log, err, status, UnregisterResponse{Error: message, Code: code})
 	})
-	if err := svc.AddEndpoint("registry-announce", natstrace.New(nc).Middleware(handler), micro.WithEndpointSubject(mferegistry.Announce)); err != nil {
+	wrap := natstrace.New(nc).Middleware
+	if tracing != nil {
+		wrap = func(h micro.HandlerFunc) micro.HandlerFunc {
+			return tracing.Middleware(otelnats.EdgeRPC, platformTrust, h)
+		}
+	}
+	if err := svc.AddEndpoint("registry-announce", wrap(handler), micro.WithEndpointSubject(mferegistry.Announce)); err != nil {
 		_ = svc.Stop()
 		return nil, err
 	}
-	if err := svc.AddEndpoint("registry-unregister", natstrace.New(nc).Middleware(unregisterHandler), micro.WithEndpointSubject(mferegistry.Unregister)); err != nil {
+	if err := svc.AddEndpoint("registry-unregister", wrap(unregisterHandler), micro.WithEndpointSubject(mferegistry.Unregister)); err != nil {
 		_ = svc.Stop()
 		return nil, err
 	}
 	return &Adapter{svc: svc}, nil
+}
+
+// platformTrust names the receiving account. Announcements arrive on the
+// PLATFORM account only.
+func platformTrust(micro.Request) otelnats.Trust {
+	return otelnats.Trust{ReceivingAccount: "PLATFORM"}
 }
 
 // classify turns a refusal into what a publisher can act on: a stage-named

@@ -39,6 +39,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry"
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 func main() {
@@ -121,7 +122,17 @@ func run(log *slog.Logger) error {
 	for _, warning := range warnings {
 		log.Warn("registry: " + warning)
 	}
-	module, err := registry.Startup(ctx, db, js, nc, allowlist, log, fetchOrigins)
+	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set; nil keeps
+	// natstrace.
+	tracing, err := otelnats.InitFromEnv(ctx, "mfe-registry-service")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tracing.Shutdown(context.Background()) }()
+	log.Info("tracing", "otel", tracing != nil)
+
+	module, err := registry.Startup(ctx, db, js, nc, allowlist, log,
+		registry.WithFetchOrigins(fetchOrigins), registry.WithTracing(tracing))
 	if err != nil {
 		return fmt.Errorf("registry startup: %w", err)
 	}

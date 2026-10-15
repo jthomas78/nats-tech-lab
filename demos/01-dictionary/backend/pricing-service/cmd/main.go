@@ -20,6 +20,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 func main() {
@@ -59,7 +60,16 @@ func run(log *slog.Logger) error {
 	// Phase 25f: one api.* adapter per known tenant, so a Sea Freight Flow
 	// browser authenticated into any tenant's account can reach
 	// pricing-service immediately — see shared/natstenants.
-	tenantMgr, err := h.MountAPI(ctx, natsURL, credsDir, log)
+	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set; nil keeps
+	// natstrace.
+	tracing, err := otelnats.InitFromEnv(ctx, "pricing-service")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tracing.Shutdown(context.Background()) }()
+	log.Info("tracing", "otel", tracing != nil)
+
+	tenantMgr, err := h.MountAPI(ctx, natsURL, credsDir, log, tracing)
 	if err != nil {
 		return err
 	}

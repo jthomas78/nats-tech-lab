@@ -11,6 +11,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 	shared "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 var errMalformed = errors.New("the registry request could not be decoded")
@@ -70,7 +71,10 @@ func (a *Adapter) routes() []endpoint {
 	}
 }
 
-func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger) (*Adapter, error) {
+// Mount serves the api.* endpoints. tracing, when set, makes each one an OTel
+// SERVER span on the PLATFORM account that starts a new root (BR-069,
+// BR-071 EdgeAPI). Nil keeps natstrace (decision 16).
+func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger, tracing *otelnats.Provider) (*Adapter, error) {
 	a := &Adapter{endpoints: endpoints, log: log}
 	svc, err := micro.AddService(nc, micro.Config{Name: "mfe-registry-service", Version: "1.0.0", Description: "curated frontend registry api.*"})
 	if err != nil {
@@ -79,12 +83,22 @@ func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger) (*Adapter, err
 	a.svc = svc
 	tracer := natstrace.New(nc)
 	for _, ep := range a.routes() {
-		if err := svc.AddEndpoint(ep.name, tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
+		h := tracer.Middleware(ep.handler)
+		if tracing != nil {
+			h = tracing.Middleware(otelnats.EdgeAPI, platformTrust, ep.handler)
+		}
+		if err := svc.AddEndpoint(ep.name, h, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
 	}
 	return a, nil
+}
+
+// platformTrust names the receiving account. The registry's api.* surface is
+// served on the PLATFORM account only.
+func platformTrust(micro.Request) otelnats.Trust {
+	return otelnats.Trust{ReceivingAccount: "PLATFORM"}
 }
 
 func (a *Adapter) Stop() error {

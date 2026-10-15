@@ -1335,7 +1335,7 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 
 ---
 
-### Phase 54 — OpenTelemetry tracing (BR-064 to BR-071)
+### Phase 54 — OpenTelemetry tracing (BR-064 to BR-073)
 
 > **Status: IN PROGRESS 2026-10-15. Specs were written first (red).**
 > `shared/otelnats` is implemented (54a-3): the unit specs for BR-064, BR-065,
@@ -1379,8 +1379,17 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > `dictionary/internal/rest/otel_wiring_test.go`,
 > `internal/refdataconsumer/otel_54b4_test.go`. `refdataconsumer` has no
 > production caller today. The REST infra routes stay on natstrace until
-> 54d. pricing-service, mfe-registry-service and accounts-service are next
-> (54b-5). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
+> 54d.
+>
+> 54b-5 (2026-10-15) switched pricing-service, mfe-registry-service and
+> accounts-service over. pricing: all 33 api.* endpoints (SERVER, receiving
+> account = tenant) and the tenant lifecycle. mfe-registry: every api.*
+> endpoint (`EdgeAPI`, PLATFORM), both rpc.* announcement endpoints
+> (`EdgeRPC`, PLATFORM) and its `notify.*` publishes (PRODUCER). accounts:
+> the Users api.* adapter (`EdgeAPI`, PLATFORM), the `notify.accounts.*`
+> lifecycle publishes and, new, the REST API (BR-073). See the OTel notes
+> under BR-P25, BR-AC35, BR-AC40 and the app shell's Phase 54b-5 note.
+> 54b-6 (the live service list) is next. Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or
@@ -1524,6 +1533,48 @@ are outside this transport change.
 - **Deployment scope:** validate local Docker in Phase 54 before a later
   Chronicle transfer. The eventual AWS and Docker deployments share these
   semantics with deployment-specific topology, credentials and timing.
+
+---
+
+### BR-073 (Phase 54b-5) — An inbound REST request is one SERVER span; the publishes its handler makes are its children, in the same trace
+
+accounts-service still has a REST API (`/api/accounts/...`). On the OTel path
+each request is one SERVER span, named `METHOD /path`. The policy is BR-071's
+`EdgeAPI`: a REST caller is not a trusted service, so every request starts a
+new, sampled root, and a valid `traceparent` it sent becomes one link. The
+receiving account comes from the code that mounts the middleware
+(`PLATFORM`), never from the request (BR-069). No originating tenant is set.
+A handler that publishes with the request context makes a PRODUCER span that
+is a child of the SERVER span, so one REST operation is one trace. With
+`CaptureBodies` the request body is an `rpc.request.body` event, redacted
+then truncated (BR-036); the handler still reads the whole body.
+
+Two differences from `natstrace.HTTPMiddleware`, accepted:
+
+- **Error status is 5xx only.** This is OTel's HTTP server convention.
+  natstrace marked 400 and up as an error.
+- **BR-AC35's identity pair.** `service.name` is the responder. The
+  requester's `Nats-Requestor` header is in the span only as part of the
+  redacted headers on the body event, so only when capture is on.
+
+The middleware is the standard `otelhttp` handler on the lab's own Provider,
+with this policy on top. It is not a second HTTP tracer. The default stack
+(no Provider) keeps `natstrace.HTTPMiddleware` until decision 16's cutover.
+
+- **Enforced in:** `shared/otelnats/http.go` — `Provider.HTTPMiddleware`;
+  `accounts/handler.go` — `TraceHTTP`, which picks the OTel or the natstrace
+  middleware.
+- **Test:** `shared/otelnats/http_test.go`, `Describe("BR-073: …")` — one
+  SERVER span with the receiving account and no originating tenant; the
+  handler's publish is a PRODUCER child; a 5xx is Error; a sampled and an
+  unsampled `traceparent` both give a new sampled root with one link; none or
+  malformed gives no link; capture redacts the body and the `Authorization`
+  value and leaves the body whole; no capture, no event.
+  `accounts/handler_test.go` — `POST /api/accounts` gives one SERVER span and
+  one `notify.accounts.account.created` PRODUCER child in the same trace, and
+  the message's `traceparent` carries that trace.
+  `accounts/otel_54b5_test.go` — `TraceHTTP` with a Provider gives an OTel
+  SERVER span and no `obs.trace.*` span; with none, the natstrace span.
 
 ---
 

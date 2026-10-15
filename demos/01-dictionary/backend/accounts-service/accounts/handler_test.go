@@ -15,9 +15,12 @@ import (
 	"github.com/nats-io/nkeys"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // Decode shapes for GET /api/accounts/topology — see topology.go's
@@ -363,6 +366,70 @@ var _ = Describe("Handlers", func() {
 		Expect(tp).NotTo(BeEmpty(), "the notify publish must carry a traceparent")
 		Expect(tp).To(HavePrefix("00-" + parentTraceID + "-"))
 		Expect(tp).NotTo(ContainSubstring(parentSpanID), "the notify's own span mints a fresh child span id, not the inbound request's own span id")
+	})
+
+	// BR-073 (Phase 54b-5): on the OTel stack one REST operation is one
+	// trace. POST /api/accounts is a SERVER span that starts a new root and
+	// links what the caller sent; the notify.accounts.account.created publish
+	// it makes is a PRODUCER child of that SERVER span.
+	It("BR-073: POST /api/accounts is a SERVER span and its notify publish a PRODUCER child in the same trace", func() {
+		notifyNC := ots.ConnectSys(GinkgoT())
+		defer notifyNC.Close()
+		sub, err := notifyNC.SubscribeSync("notify.accounts.account.created")
+		Expect(err).NotTo(HaveOccurred())
+		defer sub.Unsubscribe() //nolint:errcheck
+
+		exp := tracetest.NewInMemoryExporter()
+		p, err := otelnats.Init(context.Background(), otelnats.Config{ServiceName: "accounts-service", Exporter: exp})
+		Expect(err).NotTo(HaveOccurred())
+		defer p.Shutdown(context.Background()) //nolint:errcheck
+
+		otelHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), notifyNC, auditLog)
+		otelHandlers.Tracing = p
+		mux := http.NewServeMux()
+		otelHandlers.Mount(mux, authSecret)
+		otelServer := httptest.NewServer(accounts.TraceHTTP(mux, p, natstrace.New(notifyNC)))
+		defer otelServer.Close()
+
+		sentTraceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		req, err := http.NewRequest(http.MethodPost, otelServer.URL+"/api/accounts", bytes.NewReader([]byte(`{"name":"otel-tenant"}`)))
+		Expect(err).NotTo(HaveOccurred())
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("traceparent", "00-"+sentTraceID+"-bbbbbbbbbbbbbbbb-01")
+		req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
+		resp, err := otelServer.Client().Do(req)
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		msg, err := sub.NextMsg(2 * time.Second)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(p.ForceFlush(context.Background())).To(Succeed())
+		var server, producer []tracetest.SpanStub
+		for _, s := range exp.GetSpans() {
+			switch {
+			case s.SpanKind == trace.SpanKindServer && s.Name == "POST /api/accounts":
+				server = append(server, s)
+			case s.SpanKind == trace.SpanKindProducer && s.Name == "notify.accounts.account.created":
+				producer = append(producer, s)
+			}
+		}
+		Expect(server).To(HaveLen(1))
+		Expect(producer).To(HaveLen(1))
+
+		By("the SERVER span is a new root that links what the caller sent (BR-071 edge policy)")
+		Expect(server[0].Parent.IsValid()).To(BeFalse())
+		Expect(server[0].SpanContext.TraceID().String()).NotTo(Equal(sentTraceID))
+		Expect(server[0].Links).To(HaveLen(1))
+		Expect(server[0].Links[0].SpanContext.TraceID().String()).To(Equal(sentTraceID))
+
+		By("the publish is its child, and the message carries that trace onward")
+		Expect(producer[0].SpanContext.TraceID()).To(Equal(server[0].SpanContext.TraceID()))
+		Expect(producer[0].Parent.SpanID()).To(Equal(server[0].SpanContext.SpanID()))
+		// The W3C key is lowercase and nats.Header is case-sensitive, so read
+		// it the way the propagator does.
+		Expect(otelnats.HeaderCarrier(msg.Header).Get("traceparent")).To(ContainSubstring(server[0].SpanContext.TraceID().String()))
 	})
 
 	// BR-AC35: the span POST /api/accounts publishes must name both ends —

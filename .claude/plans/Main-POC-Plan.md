@@ -1943,8 +1943,56 @@ Neither is fixed in place: this phase removes the code that has them.
         `NewHandlers` (tested where the option is defined) and the
         `cmd/main.go` `InitFromEnv` call. The Temporal gap above is
         unchanged; it is now an accepted limitation (BR-064).
-  - [ ] **54b-5** — `pricing-service`, `mfe-registry-service` and
+  - [x] **54b-5** — `pricing-service`, `mfe-registry-service` and
         `accounts-service`.
+        Done 2026-10-15. Specs first, red on the missing API (`Deps.Tracing`,
+        `registry.Option`, `Handlers.Tracing`, `Provider.HTTPMiddleware`).
+        Then all green:
+        - New shared piece: `otelnats.Provider.HTTPMiddleware` (BR-073). It
+          is the standard `otelhttp` handler on our Provider with a thin
+          policy on top: every request is a public endpoint (new sampled
+          root, a valid sent `traceparent` as one link), receiving account
+          from the caller of the function, body capture redacted (BR-036).
+          `otelhttp` v0.72.0 has no `WithPublicEndpoint`;
+          `WithPublicEndpointFn(func(*http.Request) bool { return true })`
+          is the same. Error status is 5xx only (OTel convention; natstrace
+          used 400 and up). The `shared/telemetry` extraction stays
+          deferred.
+        - pricing: all 33 api.* endpoints on `EdgeAPI` when `Deps.Tracing`
+          is set; receiving account = the adapter's tenant; all 33 handler
+          ctx sites now use `sharedbrowserrpc.SpanContext(req)` (were
+          `context.Background()`). `MountAPI(..., tracing)` also passes
+          `natstenants.WithTracing`. `cmd/main.go` calls `InitFromEnv`.
+        - mfe-registry: `registry.Startup(..., opts ...Option)` with
+          `WithFetchOrigins` and `WithTracing` (the old variadic
+          `...domain.FetchOrigins` is gone; two callers updated). api.* on
+          `EdgeAPI`, the two rpc.* endpoints on `EdgeRPC`, both on
+          `PLATFORM`; the notifier gets `natsnotify.WithOTel`.
+        - accounts: `WithUsersTracing(p)` on the Users adapter (`EdgeAPI`,
+          `PLATFORM`); `Handlers.Tracing` puts the `notify.accounts.*`
+          publishes on OTel; `TraceHTTP(mux, tracing, legacy)` picks the
+          REST tracing — OTel with a Provider, natstrace without
+          (decision 16: the legacy middleware stays on the default stack
+          until the coordinated cutover).
+        - `deploy/cell/compose.otel.yaml` sets the endpoint for all three.
+          `docker compose ... config` with the overlay and
+          `global/compose.control.yaml` merges cleanly.
+        Results: otelnats 83/83; pricing 79/79; mfe-registry 492/492, 0
+        skipped (Postgres fixture ran); accounts suite 165/165; shipping
+        dictionary 105 passed, 13 pending (the old Phase 43a `PDescribe`);
+        natsnotify and natstenants green. All 8 backend modules build.
+        `auth` suite: 41 passed, 2 failed — the two `MintAdminToken` specs
+        for `observability.service.list.v1`, committed red in 54b-1 for
+        54b-6. Not this step.
+        One spec fix: the accounts REST spec read `Traceparent` from the
+        notify message. OTel writes the W3C key in lowercase and
+        `nats.Header` is case-sensitive, so the spec now reads it through
+        `otelnats.HeaderCarrier`.
+        BR-AC35 on the OTel path: `service.name` is the responder; the
+        requester's `Nats-Requestor` is only in the redacted headers of the
+        body event, so only with capture on.
+        Not tested directly: the three `cmd/main.go` `InitFromEnv` calls;
+        no stack run on `au-1` yet (54b-7).
   - [ ] **54b-6** — `api._platform.observability.service.list.v1` in
         `observability-service`, its responder grants and the
         `MintAdminToken` grant (BR-AC18).
@@ -2008,6 +2056,11 @@ New (drafted 2026-10-15, written into BUSINESS_RULES-SHIPPING.md with 54a):
   incomplete or failed discovery is explicit. Drafted with decision 17;
   Clients use the operator-only, versioned NATS service-list endpoint;
   implementation and tests pending in 54b/54c.
+
+- **BR-073** (added 54b-5) — an inbound REST request is one SERVER span
+  under the `EdgeAPI` policy (new root, sent context as a link, receiving
+  account from the mounting code); the publishes its handler makes are
+  PRODUCER children in the same trace. Error status is 5xx only.
 
 Changed, in the same commits as the code (Quality Rule 4): BR-035 (push →
 poll), BR-036 (envelope → span events; redact-before-truncate kept), BR-037

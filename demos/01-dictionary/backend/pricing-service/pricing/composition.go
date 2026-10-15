@@ -20,6 +20,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // Handlers is the composed set of command handlers a caller (REST layer,
@@ -61,12 +62,16 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 // data is scoped by `context`, not by NATS account, so nothing here is
 // per-tenant except the connection itself. Callers should Close() the
 // returned Manager on shutdown.
-func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, log *slog.Logger) (*natstenants.Manager[*browserrpc.Adapter], error) {
+//
+// tracing, when set, puts every tenant's api.* endpoints and its lifecycle
+// deliveries on OTel (Phase 54b-5). Nil keeps natstrace.
+func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, log *slog.Logger, tracing *otelnats.Provider) (*natstenants.Manager[*browserrpc.Adapter], error) {
 	deps := browserrpc.Deps{
 		FeeScales:  h.FeeScales,
 		RateSheets: h.RateSheets,
 		FixedRates: h.FixedRates,
 		Log:        log,
+		Tracing:    tracing,
 	}
 	mgr := natstenants.NewManager(natsURL, credsDir, "pricing-service", log,
 		func(_ context.Context, nc *nats.Conn, tenant string) (*browserrpc.Adapter, error) {
@@ -77,6 +82,7 @@ func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, log *
 		func(_ string, adapter *browserrpc.Adapter) error {
 			return adapter.Stop()
 		},
+		natstenants.WithTracing(tracing),
 	)
 	if err := mgr.EnsureAll(ctx); err != nil {
 		return nil, err

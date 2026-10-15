@@ -2141,3 +2141,21 @@ in `labDemos.js`, which always named demos 02 and 03 by hand.
 | BR-AS92 | *(demo 03, L1)* `lab-shell/src/shell/registry/pluginAssets.spec.js` — the `config` hook returning no asset proxy with `isPreview: true` and the prefix entry with `isPreview: false`, and no `configurePreviewServer` hook that could stand between preview and `dist/`. Live check, 2026-10-06: both demo frontends built, the shell built with `VITE_PLUGIN_SOURCE=build`, nothing on 20301 or 20401, `vite preview` — `/plugins/demo-03/remoteEntry.js` and `/plugins/demo-04/remoteEntry.js` answered 500 before the change and 200 after. |
 | BR-AS93 | *(demo 03, L1b)* `lab-shell/src/shell/demos/demoApiGeneration.spec.js` — for BOTH `configureServer` and `configurePreviewServer`: an undeclared path refused with 404 in plain text, a declared prefix route with a query passed on to the proxy, and a path outside the prefix ignored. Live check, 2026-10-06: an undeclared demo 03 path answered 200 HTML in preview before the change, 404 after; the declared routes reached the running control service on 20302. |
 | BR-AS94 | *(demo 03, L2)* `lab-shell/src/shell/demos/labDemos.spec.js` — demo 03 absent from the probed demo catalogue built from the REAL repository scan; exactly one demo 03 card with the plugin's default route registered (linking to `demo-03/playground` by name, with no status and no dot) and with it absent (linking to the intro page); and the `plugin` field equal to the id in demo 03's own `manifest.json`. |
+
+## Phase 54b-5 — mfe-registry-service on OpenTelemetry (no rule change)
+
+Tracing only; no BR-AS rule changes. With `registry.WithTracing(p)` set
+(`OTEL_EXPORTER_OTLP_ENDPOINT` in `deploy/cell/compose.otel.yaml`):
+
+- Every `api._platform.mfe-registry.*` endpoint is an OTel SERVER span on the
+  `PLATFORM` account. It starts a new root and links a sent `traceparent`
+  (BR-069, BR-071 `EdgeAPI`, in `BUSINESS_RULES-SHIPPING.md`).
+- The two `rpc.*` endpoints (`mferegistry.Announce`, `mferegistry.Unregister`)
+  are SERVER spans that continue the caller's trace (BR-071 `EdgeRPC`).
+- A write's `notify.*` hint is a PRODUCER child of the SERVER span (BR-037).
+- No `obs.trace.*` span is published on that path.
+
+`registry.Startup`'s last parameter is now `opts ...Option`
+(`WithFetchOrigins`, `WithTracing`), not `...domain.FetchOrigins`. Without
+`WithTracing` the adapters stay on natstrace (decision 16).
+Test: `registry/otel_54b5_test.go`.

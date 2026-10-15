@@ -80,10 +80,10 @@ var _ = Describe("BR-AS54 — the unregister transport", func() {
 			PluginID: "plugin", IfRevision: trust.Revision,
 		})
 		Expect(err).NotTo(HaveOccurred())
-		browser, err := browserrpc.Mount(nc, browserrpc.New(module.Service, store), slog.Default())
+		browser, err := browserrpc.Mount(nc, browserrpc.New(module.Service, store), slog.Default(), nil)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(browser.Stop)
-		adapter, err := servicerpc.Mount(nc, servicerpc.New(module.Service, store, domain.NKeyVerifier{}), slog.Default())
+		adapter, err := servicerpc.Mount(nc, servicerpc.New(module.Service, store, domain.NKeyVerifier{}), slog.Default(), nil)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(adapter.Stop)
 		Expect(nc.Flush()).To(Succeed())

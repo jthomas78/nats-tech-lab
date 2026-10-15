@@ -39,6 +39,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/servicerpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // Module is the composed registry.
@@ -113,13 +114,39 @@ func ParseFetchOrigins(raw string, allowed domain.Allowlist) (domain.FetchOrigin
 // and the authority stays with the operator. Nothing here reads an
 // environment variable for it: see domain/backendservices.go.
 
+// Option configures Startup.
+type Option func(*startupOptions)
+
+type startupOptions struct {
+	fetchOrigins *domain.FetchOrigins
+	tracing      *otelnats.Provider
+}
+
+// WithFetchOrigins sets the service-reachable origin for each browser origin
+// the drift check fetches from (BR-AS45). Without it the check has no
+// mappings.
+func WithFetchOrigins(o domain.FetchOrigins) Option {
+	return func(s *startupOptions) { s.fetchOrigins = &o }
+}
+
+// WithTracing puts the module on OTel (Phase 54b-5): api.* and rpc.* SERVER
+// spans, and a PRODUCER span per notify.* publish. A nil provider is the same
+// as not passing the option, which keeps natstrace (decision 16).
+func WithTracing(p *otelnats.Provider) Option {
+	return func(s *startupOptions) { s.tracing = p }
+}
+
 // Startup migrates the registry schema and wires the module.
 //
 // nc may be nil and js may be nil: without a NATS connection the module
 // still serves reads and writes, it just has no read cache and announces
 // nothing. That degradation is deliberate: it is what lets a store-level test
 // compose the module without a broker.
-func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *nats.Conn, allowlist domain.Allowlist, log *slog.Logger, fetchOrigins ...domain.FetchOrigins) (*Module, error) {
+func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *nats.Conn, allowlist domain.Allowlist, log *slog.Logger, opts ...Option) (*Module, error) {
+	var o startupOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	// Startup is bounded separately from the worker's lifetime. Passing a
 	// startup deadline to Run would quietly stop checks after one minute.
 	ctx, cancel := context.WithTimeout(lifetime, 60*time.Second)
@@ -141,7 +168,7 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 		}
 	}
 
-	notifier := natsnotify.New(nc, log)
+	notifier := natsnotify.New(nc, log, natsnotify.WithOTel(o.tracing))
 	m := &Module{Service: application.New(store, cache, allowlist, notifier, log), store: store}
 	/*
 		The catalogue-reset check runs HERE, first, and the ordering is the
@@ -171,8 +198,8 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 		return nil, err
 	}
 	origins, _ := domain.NewFetchOrigins(allowlist, nil)
-	if len(fetchOrigins) > 0 {
-		origins = fetchOrigins[0]
+	if o.fetchOrigins != nil {
+		origins = *o.fetchOrigins
 	}
 	// Neither side of the health plane is deployment-configured now. A plugin
 	// reports its own frontend health on a subject derived from its id, and
@@ -191,7 +218,7 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 	// wired to the service rather than to a transport.
 	m.Service.WithDrift(checker)
 	if nc != nil {
-		adapter, err := browserrpc.Mount(nc, browserrpc.NewWithHealth(m.Service, store, health), log)
+		adapter, err := browserrpc.Mount(nc, browserrpc.NewWithHealth(m.Service, store, health), log, o.tracing)
 		if err != nil {
 			return nil, err
 		}
@@ -200,7 +227,7 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 		// publisher table, not this line — an empty table refuses everything,
 		// which is the same fail-closed behaviour NoVerifier gave, arrived at
 		// by policy instead of by placeholder.
-		m.announcements, err = servicerpc.Mount(nc, servicerpc.New(m.Service, store, domain.NKeyVerifier{}), log)
+		m.announcements, err = servicerpc.Mount(nc, servicerpc.New(m.Service, store, domain.NKeyVerifier{}), log, o.tracing)
 		if err != nil {
 			_ = m.adapter.Stop()
 			return nil, err

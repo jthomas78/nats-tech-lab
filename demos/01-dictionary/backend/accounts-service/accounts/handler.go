@@ -30,6 +30,8 @@ import (
 	"github.com/nats-io/nkeys"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // accountResponse omits SigningKeySeed — never serialized to a listing or
@@ -111,6 +113,21 @@ type Handlers struct {
 	// empty string skips the refdata call with a warning, but the BU row is still
 	// persisted locally so the lookup stays consistent.
 	RefdataURL string
+	// Tracing, when set, puts the notify.* lifecycle publishes on OTel: a
+	// PRODUCER span that is the child of the REST SERVER span (Phase 54b-5,
+	// BR-073). Nil keeps natstrace (decision 16).
+	Tracing *otelnats.Provider
+}
+
+// TraceHTTP wraps the REST API in its tracing. With a Provider each request
+// is one OTel SERVER span on the PLATFORM account (BR-073). With none it is
+// the natstrace HTTP span, as before, until the coordinated cutover
+// (decision 16).
+func TraceHTTP(next http.Handler, tracing *otelnats.Provider, legacy *natstrace.Tracer) http.Handler {
+	if tracing != nil {
+		return tracing.HTTPMiddleware("PLATFORM", next)
+	}
+	return legacy.HTTPMiddleware("_platform", "accounts", next)
 }
 
 func NewHandlers(store *Store, provisioner *Provisioner, credsWriteDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
@@ -244,7 +261,7 @@ func (h *Handlers) publishAccountEvent(ctx context.Context, action, label, name 
 	// notify continues the causing request's span, which is what BR-AC34 asked
 	// to keep; Phase 43d moved that continuation into the seam, where it is
 	// the same code path every other notify.* publisher now takes.
-	natsnotify.New(h.NotifyNC, h.Log, natsnotify.WithObservation(h.NotifyNC)).
+	natsnotify.New(h.NotifyNC, h.Log, natsnotify.WithObservation(h.NotifyNC), natsnotify.WithOTel(h.Tracing)).
 		Publish(ctx, lifecycleSubject(action), payload)
 }
 

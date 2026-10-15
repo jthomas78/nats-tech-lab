@@ -113,6 +113,20 @@ services:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
 
+  # 54b-5. accounts-service lives in global/compose.control.yaml; this entry
+  # merges onto it because the overlay is always run with that file.
+  pricing-service:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
+  mfe-registry-service:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
+  accounts-service:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
 networks:
   # The trace store's own network. Members: the Collector, Tempo, Grafana and
   # observability-service. Compose namespaces it by project, like `backend`.

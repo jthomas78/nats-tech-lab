@@ -89,12 +89,12 @@ var _ = Describe("service announcement transport", func() {
 			PluginID: "plugin", IfRevision: trust.Revision,
 		})
 		Expect(err).NotTo(HaveOccurred())
-		browser, err := browserrpc.Mount(nc, browserrpc.New(module.Service, store), slog.Default())
+		browser, err := browserrpc.Mount(nc, browserrpc.New(module.Service, store), slog.Default(), nil)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(browser.Stop)
 	})
 	mount := func(v domain.Verifier) {
-		adapter, err := servicerpc.Mount(nc, servicerpc.New(module.Service, store, v), slog.Default())
+		adapter, err := servicerpc.Mount(nc, servicerpc.New(module.Service, store, v), slog.Default(), nil)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(adapter.Stop)
 		Expect(nc.Flush()).To(Succeed())

@@ -1338,6 +1338,15 @@ REST exactly as it can over NATS.
   before any connection exists — so a spec that only exercised `api.js`
   passed while those spans stayed anonymous.
 
+> **OTel path (Phase 54b-5, 2026-10-15).** With a Provider, the REST API is
+> traced by BR-073 (`BUSINESS_RULES-SHIPPING.md`), not by this rule's
+> natstrace middleware. `service.name` on the SERVER span is the responder.
+> The requester's `Nats-Requestor` is recorded only in the redacted headers
+> of the `rpc.request.body` event, so only when body capture is on. The
+> `notify.accounts.*` lifecycle publishes are PRODUCER children of the REST
+> SERVER span (`Handlers.Tracing`). Without a Provider this rule is
+> unchanged (decision 16).
+
 ### BR-AC36 (Phase 48a, IMPLEMENTED 2026-08-26) — The existing `obs.trace.>` import gains the same per-tenant `LocalSubject` remap BR-AC34 gave `obs.pubsub.>`
 
 BR-AC34 closed with a deliberate exclusion: *"retrofitting the same remap onto the existing `obs.trace.>` import, which would fix the Traces panel's coarse gutter too. That is a change to a shipped pipeline and belongs in its own phase."* This is that rule. It does not re-argue BR-AC34's correction (ADR-047 A1) — the account boundary disambiguates *delivery*, not *provenance* — it applies the conclusion to the one import BR-AC34 left alone.
@@ -1437,6 +1446,12 @@ api._platform.accounts.user.revoke.v1  — revoke one credential (Phase 51b, BR-
 - **Enforced in:** `accounts/usersrpc.go` — `UserListSubject` / `UserGetSubject`, `NewUsersAdapter`, the `endpoints()` registration table (the single source of truth both the service and the permission tests read) and `UsersAdapterSubjects()`; `accounts-service/cmd/main.go` — the PLATFORM-only mount; `auth/token.go` — `MintAdminToken` adding `accounts.UsersAdapterSubjects()` to `Permissions.Pub.Allow`, one subject at a time.
 - **Test:** `accounts/usersrpc_test.go` (end-to-end over an embedded NATS server) — exactly the two subjects are registered, every one is `api._platform.accounts.`-prefixed and wildcard-free, `.list.v1` returns metadata rows, the marshalled list contains no `seed` / `creds` / `jwt` substring, the list spans tenants, `.get.v1` returns the claims view, an unknown key answers `notFound`, and an empty body is an error. `auth/token_test.go` — the PLATFORM credential's `Pub.Allow` is the exact six-subject set, still with no `api.>`.
 - **Not covered:** creation and deletion. `.revoke.v1` (BR-AC43) is the only mutation; nothing here mints a user or removes a registry row over NATS.
+
+> **OTel path (Phase 54b-5, 2026-10-15).** With `WithUsersTracing(p)`, each
+> of the three endpoints is an OTel SERVER span on the `PLATFORM` account
+> that starts a new root and links a sent `traceparent` (BR-069, BR-071
+> `EdgeAPI`). No `obs.trace.*` span is published. Without the option the
+> adapter stays on natstrace. Test: `accounts/otel_54b5_test.go`.
 
 ### BR-AC41 (Phase 50b, IMPLEMENTED 2026-08-27) — A user's permissions are shown as resolved, not as signed
 
