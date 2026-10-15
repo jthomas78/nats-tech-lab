@@ -74,20 +74,13 @@ type Manager struct {
 	// over, and the organization_id column carries the rest.
 	certificates orchestration.CertificateWriter
 
-	// tracing, when set, moves this service's Phase 54a path to OTel: every
-	// tenant's refdata client, and the api.* adapter's otelSubjects. Nil
-	// keeps natstrace (decision 16).
+	// tracing, when set, moves this service to OTel (Phase 54a-4, 54b-3b):
+	// every tenant's refdata client, api.* adapter, evt.* appends, projector
+	// and lifecycle subscription. Nil keeps natstrace (decision 16).
 	tracing *otelnats.Provider
 
 	mu      sync.RWMutex
 	apiDeps *browserrpc.Deps // nil until MountAPI has run
-}
-
-// WithTracing must be called before any tenant connects, like
-// WithCertificateWriter. A nil Provider keeps natstrace.
-func (m *Manager) WithTracing(p *otelnats.Provider) *Manager {
-	m.tracing = p
-	return m
 }
 
 // WithCertificateWriter must be called before any tenant connects; a
@@ -97,11 +90,14 @@ func (m *Manager) WithCertificateWriter(w orchestration.CertificateWriter) *Mana
 	return m
 }
 
-func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte) *Manager {
-	m := &Manager{secretKey: secretKey}
+// NewManager takes tracing here, not through a builder: the shared manager
+// below is built now, and its lifecycle subscriptions need the Provider at
+// that point (natstenants.WithTracing). A nil Provider keeps natstrace.
+func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte, tracing *otelnats.Provider) *Manager {
+	m := &Manager{secretKey: secretKey, tracing: tracing}
 	m.mgr = natstenants.NewManager(natsURL, credsDir, "organizations-service", log,
 		func(ctx context.Context, nc *nats.Conn, tenant string) (*resource, error) {
-			profiles, err := transporterprofile.Start(ctx, nc, db, m.certificates)
+			profiles, err := transporterprofile.Start(ctx, nc, db, m.certificates, transporterprofile.WithTracing(m.tracing, tenant))
 			if err != nil {
 				return nil, err
 			}
@@ -157,6 +153,7 @@ func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKe
 			}
 			return nil
 		},
+		natstenants.WithTracing(tracing),
 	)
 	return m
 }

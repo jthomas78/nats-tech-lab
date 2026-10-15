@@ -1684,7 +1684,7 @@ organizations-service publishes transporter-profile events on
 `evt.{context}.organizations.transporter-profile.{organizationID}.{event}`
 (`profiledomain.Subject`), and every one of them goes through a single
 choke point: `JetStreamEventStore.append`
-(`organizations/transporterprofile/orchestration/event_store.go:103`),
+(`organizations/transporterprofile/orchestration/event_store.go`),
 reached from both `Append` and its message-id-carrying sibling. That
 function is this service's `evt.*` seam — the equivalent of shipping's and
 refdata's `PublishWithTrace` — so the observation hook goes **there**, not at
@@ -1762,3 +1762,37 @@ append into a reported one, and it drops its own error.
   benign organization id still present). Phase 43e adds
   `TestAppendCarriesTheCausingTraceparent` and
   `TestAppendOmitsTraceparentWhenNoSpanIsReachable` for BR-037's header.
+
+> **OTel path (Phase 54b-3b, 2026-10-15).** With `WithOTel(p)`, `append` is a
+> PRODUCER span, the child of the span on `ctx`; its W3C `traceparent` goes on
+> the message beside the optimistic-concurrency headers. A failed or rejected
+> append (`ErrSequenceConflict`) marks the span Error and is still not
+> observed. The observation comes from `otelnats.Observer` (set by
+> `WithObservation`), after the PubAck and while the PRODUCER span is open,
+> so the envelope carries that span's IDs (BR-045). The `TRANSPORTER`
+> projector, with `WithOTel(p, tenant)`, consumes each event under a CONSUMER
+> span that continues its `traceparent`, receiving account = the tenant
+> (BR-069); its hydrate and projection writes run under that span.
+> `transporterprofile.Start(…, WithTracing(p, tenant))` wires both per tenant.
+> Without a Provider, the natstrace path above is unchanged.
+>
+> Every api.* endpoint is now on OTel with `Deps.Tracing` (54a-4 moved only
+> fleet-asset add), and each handler passes `sharedbrowserrpc.SpanContext(req)`
+> down, not `context.Background()`. So `organization.register` →
+> `CreateTransporterProfile` → `append` is one trace. A Temporal activity's
+> append is not: see BUSINESS_RULES-SHIPPING.md's BR-064 scope note.
+> - **Enforced in:** `orchestration/event_store.go` (`WithOTel`,
+>   `appendOTel`), `orchestration/projector.go` (`Projector.WithOTel`),
+>   `transporterprofile/runtime.go` (`WithTracing`),
+>   `internal/tenants/tenants.go` (`NewManager(…, tracing)`),
+>   `internal/browserrpc/adapter.go`.
+> - **Test:** `orchestration/otel_54b3b_test.go` —
+>   `TestAppendWithOTelIsAProducerSpanUnderTheCtxSpan`,
+>   `TestAppendWithOTelObservesUnderTheProducerSpan`,
+>   `TestAppendWithOTelMarksARejectedAppendAnErrorAndObservesNothing`,
+>   `TestProjectorWithOTelConsumesUnderAConsumerSpanThatContinuesTheEvtTrace`.
+>   `organizations/browserrpc_otel_54b3b_test.go` — a SERVER span on the
+>   tenant's account whose ctx reaches the repository (register, list, get,
+>   suspend), BR-071's new root plus link, and no `obs.trace.*` span. Not
+>   tested directly: the per-tenant wiring in `Start` and `NewManager`,
+>   because starting a tenant needs Postgres.

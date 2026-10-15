@@ -1,8 +1,9 @@
 package organizations_test
 
 // Phase 54a-4: with an otelnats Provider in Deps, the fleet-asset add
-// endpoint is traced with OTel instead of natstrace. Every other endpoint
-// keeps natstrace until 54b. Without a Provider nothing changes — the
+// endpoint is traced with OTel instead of natstrace. 54b-3b moved every other
+// endpoint too (browserrpc_otel_54b3b_test.go). Without a Provider nothing
+// changes — the
 // natstrace specs in browserrpc_roundtrip_test.go cover that path.
 
 import (
@@ -96,17 +97,18 @@ var _ = Describe("fleet-asset add with an otelnats Provider (Phase 54a-4)", func
 		It("makes one SERVER and one CLIENT span in one trace", func() {
 			addFleetAsset("")
 
+			// 54b-3b moved organization.register to OTel too, so pick the
+			// fleet-asset add SERVER span by name.
 			var server, client []tracetest.SpanStub
 			for _, s := range spans() {
-				switch s.SpanKind {
-				case trace.SpanKindServer:
+				switch {
+				case s.SpanKind == trace.SpanKindServer && s.Name == "api.acme-north.organizations.fleet-asset.add.v1":
 					server = append(server, s)
-				case trace.SpanKindClient:
+				case s.SpanKind == trace.SpanKindClient:
 					client = append(client, s)
 				}
 			}
-			Expect(server).To(HaveLen(1), "only fleet-asset add is on OTel; organization.register stays on natstrace")
-			Expect(server[0].Name).To(Equal("api.acme-north.organizations.fleet-asset.add.v1"))
+			Expect(server).To(HaveLen(1))
 			Expect(client).To(HaveLen(1))
 			Expect(client[0].SpanContext.TraceID()).To(Equal(server[0].SpanContext.TraceID()))
 			Expect(client[0].Parent.SpanID()).To(Equal(server[0].SpanContext.SpanID()))
@@ -143,7 +145,8 @@ var _ = Describe("fleet-asset add with an otelnats Provider (Phase 54a-4)", func
 			addFleetAsset("00-" + sentTraceID + "-00f067aa0ba902b7-00")
 
 			for _, s := range spans() {
-				if s.SpanKind != trace.SpanKindServer {
+				// organization.register (54b-3b) was sent no traceparent.
+				if s.SpanKind != trace.SpanKindServer || s.Name != "api.acme-north.organizations.fleet-asset.add.v1" {
 					continue
 				}
 				Expect(s.SpanContext.TraceID().String()).NotTo(Equal(sentTraceID))

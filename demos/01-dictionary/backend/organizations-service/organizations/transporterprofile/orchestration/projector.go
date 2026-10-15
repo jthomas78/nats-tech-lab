@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel/trace"
 
 	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 type ProjectionWriter interface {
@@ -35,6 +38,8 @@ type Projector struct {
 	projection   ProjectionWriter
 	cache        CacheWriter
 	certificates CertificateWriter
+	otel         *otelnats.Provider
+	account      string
 	mu           sync.Mutex
 	consume      jetstream.ConsumeContext
 }
@@ -49,6 +54,17 @@ func (p *Projector) WithCertificateWriter(w CertificateWriter) *Projector {
 	return p
 }
 
+// WithOTel consumes each event under a CONSUMER span that continues the
+// event's traceparent (Phase 54b-3b, BR-037). account is the tenant whose
+// stream this projector reads: the receiving account (BR-069). The
+// projection writes run under the span. A nil Provider keeps the projector
+// untraced, as before.
+func (p *Projector) WithOTel(prov *otelnats.Provider, account string) *Projector {
+	p.otel = prov
+	p.account = account
+	return p
+}
+
 func (p *Projector) Start(ctx context.Context) error {
 	consumer, err := p.js.CreateOrUpdateConsumer(ctx, profiledomain.StreamName, jetstream.ConsumerConfig{
 		Name:          "transporter-profile-projector",
@@ -60,6 +76,15 @@ func (p *Projector) Start(ctx context.Context) error {
 		return fmt.Errorf("create transporter profile projector: %w", err)
 	}
 	consume, err := consumer.Consume(func(msg jetstream.Msg) {
+		// Decision 6: one ctx per delivery, carrying the CONSUMER span when
+		// traced, so every write below is part of the event's trace.
+		ctx := context.Background()
+		if p.otel != nil {
+			var span trace.Span
+			ctx, span = p.otel.StartConsumer(ctx, &nats.Msg{Subject: msg.Subject(), Header: msg.Headers()},
+				otelnats.Trust{ReceivingAccount: p.account})
+			defer span.End()
+		}
 		eventType, ok := profiledomain.EventType(msg.Subject())
 		if !ok {
 			_ = msg.Ack()
@@ -82,17 +107,17 @@ func (p *Projector) Start(ctx context.Context) error {
 		// the aggregate for this one canonical projection write instead of
 		// sneaking a full-state snapshot into the immutable event. This also
 		// gives projection restart the same result as an event replay.
-		agg, _, err := NewJetStreamEventStore(p.js).Hydrate(context.Background(), event.Context, event.OrganizationID)
+		agg, _, err := NewJetStreamEventStore(p.js).Hydrate(ctx, event.Context, event.OrganizationID)
 		if err != nil {
 			_ = msg.Nak()
 			return
 		}
 		state := agg.State()
-		if err := p.projection.Upsert(context.Background(), state); err != nil {
+		if err := p.projection.Upsert(ctx, state); err != nil {
 			_ = msg.Nak()
 			return
 		}
-		if err := p.cache.Put(context.Background(), state); err != nil {
+		if err := p.cache.Put(ctx, state); err != nil {
 			_ = msg.Nak()
 			return
 		}
@@ -105,7 +130,7 @@ func (p *Projector) Start(ctx context.Context) error {
 		if p.certificates != nil {
 			failed := false
 			for _, certificate := range state.Certificates {
-				if err := p.certificates.UpsertCertificate(context.Background(), state.ID, projectedCertificate(certificate)); err != nil {
+				if err := p.certificates.UpsertCertificate(ctx, state.ID, projectedCertificate(certificate)); err != nil {
 					failed = true
 					break
 				}

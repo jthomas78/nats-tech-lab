@@ -170,17 +170,10 @@ type Deps struct {
 	Tenant string
 	Log    *slog.Logger
 
-	// Tracing, when set, traces the endpoints in otelSubjects with OTel
-	// instead of natstrace (Phase 54a, decision 16: set only on the OTel
-	// stack). Nil keeps natstrace on every endpoint.
+	// Tracing, when set, traces every endpoint with OTel instead of natstrace
+	// (Phase 54a-4 for fleet-asset add, 54b-3b for the rest; decision 16: set
+	// only on the OTel stack). Nil keeps natstrace on every endpoint.
 	Tracing *otelnats.Provider
-}
-
-// otelSubjects are the endpoints Deps.Tracing moves to OTel. Phase 54a moves
-// one path, fleet-asset add, so shared/otelnats is proved by real use before
-// 54b moves the rest.
-var otelSubjects = map[string]bool{
-	FleetAssetAddSubject: true,
 }
 
 // Adapter owns one tenant connection's micro service registration + endpoints.
@@ -280,7 +273,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	}
 	for _, ep := range endpoints {
 		handler := a.tracer.Middleware(ep.handler)
-		if a.otel != nil && otelSubjects[ep.subject] {
+		if a.otel != nil {
 			// A browser call: a new root, any sent traceparent only a link
 			// (BR-071). The receiving account is this adapter's tenant, and
 			// the originating tenant stays empty (BR-069).
@@ -525,11 +518,11 @@ func (a *Adapter) handleSubmitVetting(req micro.Request) {
 		return
 	}
 	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
-	if err := a.vetting.Submit(context.Background(), a.tenant, contextKey, in.ID); err != nil {
+	if err := a.vetting.Submit(sharedbrowserrpc.SpanContext(req), a.tenant, contextKey, in.ID); err != nil {
 		a.reply(req, nil, err)
 		return
 	}
-	tp, err := a.organizations.Get(context.Background(), in.ID)
+	tp, err := a.organizations.Get(sharedbrowserrpc.SpanContext(req), in.ID)
 	a.reply(req, organizationResponse{tp}, err)
 }
 
@@ -561,7 +554,7 @@ func (a *Adapter) handlePartnerRegister(req micro.Request) {
 		return
 	}
 	contextKey := sharedbrowserrpc.ContextFromSubject(subject)
-	tp, err := a.organizations.Register(context.Background(), a.actor(req), in.Type, contextKey, domain.Details{
+	tp, err := a.organizations.Register(sharedbrowserrpc.SpanContext(req), a.actor(req), in.Type, contextKey, domain.Details{
 		Name:              in.Name,
 		TradingAs:         in.TradingAs,
 		CompanyName:       in.CompanyName,
@@ -569,7 +562,7 @@ func (a *Adapter) handlePartnerRegister(req micro.Request) {
 		VatRegistrationNo: in.VatRegistrationNo,
 	})
 	if err == nil && tp.Type == domain.PartnerTypeTransporter && a.profiles != nil {
-		_, err = a.profiles.CreateTransporterProfile(context.Background(), contextKey, tp.ID)
+		_, err = a.profiles.CreateTransporterProfile(sharedbrowserrpc.SpanContext(req), contextKey, tp.ID)
 	}
 	a.reply(req, organizationResponse{tp}, err)
 }
@@ -584,7 +577,7 @@ func (a *Adapter) handlePartnerUpdate(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	tp, err := a.organizations.UpdateDetails(context.Background(), a.actor(req), in.ID, in.Version, domain.Details{
+	tp, err := a.organizations.UpdateDetails(sharedbrowserrpc.SpanContext(req), a.actor(req), in.ID, in.Version, domain.Details{
 		Name:              in.Name,
 		TradingAs:         in.TradingAs,
 		CompanyName:       in.CompanyName,
@@ -612,7 +605,7 @@ func (a *Adapter) handlePartnerProfile(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	ctx := context.Background()
+	ctx := sharedbrowserrpc.SpanContext(req)
 
 	// Confirms the partner exists, so an unknown ID is a 404 rather than an
 	// empty "no profile" answer that looks like a legitimate Shipper.
@@ -649,7 +642,7 @@ func (a *Adapter) handlePartnerProfile(req micro.Request) {
 
 func (a *Adapter) handlePartnerList(req micro.Request) {
 	subject := req.Subject()
-	partners, err := a.organizations.List(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
+	partners, err := a.organizations.List(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, organizationsResponse{Organizations: partners}, err)
 }
 
@@ -659,7 +652,7 @@ func (a *Adapter) handlePartnerGet(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	tp, err := a.organizations.Get(context.Background(), in.ID)
+	tp, err := a.organizations.Get(sharedbrowserrpc.SpanContext(req), in.ID)
 	a.reply(req, organizationResponse{tp}, err)
 }
 
@@ -669,7 +662,7 @@ func (a *Adapter) handlePartnerActivate(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	tp, err := a.activation.Activate(context.Background(), a.actor(req), in.ID)
+	tp, err := a.activation.Activate(sharedbrowserrpc.SpanContext(req), a.actor(req), in.ID)
 	a.reply(req, organizationResponse{tp}, err)
 }
 
@@ -679,7 +672,7 @@ func (a *Adapter) handlePartnerSuspend(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	tp, err := a.organizations.Suspend(context.Background(), a.actor(req), in.ID, in.Reason)
+	tp, err := a.organizations.Suspend(sharedbrowserrpc.SpanContext(req), a.actor(req), in.ID, in.Reason)
 	a.reply(req, organizationResponse{tp}, err)
 }
 
@@ -689,7 +682,7 @@ func (a *Adapter) handlePartnerReactivate(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	tp, err := a.organizations.Reactivate(context.Background(), a.actor(req), in.ID)
+	tp, err := a.organizations.Reactivate(sharedbrowserrpc.SpanContext(req), a.actor(req), in.ID)
 	a.reply(req, organizationResponse{tp}, err)
 }
 
@@ -699,7 +692,7 @@ func (a *Adapter) handlePartnerAudit(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	events, err := a.audit.ListByPartner(context.Background(), in.ID)
+	events, err := a.audit.ListByPartner(sharedbrowserrpc.SpanContext(req), in.ID)
 	if err != nil {
 		a.reply(req, nil, err)
 		return
@@ -730,7 +723,7 @@ func (a *Adapter) handleDocumentAdd(req micro.Request) {
 		// live (BR-TP68). No cover-changed signal is sent: unlike the old
 		// supersede-on-register path, registering changes no cover at all.
 		// Approval does (BR-TP69), and that is where the signal now belongs.
-		doc, err := a.documents.AddGitDocument(context.Background(), a.tenant, contextKey,
+		doc, err := a.documents.AddGitDocument(sharedbrowserrpc.SpanContext(req), a.tenant, contextKey,
 			in.ID, in.DocumentName, in.ExpiresAt, in.CoverageCents, in.GoodsTypes, a.actor(req))
 		a.reply(req, documentResponse{doc}, err)
 		return
@@ -742,12 +735,12 @@ func (a *Adapter) handleDocumentAdd(req micro.Request) {
 		a.reply(req, nil, domain.ErrDocumentFileMissing)
 		return
 	}
-	doc, err := a.documents.AddDocument(context.Background(), in.ID, in.Type, in.DocumentName, in.ExpiresAt)
+	doc, err := a.documents.AddDocument(sharedbrowserrpc.SpanContext(req), in.ID, in.Type, in.DocumentName, in.ExpiresAt)
 	if err != nil {
 		a.reply(req, nil, err)
 		return
 	}
-	ticket, err := a.documentFiles.MintUploadTicket(context.Background(), a.tenant, contextKey, in.ID, doc.ID, a.actor(req))
+	ticket, err := a.documentFiles.MintUploadTicket(sharedbrowserrpc.SpanContext(req), a.tenant, contextKey, in.ID, doc.ID, a.actor(req))
 	a.reply(req, documentRegistrationResponse{
 		Document: doc, Ticket: ticket, MaxBytes: domain.MaxDocumentFileBytes,
 	}, err)
@@ -763,7 +756,7 @@ func (a *Adapter) coverChangedSignal(req micro.Request, organizationID string) {
 		return
 	}
 	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
-	if err := a.vetting.SignalCoverChanged(context.Background(), contextKey, organizationID); err != nil && a.log != nil {
+	if err := a.vetting.SignalCoverChanged(sharedbrowserrpc.SpanContext(req), contextKey, organizationID); err != nil && a.log != nil {
 		a.log.Warn("cover-changed signal failed; a vetted transporter may still be armed against its previous expiry",
 			"context", contextKey, "organization", organizationID, "err", err)
 	}
@@ -774,7 +767,7 @@ func (a *Adapter) coverChangedSignal(req micro.Request, organizationID string) {
 // vetting workflow is not waiting on one.
 func (a *Adapter) handleDocumentSetExpiry(req micro.Request) {
 	if in, ok := a.gitRequest(req); ok {
-		doc, err := a.documents.SetGitDocumentExpiry(context.Background(), a.tenant,
+		doc, err := a.documents.SetGitDocumentExpiry(sharedbrowserrpc.SpanContext(req), a.tenant,
 			sharedbrowserrpc.ContextFromSubject(req.Subject()), in.ID, in.DocumentID, in.ExpiresAt, a.actor(req))
 		if err == nil {
 			a.coverChangedSignal(req, in.ID)
@@ -794,7 +787,7 @@ func (a *Adapter) gitRequest(req micro.Request) (documentRequest, bool) {
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		return in, false
 	}
-	return in, a.isGitDocument(in.ID, in.DocumentID)
+	return in, a.isGitDocument(sharedbrowserrpc.SpanContext(req), in.ID, in.DocumentID)
 }
 
 func (a *Adapter) handleDocumentSetExpiryCRUD(req micro.Request) {
@@ -803,7 +796,7 @@ func (a *Adapter) handleDocumentSetExpiryCRUD(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	doc, err := a.documents.SetDocumentExpiry(context.Background(), in.ID, in.DocumentID, in.ExpiresAt)
+	doc, err := a.documents.SetDocumentExpiry(sharedbrowserrpc.SpanContext(req), in.ID, in.DocumentID, in.ExpiresAt)
 	if err == nil && doc.Type == domain.DocumentTypeGoodsInTransit {
 		a.coverChangedSignal(req, in.ID)
 	}
@@ -816,7 +809,7 @@ func (a *Adapter) handleDocumentList(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	docs, err := a.documents.ListDocuments(context.Background(), in.ID)
+	docs, err := a.documents.ListDocuments(sharedbrowserrpc.SpanContext(req), in.ID)
 	a.reply(req, documentsResponse{Documents: docs}, err)
 }
 
@@ -826,7 +819,7 @@ func (a *Adapter) handleDocumentGitList(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	docs, err := a.documents.ListGitCertificates(context.Background(), in.ID)
+	docs, err := a.documents.ListGitCertificates(sharedbrowserrpc.SpanContext(req), in.ID)
 	a.reply(req, gitCertificatesResponse{
 		Documents: docs, CoverByGoodsType: domain.CoverByGoodsType(docs, time.Now().UTC()),
 	}, err)
@@ -839,7 +832,7 @@ func (a *Adapter) handleDocumentGitUpdate(req micro.Request) {
 		return
 	}
 	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
-	doc, err := a.documents.UpdateGitDocument(context.Background(), a.tenant, contextKey,
+	doc, err := a.documents.UpdateGitDocument(sharedbrowserrpc.SpanContext(req), a.tenant, contextKey,
 		in.ID, in.DocumentID, in.GoodsTypes, in.CoverageCents,
 		in.InsurerName, in.InsuranceContactName, in.InsuranceContactNumber, a.actor(req))
 	if err == nil {
@@ -863,7 +856,7 @@ func (a *Adapter) reviewSignal(req micro.Request, organizationID, documentID str
 		return
 	}
 	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
-	err := a.vetting.SignalDocumentReview(context.Background(), contextKey, organizationID, documentID, approved)
+	err := a.vetting.SignalDocumentReview(sharedbrowserrpc.SpanContext(req), contextKey, organizationID, documentID, approved)
 	// a.log is nil when Deps.Log was not supplied — the only other use of it
 	// goes through ReplyWithConflicts, which does its own nil check, so this
 	// path is the first that could dereference it. Swallowing the log is the
@@ -885,9 +878,9 @@ func (a *Adapter) handleDocumentApprove(req micro.Request) {
 	// fields: it carries BR-TP66's insurance requirements, supersedes and
 	// locks every earlier certificate (BR-TP69), and is the sole producer of
 	// document-approved on the stream (decision 14).
-	if a.isGitDocument(in.ID, in.DocumentID) {
+	if a.isGitDocument(sharedbrowserrpc.SpanContext(req), in.ID, in.DocumentID) {
 		contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
-		doc, err := a.documents.ApproveGitDocument(context.Background(), a.tenant, contextKey,
+		doc, err := a.documents.ApproveGitDocument(sharedbrowserrpc.SpanContext(req), a.tenant, contextKey,
 			in.ID, in.DocumentID, in.InsurerName, in.InsuranceContactName, in.InsuranceContactNumber, a.actor(req))
 		if err == nil {
 			// Approval is what moves cover now, so this is where BR-TP61's
@@ -905,11 +898,11 @@ func (a *Adapter) handleDocumentApprove(req micro.Request) {
 // rather than a flag on the request: the caller does not get to decide which
 // write path its document takes, and a client that sent the wrong type would
 // otherwise pick the wrong one.
-func (a *Adapter) isGitDocument(partnerID, documentID string) bool {
+func (a *Adapter) isGitDocument(ctx context.Context, partnerID, documentID string) bool {
 	if partnerID == "" || documentID == "" {
 		return false
 	}
-	doc, err := a.documents.GetDocument(context.Background(), partnerID, documentID)
+	doc, err := a.documents.GetDocument(ctx, partnerID, documentID)
 	return err == nil && doc.Type == domain.DocumentTypeGoodsInTransit
 }
 
@@ -919,9 +912,9 @@ func (a *Adapter) handleDocumentReject(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	if a.isGitDocument(in.ID, in.DocumentID) {
+	if a.isGitDocument(sharedbrowserrpc.SpanContext(req), in.ID, in.DocumentID) {
 		contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
-		doc, err := a.documents.RejectGitDocument(context.Background(), a.tenant, contextKey,
+		doc, err := a.documents.RejectGitDocument(sharedbrowserrpc.SpanContext(req), a.tenant, contextKey,
 			in.ID, in.DocumentID, a.actor(req))
 		if err == nil {
 			a.reviewSignal(req, in.ID, doc.ID, false)
@@ -956,7 +949,7 @@ func (a *Adapter) documentTransition(
 		a.reply(req, nil, err)
 		return
 	}
-	doc, err := fn(context.Background(), in.ID, in.DocumentID)
+	doc, err := fn(sharedbrowserrpc.SpanContext(req), in.ID, in.DocumentID)
 	// Only a transition that actually happened is signalled — a rejected
 	// approval (BR-TP09's not-FOR_REVIEW guard) changed nothing, so telling the
 	// workflow about it would advance an attempt on a document that never
@@ -1005,13 +998,13 @@ func (a *Adapter) handleDocumentGitRegister(req micro.Request) {
 	}
 	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
 	actor := a.actor(req)
-	doc, err := a.documents.AddGitDocument(context.Background(), a.tenant, contextKey,
+	doc, err := a.documents.AddGitDocument(sharedbrowserrpc.SpanContext(req), a.tenant, contextKey,
 		in.ID, in.DocumentName, in.ExpiresAt, in.CoverageCents, in.GoodsTypes, actor)
 	if err != nil {
 		a.reply(req, nil, err)
 		return
 	}
-	ticket, err := a.documentFiles.MintUploadTicket(context.Background(), a.tenant, contextKey, in.ID, doc.ID, actor)
+	ticket, err := a.documentFiles.MintUploadTicket(sharedbrowserrpc.SpanContext(req), a.tenant, contextKey, in.ID, doc.ID, actor)
 	a.reply(req, documentRegistrationResponse{
 		Document: doc, Ticket: ticket, MaxBytes: domain.MaxDocumentFileBytes,
 	}, err)
@@ -1030,7 +1023,7 @@ func (a *Adapter) documentTicket(
 		a.reply(req, nil, domain.ErrDocumentFileMissing)
 		return
 	}
-	token, err := mint(context.Background(), sharedbrowserrpc.ContextFromSubject(req.Subject()), in.ID, in.DocumentID)
+	token, err := mint(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(req.Subject()), in.ID, in.DocumentID)
 	a.reply(req, documentTicketResponse{Ticket: token, MaxBytes: domain.MaxDocumentFileBytes}, err)
 }
 
@@ -1051,7 +1044,7 @@ func (a *Adapter) handleFleetAssetAdd(req micro.Request) {
 	// threaded everywhere unchanged). On the OTel stack the span is
 	// otelnats's (ContextFrom); otherwise natstrace's (BR-037). Each is a
 	// no-op where the other one wrapped req.
-	ctx := natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req))
+	ctx := sharedbrowserrpc.SpanContext(req)
 	asset, err := a.fleetAssets.AddFleetAsset(
 		ctx, in.ID, a.tenant,
 		in.RegistrationNo, in.VIN, in.Make, in.Model, in.VehicleTypeCode,
@@ -1065,7 +1058,7 @@ func (a *Adapter) handleFleetAssetList(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	assets, err := a.fleetAssets.ListFleetAssets(context.Background(), in.ID)
+	assets, err := a.fleetAssets.ListFleetAssets(sharedbrowserrpc.SpanContext(req), in.ID)
 	a.reply(req, fleetAssetsResponse{FleetAssets: assets}, err)
 }
 
@@ -1100,7 +1093,7 @@ func (a *Adapter) handleTrackingCredentialConfigure(req micro.Request) {
 		return
 	}
 	cred, err := a.trackingCreds.ConfigureTrackingCredential(
-		context.Background(), in.ID, a.tenant, in.Provider, in.CredentialType, []byte(in.Payload),
+		sharedbrowserrpc.SpanContext(req), in.ID, a.tenant, in.Provider, in.CredentialType, []byte(in.Payload),
 	)
 	// cred carries provider/credentialType/configured only — the request's
 	// Payload is not part of it and cannot be echoed back.
@@ -1113,7 +1106,7 @@ func (a *Adapter) handleTrackingCredentialList(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	creds, err := a.trackingCreds.ListTrackingCredentials(context.Background(), in.ID)
+	creds, err := a.trackingCreds.ListTrackingCredentials(sharedbrowserrpc.SpanContext(req), in.ID)
 	a.reply(req, trackingCredentialsResponse{TrackingCredentials: creds}, err)
 }
 
@@ -1127,7 +1120,7 @@ func (a *Adapter) handleOperatingAreaAdd(req micro.Request) {
 	}
 	// Same span propagation as fleet-asset add (BR-037): BR-TP47's refdata
 	// lookup is an outbound rpc.* call that should continue this trace.
-	ctx := natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
+	ctx := sharedbrowserrpc.SpanContext(req)
 	area, err := a.operatingAreas.AddOperatingArea(ctx, a.actor(req), in.ID, a.tenant, in.Level, in.Code)
 	a.reply(req, operatingAreaResponse{OperatingArea: area}, err)
 }
@@ -1138,7 +1131,7 @@ func (a *Adapter) handleOperatingAreaList(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	areas, err := a.operatingAreas.ListOperatingAreas(context.Background(), in.ID)
+	areas, err := a.operatingAreas.ListOperatingAreas(sharedbrowserrpc.SpanContext(req), in.ID)
 	a.reply(req, operatingAreasResponse{OperatingAreas: areas}, err)
 }
 
@@ -1148,7 +1141,7 @@ func (a *Adapter) handleOperatingAreaRemove(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	err := a.operatingAreas.RemoveOperatingArea(context.Background(), a.actor(req), in.ID, in.Level, in.Code)
+	err := a.operatingAreas.RemoveOperatingArea(sharedbrowserrpc.SpanContext(req), a.actor(req), in.ID, in.Level, in.Code)
 	a.reply(req, operatingAreaResponse{}, err)
 }
 

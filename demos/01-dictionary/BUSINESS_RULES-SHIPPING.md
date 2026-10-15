@@ -1364,8 +1364,12 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > 54b-3a (2026-10-15) switched refdata-service over: every rpc.* and api.*
 > endpoint, the `evt.*` publisher, the `notify.*` fan-out and the notify
 > bridge. See the "OTel path (54b-3a)" bullets under BR-037 here and under
-> BR-D39–BR-D42 in `BUSINESS_RULES-REFDATA.md`. organizations-service is
-> next (54b-3b). The Temporal hop is still not traced (BR-064). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
+> BR-D39–BR-D42 in `BUSINESS_RULES-REFDATA.md`.
+>
+> 54b-3b (2026-10-15) switched organizations-service over: every api.*
+> endpoint, the TRANSPORTER `evt.*` append and its projector. See BR-TP75's
+> OTel note in `BUSINESS_RULES-ORGANIZATIONS.md`. The Temporal hop is still
+> not traced (BR-064). shipping-service is next (54b-4). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or

@@ -1805,7 +1805,7 @@ Neither is fixed in place: this phase removes the code that has them.
         (decision 13: behaviour unchanged). That spec now also checks the
         payload is not truncated and does not hold `actorName`, which is
         what proves redaction ran first.
-  - [ ] **54b-3** — the rest of `refdata-service` and
+  - [x] **54b-3** — the rest of `refdata-service` and
         `organizations-service`, with decision 6's context audit. Split in
         two on 2026-10-15 (user's choice), so each service has its own
         test and commit boundary. Each substep ends with its specs and its
@@ -1841,12 +1841,49 @@ Neither is fixed in place: this phase removes the code that has them.
           Not tested directly: that the rpc.* handler ctx is the SERVER
           span (covered by the code change only). The Temporal gap below
           is still open.
-    - [ ] **54b-3b** — the rest of `organizations-service`: the 26 api.*
+    - [x] **54b-3b** — the rest of `organizations-service`: the 26 api.*
           endpoints, `JetStreamEventStore` on `otelnats.Observer`, a
           CONSUMER span in the `TRANSPORTER` projector. Context audit: the
           35 `context.Background()` handler contexts in
           `browserrpc/adapter.go` that drop the span, plus the projector
           and `composition.go` sites.
+          Done 2026-10-15. Specs first: 10 new specs ran red on their
+          assertions (orchestration `testing` 4, organizations Ginkgo 6).
+          Two 54a-4 specs assumed only fleet-asset add was on OTel; they now
+          pick its SERVER span by name. Then all green:
+          - api.*: every endpoint on `EdgeAPI` when `Deps.Tracing` is set;
+            `otelSubjects` deleted. Receiving account = the adapter's tenant.
+          - Context audit: all 35 handler sites now use
+            `sharedbrowserrpc.SpanContext(req)` (the SERVER span with OTel,
+            the natstrace span without). Each is a request-scoped handler
+            ctx. `isGitDocument` takes a ctx. On the natstrace path this
+            also means the span now reaches the command layer, where it did
+            not before.
+          - `JetStreamEventStore`: `WithOTel(p)` makes `append` a PRODUCER
+            span with its traceparent on the message, Error status on a
+            failed or rejected append, and the observation from
+            `otelnats.Observer` (set by `WithObservation`) after the PubAck.
+          - Projector: `WithOTel(p, tenant)` consumes under a CONSUMER span
+            (receiving account = tenant). Its 4 `context.Background()` sites
+            (hydrate, projection, cache, certificates) now use that delivery
+            ctx.
+          - Wiring: `transporterprofile.Start(…, WithTracing(p, tenant))`;
+            `tenants.NewManager(…, tracing)` replaces the `WithTracing`
+            builder, because the shared manager is built inside
+            `NewManager` and now gets `natstenants.WithTracing(tracing)`.
+          - Kept as is: `composition.go`'s one `context.Background()`
+            (`DeleteGitMonitorSchedules`, a startup cleanup) and
+            `dropHydrationConsumer`'s timeout ctx. Neither is
+            request-scoped.
+          - `organizations-service` suite green (202/202 Ginkgo specs in
+            `organizations`); `shipping-service` suite green; all seven
+            services build.
+          Not tested directly: the wiring in `transporterprofile.Start` and
+          `tenants.NewManager` (both need Postgres to start a tenant; the
+          options they pass are tested where they are defined). The 30
+          `internal/postgres` specs skip without
+          `ORGANIZATIONS_TEST_DATABASE_URL`; this step did not touch that
+          package. The Temporal gap below is unchanged.
     - **Known gap — the Temporal hop is not traced.** Temporal has no OTel
       interceptor here (`client.Dial` in `organizations/composition.go`,
       `temporalworker.Options{}` in `worker/worker.go`). Affected path: an

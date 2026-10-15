@@ -12,6 +12,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/cache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/orchestration"
 	profilepostgres "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/postgres"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 type Runtime struct {
@@ -24,7 +25,26 @@ type Runtime struct {
 	projector *orchestration.Projector
 }
 
-func Start(ctx context.Context, nc *nats.Conn, db *sql.DB, certificates orchestration.CertificateWriter) (*Runtime, error) {
+// Option configures Start.
+type Option func(*startConfig)
+
+type startConfig struct {
+	tracing *otelnats.Provider
+	tenant  string
+}
+
+// WithTracing puts this tenant's evt.* appends and its projector on OTel
+// (Phase 54b-3b). tenant is the account the runtime's connection lives in:
+// the projector's receiving account (BR-069). A nil Provider keeps natstrace.
+func WithTracing(p *otelnats.Provider, tenant string) Option {
+	return func(c *startConfig) { c.tracing = p; c.tenant = tenant }
+}
+
+func Start(ctx context.Context, nc *nats.Conn, db *sql.DB, certificates orchestration.CertificateWriter, opts ...Option) (*Runtime, error) {
+	var cfg startConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	js, err := jetstream.New(nc)
 	if err != nil {
 		return nil, err
@@ -45,6 +65,9 @@ func Start(ctx context.Context, nc *nats.Conn, db *sql.DB, certificates orchestr
 	// compliance_documents table it writes lives in the service's own
 	// Postgres, not the tenant's NATS account.
 	projector := orchestration.NewProjector(js, projection, kv)
+	if cfg.tracing != nil {
+		projector = projector.WithOTel(cfg.tracing, cfg.tenant)
+	}
 	if certificates != nil {
 		projector = projector.WithCertificateWriter(certificates)
 	}
@@ -53,7 +76,7 @@ func Start(ctx context.Context, nc *nats.Conn, db *sql.DB, certificates orchestr
 	}
 	// Phase 43a (BR-TP75): observe this tenant's evt.* traffic on the same
 	// connection it is published from.
-	events := orchestration.NewJetStreamEventStore(js, orchestration.WithObservation(nc))
+	events := orchestration.NewJetStreamEventStore(js, orchestration.WithObservation(nc), orchestration.WithOTel(cfg.tracing))
 	return &Runtime{
 		Commands:   orchestration.NewProfileHandler(events),
 		Projection: projection,

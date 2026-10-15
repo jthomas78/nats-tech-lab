@@ -10,9 +10,11 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel/codes"
 
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 func EnsureStream(ctx context.Context, js jetstream.JetStream) error {
@@ -49,6 +51,15 @@ type JetStreamEventStore struct {
 	// default, so a store built for a test or for the projector's own
 	// hydration path stays silent.
 	observer *natstrace.Tracer
+
+	// otelObserver is the same observation on the OTel path, set by
+	// WithObservation alongside observer; append uses it only when otel is
+	// set (Phase 54b-3b).
+	otelObserver *otelnats.Observer
+
+	// otel, when set by WithOTel, makes each append a PRODUCER span. Nil
+	// keeps natstrace (decision 16).
+	otel *otelnats.Provider
 }
 
 // Option configures a JetStreamEventStore at construction.
@@ -72,7 +83,18 @@ type Option func(*JetStreamEventStore)
 // seam would produce a generic that served neither caller. What it does share
 // is the construction idiom — observer nil unless asked for.
 func WithObservation(nc *nats.Conn) Option {
-	return func(s *JetStreamEventStore) { s.observer = natstrace.New(nc) }
+	return func(s *JetStreamEventStore) {
+		s.observer = natstrace.New(nc)
+		s.otelObserver = otelnats.NewObserver(nc)
+	}
+}
+
+// WithOTel makes each append a PRODUCER span, the child of the span on ctx
+// (Phase 54b-3b, BR-037). The span's traceparent goes on the message, and
+// the obs.pubsub.* observation carries its IDs (BR-045). A nil Provider keeps
+// natstrace, as shared/jstream's WithOTel does.
+func WithOTel(p *otelnats.Provider) Option {
+	return func(s *JetStreamEventStore) { s.otel = p }
 }
 
 func NewJetStreamEventStore(js jetstream.JetStream, opts ...Option) *JetStreamEventStore {
@@ -153,6 +175,9 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 	if messageID != "" {
 		msg.Header.Set(nats.MsgIdHdr, messageID)
 	}
+	if s.otel != nil {
+		return s.appendOTel(ctx, msg)
+	}
 	// BR-037: every evt.* publish carries a traceparent derived from the span
 	// that caused it. This seam went without one from Phase 28 until Phase
 	// 43e — the rule existed, nothing enforced it here, and nothing on the
@@ -176,5 +201,27 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 	// it drops its own error and cannot change this function's result or
 	// meaningfully delay it (ADR-047 A7).
 	s.observer.ObservePublish(sp, msg.Subject, data)
+	return ack.Sequence, nil
+}
+
+// appendOTel is append's OTel path (Phase 54b-3b). It keeps the same
+// optimistic-concurrency headers and ErrSequenceConflict mapping; only the
+// tracing differs. The observation is emitted while the PRODUCER span is
+// open, so its envelope carries that span's IDs, and only after the PubAck,
+// for the same reason as on the natstrace path.
+func (s *JetStreamEventStore) appendOTel(ctx context.Context, msg *nats.Msg) (uint64, error) {
+	ctx, span := s.otel.StartProducer(ctx, msg.Subject)
+	defer span.End()
+	otelnats.Inject(ctx, msg)
+	ack, err := s.js.PublishMsg(ctx, msg)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		var jsErr jetstream.JetStreamError
+		if errors.As(err, &jsErr) && jsErr.APIError() != nil && jsErr.APIError().ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence {
+			return 0, ErrSequenceConflict
+		}
+		return 0, fmt.Errorf("publish transporter profile event: %w", err)
+	}
+	s.otelObserver.ObservePublish(ctx, msg.Subject, msg.Data)
 	return ack.Sequence, nil
 }
