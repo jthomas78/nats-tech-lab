@@ -1785,8 +1785,26 @@ Neither is fixed in place: this phase removes the code that has them.
         `accounts-service` and `mfe-registry-service` also gain the
         missing `shared/natstest` replace (an old gap: `go mod tidy`
         failed there before this step). All seven services build.
-  - [ ] **54b-2** — the shared seams and the `obs.pubsub.*` publisher move
+  - [x] **54b-2** — the shared seams and the `obs.pubsub.*` publisher move
         to `otelnats`; their specs green.
+        Done 2026-10-15. All green:
+        - `shared/otelnats`: 74/74. New `redact.go` (natstrace's denylist,
+          redact and truncate, ported unchanged). `StartProducer` /
+          `StartConsumer`, body events with `Middleware` capture, and
+          `Observer` implemented.
+        - `shared/jstream` (`Publish(ctx, …)`: OTel with `WithOTel`, else
+          the natstrace span on ctx), `shared/natsnotify`,
+          `shared/natstenants` (one CONSUMER span per lifecycle delivery)
+          and `shared/browserrpc` (`SpanContext` returns the SERVER span's
+          ctx when wrapped) all green.
+        - `shipping-service` and `refdata-service` suites green; all seven
+          services build.
+        Two 54b-1 spec mistakes fixed, not the code: `body.bytes` for the
+        5000-byte pad is 5010, not 5011; and BR-046's `payloadBytes` is the
+        size after redaction (4080), as natstrace sends it, not before
+        (decision 13: behaviour unchanged). That spec now also checks the
+        payload is not truncated and does not hold `actorName`, which is
+        what proves redaction ran first.
   - [ ] **54b-3** — the rest of `refdata-service` and
         `organizations-service`, with decision 6's context audit.
   - [ ] **54b-4** — `shipping-service`. Closes 54a-4's split-trace gap

@@ -23,6 +23,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
@@ -70,6 +71,10 @@ type Publisher struct {
 	// BR-D45). Nil by default.
 	observer *natstrace.Tracer
 
+	// otelObserver is the same observation on the OTel path (decision 13).
+	// WithObservation sets both; WithOTel picks which one runs.
+	otelObserver *otelnats.Observer
+
 	// otel, when set by WithOTel, puts Publish on the OTel path (Phase 54,
 	// decision 16). Nil keeps natstrace.
 	otel *otelnats.Provider
@@ -95,7 +100,10 @@ type Option func(*Publisher)
 // account, which is the only reason PLATFORM's --local-subject import remap
 // can attribute it to the right tenant (BR-D45, BR-AC34).
 func WithObservation(nc *nats.Conn) Option {
-	return func(p *Publisher) { p.observer = natstrace.New(nc) }
+	return func(p *Publisher) {
+		p.observer = natstrace.New(nc)
+		p.otelObserver = otelnats.NewObserver(nc)
+	}
 }
 
 // NewPublisher builds a Publisher on js. Observation is opt-in: pass
@@ -138,13 +146,26 @@ func (p *Publisher) PublishWithTrace(ctx context.Context, sp *natstrace.Span, su
 }
 
 // Publish is the ctx-only form of PublishWithTrace, and the one callers move
-// to in 54b. With WithOTel it starts a PRODUCER span from ctx. Without it,
-// it takes the natstrace span from ctx and behaves as PublishWithTrace.
-// PublishWithTrace goes in 54d.
-//
-// STATUS: skeleton (54b-1). Specs are red until 54b-2.
+// to in 54b. With WithOTel it starts a PRODUCER span from ctx, injects its
+// traceparent, and observes with that span's IDs; a failed publish marks the
+// span Error and is not observed. Without it, it takes the natstrace span
+// from ctx and behaves as PublishWithTrace. PublishWithTrace goes in 54d.
 func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) error {
-	return p.publish(ctx, subject, data)
+	if p.otel == nil {
+		return p.PublishWithTrace(ctx, natstrace.SpanFromContext(ctx), subject, data)
+	}
+
+	ctx, span := p.otel.StartProducer(ctx, subject)
+	defer span.End()
+	msg := &nats.Msg{Subject: subject, Data: data}
+	otelnats.Inject(ctx, msg)
+	if err := p.publishMsg(ctx, subject, msg.Header, data); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	// Observed while the span is still open, so its IDs are the producer's.
+	p.otelObserver.ObservePublish(ctx, subject, data)
+	return nil
 }
 
 func (p *Publisher) publish(ctx context.Context, subject string, data []byte) error {

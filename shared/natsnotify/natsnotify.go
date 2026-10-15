@@ -32,6 +32,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // Tokens are the four observability tokens BR-045 attributes an observation
@@ -72,6 +73,10 @@ type Notifier struct {
 	log *slog.Logger
 	obs *natstrace.Tracer // nil unless WithObservation was given
 
+	// otelObs is the same observation on the OTel path (decision 13).
+	// WithObservation sets both; WithOTel picks which one runs.
+	otelObs *otelnats.Observer
+
 	// otel, when set by WithOTel, puts Publish on the OTel path (Phase 54,
 	// decision 16). Nil keeps natstrace.
 	otel *otelnats.Provider
@@ -81,8 +86,6 @@ type Notifier struct {
 // the child of the span on ctx; its traceparent on the message; and the
 // obs.pubsub.* observation taking its IDs from that span (decision 5,
 // decision 13). A nil provider is the same as not passing the option.
-//
-// STATUS: skeleton (54b-1). Publish ignores it until 54b-2.
 func WithOTel(p *otelnats.Provider) Option {
 	return func(n *Notifier) { n.otel = p }
 }
@@ -105,7 +108,10 @@ type Option func(*Notifier)
 // divergence is deliberate; the evt.* seam converges on this shape when the
 // shared/jstream deduplication lands.
 func WithObservation(obsNC *nats.Conn) Option {
-	return func(n *Notifier) { n.obs = natstrace.New(obsNC) }
+	return func(n *Notifier) {
+		n.obs = natstrace.New(obsNC)
+		n.otelObs = otelnats.NewObserver(obsNC)
+	}
 }
 
 // New returns a Notifier publishing on nc and logging failures to log. Both
@@ -142,6 +148,10 @@ func (n *Notifier) Publish(ctx context.Context, subj Subject, payload []byte) {
 
 	// A nil ctx is tolerated: several publishers this replaces are reached
 	// from a KV watch callback that has no request context behind it.
+	if n.otel != nil {
+		n.publishOTel(ctx, subj, payload)
+		return
+	}
 	var sp *natstrace.Span
 	if ctx != nil {
 		sp = natstrace.SpanFromContext(ctx)
@@ -160,4 +170,29 @@ func (n *Notifier) Publish(ctx context.Context, subj Subject, payload []byte) {
 
 	tok := subj.Tokens
 	n.obs.ObservePublishAs(sp, subj.Name, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
+}
+
+// publishOTel is Publish on the OTel path: a PRODUCER span under the span on
+// ctx, its traceparent on the message, and the observation with its IDs. A
+// publish that never reached the wire marks the span Error and is not
+// observed.
+func (n *Notifier) publishOTel(ctx context.Context, subj Subject, payload []byte) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, span := n.otel.StartProducer(ctx, subj.Name)
+	defer span.End()
+
+	msg := &nats.Msg{Subject: subj.Name, Data: payload}
+	otelnats.Inject(ctx, msg)
+	if err := n.nc.PublishMsg(msg); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		if n.log != nil {
+			n.log.Warn("notify publish failed", "subject", subj.Name, "err", err)
+		}
+		return
+	}
+
+	tok := subj.Tokens
+	n.otelObs.ObservePublishAs(ctx, subj.Name, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
 }

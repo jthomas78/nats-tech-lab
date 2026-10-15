@@ -137,9 +137,15 @@ var _ = Describe("BR-045: the obs.pubsub.* publisher takes its IDs from the OTel
 		otelnats.NewObserver(nc).ObservePublish(context.Background(), subject, []byte(big))
 
 		_, env := nextObservation(sub)
-		Expect(string(env.Payload)).NotTo(ContainSubstring("Jo Bloggs"))
+		// Truncated first, the cut at 4 KiB would keep the key and part of
+		// the name. Redacted first, the payload fits under the cap.
+		Expect(string(env.Payload)).NotTo(ContainSubstring("actorName"))
+		Expect(string(env.Payload)).NotTo(ContainSubstring("Jo"))
 		Expect(env.Redacted).To(ConsistOf("actorName"))
-		Expect(env.PayloadBytes).To(Equal(len(big)))
+		Expect(env.Truncated).To(BeFalse())
+		// payloadBytes is the size after redaction, before truncation, as
+		// natstrace sent it (decision 13: behaviour unchanged).
+		Expect(env.PayloadBytes).To(Equal(len(`{"pad":"` + strings.Repeat("x", 4070) + `"}`)))
 	})
 
 	It("BR-045: never observes an obs.* subject (no self-observation)", func() {

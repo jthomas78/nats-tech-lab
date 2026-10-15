@@ -2,6 +2,7 @@ package otelnats
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	"github.com/nats-io/nats.go"
@@ -19,12 +20,16 @@ import (
 // open; a handler that never replies has its span ended when it returns.
 // A reply carrying micro's Nats-Service-Error header marks the span ERROR,
 // as natstrace does today (BR-055).
+//
+// With Config.CaptureBodies, the request body is a span event at the start
+// and the reply body is one just before the span ends (decision 7).
 func (p *Provider) Middleware(edge Edge, trust func(micro.Request) Trust, h micro.HandlerFunc) micro.HandlerFunc {
 	return func(req micro.Request) {
 		msg := &nats.Msg{Subject: req.Subject(), Header: nats.Header(req.Headers())}
 		ctx, span := p.StartServer(context.Background(), msg, edge, trust(req))
-		r := &serverRequest{Request: req, ctx: ctx, span: span}
-		defer r.end(nil)
+		p.RecordRequestBody(span, req.Data(), msg.Header)
+		r := &serverRequest{Request: req, p: p, ctx: ctx, span: span}
+		defer r.end(nil, nil)
 		h(r)
 	}
 }
@@ -42,18 +47,20 @@ func ContextFrom(req micro.Request) context.Context {
 // the span when the reply goes out.
 type serverRequest struct {
 	micro.Request
+	p    *Provider
 	ctx  context.Context
 	span trace.Span
 	once sync.Once
 }
 
 func (r *serverRequest) Respond(data []byte, opts ...micro.RespondOpt) error {
-	r.end(replyHeader(opts))
+	r.end(data, replyHeader(opts))
 	return r.Request.Respond(data, opts...)
 }
 
 func (r *serverRequest) RespondJSON(v any, opts ...micro.RespondOpt) error {
-	r.end(replyHeader(opts))
+	data, _ := json.Marshal(v)
+	r.end(data, replyHeader(opts))
 	return r.Request.RespondJSON(v, opts...)
 }
 
@@ -61,13 +68,17 @@ func (r *serverRequest) Error(code, description string, data []byte, opts ...mic
 	h := replyHeader(opts)
 	h.Set(micro.ErrorHeader, description)
 	h.Set(micro.ErrorCodeHeader, code)
-	r.end(h)
+	r.end(data, h)
 	return r.Request.Error(code, description, data, opts...)
 }
 
-// end sets the status from the reply header and ends the span, once.
-func (r *serverRequest) end(h nats.Header) {
+// end records the reply body, sets the status from the reply header and
+// ends the span, once. A nil h means no reply was sent.
+func (r *serverRequest) end(data []byte, h nats.Header) {
 	r.once.Do(func() {
+		if h != nil {
+			r.p.RecordReplyBody(r.span, data, h)
+		}
 		if desc := h.Get(micro.ErrorHeader); desc != "" {
 			r.span.SetStatus(codes.Error, desc)
 		}

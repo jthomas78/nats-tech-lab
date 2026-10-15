@@ -57,17 +57,9 @@ const (
 // The tenant attributes come from trust only (BR-069). StartServer reads
 // msg's subject and its traceparent, and nothing else in it.
 func (p *Provider) StartServer(ctx context.Context, msg *nats.Msg, edge Edge, trust Trust) (context.Context, trace.Span) {
-	attrs := []attribute.KeyValue{
-		attrMessagingSystem.String("nats"),
-		attrMessagingDestination.String(msg.Subject),
-		AttrReceivingAccount.String(trust.ReceivingAccount),
-	}
-	if trust.OriginatingTenant != "" {
-		attrs = append(attrs, AttrOriginatingTenant.String(trust.OriginatingTenant))
-	}
 	opts := []trace.SpanStartOption{
 		trace.WithSpanKind(trace.SpanKindServer),
-		trace.WithAttributes(attrs...),
+		trace.WithAttributes(tenantAttrs(msg.Subject, trust)...),
 	}
 
 	switch edge {
@@ -83,6 +75,20 @@ func (p *Provider) StartServer(ctx context.Context, msg *nats.Msg, edge Edge, tr
 		}
 	}
 	return p.tracer.Start(ctx, msg.Subject, opts...)
+}
+
+// tenantAttrs is the attribute set of an inbound span: the messaging
+// attributes, and the tenant attributes from trust only (BR-069).
+func tenantAttrs(subject string, trust Trust) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		attrMessagingSystem.String("nats"),
+		attrMessagingDestination.String(subject),
+		AttrReceivingAccount.String(trust.ReceivingAccount),
+	}
+	if trust.OriginatingTenant != "" {
+		attrs = append(attrs, AttrOriginatingTenant.String(trust.OriginatingTenant))
+	}
+	return attrs
 }
 
 // StartClient starts the CLIENT span for an outbound request, as the child

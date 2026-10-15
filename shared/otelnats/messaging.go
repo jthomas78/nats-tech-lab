@@ -11,10 +11,14 @@ import (
 // as the child of the span in ctx, or as a new root when ctx holds none
 // (decision 5). The span is named for the subject. The caller injects the
 // returned context into the message, publishes, and ends the span.
-//
-// STATUS: skeleton (54b-1). Specs are red until 54b-2.
 func (p *Provider) StartProducer(ctx context.Context, subject string) (context.Context, trace.Span) {
-	return ctx, trace.SpanFromContext(context.Background())
+	return p.tracer.Start(ctx, subject,
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attrMessagingSystem.String("nats"),
+			attrMessagingDestination.String(subject),
+		),
+	)
 }
 
 // StartConsumer starts the CONSUMER span for an inbound evt.* or notify.*
@@ -22,7 +26,13 @@ func (p *Provider) StartProducer(ctx context.Context, subject string) (context.C
 // traceparent in msg is the parent (decision 5). The tenant attributes come
 // from trust only, as in StartServer (BR-069).
 //
-// STATUS: skeleton (54b-1). Specs are red until 54b-2.
+// When ctx already holds a span it is the parent, as StartServer's EdgeRPC.
 func (p *Provider) StartConsumer(ctx context.Context, msg *nats.Msg, trust Trust) (context.Context, trace.Span) {
-	return ctx, trace.SpanFromContext(context.Background())
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		ctx = Extract(ctx, msg.Header)
+	}
+	return p.tracer.Start(ctx, msg.Subject,
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(tenantAttrs(msg.Subject, trust)...),
+	)
 }

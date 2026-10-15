@@ -558,6 +558,18 @@ Every `obs.trace.{context}.{service}.{entity}.{action}` publish happens on the *
 >   default landing tab with real bucketed histograms from the live trace
 >   buffer, and `Traces`/`Messages` are unaffected.
 
+- **OTel path (54b-2, 2026-10-15):** bodies are span events, not envelope
+  fields (decision 7). `rpc.request.body` and `rpc.reply.body` carry `body`,
+  `body.bytes`, `redacted`, `truncated` and `headers`. Capture is opt-in per
+  service (`otelnats.Config.CaptureBodies`). The pipeline is natstrace's,
+  unchanged: redact with the shared denylist, then cut at 4096 bytes.
+  `body.bytes` is the size after redaction and before truncation, the same as
+  `payloadBytes`. On a span event the cut body stays a plain string (it is
+  not re-quoted as JSON). Enforced in `shared/otelnats/body.go`
+  (`RecordRequestBody`, `RecordReplyBody`), `redact.go` and `micro.go`
+  (`Middleware` records the request at start and the reply, including a micro
+  error reply, before the span ends). Test: `shared/otelnats/body_test.go`.
+
 ### BR-037 (Phase 28) — Trace context propagates on every outbound NATS message, one span per logical RPC call, never one per retry attempt
 
 Every outbound `rpc.*` request, `evt.*` publish, and `notify.*` publish carries a W3C `traceparent` header derived from the span that caused it — the same way `Nats-Requestor` (BR-027) already rides outbound requests today. A retried `rpc.*` call (e.g. `refdataconsumer.requestRPC`'s retry loop) mints its child span id **once, before the retry loop starts** — a 3-attempt failure produces one span with a `rpc.retry_count` attribute of 2, not three parentless sibling spans with no relationship to each other; the latter would make a single logical call look like three unrelated ones in the waterfall (BR-035).
@@ -578,6 +590,23 @@ A NATS KV entry **cannot** carry trace context — `jetstream.KeyValue.Put` take
 
 - **Enforced in:** `internal/refdataconsumer/consumer.go`'s `requestRPC` (mints the child span before its retry loop, sets `traceparent` alongside `Nats-Requestor`, publishes to the tenant-local alias unchanged); organizations-service's `internal/refdataclient/client.go`'s `requestRPC` (same pattern, second of the two Phase 28c call sites); `shared/jstream`'s `Publisher.PublishWithTrace` (Phase 28d; Phase 43e merged shipping-service's and refdata-service's two copies of it into one module and unexported the publish primitives beneath it, so the header is no longer something a caller could route around); organizations-service's `orchestration.JetStreamEventStore.append` (Phase 43e — that seam had gone without a `traceparent` since Phase 28: this rule already required one, nothing enforced it there, and no consumer read the header loudly enough for the gap to surface. See BUSINESS_RULES-ORGANIZATIONS.md's BR-TP75); `dictionary/internal/browserrpc/adapter.go`'s 9 handlers seeding `natstrace.ContextWithSpan` (Phase 28d, Piece 1); `dictionary/internal/application/commands/commands.go`'s `Publisher` interface (widened with `PublishWithTrace`) and `ShipHandler.publish`/`dictionary/internal/application/commands/container.go`'s `ContainerHandler.publish` (Phase 28d, Piece 2); `dictionary/internal/eventhandler/handler.go`'s shared `register()`, `container_handler.go`'s `RegisterContainers`, and `meta_handler.go`'s `RegisterMeta` (per-message spans, Phase 28d Piece 3; the `consumer.durable` attribute and the three `*ProjectorDurable` consts, 2026-08-27), plus their `publishNotify`/`publishRawNotify`; `internal/kvstore/kv.go`'s `Store.publishNotify` (carries trace context on the derived notify, never in the KV `Put` body).
 - **Test:** a 3-attempt-then-fail `requestRPC` call asserts exactly one span published with `attributes["rpc.retry_count"] == 2`, not three; `internal/refdataconsumer/consumer_test.go`'s `TestLookupPublishesOneSpanCarryingATraceparentHeader`/`TestLookupContinuesParentSpanAttachedViaContext`/`TestLookupPublishesOneErrorSpanWithRetryCountWhenNoResponder`, and organizations-service's `internal/refdataclient/client_test.go`, pin both the local-alias subject (unchanged) and the span's explicit labeling. Phase 28d: `dictionary/trace_async_test.go`'s "BR-037 (Phase 28d)" specs assert an api.\* command's resulting evt.\* JetStream publish carries the same `traceId` as its reply-side `obs.trace.*` span (including with no inbound `traceparent` at all — a root span), and that each of the three projector `Consume` callbacks (`RegisterShapeA`, `RegisterShapeB`, `RegisterContainers`, `RegisterMeta`) publishes exactly one span per message labeled with the correct `service`/`entity`/`action`/`entity_id`; `shared/natsnotify/natsnotify_test.go` pins the `notify.*` seam's nil-safe header attachment directly (Phase 43d moved these off the per-call-site helpers they were written against); `organizations-service/.../orchestration/pubsub_observability_test.go`'s `TestAppendCarriesTheCausingTraceparent`/`TestAppendOmitsTraceparentWhenNoSpanIsReachable` pin the third seam (Phase 43e); `internal/kvstore/kv_test.go`'s two new `EnableNotify` specs assert `Store.Put`'s derived notify attaches the `Traceparent` header when `ctx` carries a span and omits it cleanly when it doesn't. **`consumer.durable` (2026-08-27):** `dictionary/trace_async_test.go`'s three per-projector specs each assert their own durable on the span alongside `entity_id`, and a fourth spec — "labels the two spans one `.registered` event produces with the distinct durable of each projector that consumed it" — registers **both** container-subject projectors, drives one register through the `api.*` adapter (the only path that seeds a parent span, so both projectors continue one trace rather than each minting a root), and asserts two spans arrive keyed by distinct durables with matching `traceId`/`entity_id` and differing `spanId`. It deliberately does not use the `firstMatching`/`noMoreMatching` helpers: "exactly one" is the wrong assertion there — two is correct, and being able to tell them apart is the point. `TraceWaterfall.spec.js` pins the presentation half: the attribute renders in the response column and *not* the request column, while the response identity line still reads `"async event — no NATS responder"`.
+- **OTel path (54b-2, 2026-10-15):** an `evt.*` or `notify.*` publish is a
+  PRODUCER span, the child of the span on `ctx` (a new root when there is
+  none); its W3C `traceparent` goes on the message. A failed publish marks the
+  span Error. A delivery is a CONSUMER span that continues the message's
+  `traceparent`, with the tenant attributes from trust only (BR-069).
+  Enforced in `shared/otelnats/messaging.go` (`StartProducer`,
+  `StartConsumer`); `shared/jstream`'s `Publisher.Publish(ctx, …)` and
+  `shared/natsnotify`'s `Notifier.Publish`, both with `WithOTel`;
+  `shared/natstenants`' `SubscribeLifecycle(…, WithOTel(p, account))`, one
+  CONSUMER span per lifecycle delivery; `shared/browserrpc`'s `SpanContext`,
+  which returns the SERVER span's ctx for a request wrapped by
+  `otelnats.Middleware`. Without `WithOTel`, `jstream.Publish` takes the
+  natstrace span from `ctx` and behaves as `PublishWithTrace`. Tests:
+  `shared/otelnats/messaging_test.go`, `shared/jstream/jstream_otel_test.go`,
+  `shared/natsnotify/natsnotify_otel_test.go`,
+  `shared/natstenants/lifecycle_otel_test.go`,
+  `shared/browserrpc/browserrpc_otel_test.go`.
 
 ---
 
@@ -836,6 +865,17 @@ Each envelope derives its `traceId`/`parentSpanId` from the span the call site a
 
 - **Enforced in:** `shared/natstrace/natstrace.go`'s `Tracer.ObservePublish` / `ObservePublishAs` (the emit primitive and its subject derivation — action is the *last* subject token, not a fixed index, so 6-token `evt.*` and 5-token `notify.*` both derive correctly, and `obs.*` subjects are never self-observed). **`evt.*` seams:** `shared/jstream`'s `Publisher.PublishWithTrace` with `WithObservation`, opted in per tenant at `dictionary/internal/rest/tenant.go` and, for refdata, at `refdata/composition.go`'s `Startup` (BR-D45); `organizations-service/.../orchestration/event_store.go`'s `JetStreamEventStore.append` with its own `WithObservation`, opted in per tenant runtime at `transporterprofile/runtime.go` (BR-TP75). **`notify.*` seam:** `shared/natsnotify`'s `Notifier.Publish`, with subjects and tokens built by each service's own subject-builder layer — `shipping-service/internal/notify` (five shapes), `refdata-service/.../notifybridge`'s `Changed` (BR-D45), `accounts-service/accounts/handler.go`'s `lifecycleSubject` (BR-AC34), and `observability-service`'s two `kvChanged` builders, whose Notifiers are constructed without `WithObservation`. Grant: `nats/bootstrap-operator.sh`'s restricted `shipping-admin` user gains `obs.pubsub.>` on allow-pub, without which the bridge's emit is dropped server-side as a Publish Violation.
 - **Test:** `shared/natstrace/natstrace_test.go` — "obs.pubsub.* publish observation (Phase 43a, BR-045)" (subject derivation across the three arities, `direction: "publish"`, trace continuation vs. root minting, `Nats-Msg-Id` = `spanId`, redact-then-truncate, the self-observation guard, and `ObservePublishAs` for the context-less `notify.accounts.*` shape); `shared/jstream/jstream_test.go` — the `evt.*` seam's own surface, asserted once for both services since Phase 43e: `TestPublishWithTraceObservesUnderTheDerivedTokens`, `...ContinuesTheCausingTrace`, `...RedactsBeforeObserving`, `TestPublisherWithoutObservationStaysSilent`, and `TestFailedPublishIsNotObserved`; `shipping-service/dictionary/evt_observability_test.go` and `refdata-service/refdata/evt_observability_test.go` — each service's own subject shapes, which is all that stayed behind; `shared/natsnotify/natsnotify_test.go` — the `notify.*` seam's own surface: that it publishes the domain message, observes under the tokens it was given rather than the ones in the subject, observes a four-token subject the positional deriver would skip, stays silent without `WithObservation`, continues the span on `ctx`, attaches and omits the traceparent correctly, and does not observe a publish that never reached the wire; `shipping-service/internal/notify/notify_test.go` — the five subject shapes and their tokens, asserted without a NATS server; `dictionary/internal/eventhandler/platform_notify_test.go` — the refdata bridge's observation under the change's own context; `internal/kvstore/kv_test.go` — "observes the notify publish on obs.pubsub.{context}.kv.{bucket}.changed". `browserrpc`'s site has no package-level test (that package has none at all); it needs none — it publishes through the seam, which is tested once. Sibling services' tests: BR-D45, BR-AC34, BR-TP75.
+- **OTel path (54b-2, 2026-10-15):** the publisher moved to
+  `shared/otelnats/observe.go`'s `Observer` (decision 13). Behaviour is
+  unchanged except where its IDs come from: `traceId` and `spanId` are the
+  PRODUCER span's in `ctx`, and `parentSpanId` is that span's parent (read
+  from the SDK's `ReadOnlySpan`). With no span in `ctx`, it mints a new root.
+  `Nats-Msg-Id` is still `spanId`, so BR-047's dedup is unchanged. The
+  envelope keeps natstrace's JSON field names. The observation is sent while
+  the PRODUCER span is still open and only after the publish succeeds.
+  `jstream` and `natsnotify` use it when built with both `WithOTel` and
+  `WithObservation`. Test: `shared/otelnats/observe_test.go`, plus the seam
+  specs listed under BR-037.
 
 ### BR-046 (Phase 43a, IMPLEMENTED 2026-08-25) — `obs.pubsub.*` payload redaction reuses the existing shared denylist, after a named payload review
 
@@ -861,6 +901,11 @@ The redaction step is identical to BR-036's — same ordering (redact before the
 
 - **Enforced in:** `shared/natstrace/natstrace.go`'s `redactDenylist` (the four actor keys; the redact-then-truncate pipeline itself is BR-036's, unchanged).
 - **Test:** `shared/natstrace/natstrace_test.go` — "redacts actor PII — actorName and actorSourceIP — at any nesting depth (BR-046, Phase 43a)": both spellings at top level and nested are stripped, recorded in `Redacted`, and a benign sibling identifier survives.
+- **OTel path (54b-2, 2026-10-15):** the denylist is ported unchanged to
+  `shared/otelnats/redact.go`; the two copies are one list until natstrace
+  goes in 54d. Test: `shared/otelnats/body_test.go` (every denylist entry,
+  any case) and `observe_test.go` (redact before truncate, `payloadBytes` is
+  the size after redaction).
 
 ### BR-047 (Phase 43b, IMPLEMENTED 2026-08-25) — Published `obs.pubsub.*` envelopes are ingested best-effort into their own bounded stream, deduplicated by `Nats-Msg-Id`
 
@@ -1298,9 +1343,12 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > 54b-1 (2026-10-15) wrote the 54b specs and ran them red. They cover the
 > shared seams on `otelnats` (PRODUCER/CONSUMER spans, BR-037), body span
 > events (BR-036), the `obs.pubsub.*` publisher's new home `otelnats.Observer`
-> (BR-045–BR-047), and the live service list (BR-072). Nothing they test is
-> implemented yet; the rule texts below change in the commits that implement
-> them. Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
+> (BR-045–BR-047), and the live service list (BR-072).
+>
+> 54b-2 (2026-10-15) implemented the shared seams and the publisher. Their
+> specs are green; see the "OTel path (54b-2)" bullets under BR-036, BR-037,
+> BR-045 and BR-046. No service is switched over yet (54b-3 to 54b-5), and
+> the live service list is still a skeleton (54b-6). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or

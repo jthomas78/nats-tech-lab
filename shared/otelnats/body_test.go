@@ -2,6 +2,7 @@ package otelnats_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -142,8 +143,10 @@ var _ = Describe("BR-036: request and reply bodies are span events, redacted the
 			Expect(len(body)).To(BeNumerically("<=", otelnats.MaxBodyBytes))
 			tr, _ := eventAttr(e, otelnats.AttrBodyTruncated)
 			Expect(tr).To(Equal("true"))
+			// The size after redaction, before truncation. Nothing is
+			// redacted here, so it is the input's size.
 			n, _ := eventAttr(e, otelnats.AttrBodyBytes)
-			Expect(n).To(Equal("5011"))
+			Expect(n).To(Equal(strconv.Itoa(len(big))))
 		})
 
 		It("redacts before it truncates: a secret that straddles the cap is still removed", func() {

@@ -26,8 +26,10 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go/micro"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // ResponderHeader identifies which service — and which running instance,
@@ -203,7 +205,14 @@ func ReplyWithConflicts(req micro.Request, svc micro.Service, log *slog.Logger, 
 // passing into its application-layer call, since req's own context is
 // scoped to the NATS request lifecycle, not to the handler's downstream
 // work.
+//
+// A request wrapped by otelnats.Middleware gives its SERVER span's context
+// instead (Phase 54, decision 16), so the handler's downstream calls are
+// children of that span.
 func SpanContext(req micro.Request) context.Context {
+	if ctx := otelnats.ContextFrom(req); trace.SpanContextFromContext(ctx).IsValid() {
+		return ctx
+	}
 	return natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
 }
 
