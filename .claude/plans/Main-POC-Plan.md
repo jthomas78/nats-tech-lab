@@ -1894,10 +1894,10 @@ Neither is fixed in place: this phase removes the code that has them.
       `traceparent`, and its `obs.pubsub.*` envelope starts a new root
       trace. The trace of the api.* call ends at the Temporal call. 54b
       does not describe this path as traced.
-      **Follow-up decision, before Phase 54 is declared complete:** is
-      trace continuity across the Temporal hop required (a Temporal OTel
-      interceptor, with its own rule and tests), or an accepted limitation
-      (written into BR-064)? Not decided.
+      **Decided 2026-10-15: an accepted limitation.** It is written into
+      BR-064's scope note (`BUSINESS_RULES-SHIPPING.md`). Phase 54 adds no
+      Temporal OTel interceptor. A later phase that needs continuity
+      across Temporal adds the interceptor with its own rule and tests.
   - [x] **54b-4** — `shipping-service`. Closes 54a-4's split-trace gap
         for shipping's `item.get` calls.
         Done 2026-10-15. Specs first: 16 new specs ran red on their
@@ -1942,7 +1942,7 @@ Neither is fixed in place: this phase removes the code that has them.
         Not tested directly: natstenants lifecycle tracing through
         `NewHandlers` (tested where the option is defined) and the
         `cmd/main.go` `InitFromEnv` call. The Temporal gap above is
-        unchanged and still needs a decision.
+        unchanged; it is now an accepted limitation (BR-064).
   - [ ] **54b-5** — `pricing-service`, `mfe-registry-service` and
         `accounts-service`.
   - [ ] **54b-6** — `api._platform.observability.service.list.v1` in

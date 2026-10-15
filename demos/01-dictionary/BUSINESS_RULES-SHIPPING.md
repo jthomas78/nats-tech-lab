@@ -1368,8 +1368,8 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 >
 > 54b-3b (2026-10-15) switched organizations-service over: every api.*
 > endpoint, the TRANSPORTER `evt.*` append and its projector. See BR-TP75's
-> OTel note in `BUSINESS_RULES-ORGANIZATIONS.md`. The Temporal hop is still
-> not traced (BR-064).
+> OTel note in `BUSINESS_RULES-ORGANIZATIONS.md`. The Temporal hop is not
+> traced; that is an accepted limitation (BR-064, decided 2026-10-15).
 >
 > 54b-4 (2026-10-15) switched shipping-service over: every api.* endpoint
 > (SERVER, receiving account = tenant), the `evt.*` publish (PRODUCER under
@@ -1399,7 +1399,7 @@ The receiving adapter starts a SERVER span. An outbound request starts a CLIENT 
 
 - **Enforced in:** `shared/otelnats` — `HeaderCarrier`, `Inject`, `Extract`, `StartServer`, `StartClient`.
 - **Test:** `shared/otelnats/propagation_test.go`, `Context("BR-064: …")` — two services on an in-process NATS server; three spans, one trace ID, parent links and kinds checked; plus carrier round-trip specs.
-- **Scope: NATS hops only.** This rule covers propagation across NATS request hops. It does not cover the Temporal hop in `organizations-service` (api.* handler → workflow → activity → evt.* append). That hop is not traced today: the activity's evt.* publish has no `traceparent`, and the trace of the api.* call ends at the Temporal call. Whether continuity across Temporal is required, or is an accepted limitation, is an open decision. It must be settled before Phase 54 is declared complete (`Main-POC-Plan.md`, 54b-3).
+- **Scope: NATS hops only.** This rule covers propagation across NATS request hops. It does not cover the Temporal hop in `organizations-service` (api.* handler → workflow → activity → evt.* append). That hop is not traced: the activity's evt.* publish has no `traceparent`, its `obs.pubsub.*` envelope starts a new root trace, and the trace of the api.* call ends at the Temporal call. **This is an accepted limitation (decided 2026-10-15).** Phase 54 adds no Temporal OTel interceptor. A later phase that needs continuity across Temporal adds the interceptor with its own rule and tests.
 
 ### BR-065 (Phase 54a) — An outbound CLIENT span carries the caller's `service.name`; the destination is an attribute
 
