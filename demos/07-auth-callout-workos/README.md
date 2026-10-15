@@ -63,13 +63,10 @@ its own operator and chain; it does not need demo 06.
   account → user chain with `nsc`, because the `nats auth` CLI (`0.4.0`) has
   no command to set an auth callout on an account. `nsc edit authcallout` has.
 - Go (designed against `1.27.0`) for the callout service.
-- A **WorkOS** staging environment with AuthKit and **CLI Auth** turned on,
-  the roles `dispatcher` and `viewer`, and three test users: one
-  `dispatcher`, one `viewer`, and one with neither role (for the "unknown
-  role" refusal). You write the WorkOS client ID into `.env.workos` (not in
-  Git). CLI Auth is a public client: it needs the client ID only, no API key
-  and no secret ([WorkOS CLI Auth](https://workos.com/docs/authkit/cli-auth)).
+- A **WorkOS** staging environment. **Set it up before exercise 01** with
+  the steps in [WORKOS-SETUP.md](WORKOS-SETUP.md).
 - Network access to `api.workos.com` (log-in and the signing keys).
+- `curl` and `jq` (the log-in script uses them).
 - No Docker, no Python.
 
 ## Ports and names
@@ -83,7 +80,7 @@ its own operator and chain; it does not need demo 06.
 | Accounts | `AUTH` (holds the callout service), `ORDERS` (where people land), `SYS` |
 | Users in `AUTH` | `callout-svc` (skips the callout), `sentinel` (no rights; see below) |
 | Users in `ORDERS` | none stored — the callout service makes one per connection |
-| WorkOS keys | `.env.workos` (not in Git), variable `D07_WORKOS_CLIENT_ID` |
+| WorkOS settings | `.env.workos` (not in Git), variables `D07_WORKOS_CLIENT_ID`, `D07_WORKOS_ORG_ID` |
 | Keys, creds, resolver, logs, PID files | `.run/` (not in Git) |
 
 `4822` / `8822` appear nowhere else in the repo and nothing listened on them

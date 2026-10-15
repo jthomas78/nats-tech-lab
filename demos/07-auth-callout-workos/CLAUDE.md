@@ -91,7 +91,7 @@ Do not modify any other demo from here.
 | Users | `AUTH`: `callout-svc` (the callout's auth user), `sentinel`; `ORDERS`: none stored |
 | WorkOS roles | `dispatcher`, `viewer` (and one test user with neither) |
 | Env var prefix | `D07_` |
-| WorkOS client ID (gitignored, written by the user) | `.env.workos`, `D07_WORKOS_CLIENT_ID` |
+| WorkOS settings (gitignored, written by the user) | `.env.workos`: `D07_WORKOS_CLIENT_ID`, `D07_WORKOS_ORG_ID` (the one organization the callout admits) |
 | Run state (gitignored) | `.run/` |
 
 `4822` / `8822` appear nowhere else in the repo and nothing listened on them
@@ -169,6 +169,7 @@ readable. No inline Python anywhere.
 | What | Where |
 |---|---|
 | Lab-shell intro, requirements, ports, exercises | `README.md` |
+| WorkOS dashboard set-up and `.env.workos` (prerequisite for exercise 01) | `WORKOS-SETUP.md` |
 | The Go callout service | `callout/` |
 | Server configs | `exercises/config/exNN-nats-*.conf` |
 | Numbered terminal steps (`NN` starts at `01`) | `exercises/EXERCISE-NN-TERMINAL-STEPS.md` |

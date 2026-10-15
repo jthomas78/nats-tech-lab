@@ -12,6 +12,7 @@ use (
 	./demos/02-multi-region/odometer
 	./demos/03-multi-cluster-and-accounts/playground
 	./demos/04-jetstream-cqrs/cqrs
+	./demos/07-auth-callout-workos/callout
 	./shared/browserrpc
 	./shared/jstream
 	./shared/mfe-plugin-host
