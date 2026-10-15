@@ -567,6 +567,25 @@ Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing pub
 - **Enforced in (28d):** `refdata/internal/natsrpc/adapter.go` (7 call sites listed above); `refdata/internal/kvcache/kvcache.go`'s `Publisher` interface (widened with `PublishWithTrace`) and `Projector.NotifyItemChanged`.
 - **Test (28d):** `refdata/kvcache_test.go` — `"BR-037/BR-D39: the change-event pointer carries the traceparent of the span attached to the mutation's ctx"` (asserts the published message's `Traceparent` header equals the ctx-attached span's `Traceparent()`) and `"BR-037/BR-D39: a mutation with no span on ctx publishes cleanly with no traceparent header"` (asserts no header and no error when `ctx` carries no span).
 
+> **OTel path (54b-3a, 2026-10-15).** With `refdata.WithTracing(p)`, every
+> rpc.* endpoint runs under `otelnats.Middleware(EdgeRPC, …)`: a SERVER span
+> that continues the caller's trace, receiving account PLATFORM (BR-064,
+> BR-069). No `obs.trace.*` span is published on that path. The 6
+> `context.Background()` sites above (`handleItemGet` was already done in
+> 54a-4) now start from `otelnats.ContextFrom(req)`; each is a request-scoped
+> handler ctx (decision 6's audit). `kvcache.Publisher` is now
+> `Publish(ctx, subject, data)`: a PRODUCER span on `jstream.WithOTel`, or
+> the natstrace span on `ctx` without it, so the 28d behaviour above is kept
+> when OTel is off. `MountRPC(nc, js, log)` no longer takes a tracing
+> parameter; it reads the Provider given to `Startup`.
+> - **Test:** `refdata/otel_54b3a_test.go` — `"BR-064 — a trusted rpc.* call
+>   continues the caller's trace"` (type.list, item.get-versioned,
+>   locales.list, context.list), `"publishes no natstrace span for any
+>   endpoint"`, and `"BR-037 — is a PRODUCER span under the mutation's ctx,
+>   and carries its traceparent"`. The 28d specs in `refdata/kvcache_test.go`
+>   still pass on the new interface. Not tested directly: that the handler
+>   ctx is the SERVER span.
+
 ---
 
 ### BR-D40 (Phase 32) — refdata-service opens one additional NATS connection per provisioned tenant, alongside its single, unchanged PLATFORM connection
@@ -582,6 +601,15 @@ Before this phase, refdata-service ran exactly one NATS connection (`cmd/main.go
 - **Error:** connection/subscription failures are logged and skipped per-tenant (`EnsureAll`), never fatal to Startup — one tenant's bad creds file must not prevent refdata-service, or any other tenant, from coming up.
 - **Enforced in:** `shared/natstenants/tenants.go` (`Manager[R]`, `Discover`, `nonTenantCredsFiles`, `EnsureAll`/`Update`/`Range`/`SubscribeLifecycle`/`Close`); `refdata/composition.go` (provision/deprovision callbacks, `tenantPublisher`); `cmd/main.go` (`NATS_CREDS_DIR` env var, `nats.Name("refdata-service")` on every per-tenant connection).
 - **Test:** `shared/natstenants/tenants_test.go` — asserts every connection `Manager` opens (PLATFORM and per-tenant) has `nc.Opts.Name` set as given; `NonTenantCredsFiles` excludes `observability`/`sys`/`shipping-admin`/`platform`/`mfe-registry-service` from `Discover`'s result. Phase 14 moved the growing plugin credential family to `creds/plugins/`: `Discover` does not descend into that directory, while a top-level `example-plugin.creds` is still a tenant. `NonTenantCredsSuffixes` is therefore empty and retained only for a future family that genuinely shares a suffix. `EnsureByName` is a no-op (not an error) when the tenant isn't yet visible in `credsDir`; `TeardownByName` stops the adapter and closes the connection, and is idempotent on a tenant never provisioned. `refdata`'s own suite (`refdata/adapter_test.go` et al.) continues to cover BR-D40/BR-D41's refdata-specific behavior atop the shared manager.
+
+> **OTel path (54b-3a, 2026-10-15).** `natstenants.NewManager` takes
+> `opts ...ManagerOption`. With `WithTracing(p)`, each tenant's lifecycle
+> subscription gets `WithOTel(p, tenant)`: one CONSUMER span per delivery,
+> receiving account = that tenant (BR-069). Before this, `NewManager` called
+> `SubscribeLifecycle` with no options, so no service could trace it.
+> `refdata/composition.go`'s `MountAPI` passes it.
+> - **Test:** `shared/natstenants/lifecycle_otel_test.go` —
+>   `TestManagerWithTracingTracesEachTenantsLifecycleDeliveries`.
 
 ### BR-D41 (Phase 32) — `api.*.refdata.admin.*` is permission-isolated from `api.*.refdata.{item,type,locales}.*`; a browser token must never carry the admin prefix
 
@@ -604,6 +632,18 @@ The split exists so a permission grant can scope by subject **prefix**, which NA
 > - **Enforced in:** `accounts-service/auth/token.go`'s `MintRefdataAdminToken`; `accounts-service/auth/handler.go`'s `GET /api/auth/refdataAdminConnectInfo`; `refdata/composition.go`'s `MountPlatformAPI`; `cmd/main.go`'s wiring of both `MountRPC` and `MountPlatformAPI` on the same `nc`.
 > - **Test:** `accounts-service/auth/token_test.go`'s `MintRefdataAdminToken` describe block (scoped grant, no broadening to bare `api.>`/`notify.>`, expiry, invalid-seed error) and `auth/handler_test.go`'s `GET /api/auth/refdataAdminConnectInfo` describe block (mirrors `adminConnectInfo`'s three cases).
 
+> **OTel path (54b-3a, 2026-10-15).** With tracing on, every api.* endpoint
+> (business and admin) runs under `otelnats.Middleware(EdgeAPI, …)`. A
+> browser call starts a new root trace and only links a sent `traceparent`
+> (BR-071). The receiving account is the account of the adapter's
+> connection (BR-069): the tenant on a per-tenant mount, PLATFORM on the
+> `_platform` mount (`browserrpc.receivingAccount`). No `obs.trace.*` span is
+> published on that path.
+> - **Test:** `refdata/otel_54b3a_test.go` — `"gives the SERVER span a new
+>   trace ID and one link to the sent span"`, `"is the tenant on a tenant's
+>   own connection"`, `"is PLATFORM on the _platform mount"`, `"publishes no
+>   natstrace span"`.
+
 ### BR-D42 (Phase 32) — `notify.*` replaces `/api/refdata-watch` SSE for corpus/item change notification
 
 `refdata-service` already publishes `evt.{context}.refdata.{typeKey}.changed` on every corpus/item mutation (BR-D04) — a durable, replayable change-pointer feed, not a notification channel. The retired `/api/refdata-watch/{context}` SSE endpoint (`internal/rest`'s relay) is replaced by a `notify.{context}.refdata.{typeKey}.changed` bridge off that same feed, following Phase 23's precedent for the Admin UI's KV-bucket notify bridges (`internal/kvstore.Store.EnableNotify`): `notify.*` is fire-and-forget, at-most-once, browser-subscribable (`MintBrowserToken` already grants `Sub` on `notify.>`), and carries no replay guarantee — a client that needs the guaranteed feed still reads `evt.*` from the backend side, never from a browser.
@@ -613,6 +653,18 @@ The fan-out is what makes this a bridge rather than a second publish at mutation
 - **Enforced in:** `refdata/internal/notifybridge` (`Run`, `parseChangedSubject`), fanned out via `tenants.Manager.PublishToAll`; started from `Handlers.MountAPI` (`refdata/composition.go`) with the PLATFORM JetStream handle.
 - **Consumed by:** `shared/refdata/useRefdataLabels.js` — one `notify._platform.refdata.*.changed` subscription per browser tab, shared by `useL10nCopy` via `subscribeToChange`, replacing the `/api/refdata-watch` `EventSource`.
 - **Test:** not yet automated — needs an integration test publishing a synthetic `evt.{context}.refdata.{typeKey}.changed` and asserting a tenant-connection subscriber receives the matching `notify.*` subject. Covered by live verification only at present.
+
+> **OTel path (54b-3a, 2026-10-15).** With `notifybridge.WithOTel(p)`, each
+> bridged message runs under a CONSUMER span that continues the `evt.*`
+> message's `traceparent`, receiving account PLATFORM. The fan-out runs
+> under that span, and each tenant's `notify.*` publish
+> (`natsnotify.WithOTel`) is a PRODUCER span, its child. A nil Provider
+> leaves the bridge as before.
+> - **Test:** `refdata/notify_otel_test.go` —
+>   `TestNotifyBridgeConsumesUnderAConsumerSpanThatContinuesTheEvtTrace` and
+>   `TestTenantNotifyPublishIsAProducerSpanUnderTheCtxSpan`. These check the
+>   spans with a recording publisher. The end-to-end delivery test named
+>   above is still not written.
 
 ### BR-D43 (Phase 33) — business (browser-facing) reads are reachable only over `api.*`; REST reduces to `/api/refdata/admin/*`, a documented exemption, not un-migrated business REST
 

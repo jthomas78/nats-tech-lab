@@ -607,6 +607,18 @@ A NATS KV entry **cannot** carry trace context — `jetstream.KeyValue.Put` take
   `shared/natsnotify/natsnotify_otel_test.go`,
   `shared/natstenants/lifecycle_otel_test.go`,
   `shared/browserrpc/browserrpc_otel_test.go`.
+- **OTel path (54b-3a, 2026-10-15):** refdata-service is on these seams.
+  Its `evt.*` change pointer is a PRODUCER span, the child of the span on
+  the mutation's `ctx` (`kvcache.Publisher.Publish(ctx, …)` on
+  `jstream.WithOTel`). `notifybridge` consumes each pointer under a CONSUMER
+  span that continues its `traceparent` (receiving account PLATFORM); each
+  tenant's `notify.*` fan-out is a PRODUCER span under it.
+  `natstenants.NewManager(…, WithTracing(p))` gives each tenant's lifecycle
+  subscription `WithOTel(p, tenant)`. Tests:
+  `refdata-service/refdata/otel_54b3a_test.go` (the evt.* spec),
+  `refdata-service/refdata/notify_otel_test.go`,
+  `shared/natstenants/lifecycle_otel_test.go`'s
+  `TestManagerWithTracingTracesEachTenantsLifecycleDeliveries`.
 
 ---
 
@@ -1347,8 +1359,13 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 >
 > 54b-2 (2026-10-15) implemented the shared seams and the publisher. Their
 > specs are green; see the "OTel path (54b-2)" bullets under BR-036, BR-037,
-> BR-045 and BR-046. No service is switched over yet (54b-3 to 54b-5), and
-> the live service list is still a skeleton (54b-6). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
+> BR-045 and BR-046. The live service list is still a skeleton (54b-6).
+>
+> 54b-3a (2026-10-15) switched refdata-service over: every rpc.* and api.*
+> endpoint, the `evt.*` publisher, the `notify.*` fan-out and the notify
+> bridge. See the "OTel path (54b-3a)" bullets under BR-037 here and under
+> BR-D39–BR-D42 in `BUSINESS_RULES-REFDATA.md`. organizations-service is
+> next (54b-3b). The Temporal hop is still not traced (BR-064). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or
@@ -1367,6 +1384,7 @@ The receiving adapter starts a SERVER span. An outbound request starts a CLIENT 
 
 - **Enforced in:** `shared/otelnats` — `HeaderCarrier`, `Inject`, `Extract`, `StartServer`, `StartClient`.
 - **Test:** `shared/otelnats/propagation_test.go`, `Context("BR-064: …")` — two services on an in-process NATS server; three spans, one trace ID, parent links and kinds checked; plus carrier round-trip specs.
+- **Scope: NATS hops only.** This rule covers propagation across NATS request hops. It does not cover the Temporal hop in `organizations-service` (api.* handler → workflow → activity → evt.* append). That hop is not traced today: the activity's evt.* publish has no `traceparent`, and the trace of the api.* call ends at the Temporal call. Whether continuity across Temporal is required, or is an accepted limitation, is an open decision. It must be settled before Phase 54 is declared complete (`Main-POC-Plan.md`, 54b-3).
 
 ### BR-065 (Phase 54a) — An outbound CLIENT span carries the caller's `service.name`; the destination is an attribute
 

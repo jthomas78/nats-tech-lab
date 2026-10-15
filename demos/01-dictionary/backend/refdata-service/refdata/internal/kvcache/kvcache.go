@@ -19,7 +19,6 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // ChangeStreamName is the bounded JetStream stream carrying change-event
@@ -94,14 +93,14 @@ type ChangeEvent struct {
 }
 
 // Publisher publishes raw bytes to a subject — satisfied by jstream.Publisher.
-// PublishWithTrace (Phase 28d) additionally carries a traceparent header
-// derived from an in-flight *natstrace.Span, so the change-event pointer a
-// mutation causes rides the same trace as the rpc.*/REST request that caused
-// it (BR-037, BR-D39) — nil-safe, matching jstream.Publisher's own
-// nil-sp-means-plain-publish behavior. One method, because that is all this
+// Publish takes the trace from ctx (Phase 54b-3a), so the change-event
+// pointer a mutation causes rides the same trace as the rpc.*/api.*/REST
+// request that caused it (BR-037, BR-D39). With OTel the seam makes it a
+// PRODUCER span; without, it carries the natstrace span in ctx, or no
+// traceparent when ctx holds none. One method, because that is all this
 // package uses — Phase 43e unexported the primitives beneath the seam.
 type Publisher interface {
-	PublishWithTrace(ctx context.Context, sp *natstrace.Span, subject string, data []byte) error
+	Publish(ctx context.Context, subject string, data []byte) error
 }
 
 // Projector rebuilds an item's KV cache entry and the type's _meta on every
@@ -142,8 +141,7 @@ func (p *Projector) NotifyItemChanged(ctx context.Context, itemContext, typeKey,
 	if err != nil {
 		return err
 	}
-	sp := natstrace.SpanFromContext(ctx)
-	return p.pub.PublishWithTrace(ctx, sp, ChangeSubject(itemContext, typeKey), event)
+	return p.pub.Publish(ctx, ChangeSubject(itemContext, typeKey), event)
 }
 
 // Backfill rebuilds an item's cache entry at the type's CURRENT version,

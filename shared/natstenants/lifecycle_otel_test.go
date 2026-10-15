@@ -129,3 +129,71 @@ func TestLifecycleOTelUndecodableEventMarksTheSpanError(t *testing.T) {
 		t.Errorf("status = %v, want Error", consumer.Status.Code)
 	}
 }
+
+// Phase 54b-3a: Manager passes WithTracing through to the lifecycle
+// subscription it makes for each tenant, with the tenant as the receiving
+// account (BR-069).
+func TestManagerWithTracingTracesEachTenantsLifecycleDeliveries(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	writeTestCreds(t, dir, "acme")
+
+	exp := tracetest.NewInMemoryExporter()
+	p, err := otelnats.Init(context.Background(), otelnats.Config{ServiceName: "refdata-service", Exporter: exp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Shutdown(context.Background()) }()
+
+	mgr := NewManager(srv.ClientURL(), dir, "refdata-service", nil,
+		func(context.Context, *nats.Conn, string) (*testResource, error) { return &testResource{}, nil },
+		nil,
+		WithTracing(p),
+	)
+	t.Cleanup(mgr.Close)
+	if err := mgr.EnsureAll(context.Background()); err != nil {
+		t.Fatalf("EnsureAll: %v", err)
+	}
+
+	pub, err := nats.Connect(srv.ClientURL(), nats.Name("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pub.Close()
+	msg := nats.NewMsg("notify.accounts.account.created")
+	msg.Data = []byte(`{"name":"acme"}`)
+	msg.Header.Set("traceparent", "00-"+sentTraceID+"-"+sentSpanID+"-01")
+	if err := pub.PublishMsg(msg); err != nil {
+		t.Fatal(err)
+	}
+
+	var consumers []tracetest.SpanStub
+	deadline := time.Now().Add(2 * time.Second)
+	for len(consumers) == 0 && time.Now().Before(deadline) {
+		if err := p.ForceFlush(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		consumers = consumers[:0]
+		for _, s := range exp.GetSpans() {
+			if s.SpanKind == trace.SpanKindConsumer {
+				consumers = append(consumers, s)
+			}
+		}
+	}
+	if len(consumers) != 1 {
+		t.Fatalf("want one CONSUMER span for acme's delivery, got %d", len(consumers))
+	}
+	c := consumers[0]
+	if c.SpanContext.TraceID().String() != sentTraceID {
+		t.Fatalf("trace ID = %s, want the sent %s", c.SpanContext.TraceID(), sentTraceID)
+	}
+	var account string
+	for _, kv := range c.Attributes {
+		if kv.Key == otelnats.AttrReceivingAccount {
+			account = kv.Value.AsString()
+		}
+	}
+	if account != "acme" {
+		t.Fatalf("receiving account = %q, want the tenant acme", account)
+	}
+}

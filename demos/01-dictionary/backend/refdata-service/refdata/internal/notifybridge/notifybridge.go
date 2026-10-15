@@ -25,10 +25,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // retryDelay bounds how long the bridge waits before retrying consumer
@@ -71,12 +73,31 @@ func parseChangedSubject(subject string) (contextKey, typeKey string, ok bool) {
 	return parts[1], parts[3], true
 }
 
+// Option configures Run.
+type Option func(*config)
+
+type config struct {
+	otel *otelnats.Provider
+}
+
+// WithOTel traces each bridged message with a CONSUMER span (Phase 54b-3a).
+// The span continues the evt.* message's traceparent, and the fan-out runs
+// under it, so each notify.* PRODUCER span is its child. A nil Provider
+// leaves the bridge untraced, as before.
+func WithOTel(p *otelnats.Provider) Option {
+	return func(c *config) { c.otel = p }
+}
+
 // Run starts the bridge as a permanent background goroutine. Runs for the
 // life of the process — ctx cancellation (shutdown) is the only way out.
 // Nil-safe on both platformJS and pub: a nil either way means there is
 // nothing to consume or nowhere to publish, so the bridge is simply not
 // started rather than panicking.
-func Run(ctx context.Context, platformJS jetstream.JetStream, pub Publisher, log *slog.Logger) {
+func Run(ctx context.Context, platformJS jetstream.JetStream, pub Publisher, log *slog.Logger, opts ...Option) {
+	var cfg config
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	if platformJS == nil || pub == nil {
 		return
 	}
@@ -112,12 +133,32 @@ func Run(ctx context.Context, platformJS jetstream.JetStream, pub Publisher, log
 				if !ok {
 					continue
 				}
-				pub.PublishToAll(ctx, Changed(contextKey, typeKey), msg.Data())
+				bridge(ctx, cfg.otel, pub, msg, Changed(contextKey, typeKey))
 			}
 			msgs.Stop()
 			sleepOrDone(ctx, retryDelay)
 		}
 	}()
+}
+
+// platformAccount is the account the bridge consumes REFDATA in. It is the
+// receiving account on the CONSUMER span (BR-069).
+const platformAccount = "PLATFORM"
+
+// bridge fans one evt.* message out. With OTel the fan-out runs under a
+// CONSUMER span that continues the message's traceparent, so each tenant's
+// notify.* PRODUCER span is its child (Phase 54b-3a). Without OTel the
+// fan-out runs under the process ctx, as before.
+func bridge(ctx context.Context, p *otelnats.Provider, pub Publisher, msg jetstream.Msg, subj natsnotify.Subject) {
+	if p == nil {
+		pub.PublishToAll(ctx, subj, msg.Data())
+		return
+	}
+	// StartConsumer reads the subject and the traceparent header only.
+	spanCtx, span := p.StartConsumer(ctx, &nats.Msg{Subject: msg.Subject(), Header: msg.Headers()},
+		otelnats.Trust{ReceivingAccount: platformAccount})
+	defer span.End()
+	pub.PublishToAll(spanCtx, subj, msg.Data())
 }
 
 func sleepOrDone(ctx context.Context, d time.Duration) {

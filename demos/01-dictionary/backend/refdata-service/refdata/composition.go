@@ -66,6 +66,24 @@ type Handlers struct {
 	Corpus        *commands.CorpusHandler
 	VersionReader *kvcache.VersionReader
 	Translations  *commands.TranslationHandler
+	// tracing is the OTel Provider from WithTracing. nil keeps every path on
+	// natstrace.
+	tracing *otelnats.Provider
+}
+
+// Option configures Startup.
+type Option func(*startupConfig)
+
+type startupConfig struct {
+	tracing *otelnats.Provider
+}
+
+// WithTracing puts refdata-service on OTel (Phase 54b-3a): the evt.* change
+// pointer, every rpc.* and api.* endpoint, the tenant lifecycle
+// subscriptions and the BR-D42 notify bridge. A nil Provider keeps every path
+// on natstrace.
+func WithTracing(p *otelnats.Provider) Option {
+	return func(c *startupConfig) { c.tracing = p }
 }
 
 // Startup runs the schema migration, seeds reference-standard data, wires
@@ -82,7 +100,12 @@ type Handlers struct {
 // that is what places the obs.pubsub.* envelope inside the tenant's account.
 // Nil nc means no observation, which is what the JetStream-less test wiring
 // already passes.
-func Startup(ctx context.Context, db *sql.DB, nc *nats.Conn, js jetstream.JetStream, anthropicAPIKey string) (*Handlers, error) {
+func Startup(ctx context.Context, db *sql.DB, nc *nats.Conn, js jetstream.JetStream, anthropicAPIKey string, opts ...Option) (*Handlers, error) {
+	var cfg startupConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	if err := postgres.Migrate(ctx, db); err != nil {
 		return nil, err
 	}
@@ -111,7 +134,7 @@ func Startup(ctx context.Context, db *sql.DB, nc *nats.Conn, js jetstream.JetStr
 		// publish also emits an obs.pubsub.* observation, which PLATFORM
 		// imports under monitor.{tenant}.pubsub.> for the Messages panel.
 		projector = kvcache.NewProjector(kv, items, locs, refs, versions, namespaces,
-			jstream.NewPublisher(js, jstream.WithObservation(nc)))
+			jstream.NewPublisher(js, jstream.WithObservation(nc), jstream.WithOTel(cfg.tracing)))
 		notifier = projector
 		corpusNotifier = kvcache.NewVersionNotifier(kv, corpus, namespaces)
 		versionReader = kvcache.NewVersionReader(kv, namespaces)
@@ -135,6 +158,7 @@ func Startup(ctx context.Context, db *sql.DB, nc *nats.Conn, js jetstream.JetStr
 		Corpus:        commands.NewCorpusHandler(corpus, corpusNotifier),
 		VersionReader: versionReader,
 		Translations:  translations,
+		tracing:       cfg.tracing,
 	}
 
 	if err := Seed(ctx, h); err != nil {
@@ -171,9 +195,9 @@ func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
 // natsrpc adapter's publishObs/RPCTRACE side-channel with natstrace's
 // obs.trace.* spans (BR-D39), which publish over the adapter's own
 // connection and need no JetStream handle. Callers should Stop() the
-// returned adapter on shutdown. tracing moves item.get onto OTel (Phase
-// 54a-4); nil keeps every endpoint on natstrace.
-func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Logger, tracing *otelnats.Provider) (*natsrpc.Adapter, error) {
+// returned adapter on shutdown. With WithTracing every endpoint is on OTel
+// (Phase 54b-3a); without it every endpoint stays on natstrace.
+func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Logger) (*natsrpc.Adapter, error) {
 	return natsrpc.New(nc, natsrpc.Deps{
 		Localizations: h.Localizations,
 		Items:         h.Items,
@@ -182,7 +206,7 @@ func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Log
 		Contexts:      h.Contexts,
 		References:    h.References,
 		Log:           log,
-		Tracing:       tracing,
+		Tracing:       h.tracing,
 	})
 }
 
@@ -203,6 +227,7 @@ func (h *Handlers) browserrpcDeps(log *slog.Logger) browserrpc.Deps {
 		Versions:      h.Versions,
 		Translations:  h.Translations,
 		Log:           log,
+		Tracing:       h.tracing,
 	}
 }
 
@@ -226,11 +251,12 @@ func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, platf
 		func(_ string, adapter *browserrpc.Adapter) error {
 			return adapter.Stop()
 		},
+		natstenants.WithTracing(h.tracing),
 	)
 	if err := mgr.EnsureAll(ctx); err != nil {
 		return nil, err
 	}
-	notifybridge.Run(ctx, platformJS, tenantPublisher{mgr: mgr, log: log}, log)
+	notifybridge.Run(ctx, platformJS, tenantPublisher{mgr: mgr, log: log, tracing: h.tracing}, log, notifybridge.WithOTel(h.tracing))
 	return mgr, nil
 }
 
@@ -241,6 +267,9 @@ func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, platf
 type tenantPublisher struct {
 	mgr *natstenants.Manager[*browserrpc.Adapter]
 	log *slog.Logger
+	// tracing makes each notify.* publish a PRODUCER span (Phase 54b-3a).
+	// nil keeps the natstrace path.
+	tracing *otelnats.Provider
 }
 
 func (p tenantPublisher) PublishToAll(ctx context.Context, subj natsnotify.Subject, data []byte) {
@@ -263,7 +292,7 @@ func (p tenantPublisher) publishTo(ctx context.Context, tenant string, nc *nats.
 	// attributed at all — which is why Notifier holds its connection rather
 	// than taking one per call, and why this is the one site in the repo that
 	// builds one per message rather than at construction.
-	natsnotify.New(nc, p.log, natsnotify.WithObservation(nc)).Publish(ctx, subj, data)
+	natsnotify.New(nc, p.log, natsnotify.WithObservation(nc), natsnotify.WithOTel(p.tracing)).Publish(ctx, subj, data)
 }
 
 // MountPlatformAPI additionally registers the api.* adapter on

@@ -325,6 +325,7 @@ type Manager[R any] struct {
 
 	provision   func(ctx context.Context, nc *nats.Conn, tenant string) (R, error)
 	deprovision func(tenant string, res R) error
+	tracing     *otelnats.Provider
 
 	mu        sync.RWMutex
 	resources map[string]*entry[R]
@@ -341,7 +342,12 @@ func NewManager[R any](
 	log *slog.Logger,
 	provision func(ctx context.Context, nc *nats.Conn, tenant string) (R, error),
 	deprovision func(tenant string, res R) error,
+	opts ...ManagerOption,
 ) *Manager[R] {
+	var cfg managerConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	return &Manager[R]{
 		natsURL:     natsURL,
 		credsDir:    credsDir,
@@ -349,8 +355,25 @@ func NewManager[R any](
 		log:         log,
 		provision:   provision,
 		deprovision: deprovision,
+		tracing:     cfg.tracing,
 		resources:   make(map[string]*entry[R]),
 	}
+}
+
+// managerConfig is what a ManagerOption sets. It is not generic, so one
+// option works for every Manager[R].
+type managerConfig struct {
+	tracing *otelnats.Provider
+}
+
+// ManagerOption configures NewManager.
+type ManagerOption func(*managerConfig)
+
+// WithTracing traces each tenant's lifecycle deliveries with OTel (Phase
+// 54b-3a). The receiving account is the tenant, because the subscription
+// lives on that tenant's connection. A nil Provider keeps the natstrace path.
+func WithTracing(p *otelnats.Provider) ManagerOption {
+	return func(c *managerConfig) { c.tracing = p }
 }
 
 // EnsureAll provisions every tenant currently discoverable in credsDir that
@@ -434,7 +457,13 @@ func (m *Manager[R]) ensure(ctx context.Context, tenant, credsPath string) (*ent
 		return nil, fmt.Errorf("connect as tenant %q: %w", tenant, err)
 	}
 
-	if err := SubscribeLifecycle(ctx, nc, m.log, LifecycleHandlers{Ensure: m.EnsureByName, Teardown: m.TeardownByName}); err != nil {
+	var lifecycleOpts []LifecycleOption
+	if m.tracing != nil {
+		// The subscription lives on this tenant's connection, so the tenant
+		// is the receiving account (BR-069).
+		lifecycleOpts = append(lifecycleOpts, WithOTel(m.tracing, tenant))
+	}
+	if err := SubscribeLifecycle(ctx, nc, m.log, LifecycleHandlers{Ensure: m.EnsureByName, Teardown: m.TeardownByName}, lifecycleOpts...); err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("subscribe tenant lifecycle for tenant %q: %w", tenant, err)
 	}

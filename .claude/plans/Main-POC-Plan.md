@@ -1806,7 +1806,61 @@ Neither is fixed in place: this phase removes the code that has them.
         payload is not truncated and does not hold `actorName`, which is
         what proves redaction ran first.
   - [ ] **54b-3** — the rest of `refdata-service` and
-        `organizations-service`, with decision 6's context audit.
+        `organizations-service`, with decision 6's context audit. Split in
+        two on 2026-10-15 (user's choice), so each service has its own
+        test and commit boundary. Each substep ends with its specs and its
+        service suite green.
+    - [x] **54b-3a** — the shared `natstenants.NewManager` fix (it calls
+          `SubscribeLifecycle` with no options, so it cannot pass
+          `WithOTel` today), then the rest of `refdata-service`: the 32
+          api.* endpoints (tenant and PLATFORM trust), the 4 remaining
+          rpc.* endpoints, the `kvcache` evt.* publisher, the notify.*
+          fan-out, and a CONSUMER span in `notifybridge`. Context audit:
+          the 6 `context.Background()` handler contexts in
+          `natsrpc/adapter.go`.
+          Done 2026-10-15. Specs first: 13 new specs ran red on their
+          assertions (natstenants 1, refdata Ginkgo 10, refdata `testing` 2),
+          all 166 old refdata specs green. Then all green:
+          - `shared/natstenants`: `NewManager(…, opts ...ManagerOption)`
+            and `WithTracing(p)`; each tenant's lifecycle subscription gets
+            `WithOTel(p, tenant)`.
+          - `refdata-service`: `refdata.Startup(…, WithTracing(p))` (so
+            `cmd/main.go` runs `otelnats.InitFromEnv` before `Startup`);
+            `MountRPC(nc, js, log)` drops its tracing param. Every rpc.*
+            endpoint on `EdgeRPC` (PLATFORM); every api.* endpoint on
+            `EdgeAPI`, receiving account = the tenant, or PLATFORM on the
+            `_platform` mount. `kvcache.Publisher` is now
+            `Publish(ctx, subject, data)` on `jstream.WithOTel`.
+            `notifybridge.WithOTel` adds the CONSUMER span; the notify.*
+            fan-out is on `natsnotify.WithOTel`.
+          - Context audit: the 6 `context.Background()` sites in
+            `natsrpc/adapter.go` now start from `otelnats.ContextFrom(req)`.
+            Each is a request-scoped handler ctx.
+          - `refdata-service`, `shipping-service`, `pricing-service`,
+            `organizations-service` suites green; all seven services build.
+          Not tested directly: that the rpc.* handler ctx is the SERVER
+          span (covered by the code change only). The Temporal gap below
+          is still open.
+    - [ ] **54b-3b** — the rest of `organizations-service`: the 26 api.*
+          endpoints, `JetStreamEventStore` on `otelnats.Observer`, a
+          CONSUMER span in the `TRANSPORTER` projector. Context audit: the
+          35 `context.Background()` handler contexts in
+          `browserrpc/adapter.go` that drop the span, plus the projector
+          and `composition.go` sites.
+    - **Known gap — the Temporal hop is not traced.** Temporal has no OTel
+      interceptor here (`client.Dial` in `organizations/composition.go`,
+      `temporalworker.Options{}` in `worker/worker.go`). Affected path: an
+      api.* handler starts or signals a workflow (`ExecuteWorkflow`,
+      `SignalWorkflow` in `worker/worker.go`) → an activity
+      (`AppendWorkflowEvent` in `activities.go`) → `JetStreamEventStore.append`.
+      The activity's ctx holds no span, so that evt.* publish carries no
+      `traceparent`, and its `obs.pubsub.*` envelope starts a new root
+      trace. The trace of the api.* call ends at the Temporal call. 54b
+      does not describe this path as traced.
+      **Follow-up decision, before Phase 54 is declared complete:** is
+      trace continuity across the Temporal hop required (a Temporal OTel
+      interceptor, with its own rule and tests), or an accepted limitation
+      (written into BR-064)? Not decided.
   - [ ] **54b-4** — `shipping-service`. Closes 54a-4's split-trace gap
         for shipping's `item.get` calls.
   - [ ] **54b-5** — `pricing-service`, `mfe-registry-service` and

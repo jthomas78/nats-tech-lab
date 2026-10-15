@@ -81,16 +81,9 @@ func run(log *slog.Logger) error {
 	}
 	defer nc.Drain() //nolint:errcheck
 
-	h, err := refdata.Startup(ctx, db, nc, js, anthropicAPIKey)
-	if err != nil {
-		return err
-	}
-	if anthropicAPIKey == "" {
-		log.Info("ANTHROPIC_API_KEY not set — AI-assisted translation drafting (Phase 11.12) is disabled")
-	}
-
 	// Phase 54a-4: only compose.otel.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
-	// Unset, tracing is nil and every endpoint stays on natstrace.
+	// Unset, tracing is nil and every path stays on natstrace. It starts before
+	// Startup, because Startup builds the evt.* publisher (Phase 54b-3a).
 	tracing, err := otelnats.InitFromEnv(ctx, "refdata-service")
 	if err != nil {
 		return err
@@ -98,7 +91,15 @@ func run(log *slog.Logger) error {
 	defer func() { _ = tracing.Shutdown(context.Background()) }()
 	log.Info("tracing", "otel", tracing != nil)
 
-	rpcAdapter, err := h.MountRPC(nc, js, log, tracing)
+	h, err := refdata.Startup(ctx, db, nc, js, anthropicAPIKey, refdata.WithTracing(tracing))
+	if err != nil {
+		return err
+	}
+	if anthropicAPIKey == "" {
+		log.Info("ANTHROPIC_API_KEY not set — AI-assisted translation drafting (Phase 11.12) is disabled")
+	}
+
+	rpcAdapter, err := h.MountRPC(nc, js, log)
 	if err != nil {
 		return err
 	}

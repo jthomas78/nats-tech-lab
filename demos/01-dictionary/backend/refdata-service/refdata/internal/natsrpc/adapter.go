@@ -85,14 +85,10 @@ type Deps struct {
 	// exactly what every caller before Phase 38d-ii already handled.
 	References *commands.ReferenceHandler
 	Log        *slog.Logger
-	// Tracing moves item.get onto OTel (Phase 54a-4). nil keeps every
-	// endpoint on natstrace.
+	// Tracing moves every endpoint onto OTel (item.get in Phase 54a-4, the
+	// rest in 54b-3a). nil keeps every endpoint on natstrace.
 	Tracing *otelnats.Provider
 }
-
-// otelSubjects are the endpoints Tracing moves onto OTel in 54a. The rest
-// stay on natstrace until 54b.
-var otelSubjects = map[string]bool{ItemGetSubject: true}
 
 // platformAccount is the NATS account this adapter's connection lives in.
 // It is the receiving account on every span (BR-069).
@@ -272,7 +268,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	}
 	for _, ep := range endpoints {
 		handler := a.tracer.Middleware(ep.handler)
-		if a.otel != nil && otelSubjects[ep.subject] {
+		if a.otel != nil {
 			// A caller on rpc.* is a trusted service, so the trace continues
 			// (EdgeRPC). natstrace.SpanFrom is nil on this path, so the reply
 			// helpers publish no obs.trace.* span.
@@ -457,7 +453,7 @@ func (a *Adapter) handleTypeList(req micro.Request) {
 		return
 	}
 
-	out, err := a.resolveTypeKVFirst(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in.Context, in.TypeKey, in.Locale)
+	out, err := a.resolveTypeKVFirst(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context, in.TypeKey, in.Locale)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -554,7 +550,7 @@ func (a *Adapter) handleItemGetVersioned(req micro.Request) {
 		return
 	}
 
-	entry, err := a.versionReader.Get(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in.Context, in.Version, in.TypeKey, in.Code)
+	entry, err := a.versionReader.Get(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context, in.Version, in.TypeKey, in.Code)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -582,12 +578,12 @@ func (a *Adapter) handleLocalesList(req micro.Request) {
 		return
 	}
 
-	locales, err := a.localizations.ListLocales(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in.Context)
+	locales, err := a.localizations.ListLocales(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	defaultLocale, err := a.localizations.DefaultLocale(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in.Context)
+	defaultLocale, err := a.localizations.DefaultLocale(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -637,9 +633,9 @@ func (a *Adapter) handleContextList(req micro.Request) {
 	var contexts []domain.Context
 	var err error
 	if in.Tenant != "" {
-		contexts, err = a.contexts.ListByTenant(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in.Tenant)
+		contexts, err = a.contexts.ListByTenant(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Tenant)
 	} else {
-		contexts, err = a.contexts.List(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)))
+		contexts, err = a.contexts.List(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)))
 	}
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)

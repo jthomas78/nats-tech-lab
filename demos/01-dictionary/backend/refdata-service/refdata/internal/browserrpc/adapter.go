@@ -37,6 +37,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // Business subjects (BR-D41) — {context} is a real subject token, read off
@@ -144,6 +145,9 @@ type Deps struct {
 	// Services panel to label same-named instances by tenant (mirrors
 	// pricing-service's/shipping-service's browserrpc.Deps.Tenant).
 	Tenant string
+	// Tracing moves every endpoint onto OTel (Phase 54b-3a). nil keeps them
+	// all on natstrace.
+	Tracing *otelnats.Provider
 }
 
 // Adapter is refdata-service's api.* frontend-to-service adapter for one
@@ -163,6 +167,11 @@ type Adapter struct {
 	log           *slog.Logger
 	svc           micro.Service
 	tracer        *natstrace.Tracer
+	otel          *otelnats.Provider
+	// account is the NATS account this connection lives in: the tenant, or
+	// PLATFORM on the _platform mount. It is the receiving account on every
+	// span (BR-069).
+	account string
 }
 
 func isNotFoundErr(err error) bool {
@@ -198,6 +207,8 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		translations:  deps.Translations,
 		log:           deps.Log,
 		tracer:        natstrace.New(nc),
+		otel:          deps.Tracing,
+		account:       receivingAccount(deps.Tenant),
 	}
 
 	svc, err := micro.AddService(nc, micro.Config{
@@ -214,12 +225,42 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	a.svc = svc
 
 	for _, ep := range a.endpoints() {
-		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
+		handler := a.tracer.Middleware(ep.handler)
+		if a.otel != nil {
+			// A browser call is untrusted, so the span starts a new root and
+			// only links a sent traceparent (EdgeAPI, BR-071). natstrace.SpanFrom
+			// is nil on this path, so the reply helpers publish no obs.trace.*
+			// span.
+			handler = a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
+		}
+		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
 	}
 	return a, nil
+}
+
+// platformTenant is the Deps.Tenant label of the mount on refdata-service's
+// own PLATFORM connection (composition.go's MountPlatformAPI).
+const platformTenant = "_platform"
+
+// receivingAccount maps a mount's tenant label to the NATS account its
+// connection lives in.
+func receivingAccount(tenant string) string {
+	if tenant == platformTenant {
+		return "PLATFORM"
+	}
+	return tenant
+}
+
+// trust is the tenant context this adapter vouches for (BR-069): the account
+// its connection authenticated into. No originating tenant — on a tenant's
+// own connection the caller is that tenant's browser, and the receiving
+// account already says so. On the _platform mount the caller is the
+// cross-tenant admin credential, which has no single tenant.
+func (a *Adapter) trust(micro.Request) otelnats.Trust {
+	return otelnats.Trust{ReceivingAccount: a.account}
 }
 
 type endpoint struct {
