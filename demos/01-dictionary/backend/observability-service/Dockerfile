@@ -10,6 +10,10 @@ COPY shared/natsnotify ./shared/natsnotify
 COPY shared/natsconn ./shared/natsconn
 COPY shared/natstrace ./shared/natstrace
 COPY shared/natstest ./shared/natstest
+# Phase 54b-1: the OTel glue. The shared seams import it.
+COPY shared/otelnats ./shared/otelnats
+COPY shared/natsready ./shared/natsready
+COPY shared/mferegistry ./shared/mferegistry
 COPY demos/01-dictionary/backend/observability-service ./demos/01-dictionary/backend/observability-service
 WORKDIR /src/demos/01-dictionary/backend/observability-service
 RUN go mod download

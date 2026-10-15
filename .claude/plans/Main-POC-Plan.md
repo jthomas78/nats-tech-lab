@@ -1750,6 +1750,54 @@ Neither is fixed in place: this phase removes the code that has them.
   the responder/read the data; browser credentials cannot query raw micro
   controls. Run again with Collector
   and Tempo unavailable to prove discovery is independent of tracing.
+
+  Build order (approved 2026-10-15). Each step ends with its specs green
+  and its own commit. Off the default stack throughout (decision 16).
+  - [x] **54b-1** — failing specs first: the shared seams
+        (`shared/browserrpc`, `shared/jstream`, `shared/natsnotify`,
+        `shared/natstenants`) on `otelnats`; the `obs.pubsub.*` publisher
+        in its new home, taking IDs from the OTel span context
+        (BR-045–BR-047); `service.list` (BR-072). Run red.
+        Done 2026-10-15. Red run, every failure on an assertion:
+        - `shared/otelnats`: 74 specs, 40 pass, 34 fail — `StartProducer`
+          / `StartConsumer` (BR-037), body events (BR-036, decision 7,
+          added here because it shares redaction with the publisher) and
+          `Observer` (BR-045–BR-047). The publisher's new home is
+          `otelnats.Observer` (decision 13).
+        - `shared/jstream` 4 red (`Publish(ctx, …)` and `WithOTel`; the
+          natstrace fallback too), `shared/natsnotify` 3 red,
+          `shared/natstenants` 3 red (`SubscribeLifecycle(…, WithOTel)`,
+          one CONSUMER span per delivery), `shared/browserrpc` 1 red
+          (`SpanContext` on a wrapped request). browserrpc's two reply
+          status specs pass already — `otelnats.Middleware` reads the
+          reply headers — and stay as guards.
+        - `observability/internal/servicelist` (new): 16 specs, 15 red.
+          The bounded-window spec passes on the skeleton and stays as a
+          guard. Real two-account server, ACME's `$SRV.>` imported as
+          `monitor.acme.srv.>`. Readiness reuses `shared/natsready`;
+          tenant names come through a `TenantSource` that returns an
+          error, because `AccountsClient.TenantNames` hides failure.
+        - `accounts-service/auth`: 2 red — `MintAdminToken` gains
+          `service.list.v1`, and no `$SRV.*` / `monitor.*` subject.
+        - All other existing specs in the touched modules stay green.
+        Wiring: the four seams and the five services that lacked it gain
+        the `otelnats` replace; Dockerfiles copy `shared/otelnats`.
+        `accounts-service` and `mfe-registry-service` also gain the
+        missing `shared/natstest` replace (an old gap: `go mod tidy`
+        failed there before this step). All seven services build.
+  - [ ] **54b-2** — the shared seams and the `obs.pubsub.*` publisher move
+        to `otelnats`; their specs green.
+  - [ ] **54b-3** — the rest of `refdata-service` and
+        `organizations-service`, with decision 6's context audit.
+  - [ ] **54b-4** — `shipping-service`. Closes 54a-4's split-trace gap
+        for shipping's `item.get` calls.
+  - [ ] **54b-5** — `pricing-service`, `mfe-registry-service` and
+        `accounts-service`.
+  - [ ] **54b-6** — `api._platform.observability.service.list.v1` in
+        `observability-service`, its responder grants and the
+        `MintAdminToken` grant (BR-AC18).
+  - [ ] **54b-7** — stack checks on `au-1`: BR-072's integration checks
+        (above), then BR-068 capacity and overflow at measured peak.
 - **54c — Admin UI** switches to the gateway: polling, body events,
   "Open in Grafana". Covers every `useTraceFeed.js` reader:
   `TraceWaterfall.vue`, `RpcPanel.vue`'s `[messages]` tab, and

@@ -25,6 +25,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // StreamOption configures the stream CreateStream provisions.
@@ -68,6 +69,18 @@ type Publisher struct {
 	// every publish that goes through PublishWithTrace (Phase 43a, BR-045 /
 	// BR-D45). Nil by default.
 	observer *natstrace.Tracer
+
+	// otel, when set by WithOTel, puts Publish on the OTel path (Phase 54,
+	// decision 16). Nil keeps natstrace.
+	otel *otelnats.Provider
+}
+
+// WithOTel puts Publish on the OTel path: a PRODUCER span per publish, its
+// traceparent on the message, and the obs.pubsub.* observation taking its
+// IDs from that span (decision 5, decision 13). A nil provider is the same
+// as not passing the option.
+func WithOTel(prov *otelnats.Provider) Option {
+	return func(p *Publisher) { p.otel = prov }
 }
 
 // Option configures a Publisher at construction.
@@ -122,6 +135,16 @@ func (p *Publisher) PublishWithTrace(ctx context.Context, sp *natstrace.Span, su
 	}
 	p.observer.ObservePublish(sp, subject, data)
 	return nil
+}
+
+// Publish is the ctx-only form of PublishWithTrace, and the one callers move
+// to in 54b. With WithOTel it starts a PRODUCER span from ctx. Without it,
+// it takes the natstrace span from ctx and behaves as PublishWithTrace.
+// PublishWithTrace goes in 54d.
+//
+// STATUS: skeleton (54b-1). Specs are red until 54b-2.
+func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) error {
+	return p.publish(ctx, subject, data)
 }
 
 func (p *Publisher) publish(ctx context.Context, subject string, data []byte) error {

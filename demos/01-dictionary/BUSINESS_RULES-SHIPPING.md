@@ -1293,7 +1293,14 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > `au-1` (54a-6) and passed: BR-066 (stopped and hung Collector), BR-067
 > access, BR-068 durability (graceful restart and hard kill), BR-069 and
 > BR-071 trust. Results and the measured visibility delay are in the plan,
-> 54a-6. BR-068 capacity and overflow still wait for 54b. Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
+> 54a-6. BR-068 capacity and overflow still wait for 54b.
+>
+> 54b-1 (2026-10-15) wrote the 54b specs and ran them red. They cover the
+> shared seams on `otelnats` (PRODUCER/CONSUMER spans, BR-037), body span
+> events (BR-036), the `obs.pubsub.*` publisher's new home `otelnats.Observer`
+> (BR-045–BR-047), and the live service list (BR-072). Nothing they test is
+> implemented yet; the rule texts below change in the commits that implement
+> them. Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or
@@ -1415,6 +1422,16 @@ are outside this transport change.
   discovery logic in `observability/internal/rest/nats_services.go`, extracted
   behind a NATS adapter, and Admin `ServicesPanel.vue`;
   PING/INFO and explicit failure/readiness presentation are not claimed implemented.
+  54b-1 adds the skeleton `observability/internal/servicelist` (subject,
+  schema `lab.servicelist.v1`, `Discover`, `Mount`); it does nothing yet.
+- **Specs written, red (54b-1):** `servicelist_test.go` — on a real
+  two-account server, the PLATFORM and tenant account label, two instances
+  kept apart, INFO identity, STATS after real calls, stop and restart,
+  ready / not-ready / unknown readiness, a failed tenant list, a closed
+  connection, explicit truncation, one bounded window, and the adapter's
+  versioned reply and refusals. `accounts-service/auth/token_test.go` —
+  `MintAdminToken` grants `service.list.v1` and no `$SRV.*` or `monitor.*`
+  subject.
 - **Planned tests (54b/54c):** real NATS integration checks across PLATFORM and
   tenant imports; two instances; successful/error calls reflected in STATS;
   stop/restart; supported readiness becoming false while micro still responds;

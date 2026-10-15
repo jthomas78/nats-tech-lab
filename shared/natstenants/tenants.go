@@ -52,6 +52,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // NonTenantCredsFiles are the .creds stems (checked case-insensitively) in
@@ -185,6 +186,26 @@ type LifecycleHandlers struct {
 	Teardown func(ctx context.Context, tenant string) error
 }
 
+// LifecycleOption configures SubscribeLifecycle.
+type LifecycleOption func(*lifecycleConfig)
+
+type lifecycleConfig struct {
+	otel             *otelnats.Provider
+	receivingAccount string
+}
+
+// WithOTel traces each lifecycle delivery on p (Phase 54).
+// receivingAccount is the account of nc, the connection the events arrive
+// on (BR-069). A nil p is the same as not passing the option.
+//
+// STATUS: skeleton (54b-1). SubscribeLifecycle ignores it until 54b-2.
+func WithOTel(p *otelnats.Provider, receivingAccount string) LifecycleOption {
+	return func(c *lifecycleConfig) {
+		c.otel = p
+		c.receivingAccount = receivingAccount
+	}
+}
+
 // SubscribeLifecycle subscribes nc to accounts-service's imported PLATFORM
 // lifecycle events (notify.accounts.account.{created,suspended,reactivated})
 // and dispatches to h, tracing each delivery via shared/natstrace exactly
@@ -192,7 +213,11 @@ type LifecycleHandlers struct {
 // connection observes these events directly rather than the service holding
 // a second, separate PLATFORM-only creds file just for this — keeping the
 // cross-account path entirely in accounts-service's declared imports.
-func SubscribeLifecycle(ctx context.Context, nc *nats.Conn, log *slog.Logger, h LifecycleHandlers) error {
+//
+// With WithOTel, each delivery is a CONSUMER span instead (Phase 54,
+// decision 5): it continues the event's traceparent, carries the receiving
+// account, and is the span on the ctx the handler gets.
+func SubscribeLifecycle(ctx context.Context, nc *nats.Conn, log *slog.Logger, h LifecycleHandlers, opts ...LifecycleOption) error {
 	ctx = context.WithoutCancel(ctx)
 	tracer := natstrace.New(nc)
 	type lifecycleEvent struct {

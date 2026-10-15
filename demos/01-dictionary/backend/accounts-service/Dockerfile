@@ -9,6 +9,9 @@ COPY shared/natsnotify ./shared/natsnotify
 # Phase 50b: accounts/usersrpc.go answers the browser over api.* through the
 # shared browserrpc envelope, so its module has to be in the build context too.
 COPY shared/browserrpc ./shared/browserrpc
+# Phase 54b-1: the OTel glue. The shared seams import it.
+COPY shared/otelnats ./shared/otelnats
+COPY shared/natstest ./shared/natstest
 # The registry left for mfe-registry-service, but auth still names its subjects
 # when it mints the shell's and the operator's browser credentials — from this
 # shared contract module rather than local literals (BR-AS25/AS27).

@@ -232,6 +232,8 @@ var _ = Describe("MintAdminToken", func() {
 			"api._platform.observability.trace.search.v1",
 			"api._platform.observability.trace.get.v1",
 			"api._platform.observability.trace.services.v1",
+			// Phase 54b (BR-072) — the live service list. Operator-only.
+			"api._platform.observability.service.list.v1",
 		))
 		Expect(claims.Permissions.Pub.Deny).To(BeEmpty())
 
@@ -246,7 +248,10 @@ var _ = Describe("MintAdminToken", func() {
 	// operator-only. They are named one by one, never as an
 	// api._platform.observability.> prefix, for the same reason as the users
 	// subjects above.
-	It("BR-067: grants exactly the three trace query subjects, and nothing else under observability", func() {
+	// Phase 54b (BR-072, amends BR-AC18): the service list joins them. It is
+	// the only route to micro discovery: the operator gets no raw $SRV.* or
+	// monitor.*.srv.* subject.
+	It("BR-067/BR-072: grants exactly the trace query subjects and the service list, and nothing else under observability", func() {
 		info, err := auth.MintAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		claims, err := jwt.DecodeUserClaims(info.JWT)
@@ -262,7 +267,12 @@ var _ = Describe("MintAdminToken", func() {
 			"api._platform.observability.trace.search.v1",
 			"api._platform.observability.trace.get.v1",
 			"api._platform.observability.trace.services.v1",
+			"api._platform.observability.service.list.v1",
 		))
+		for _, s := range claims.Permissions.Pub.Allow {
+			Expect(s).NotTo(HavePrefix("$SRV."))
+			Expect(s).NotTo(HavePrefix("monitor."))
+		}
 	})
 
 	It("stamps the expiry from the ttl argument", func() {

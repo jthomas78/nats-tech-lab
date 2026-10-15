@@ -30,6 +30,7 @@ import (
 	"log/slog"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/nats-io/nats.go"
 )
 
@@ -70,6 +71,20 @@ type Notifier struct {
 	nc  *nats.Conn
 	log *slog.Logger
 	obs *natstrace.Tracer // nil unless WithObservation was given
+
+	// otel, when set by WithOTel, puts Publish on the OTel path (Phase 54,
+	// decision 16). Nil keeps natstrace.
+	otel *otelnats.Provider
+}
+
+// WithOTel puts Publish on the OTel path: a PRODUCER span per publish, as
+// the child of the span on ctx; its traceparent on the message; and the
+// obs.pubsub.* observation taking its IDs from that span (decision 5,
+// decision 13). A nil provider is the same as not passing the option.
+//
+// STATUS: skeleton (54b-1). Publish ignores it until 54b-2.
+func WithOTel(p *otelnats.Provider) Option {
+	return func(n *Notifier) { n.otel = p }
 }
 
 // Option configures a Notifier at construction.

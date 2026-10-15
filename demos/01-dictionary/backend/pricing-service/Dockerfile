@@ -7,6 +7,8 @@ COPY shared/natstrace ./shared/natstrace
 COPY shared/natsconn ./shared/natsconn
 COPY shared/natstenants ./shared/natstenants
 COPY shared/browserrpc ./shared/browserrpc
+# Phase 54b-1: the OTel glue. The shared seams import it.
+COPY shared/otelnats ./shared/otelnats
 COPY demos/01-dictionary/backend/pricing-service ./demos/01-dictionary/backend/pricing-service
 WORKDIR /src/demos/01-dictionary/backend/pricing-service
 RUN go mod download

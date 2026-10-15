@@ -4,6 +4,9 @@ WORKDIR /src
 # shared modules alongside the service source — the same pattern every other
 # service block already uses.
 COPY shared/browserrpc ./shared/browserrpc
+# Phase 54b-1: the OTel glue. The shared seams import it.
+COPY shared/otelnats ./shared/otelnats
+COPY shared/natstest ./shared/natstest
 COPY shared/mferegistry ./shared/mferegistry
 COPY shared/natsconn ./shared/natsconn
 COPY shared/natsnotify ./shared/natsnotify

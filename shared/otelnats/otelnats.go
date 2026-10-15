@@ -62,6 +62,9 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	// Exporter replaces the OTLP exporter. Specs pass an in-memory one.
 	Exporter sdktrace.SpanExporter
+	// CaptureBodies turns on request and reply body events (decision 7).
+	// Off by default: capture is opt-in per service.
+	CaptureBodies bool
 }
 
 // Provider is one service's tracer provider.
