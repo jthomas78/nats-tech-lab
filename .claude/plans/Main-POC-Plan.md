@@ -1664,8 +1664,77 @@ Neither is fixed in place: this phase removes the code that has them.
     `acme.creds`: no responders. No permission errors in the service log.
     Not yet run with a minted admin browser token; that is 54a-6's access
     check.
-  - [ ] **54a-6** — stack checks: access, trust, outage/durability,
+  - [x] **54a-6** — stack checks: access, trust, outage/durability,
         visibility delay.
+    Done 2026-10-15 on `au-1`, Collector 0.162.0, Tempo 3.1.0. Driver:
+    `observability-service/cmd/otel-stackcheck` (see "How to rerun"
+    below), which fetches real browser tokens from accounts-service, holds them in memory only, and
+    finds each trace in Tempo by the link BR-071 makes from a sent
+    `traceparent`. Tempo search ran through Grafana's proxy, because
+    `trace.search` replies 501 until 54c. All fleet-asset calls used a
+    vehicle type refdata does not know, so every trace is the 3-span
+    ERROR shape.
+    - **Access.** (1) PASS: an admin browser token read an acme and a
+      globex trace through `trace.get` (3 spans each, the right
+      `receiving_account`). First run failed: the running accounts-service
+      was the pre-54a-5 build; a rebuild fixed it. (2) PASS: acme and
+      globex browser tokens and both `.creds`: all three subjects give
+      *no responders*. (3) PASS: Tempo and the Collector publish no host
+      port; Grafana answers 401 without login. (4) PASS: the only docs
+      that mention a security boundary say the tenant attribute is not one.
+    - **Trust.** (1) PASS: an acme call with spoofed `Nats-Requestor`,
+      `Nats-Request-Info`, a `tenant` header and `tenant` body fields
+      naming globex: `receiving_account` = acme, `originating` absent.
+      (2) PASS: a sent `traceparent` with flags 00 and with 01 both gave
+      a new root (no parent, new trace ID), one link to the sent ID, and
+      the 00 trace was still recorded.
+    - **Outage (BR-066).** Baseline 300 calls p95 2.66 ms. Collector
+      stopped: 300 calls, 0 errors, p95 1.23 ms; 0 of 300 traces arrived.
+      Collector hung (`docker pause`): 300 calls, 0 errors, p95 1.45 ms;
+      94 of 300 arrived after unpause. With the Collector hung,
+      organizations-service stopped in 2.5 s and refdata-service in
+      0.26 s, both exit 0 (limit: 5 s shutdown timeout). The SDK drops a
+      batch whose export fails (no retry, by design), so the loss window
+      is the Collector's down time plus up to one 5 s batch interval: 50
+      calls sent in the second of a Collector restart were all lost; 50
+      sent 15 s after it all arrived.
+    - **Durability (BR-068).** Tempo stopped, 100 known traces sent and
+      handed to the Collector, then (a) `docker restart` of the
+      Collector, (b) in a second run `docker kill`; Tempo started: 100 of
+      100 traces, each with all 3 spans, in both runs. On the graceful
+      restart the Collector logs "Exporting failed. Dropping data …
+      interrupted due to shutdown" for every in-flight item, yet nothing
+      was lost: the persistent queue still held them. Do not read that log
+      line as loss on this version.
+    - **Visibility delay (decision 8).** 8 runs, call to "found by Tempo
+      search": min 30.4 s, p50 31.0 s, max 31.1 s. `trace.get` returned all
+      3 spans within 0.1 s of the search finding the ID, so get delay ≤
+      search delay. The 54a-4 smoke saw about 18 s; that was a single,
+      unpolled reading. Tempo and the Collector run their default timings;
+      what sets the 31 s is not yet proved. `trace.search` itself is
+      unmeasured until 54c builds it.
+    - **For 54c.** Tempo's TraceQL matches `link:traceID` only without
+      leading zeros (`00ea51…` misses, `ea51…` hits); `trace.search` must
+      strip them. The poll interval and "may be late" wording start from
+      the 31 s above.
+    - **How to rerun.** Bring a cell up with `-f compose.otel.yaml`, then
+      run from the repo root. Defaults are za-1's ports; for au-1 add
+      `-accounts http://127.0.0.1:7252 -nats-ws ws://127.0.0.1:9322
+      -nats nats://127.0.0.1:4322 -grafana http://127.0.0.1:3050`. Set
+      `GRAFANA_ADMIN_PASSWORD` if it is not `admin`. `access` and `trust`
+      exit 1 on any FAIL; rerun 2026-10-15 on au-1: `access` PASS.
+
+      ```bash
+      go run ./demos/01-dictionary/backend/observability-service/cmd/otel-stackcheck access
+      go run ./demos/01-dictionary/backend/observability-service/cmd/otel-stackcheck trust
+      go run ./demos/01-dictionary/backend/observability-service/cmd/otel-stackcheck delay 8
+      ```
+
+      Outage: `send 300 <batch>` with the Collector stopped or paused,
+      then `waitcount <batch> 300 120`. Durability: stop Tempo,
+      `send 100 <batch>`, restart or kill the Collector, start Tempo,
+      then `waitcount <batch> 100 180` and `verify <batch>`. `<batch>` is
+      any 32-hex trace ID; it becomes every call's span link.
 - **54b — remaining services**, one at a time, following 54a's pattern and
   using `shared/otelnats` — no service-local copy of its four jobs. Each
   service gets decision 6's context audit. Moves the `obs.pubsub.*`

@@ -1289,8 +1289,11 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > unit specs for BR-067 (`MintAdminToken`, `tracequery.Mount`) and BR-070
 > (`tracequery`) are green. `trace.search` and `trace.services` are served
 > but reply 501 until 54c specifies their query shape. A smoke run on
-> `au-1` showed one trace across both services; the 54a-6 stack checks have
-> not run yet. Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
+> `au-1` showed one trace across both services. The 54a stack checks ran on
+> `au-1` (54a-6) and passed: BR-066 (stopped and hung Collector), BR-067
+> access, BR-068 durability (graceful restart and hard kill), BR-069 and
+> BR-071 trust. Results and the measured visibility delay are in the plan,
+> 54a-6. BR-068 capacity and overflow still wait for 54b. Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or
