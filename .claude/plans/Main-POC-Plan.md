@@ -1993,9 +1993,27 @@ Neither is fixed in place: this phase removes the code that has them.
         body event, so only with capture on.
         Not tested directly: the three `cmd/main.go` `InitFromEnv` calls;
         no stack run on `au-1` yet (54b-7).
-  - [ ] **54b-6** — `api._platform.observability.service.list.v1` in
+  - [x] **54b-6** — `api._platform.observability.service.list.v1` in
         `observability-service`, its responder grants and the
         `MintAdminToken` grant (BR-AC18).
+        Done 2026-10-15. All green:
+        - `observability/internal/servicelist`: 16/16 (green 5 runs in a
+          row). INFO and STATS in one window across PLATFORM and every
+          tenant import, joined by instance ID; readiness from
+          `shared/natsready` in a second window, PLATFORM only; fixed error
+          text; defaults 500 ms and 200 instances. Mounted in
+          `composition.go` on every stack, Tempo or not.
+        - `rest.AccountsClient.Tenants` keeps the failure `TenantNames`
+          hides; `TestTenantsKeepsTheFailure`. observability-service: all
+          6 suites green.
+        - `accounts-service/auth`: 43/43 — the 2 specs left red since 54b-1
+          now pass. Accounts suite 165/165 (3 runs; one earlier run had a
+          setup timeout in `provisioner_test.go`, unchanged code, and did
+          not repeat).
+        - `nats/bootstrap-operator.sh`: the `observability` user subscribes
+          on the subject and may publish on
+          `rpc._platform.health.*.ready.v1`. Live only after
+          `./bootstrap-operator.sh --force` and a reseed — 54b-7.
   - [ ] **54b-7** — stack checks on `au-1`: BR-072's integration checks
         (above), then BR-068 capacity and overflow at measured peak.
 - **54c — Admin UI** switches to the gateway: polling, body events,

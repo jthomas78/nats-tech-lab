@@ -594,6 +594,12 @@ trace query subjects, one by one:
 `observability-service` on its PLATFORM connection. No other profile grants
 them, and no tenant account imports them.
 
+**Amended Phase 54b-6 (BR-072).** The publish allowlist also names
+`api._platform.observability.service.list.v1`, the live service list. It is
+operator-only, like the trace query subjects, and it is the only route a
+browser has to micro discovery: no profile grants a raw `$SRV.*` or
+`monitor.*.srv.*` subject. Test: `auth/token_test.go`, the BR-067/BR-072 spec.
+
 `frontend/admin/src/nats/usePlatformConnection.js` opens this connection once
 at boot and never connects the browser to `acme`, `globex`, or any other
 tenant account. Central observability arrives through the PLATFORM KV-notify

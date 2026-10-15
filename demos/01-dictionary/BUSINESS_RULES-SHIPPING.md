@@ -1476,7 +1476,7 @@ A browser can send any `traceparent` — any trace ID, and `sampled = 0`. `natst
 
 ---
 
-### BR-072 (Phase 54b/54c, PLANNED 2026-10-15) — Live micro discovery and endpoint statistics are independent of trace export
+### BR-072 (Phase 54b/54c; 54b-6 IMPLEMENTED 2026-10-15) — Live micro discovery and endpoint statistics are independent of trace export
 
 NATS micro PING reports responding instances, INFO supplies identity/version
 and endpoint descriptions, and STATS supplies live request/error counts,
@@ -1508,18 +1508,32 @@ until the coordinated cutover, then retire `GET /api/nats/services` in 54d
 with its documentation and BR-040 allowlist entry. Other diagnostics routes
 are outside this transport change.
 
-- **Implementation status:** planned extension of the existing
-  discovery logic in `observability/internal/rest/nats_services.go`, extracted
-  behind a NATS adapter, and Admin `ServicesPanel.vue`;
-  PING/INFO and explicit failure/readiness presentation are not claimed implemented.
-  54b-1 adds the skeleton `observability/internal/servicelist` (subject,
-  schema `lab.servicelist.v1`, `Discover`, `Mount`); it does nothing yet.
-- **Specs written, red (54b-1):** `servicelist_test.go` — on a real
-  two-account server, the PLATFORM and tenant account label, two instances
-  kept apart, INFO identity, STATS after real calls, stop and restart,
-  ready / not-ready / unknown readiness, a failed tenant list, a closed
-  connection, explicit truncation, one bounded window, and the adapter's
-  versioned reply and refusals. `accounts-service/auth/token_test.go` —
+- **Implementation status (54b-6, 2026-10-15):** implemented in
+  `observability/internal/servicelist`. `Discover` asks PLATFORM (`$SRV.INFO`,
+  `$SRV.STATS`) and each tenant (`monitor.{tenant}.srv.INFO` / `.STATS`) at
+  once, in one window, and joins INFO and STATS by instance ID. Each service
+  carries the account it was queried in. Readiness is asked after, in a second
+  window, on `rpc._platform.health.{service}.ready.v1` (BR-AS62), and only in
+  PLATFORM: no tenant serves that subject, so a tenant service is always
+  `unknown`. The tenant list comes from the new `AccountsClient.Tenants`,
+  which returns the failure that `TenantNames` hides. A failed tenant list, a
+  failed account and a truncated reply each set `complete: false` and add an
+  entry to `errors`; the error text is fixed, never the cause. Defaults: a
+  500 ms window and 200 instances. `Mount` serves the subject as a micro
+  endpoint on the PLATFORM connection, mounted on every stack (Tempo or not).
+  The request body must be empty or `{}`; any field gives a `400`. Grants:
+  `MintAdminToken` adds the subject (BR-AC18); the `observability` user
+  subscribes on it and may publish on `rpc._platform.health.*.ready.v1`
+  (`nats/bootstrap-operator.sh`, live only after `--force` and a reseed). The
+  REST Services panel (`internal/rest/nats_services.go`) is unchanged until
+  54c/54d.
+- **Tests (green, 54b-6):** `servicelist_test.go` — 16/16, the specs written
+  red in 54b-1: on a real two-account server, the PLATFORM and tenant account
+  label, two instances kept apart, INFO identity, STATS after real calls, stop
+  and restart, ready / not-ready / unknown readiness, a failed tenant list, a
+  closed connection, explicit truncation, one bounded window, and the
+  adapter's versioned reply and refusals. `rest/nats_connections_test.go`
+  `TestTenantsKeepsTheFailure`. `accounts-service/auth/token_test.go` —
   `MintAdminToken` grants `service.list.v1` and no `$SRV.*` or `monitor.*`
   subject.
 - **Planned tests (54b/54c):** real NATS integration checks across PLATFORM and

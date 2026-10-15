@@ -89,6 +89,38 @@ func TestTenantNamesExcludesPlatformAndSysCaseInsensitively(t *testing.T) {
 	}
 }
 
+// TestTenantsKeepsTheFailure pins BR-072's tenant source: the live service
+// list must report a failed tenant list, never show it as no tenants. So
+// Tenants returns the same names as TenantNames on success, and an error —
+// not an empty list — when accounts-service fails or is not configured.
+func TestTenantsKeepsTheFailure(t *testing.T) {
+	ok := newAccountsMock(t, []AccountsClientAccount{
+		{Name: "acme", PublicKey: "AAAACME"},
+		{Name: "platform", PublicKey: "AAAPLATFORM"},
+		{Name: "sys", PublicKey: "AAASYS"},
+	})
+	names, err := ok.Tenants(t.Context())
+	if err != nil || len(names) != 1 || names[0] != "acme" {
+		t.Fatalf("expected [acme] and no error, got %v, %v", names, err)
+	}
+
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(down.Close)
+	failing := &AccountsClient{BaseURL: down.URL, AuthSecret: "test-secret", Log: discardLogger()}
+	if _, err := failing.Tenants(t.Context()); err == nil {
+		t.Fatal("expected an error from a failing accounts-service")
+	}
+
+	if _, err := (&AccountsClient{}).Tenants(t.Context()); err == nil {
+		t.Fatal("expected an error from an unconfigured client")
+	}
+	if _, err := (*AccountsClient)(nil).Tenants(t.Context()); err == nil {
+		t.Fatal("expected an error from a nil client")
+	}
+}
+
 // TestTenantStatusesReturnsStatusPerTenantExcludingPlatformAndSys mirrors
 // TestTenantNamesExcludesPlatformAndSysCaseInsensitively for the status map
 // introspectableAccounts (kv.go) uses to tag the Streams/KV Buckets panels'

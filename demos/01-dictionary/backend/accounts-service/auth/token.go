@@ -165,6 +165,10 @@ func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, 
 			"api._platform.observability.trace.search.v1",
 			"api._platform.observability.trace.get.v1",
 			"api._platform.observability.trace.services.v1",
+			// Phase 54b (BR-072) — the live service list. Operator only, and
+			// the only route to micro discovery: no raw $SRV.* or
+			// monitor.*.srv.* subject is granted to a browser.
+			"api._platform.observability.service.list.v1",
 		)
 		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
 			// Phase 43b (BR-047): the Messages panel's live feed, the same

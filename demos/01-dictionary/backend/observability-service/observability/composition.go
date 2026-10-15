@@ -15,6 +15,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/pubsubstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/rest"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/servicelist"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/tracequery"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/tracestore"
 )
@@ -28,6 +29,9 @@ type Handlers struct {
 	// stopTraceQuery stops the Phase 54 trace query gateway. Nil when
 	// TempoURL is unset (the default stack has no Tempo).
 	stopTraceQuery func() error
+	// stopServiceList stops the Phase 54b live service list (BR-072). It is
+	// mounted on every stack, Tempo or not: discovery does not read traces.
+	stopServiceList func() error
 }
 
 // Config is Startup's non-NATS configuration — the HTTP-reachable
@@ -92,22 +96,37 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 		log.Info("trace query gateway mounted", "subjects", tracequery.Subjects())
 	}
 
+	accounts := &rest.AccountsClient{
+		BaseURL:    cfg.AccountsURL,
+		AuthSecret: cfg.AccountsAuthSecret,
+		Log:        log,
+	}
+
+	// Phase 54b (BR-072): the live service list, on the PLATFORM connection.
+	stopServiceList, err := servicelist.Mount(nc, accounts, servicelist.Options{})
+	if err != nil {
+		if stopTraceQuery != nil {
+			_ = stopTraceQuery()
+		}
+		pubsubStore.Stop()
+		traceStore.Stop()
+		return nil, err
+	}
+	log.Info("service list mounted", "subject", servicelist.Subject)
+
 	return &Handlers{
 		rest: rest.New(rest.Deps{
 			NC:             nc,
 			Log:            log,
 			NatsMonitorURL: cfg.NatsMonitorURL,
 			NatsLogPath:    cfg.NatsLogPath,
-			Accounts: &rest.AccountsClient{
-				BaseURL:    cfg.AccountsURL,
-				AuthSecret: cfg.AccountsAuthSecret,
-				Log:        log,
-			},
-			History: history,
+			Accounts:       accounts,
+			History:        history,
 		}),
-		traceStore:  traceStore,
-		pubsubStore:    pubsubStore,
-		stopTraceQuery: stopTraceQuery,
+		traceStore:      traceStore,
+		pubsubStore:     pubsubStore,
+		stopTraceQuery:  stopTraceQuery,
+		stopServiceList: stopServiceList,
 	}, nil
 }
 
@@ -119,6 +138,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 // Stop drains the trace-store and pubsub-store projectors' consumers.
 // Nil-safe (either Register returns a nil ConsumeContext if nc/js were nil).
 func (h *Handlers) Stop() {
+	if h.stopServiceList != nil {
+		_ = h.stopServiceList()
+	}
 	if h.stopTraceQuery != nil {
 		_ = h.stopTraceQuery()
 	}

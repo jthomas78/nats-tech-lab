@@ -3,6 +3,8 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -82,12 +84,29 @@ var reservedAccountNames = map[string]bool{"PLATFORM": true, "SYS": true}
 // diagnostic response it's supporting, matching /varz's role as a
 // secondary read for Connections.
 func (c *AccountsClient) list(ctx context.Context) []AccountsClientAccount {
-	if c == nil || c.BaseURL == "" {
+	accs, err := c.fetch(ctx)
+	if err != nil {
+		// An unconfigured client is a quiet nil, as before; only a real
+		// failure is logged.
+		if !errors.Is(err, errAccountsNotConfigured) && c.Log != nil {
+			c.Log.Warn("accounts list probe", "err", err)
+		}
 		return nil
+	}
+	return accs
+}
+
+var errAccountsNotConfigured = errors.New("accounts-service URL not configured")
+
+// fetch is list with the failure kept. The live service list (BR-072) needs
+// it: a failed tenant list must be reported, never shown as no tenants.
+func (c *AccountsClient) fetch(ctx context.Context) ([]AccountsClientAccount, error) {
+	if c == nil || c.BaseURL == "" {
+		return nil, errAccountsNotConfigured
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/accounts", nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	req.SetBasicAuth(accountsBasicAuthUser, c.AuthSecret)
 
@@ -97,27 +116,18 @@ func (c *AccountsClient) list(ctx context.Context) []AccountsClientAccount {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if c.Log != nil {
-			c.Log.Warn("accounts list probe", "err", err)
-		}
-		return nil
+		return nil, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
-		if c.Log != nil {
-			c.Log.Warn("accounts list probe", "status", resp.StatusCode)
-		}
-		return nil
+		return nil, fmt.Errorf("accounts list: status %d", resp.StatusCode)
 	}
 
 	var accs []AccountsClientAccount
 	if err := json.NewDecoder(resp.Body).Decode(&accs); err != nil {
-		if c.Log != nil {
-			c.Log.Warn("accounts list decode", "err", err)
-		}
-		return nil
+		return nil, fmt.Errorf("accounts list decode: %w", err)
 	}
-	return accs
+	return accs, nil
 }
 
 // Labels returns a publicKey -> name map for tagging /connz and /accstatz
@@ -148,6 +158,23 @@ func (c *AccountsClient) TenantNames(ctx context.Context) []string {
 		names = append(names, a.Name)
 	}
 	return names
+}
+
+// Tenants is TenantNames with the failure kept — the servicelist
+// TenantSource (BR-072).
+func (c *AccountsClient) Tenants(ctx context.Context) ([]string, error) {
+	accs, err := c.fetch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(accs))
+	for _, a := range accs {
+		if reservedAccountNames[strings.ToUpper(a.Name)] {
+			continue
+		}
+		names = append(names, a.Name)
+	}
+	return names, nil
 }
 
 // TenantStatuses returns every tenant account's lifecycle status
