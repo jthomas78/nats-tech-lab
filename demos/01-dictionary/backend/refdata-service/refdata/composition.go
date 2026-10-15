@@ -29,6 +29,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // ChangeStreamMaxAge bounds the REFDATA change-event feed — it is a
@@ -170,8 +171,9 @@ func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
 // natsrpc adapter's publishObs/RPCTRACE side-channel with natstrace's
 // obs.trace.* spans (BR-D39), which publish over the adapter's own
 // connection and need no JetStream handle. Callers should Stop() the
-// returned adapter on shutdown.
-func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Logger) (*natsrpc.Adapter, error) {
+// returned adapter on shutdown. tracing moves item.get onto OTel (Phase
+// 54a-4); nil keeps every endpoint on natstrace.
+func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Logger, tracing *otelnats.Provider) (*natsrpc.Adapter, error) {
 	return natsrpc.New(nc, natsrpc.Deps{
 		Localizations: h.Localizations,
 		Items:         h.Items,
@@ -180,6 +182,7 @@ func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Log
 		Contexts:      h.Contexts,
 		References:    h.References,
 		Log:           log,
+		Tracing:       tracing,
 	})
 }
 

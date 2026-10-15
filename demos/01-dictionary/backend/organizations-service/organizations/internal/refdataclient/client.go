@@ -25,8 +25,11 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // ErrRPCUnavailable is returned when every retry against rpc.* fails — there
@@ -71,14 +74,30 @@ type Client struct {
 	nc          *nats.Conn
 	requestorID string
 	tracer      *natstrace.Tracer
+	// otel, when set, replaces natstrace for this client's spans (Phase 54a,
+	// decision 16: the OTel stack only, never both on one call).
+	otel *otelnats.Provider
 }
 
-func New(nc *nats.Conn) *Client {
-	return &Client{
+// Option configures a Client.
+type Option func(*Client)
+
+// WithTracing makes the client trace with OTel instead of natstrace. A nil
+// Provider keeps natstrace.
+func WithTracing(p *otelnats.Provider) Option {
+	return func(c *Client) { c.otel = p }
+}
+
+func New(nc *nats.Conn, opts ...Option) *Client {
+	c := &Client{
 		nc:          nc,
 		requestorID: fmt.Sprintf("%s/%s", nc.Opts.Name, nuid.Next()),
 		tracer:      natstrace.New(nc),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // rpcItemGetRequest/rpcItemGetResponse mirror refdata-service's
@@ -211,27 +230,18 @@ func (c *Client) ResolveArea(ctx context.Context, level domain.AreaLevel, code s
 }
 
 // requestRPC makes one logical rpc.* call, retrying up to defaultRPCRetries
-// times. BR-037: exactly one natstrace span covers the whole call — minted
-// before the retry loop starts, not one per attempt, so a 3-attempt failure
-// is one span with rpc.retry_count=2, not three parentless siblings. The
-// span continues whatever parent natstrace.ContextWithSpan attached to ctx
-// (e.g. the browserrpc handler's own inbound span), or mints a root span if
-// ctx carries none. contextValue/entity/action label the span explicitly
-// (see StartOutbound's doc comment on why subject can't be parsed for this)
-// — service is always "refdata", the only thing this package ever calls.
+// times. BR-037: exactly one span covers the whole call — minted before the
+// retry loop starts, not one per attempt, so a 3-attempt failure is one span
+// with rpc.retry_count=2, not three parentless siblings. The span continues
+// the parent in ctx (the inbound handler's own span), or is a root if ctx
+// carries none.
 func (c *Client) requestRPC(ctx context.Context, subject, contextValue, entity, action string, body []byte) ([]byte, error) {
-	sp := c.tracer.StartOutbound(natstrace.SpanFromContext(ctx), subject, body, contextValue, "refdata", entity, action)
 	msg := &nats.Msg{
 		Subject: subject,
 		Data:    body,
-		Header: nats.Header{
-			requestorHeader:             []string{c.requestorID},
-			natstrace.TraceparentHeader: []string{sp.Traceparent()},
-		},
+		Header:  nats.Header{requestorHeader: []string{c.requestorID}},
 	}
-	// See refdataconsumer's identical call: an outbound span predates its own
-	// headers, so it has to be handed them rather than capturing them.
-	sp.SetRequestHeaders(map[string][]string(msg.Header))
+	finish := c.startCall(ctx, msg, contextValue, entity, action)
 	var lastErr error
 	attempt := 0
 	for ; attempt <= defaultRPCRetries; attempt++ {
@@ -239,8 +249,7 @@ func (c *Client) requestRPC(ctx context.Context, subject, contextValue, entity, 
 			select {
 			case <-time.After(defaultRPCBackoff * time.Duration(attempt)):
 			case <-ctx.Done():
-				sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt))
-				sp.Fail(ctx.Err(), nil, nil)
+				finish(attempt, nil, ctx.Err())
 				return nil, ctx.Err()
 			}
 		}
@@ -248,14 +257,54 @@ func (c *Client) requestRPC(ctx context.Context, subject, contextValue, entity, 
 		reply, err := c.nc.RequestMsgWithContext(rctx, msg)
 		cancel()
 		if err == nil {
-			sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt))
-			sp.End(reply.Data, map[string][]string(reply.Header))
+			finish(attempt, reply, nil)
 			return reply.Data, nil
 		}
 		lastErr = err
 	}
-	sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt-1))
 	finalErr := fmt.Errorf("%w (subject %s): %v", ErrRPCUnavailable, subject, lastErr)
-	sp.Fail(finalErr, nil, nil)
+	finish(attempt-1, nil, finalErr)
 	return nil, finalErr
 }
+
+// startCall starts the call's one span, writes its traceparent into msg, and
+// returns the function that ends it. With an otelnats Provider the span is
+// an OTel CLIENT span (BR-064, BR-065); without one it is natstrace's.
+// contextValue/entity/action label the natstrace span (see StartOutbound's
+// doc comment on why the local-alias subject can't be parsed for this);
+// service is always "refdata", the only thing this package ever calls.
+func (c *Client) startCall(ctx context.Context, msg *nats.Msg, contextValue, entity, action string) func(retries int, reply *nats.Msg, err error) {
+	if c.otel != nil {
+		ctx, span := c.otel.StartClient(ctx, msg.Subject, "refdata")
+		otelnats.Inject(ctx, msg)
+		return func(retries int, reply *nats.Msg, err error) {
+			span.SetAttributes(attribute.Int("rpc.retry_count", retries))
+			switch {
+			case err != nil:
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+			case reply.Header.Get(serviceErrorHeader) != "":
+				// BR-055 carried over: refdata's micro error reply.
+				span.SetStatus(codes.Error, reply.Header.Get(serviceErrorHeader))
+			}
+			span.End()
+		}
+	}
+
+	sp := c.tracer.StartOutbound(natstrace.SpanFromContext(ctx), msg.Subject, msg.Data, contextValue, "refdata", entity, action)
+	msg.Header[natstrace.TraceparentHeader] = []string{sp.Traceparent()}
+	// See refdataconsumer's identical call: an outbound span predates its own
+	// headers, so it has to be handed them rather than capturing them.
+	sp.SetRequestHeaders(map[string][]string(msg.Header))
+	return func(retries int, reply *nats.Msg, err error) {
+		sp.SetAttribute("rpc.retry_count", strconv.Itoa(retries))
+		if err != nil {
+			sp.Fail(err, nil, nil)
+			return
+		}
+		sp.End(reply.Data, map[string][]string(reply.Header))
+	}
+}
+
+// serviceErrorHeader is micro's error header on a reply.
+const serviceErrorHeader = "Nats-Service-Error"

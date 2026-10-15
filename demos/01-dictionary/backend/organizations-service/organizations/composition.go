@@ -36,6 +36,7 @@ import (
 	profilepostgres "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/worker"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/workflow"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // Handlers is the composed set of command handlers a caller (REST layer,
@@ -127,9 +128,12 @@ func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, vetting *Vetting, log *s
 // the returned Manager on shutdown.
 // secretKey seals BR-TP52's tracking-credential payloads. Passing nil
 // disables that feature rather than degrading it — see tenants.Manager.
-func MountTenants(ctx context.Context, natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte) (*tenants.Manager, error) {
+// tracing moves fleet-asset add and the refdata client onto OTel (Phase
+// 54a-4). nil keeps every path on natstrace.
+func MountTenants(ctx context.Context, natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte, tracing *otelnats.Provider) (*tenants.Manager, error) {
 	mgr := tenants.NewManager(natsURL, credsDir, db, log, secretKey).
-		WithCertificateWriter(postgres.NewComplianceDocumentRepository(db))
+		WithCertificateWriter(postgres.NewComplianceDocumentRepository(db)).
+		WithTracing(tracing)
 	if err := mgr.EnsureAll(ctx); err != nil {
 		return nil, err
 	}

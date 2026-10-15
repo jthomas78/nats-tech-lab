@@ -7,6 +7,9 @@ COPY shared/natstrace ./shared/natstrace
 COPY shared/natsconn ./shared/natsconn
 COPY shared/natstenants ./shared/natstenants
 COPY shared/browserrpc ./shared/browserrpc
+# Phase 54a-4: the OTel glue. Built in always; used only when
+# compose.otel.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
+COPY shared/otelnats ./shared/otelnats
 COPY demos/01-dictionary/backend/organizations-service ./demos/01-dictionary/backend/organizations-service
 WORKDIR /src/demos/01-dictionary/backend/organizations-service
 RUN go mod download

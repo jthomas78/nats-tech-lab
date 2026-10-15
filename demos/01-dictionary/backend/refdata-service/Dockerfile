@@ -10,6 +10,9 @@ COPY shared/natsnotify ./shared/natsnotify
 COPY shared/natstest ./shared/natstest
 COPY shared/natstenants ./shared/natstenants
 COPY shared/browserrpc ./shared/browserrpc
+# Phase 54a-4: the OTel glue. Built in always; used only when
+# compose.otel.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
+COPY shared/otelnats ./shared/otelnats
 # Phase 5d: the readiness responder, and the subject names it shares with
 # the registry — both are their own modules, so both must be copied.
 COPY shared/mferegistry ./shared/mferegistry

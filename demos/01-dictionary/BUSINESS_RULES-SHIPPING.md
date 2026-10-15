@@ -1282,9 +1282,13 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 
 > **Status: IN PROGRESS 2026-10-15. Specs were written first (red).**
 > `shared/otelnats` is implemented (54a-3): the unit specs for BR-064, BR-065,
-> BR-066, BR-069 and BR-071 are green. Still red: BR-067 (`MintAdminToken`,
-> `tracequery.Mount`) and BR-070 (`tracequery`), until 54a-5. No stack check
-> has run yet. Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
+> BR-066, BR-069 and BR-071 are green. Two paths use it when the `otel`
+> overlay is on (54a-4): fleet-asset add in `organizations-service`, with its
+> refdata client, and `rpc.*.refdata.item.get` in `refdata-service`. Their
+> adapter specs are green. Still red: BR-067 (`MintAdminToken`,
+> `tracequery.Mount`) and BR-070 (`tracequery`), until 54a-5. A smoke run on
+> `au-1` showed one trace across both services; the 54a-6 stack checks have
+> not run yet. Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or
@@ -1367,6 +1371,56 @@ A browser can send any `traceparent` — any trace ID, and `sampled = 0`. `natst
 - **Test:** `shared/otelnats/edge_test.go`, `Context("BR-071: …")` — a sampled and an unsampled browser `traceparent` both give a new, sampled trace with one link to the sent context; a malformed one gives a new trace with no link; `EdgeRPC` still continues its parent.
 
 ---
+
+---
+
+### BR-072 (Phase 54b/54c, PLANNED 2026-10-15) — Live micro discovery and endpoint statistics are independent of trace export
+
+NATS micro PING reports responding instances, INFO supplies identity/version
+and endpoint descriptions, and STATS supplies live request/error counts,
+last errors and processing times. The operator Services view collects these
+across PLATFORM and permitted tenant accounts using BR-AC31's existing
+imports. Preserve instance identity (BR-027), account labels (BR-028) and
+queried-account provenance; do not collapse separate instances or infer
+availability from trace arrival.
+
+A reply means responding, not dependency-ready. No reply means not observed
+within a bounded discovery window, not proof the process is dead. Discovery
+errors and known partial results must be visible, not rendered as a successful
+empty inventory. Reuse `shared/natsready` (BR-AS62) where readiness is supported;
+otherwise readiness is unknown. These are live operational observations, not
+the historical metrics or Pulse replacement planned in Phase 55.
+
+**Client transport (agreed 2026-10-15):** operators request
+`api._platform.observability.service.list.v1`. `observability-service` replies
+with the lab's versioned snapshot containing instances, identity, endpoint
+statistics, observation time, discovery errors/partial results and supported
+readiness. Bound discovery time and response size; truncation is explicit.
+Clients cannot supply arbitrary discovery subjects. The endpoint is granted
+explicitly to operator credentials and is not exported to tenant accounts;
+browsers gain no raw `$SRV.>` or `monitor.*.srv.>` grants. Phase 54's known
+ungated operator-credential issuance gap still applies.
+
+Move the Services panel to NATS in 54c. Preserve the old Services REST route
+until the coordinated cutover, then retire `GET /api/nats/services` in 54d
+with its documentation and BR-040 allowlist entry. Other diagnostics routes
+are outside this transport change.
+
+- **Implementation status:** planned extension of the existing
+  discovery logic in `observability/internal/rest/nats_services.go`, extracted
+  behind a NATS adapter, and Admin `ServicesPanel.vue`;
+  PING/INFO and explicit failure/readiness presentation are not claimed implemented.
+- **Planned tests (54b/54c):** real NATS integration checks across PLATFORM and
+  tenant imports; two instances; successful/error calls reflected in STATS;
+  stop/restart; supported readiness becoming false while micro still responds;
+  failed/partial discovery; repeat with Collector and Tempo unavailable. UI
+  checks cover identity, account, statistics and observation/readiness states
+  over NATS with no REST fallback. Verify operator access, tenant exclusion,
+  absence of raw browser micro permissions, versioned replies and explicit
+  truncation through the real NATS adapter.
+- **Deployment scope:** validate local Docker in Phase 54 before a later
+  Chronicle transfer. The eventual AWS and Docker deployments share these
+  semantics with deployment-specific topology, credentials and timing.
 
 ---
 

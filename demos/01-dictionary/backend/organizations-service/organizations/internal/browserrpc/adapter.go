@@ -50,6 +50,7 @@ import (
 	profileworker "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/worker"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // Subject constants. The {context} token is a wildcard here and resolved
@@ -168,6 +169,18 @@ type Deps struct {
 	// that must not come from the request body.
 	Tenant string
 	Log    *slog.Logger
+
+	// Tracing, when set, traces the endpoints in otelSubjects with OTel
+	// instead of natstrace (Phase 54a, decision 16: set only on the OTel
+	// stack). Nil keeps natstrace on every endpoint.
+	Tracing *otelnats.Provider
+}
+
+// otelSubjects are the endpoints Deps.Tracing moves to OTel. Phase 54a moves
+// one path, fleet-asset add, so shared/otelnats is proved by real use before
+// 54b moves the rest.
+var otelSubjects = map[string]bool{
+	FleetAssetAddSubject: true,
 }
 
 // Adapter owns one tenant connection's micro service registration + endpoints.
@@ -176,6 +189,7 @@ type Adapter struct {
 	svc    micro.Service
 	log    *slog.Logger
 	tracer *natstrace.Tracer
+	otel   *otelnats.Provider
 
 	organizations     *commands.OrganizationHandler
 	activation        *orchestration.ActivationHandler
@@ -201,6 +215,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		nc:             nc,
 		log:            deps.Log,
 		tracer:         natstrace.New(nc),
+		otel:           deps.Tracing,
 		organizations:  deps.Organizations,
 		documents:      deps.Documents,
 		documentFiles:  deps.DocumentFiles,
@@ -264,7 +279,14 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"tracking-credential-list", a.handleTrackingCredentialList, TrackingCredentialListSubject},
 	}
 	for _, ep := range endpoints {
-		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
+		handler := a.tracer.Middleware(ep.handler)
+		if a.otel != nil && otelSubjects[ep.subject] {
+			// A browser call: a new root, any sent traceparent only a link
+			// (BR-071). The receiving account is this adapter's tenant, and
+			// the originating tenant stays empty (BR-069).
+			handler = a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
+		}
+		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
@@ -1022,13 +1044,14 @@ func (a *Adapter) handleFleetAssetAdd(req micro.Request) {
 	}
 	// a.tenant, not a body field: BR-TP14's refdata lookup rides the tenant's
 	// own account import, and this adapter *is* that tenant's connection.
-	// natstrace.ContextWithSpan (BR-037) carries this request's span down to
-	// FleetAssetHandler -> Manager.Exists -> refdataclient.Client's outbound
-	// rpc.* call, so that call's span continues this trace instead of
-	// starting a disconnected root — the only place in this codebase ctx
-	// carries a value beyond cancellation, and it costs the command/domain
-	// layer nothing (ctx is already threaded everywhere unchanged).
-	ctx := natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
+	// The ctx carries this request's span down to FleetAssetHandler ->
+	// Manager.Exists -> refdataclient.Client's outbound rpc.* call, so that
+	// call's span continues this trace instead of starting a disconnected
+	// root, and it costs the command/domain layer nothing (ctx is already
+	// threaded everywhere unchanged). On the OTel stack the span is
+	// otelnats's (ContextFrom); otherwise natstrace's (BR-037). Each is a
+	// no-op where the other one wrapped req.
+	ctx := natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req))
 	asset, err := a.fleetAssets.AddFleetAsset(
 		ctx, in.ID, a.tenant,
 		in.RegistrationNo, in.VIN, in.Make, in.Model, in.VehicleTypeCode,
@@ -1174,4 +1197,12 @@ func (a *Adapter) actor(req micro.Request) commands.Actor {
 // itself, marshals, finishes the natstrace span, and stamps Nats-Responder.
 func (a *Adapter) reply(req micro.Request, result any, err error) {
 	sharedbrowserrpc.ReplyWithConflicts(req, a.svc, a.log, isNotFoundErr, isConflictErr, result, err)
+}
+
+// trust is the tenant context this adapter vouches for (BR-069): the
+// account its connection authenticated into. No originating tenant — on a
+// tenant's own connection the caller is that tenant's browser, and the
+// receiving account already says so.
+func (a *Adapter) trust(micro.Request) otelnats.Trust {
+	return otelnats.Trust{ReceivingAccount: a.tenant}
 }

@@ -25,6 +25,7 @@ package otelnats
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"time"
 
@@ -120,6 +121,20 @@ func tracesURL(endpoint string) string {
 	return base + tracesPath
 }
 
+// EndpointEnv is the one switch onto the OTel path (decision 16). Only
+// compose.otel.yaml sets it; unset, a service stays on natstrace.
+const EndpointEnv = "OTEL_EXPORTER_OTLP_ENDPOINT"
+
+// InitFromEnv builds a Provider from EndpointEnv. When the variable is unset
+// it returns nil and no error: the caller stays on natstrace.
+func InitFromEnv(ctx context.Context, serviceName string) (*Provider, error) {
+	endpoint := strings.TrimSpace(os.Getenv(EndpointEnv))
+	if endpoint == "" {
+		return nil, nil
+	}
+	return Init(ctx, Config{ServiceName: serviceName, Endpoint: endpoint})
+}
+
 // Tracer returns the service's tracer.
 func (p *Provider) Tracer() trace.Tracer {
 	return p.tracer
@@ -132,8 +147,12 @@ func (p *Provider) ForceFlush(ctx context.Context) error {
 }
 
 // Shutdown flushes and stops the provider within Config.ShutdownTimeout,
-// even when ctx has no deadline (BR-066).
+// even when ctx has no deadline (BR-066). A nil Provider is a no-op, so a
+// caller can defer Shutdown whether tracing is on or off.
 func (p *Provider) Shutdown(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.ShutdownTimeout)
 	defer cancel()
 	return p.tp.Shutdown(ctx)

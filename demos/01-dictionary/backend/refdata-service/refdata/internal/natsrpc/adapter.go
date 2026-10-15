@@ -26,6 +26,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // ItemGetSubject is the rpc.* subject pattern for the item.get operation —
@@ -84,7 +85,18 @@ type Deps struct {
 	// exactly what every caller before Phase 38d-ii already handled.
 	References *commands.ReferenceHandler
 	Log        *slog.Logger
+	// Tracing moves item.get onto OTel (Phase 54a-4). nil keeps every
+	// endpoint on natstrace.
+	Tracing *otelnats.Provider
 }
+
+// otelSubjects are the endpoints Tracing moves onto OTel in 54a. The rest
+// stay on natstrace until 54b.
+var otelSubjects = map[string]bool{ItemGetSubject: true}
+
+// platformAccount is the NATS account this adapter's connection lives in.
+// It is the receiving account on every span (BR-069).
+const platformAccount = "PLATFORM"
 
 // Adapter is the natsrpc/ dual-transport adapter — a second transport onto
 // the same commands/queries methods the rest/ adapter already calls
@@ -101,6 +113,7 @@ type Adapter struct {
 	log           *slog.Logger
 	svc           micro.Service
 	tracer        *natstrace.Tracer
+	otel          *otelnats.Provider
 }
 
 // ItemGetRequest is the rpc.{context}.refdata.item.get.v1 request payload.
@@ -228,6 +241,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		references:    deps.References,
 		log:           deps.Log,
 		tracer:        natstrace.New(nc),
+		otel:          deps.Tracing,
 	}
 
 	svc, err := micro.AddService(nc, micro.Config{
@@ -257,7 +271,14 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"context-list", a.handleContextList, ContextListSubject},
 	}
 	for _, ep := range endpoints {
-		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
+		handler := a.tracer.Middleware(ep.handler)
+		if a.otel != nil && otelSubjects[ep.subject] {
+			// A caller on rpc.* is a trusted service, so the trace continues
+			// (EdgeRPC). natstrace.SpanFrom is nil on this path, so the reply
+			// helpers publish no obs.trace.* span.
+			handler = a.otel.Middleware(otelnats.EdgeRPC, platformTrust, ep.handler)
+		}
+		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
@@ -286,7 +307,9 @@ func (a *Adapter) handleItemGet(req micro.Request) {
 		return
 	}
 
-	out, err := a.resolveItemKVFirst(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in.Context, in.TypeKey, in.Code, in.Locale)
+	// One of the two contexts is live: otelnats's on the OTel path, natstrace's
+	// otherwise. ContextFrom gives a background context when OTel is off.
+	out, err := a.resolveItemKVFirst(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context, in.TypeKey, in.Code, in.Locale)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -696,4 +719,11 @@ func contextFromSubject(subject string) string {
 		return ""
 	}
 	return parts[1]
+}
+
+// platformTrust is the receiving adapter's Trust (BR-069). The originating
+// tenant stays empty until the 54a-6 stack check proves the rpc subject's
+// {context} is the caller's account.
+func platformTrust(micro.Request) otelnats.Trust {
+	return otelnats.Trust{ReceivingAccount: platformAccount}
 }

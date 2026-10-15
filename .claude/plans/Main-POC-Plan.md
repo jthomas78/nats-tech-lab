@@ -1519,6 +1519,51 @@ Neither is fixed in place: this phase removes the code that has them.
       for 54a → 54c; dual-writing both stores from `otelnats` — more code to
       delete later, in a lab.
 
+17. **NATS micro discovery and live statistics remain part of Phase 54**
+    (user requested 2026-10-15; BR-072). Build on the existing
+    `observability-service` Services endpoint and Admin Services panel:
+    `$SRV.STATS` already discovers PLATFORM and tenant instances through
+    BR-AC31's `monitor.{tenant}.srv.>` imports. Preserve these imports when
+    retiring the trace imports; preserve BR-027 instance identity and
+    BR-028 account labels.
+    - Use micro PING for responsiveness, INFO for identity/version and
+      endpoint descriptions, and STATS for live request/error counts,
+      last errors and processing times. Collect multiple replies in a
+      bounded discovery window; retain distinct instances and account
+      provenance. Do not infer service availability from trace arrival.
+    - A response means **responding**, not dependency-ready. A missing
+      response means **not observed within the discovery window**, not
+      proof the process is dead. Failed/partial discovery must be visible
+      rather than presented as a successful empty inventory. Where a
+      readiness check exists, reuse `shared/natsready` (BR-AS62) and show
+      its result separately; otherwise readiness is unknown. Do not add
+      a second dependency-readiness framework in this phase.
+    - **Client transport is NATS request/reply only** (user approved
+      2026-10-15): `api._platform.observability.service.list.v1` returns
+      a versioned snapshot of instances, identity, endpoint statistics,
+      observation time, discovery errors/partial results and readiness
+      where supported. One transport-independent discovery implementation
+      behind the adapter uses PING/INFO/STATS internally; clients do not
+      call raw `$SRV.*` subjects or choose arbitrary discovery subjects.
+    - Grant the endpoint explicitly to operator credentials through
+      `MintAdminToken` and the observability responder credentials. Do not
+      export it to tenants or grant browsers `$SRV.>`/`monitor.*.srv.>`.
+      Apply decision 4's operator access model and known login gap.
+      Bound discovery time and response size; expose truncation explicitly.
+    - Switch the Services panel to this endpoint in 54c. Keep
+      `GET /api/nats/services` on the old stack until the coordinated
+      cutover; remove that route in 54d, including its docs and BR-040
+      allowlist entry. Other existing diagnostics routes are unchanged.
+      Live micro statistics do not replace Phase 55's historical metrics
+      or restore Pulse early.
+    - Complete and validate Phase 54 locally before merging/transferring
+      selected work to Chronicle, the intended Linebooker V3 codebase.
+      The eventual target supports both local Docker and AWS deployments;
+      service registration and discovery semantics must be portable, with
+      topology, credentials and discovery timing supplied by deployment
+      configuration. AWS deployment and the Chronicle merge are later
+      work, not Phase 54 completion claims.
+
 #### Slicing
 
 - **54a — one cross-account request, end to end.** Path: browser `api.*`
@@ -1576,8 +1621,22 @@ Neither is fixed in place: this phase removes the code that has them.
     no retry (durability is the Collector's queue, BR-068); `Endpoint` is
     the Collector base URL and `/v1/traces` is added; `HeaderCarrier.Get`
     matches a key in any case, because `natstrace` writes `Traceparent`.
-  - [ ] **54a-4** — the fleet-asset path (`organizations-service`) and
-        refdata `item.get` use `otelnats` when the overlay is on.
+  - [x] **54a-4** — the fleet-asset path (`organizations-service`) and
+        refdata `item.get` use `otelnats` when the overlay is on. Done
+    2026-10-15. The switch is `otelnats.InitFromEnv`: only
+    `compose.otel.yaml` sets `OTEL_EXPORTER_OTLP_ENDPOINT`; unset gives a
+    nil Provider and every path stays on `natstrace`. New
+    `otelnats.Middleware` wraps a micro handler; the span ends just before
+    the reply goes out, and a `Nats-Service-Error` reply sets ERROR.
+    `refdataclient` makes one CLIENT span per logical call, with
+    `rpc.retry_count`. Trust: `acme` (the adapter's tenant) on api.*,
+    `PLATFORM` on refdata; the originating tenant stays empty until 54a-6.
+    Specs: otelnats 36, organizations and refdata suites green; both
+    modules vet clean with `GOWORK=off`. Smoke on `au-1`: one fleet-asset
+    add gave one trace — api SERVER → CLIENT → refdata SERVER — seen in
+    Tempo about 18 s later. Known gap until 54b: other callers of
+    `item.get` (shipping, pricing) send `natstrace`'s `Traceparent`, which
+    refdata now continues on OTel, so their traces are split.
   - [ ] **54a-5** — `trace.get` gateway in `observability-service`, its
         NATS user permissions, the `MintAdminToken` grant; specs green.
   - [ ] **54a-6** — stack checks: access, trust, outage/durability,
@@ -1587,17 +1646,33 @@ Neither is fixed in place: this phase removes the code that has them.
   service gets decision 6's context audit. Moves the `obs.pubsub.*`
   publisher off `natstrace` (decision 13). Ends with the capacity and
   overflow tests (decision 11), now that peak volume can be measured.
+  Includes a micro registration inventory and BR-072 integration checks:
+  PLATFORM plus tenant PING/INFO/STATS, two instances of one service,
+  successful and failed endpoint calls reflected in STATS, stop/restart,
+  dependency failure while NATS still responds where readiness is supported,
+  and discovery failure/partial-result reporting. Exercise the versioned
+  `api._platform.observability.service.list.v1` endpoint with operator and
+  tenant credentials: operators receive the snapshot; tenants cannot reach
+  the responder/read the data; browser credentials cannot query raw micro
+  controls. Run again with Collector
+  and Tempo unavailable to prove discovery is independent of tracing.
 - **54c — Admin UI** switches to the gateway: polling, body events,
   "Open in Grafana". Covers every `useTraceFeed.js` reader:
   `TraceWaterfall.vue`, `RpcPanel.vue`'s `[messages]` tab, and
   `PulsePanel.vue`, which is marked unavailable and loses the default tab
   (decision 15). Poll interval set from 54a's measured visibility delay.
+  Also validates the Services panel (decision 17): instance identity,
+  account labels, live statistics, bounded observation semantics and
+  visible discovery failures through the NATS service-list endpoint, with
+  no Services REST fallback. Include these checks in the cutover gate.
   **Ends at decision 16's gate:** 54c complete and validated, then the one
   switch on the default stack.
 - **54d — retire** everything in decision 13, Jaeger, and the
   accounts-service trace export/import. Only after the switch has been
   made and checked, and the Messages panel is proved to still work and to
   link to its trace. Old trace history goes with it (decision 16).
+  Retire `GET /api/nats/services` after its NATS replacement is validated
+  (decision 17); update route docs and BR-040 together.
 
 #### Business rules this phase adds or changes
 
@@ -1633,6 +1708,13 @@ New (drafted 2026-10-15, written into BUSINESS_RULES-SHIPPING.md with 54a):
   always-on; a browser-sent `traceparent` becomes a span link, never a
   parent, and cannot turn sampling off.
 
+- **BR-072** — micro supplies live service responsiveness, identity and
+  endpoint statistics across the permitted accounts, independently of
+  telemetry export. PING/INFO/STATS do not assert dependency readiness;
+  incomplete or failed discovery is explicit. Drafted with decision 17;
+  Clients use the operator-only, versioned NATS service-list endpoint;
+  implementation and tests pending in 54b/54c.
+
 Changed, in the same commits as the code (Quality Rule 4): BR-035 (push →
 poll), BR-036 (envelope → span events; redact-before-truncate kept), BR-037
 (propagation via OTel; one span per logical call kept), BR-051 (superseded
@@ -1642,7 +1724,9 @@ carries real start and end times), BR-AC36 (trace import retired), BR-AC18
 ("Enforced in" paths move off `natstrace`; behaviour unchanged), and
 BR-035's Pulse amendment (Phase 44: Pulse marked unavailable until Phase
 55, decision 15).
-BR-040 is unchanged (no REST trace routes). BR-041's requester identity
+BR-040 loses only `GET /api/nats/services` at retirement (decision 17);
+no REST trace routes are added. BR-AC18 gains the service-list subject as
+well as the three trace subjects. BR-041's requester identity
 stays observability-only, recorded as a span attribute. ARCHITECTURE-COMMUNICATIONS.md § 6 and
 ARCHITECTURE-OBSERVABILITY.md are revised with it (including an "after"
 edition of `observability-message-path`), and an ADR records the reversal.

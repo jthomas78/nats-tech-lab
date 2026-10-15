@@ -23,6 +23,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 func main() {
@@ -62,7 +63,16 @@ func run(log *slog.Logger) error {
 	// One NATS connection per known tenant, carrying BR-TP14's refdata
 	// validation client and (Phase 26g) a micro-service registration for $SRV
 	// discovery. The Admin UI still reads/writes over REST below.
-	tenantMgr, err := organizations.MountTenants(ctx, natsURL, credsDir, db, log, trackingSecretKey(log))
+	// Phase 54a-4: only compose.otel.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
+	// Unset, tracing is nil and every path stays on natstrace.
+	tracing, err := otelnats.InitFromEnv(ctx, "organizations-service")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tracing.Shutdown(context.Background()) }()
+	log.Info("tracing", "otel", tracing != nil)
+
+	tenantMgr, err := organizations.MountTenants(ctx, natsURL, credsDir, db, log, trackingSecretKey(log), tracing)
 	if err != nil {
 		return err
 	}

@@ -28,6 +28,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata"
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 	"github.com/jthomas78/nats-tech-lab/shared/natsready"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 func main() {
@@ -88,7 +89,16 @@ func run(log *slog.Logger) error {
 		log.Info("ANTHROPIC_API_KEY not set — AI-assisted translation drafting (Phase 11.12) is disabled")
 	}
 
-	rpcAdapter, err := h.MountRPC(nc, js, log)
+	// Phase 54a-4: only compose.otel.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
+	// Unset, tracing is nil and every endpoint stays on natstrace.
+	tracing, err := otelnats.InitFromEnv(ctx, "refdata-service")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tracing.Shutdown(context.Background()) }()
+	log.Info("tracing", "otel", tracing != nil)
+
+	rpcAdapter, err := h.MountRPC(nc, js, log, tracing)
 	if err != nil {
 		return err
 	}

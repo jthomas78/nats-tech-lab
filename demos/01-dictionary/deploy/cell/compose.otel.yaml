@@ -95,6 +95,18 @@ services:
     networks:
       - telemetry
 
+  # Decision 16's switch, one service at a time. Only this file sets the
+  # endpoint; without it a service stays on natstrace. 54a moves two paths:
+  # fleet-asset add (organizations-service, with its refdata client) and
+  # rpc.*.refdata.item.get (refdata-service).
+  organizations-service:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
+  refdata-service:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
 networks:
   # The trace store's own network. Members: the Collector, Tempo, Grafana and
   # observability-service. Compose namespaces it by project, like `backend`.

@@ -31,6 +31,7 @@ import (
 	profileactivities "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/activities"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/orchestration"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // resource is one tenant's connection-scoped state. adapter is nil until
@@ -73,8 +74,20 @@ type Manager struct {
 	// over, and the organization_id column carries the rest.
 	certificates orchestration.CertificateWriter
 
+	// tracing, when set, moves this service's Phase 54a path to OTel: every
+	// tenant's refdata client, and the api.* adapter's otelSubjects. Nil
+	// keeps natstrace (decision 16).
+	tracing *otelnats.Provider
+
 	mu      sync.RWMutex
 	apiDeps *browserrpc.Deps // nil until MountAPI has run
+}
+
+// WithTracing must be called before any tenant connects, like
+// WithCertificateWriter. A nil Provider keeps natstrace.
+func (m *Manager) WithTracing(p *otelnats.Provider) *Manager {
+	m.tracing = p
+	return m
 }
 
 // WithCertificateWriter must be called before any tenant connects; a
@@ -112,7 +125,7 @@ func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKe
 					return nil, err
 				}
 			}
-			res := &resource{client: refdataclient.New(nc), profiles: profiles, docs: docs, creds: credStore}
+			res := &resource{client: refdataclient.New(nc, refdataclient.WithTracing(m.tracing)), profiles: profiles, docs: docs, creds: credStore}
 			m.mu.RLock()
 			deps := m.apiDeps
 			m.mu.RUnlock()
@@ -122,6 +135,7 @@ func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKe
 			if deps != nil {
 				scoped := *deps
 				scoped.Tenant = tenant
+				scoped.Tracing = m.tracing
 				scoped.ProfileProjection = profiles.Projection
 				scoped.ProfileCommands = profiles.Commands
 				if scoped.VettingFactory != nil {
@@ -288,6 +302,7 @@ func (m *Manager) MountAPI(deps browserrpc.Deps) error {
 			}
 			scoped := deps
 			scoped.Tenant = tenant
+			scoped.Tracing = m.tracing
 			scoped.ProfileProjection = cur.profiles.Projection
 			scoped.ProfileCommands = cur.profiles.Commands
 			if scoped.VettingFactory != nil {
