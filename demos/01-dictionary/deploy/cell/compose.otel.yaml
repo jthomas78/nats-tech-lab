@@ -1,0 +1,106 @@
+# Phase 54 — the OpenTelemetry stack: Collector → Tempo, Grafana reads Tempo.
+#
+# An overlay, never the default, until decision 16's gate. 54a, 54b and 54c
+# are built and tested off the default stack; the default stack keeps
+# natstrace, TRACES, the KV feed and Jaeger throughout. At the gate (54c
+# complete and validated) one switch moves these three services into the
+# cell's base compose (decision 2) and every service onto them together.
+#
+#   docker compose -p lb-au-1 --env-file ../environments/local-au-1.env \
+#     -f compose.yaml -f ../global/compose.control.yaml -f compose.otel.yaml \
+#     up -d --build
+#
+# WHAT IS REACHABLE FROM WHERE (decision 2; BR-067 access check 3)
+#
+#   host ──► grafana:3000 only (GRAFANA_PORT; login on, anonymous off)
+#   backend network ──► otel-collector:4318 (services export OTLP/HTTP)
+#   telemetry network ──► tempo:3200 (Grafana, observability-service's
+#                          gateway) and tempo:4317 (the Collector's export)
+#
+# The Collector and Tempo publish no host port. A published Collector would
+# accept forged spans naming any tenant (decision 4); a published Tempo would
+# let a client read traces without going through observability-service
+# (decision 9). Tempo is not on `backend`, so a service can send it nothing
+# except through the Collector.
+#
+# Every image is pinned to one exact version. The outage tests (BR-066,
+# BR-068) are evidence only for the version they ran on.
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    networks:
+      - backend
+      - telemetry
+    volumes:
+      - ../../otel/collector.yaml:/etc/otelcol/config.yaml:ro
+      # The persistent sending queue (BR-068). A named volume, so the queue
+      # survives `docker compose restart` and `docker kill`; only
+      # `down -v` empties it.
+      - otel-queue:/var/lib/otelcol/file_storage
+    depends_on:
+      otel-volume-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # The Collector image runs as uid 10001 and a new named volume is owned by
+  # root, so file_storage cannot create its directory. This one-shot step
+  # hands the volume to the Collector's user before it starts.
+  otel-volume-init:
+    image: busybox:1.37.0
+    command: ["chown", "-R", "10001:10001", "/var/lib/otelcol/file_storage"]
+    volumes:
+      - otel-queue:/var/lib/otelcol/file_storage
+    network_mode: none
+    restart: "no"
+
+  tempo:
+    image: grafana/tempo:3.1.0
+    command: ["-target=all", "-config.file=/etc/tempo.yaml"]
+    networks:
+      - telemetry
+    volumes:
+      - ../../otel/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    networks:
+      - telemetry
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      # Login on, anonymous access off, no self sign-up (BR-067 access
+      # check 3). A lab password, the same idiom as Postgres in
+      # compose.infra.yaml; set GRAFANA_ADMIN_PASSWORD to change it.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ../../otel/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - tempo
+    restart: unless-stopped
+
+  # The trace query gateway (decision 9) calls Tempo over HTTP. Only this
+  # service joins `telemetry` from the business side.
+  observability-service:
+    networks:
+      - telemetry
+
+networks:
+  # The trace store's own network. Members: the Collector, Tempo, Grafana and
+  # observability-service. Compose namespaces it by project, like `backend`.
+  telemetry:
+
+volumes:
+  otel-queue:
+  tempo-data:
+  grafana-data:

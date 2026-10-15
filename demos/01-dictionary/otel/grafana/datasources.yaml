@@ -1,0 +1,15 @@
+# Grafana data sources — provisioned from the repo, never clicked (Phase 54;
+# Phase 55 decision 9 adds Loki and Prometheus here).
+#
+# The fixed uid lets the Admin UI's "Open in Grafana" link (54c) build a
+# stable URL for a trace ID.
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: true
+    editable: false

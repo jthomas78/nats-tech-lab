@@ -1,0 +1,80 @@
+# OpenTelemetry Collector — Phase 54 (decisions 2, 10, 11).
+#
+# Image pinned in deploy/cell/compose.otel.yaml (otelcol-contrib 0.162.0).
+# Every outage test runs against that one version, because the tests, not
+# this file, are the evidence (decision 11; upstream issue
+# open-telemetry/opentelemetry-collector#15677 reports persistent-queue loss
+# on shutdown in v0.157.x).
+#
+# Path: service SDK --OTLP/HTTP--> otlp receiver --> persistent sending
+# queue on disk --OTLP/gRPC--> Tempo.
+
+extensions:
+  # The persistent queue's store. A named volume holds the directory, so the
+  # queue survives a graceful restart and a hard kill (BR-068).
+  file_storage/queue:
+    directory: /var/lib/otelcol/file_storage/queue
+    create_directory: true
+    # fsync after each write: the hard-kill test (docker kill) is part of
+    # BR-068, and without fsync the last writes can be lost on a kill.
+    fsync: true
+    timeout: 1s
+
+receivers:
+  otlp:
+    protocols:
+      # Services export OTLP over HTTP (decision 3). No gRPC listener: one
+      # way in is one thing to test. Not published on the host (decision 2):
+      # a published Collector would accept forged spans with any tenant.
+      http:
+        endpoint: 0.0.0.0:4318
+
+# No processors on purpose. In particular, no in-memory `batch` processor in
+# front of the persistent queue: it is a second loss window on restart
+# (decision 11). The SDK's BatchSpanProcessor already batches each export.
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    timeout: 5s
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      # Spans, not requests: BR-068 sizes the queue for a 2-hour Tempo
+      # outage at measured peak span volume. This number is a placeholder
+      # until the capacity test after 54b measures that peak.
+      sizer: items
+      queue_size: 2000000
+      # Reject, never block, when full: a full queue must not slow the
+      # receiver, so the SDK side keeps dropping instead of waiting. The
+      # loss is counted in otelcol_exporter_enqueue_failed_spans.
+      block_on_overflow: false
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      # 0 = never give up. The default (300s) would drop a queued batch
+      # after 5 minutes of Tempo outage; BR-068 needs 2 hours.
+      max_elapsed_time: 0
+
+service:
+  extensions: [file_storage/queue]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp_grpc/tempo]
+  telemetry:
+    logs:
+      level: info
+    # The Collector's own metrics (queue size, enqueue failures, sent and
+    # failed spans) on :8888 inside the Docker network only. The BR-068
+    # checks read them from a container on the same network.
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888

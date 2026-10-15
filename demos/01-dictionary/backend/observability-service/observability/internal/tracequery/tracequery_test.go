@@ -23,9 +23,11 @@ const fixtureTraceID = "0af7651916cd43dd8448eb211c80319c"
 // fakeTempo serves testdata/tempo-v2-trace.json for fixtureTraceID on
 // Tempo's v2 trace-by-ID route, and 404 for anything else.
 //
-// The fixture is drafted from the OTLP/JSON encoding. When the otel stack
-// runs, it is replaced by a response captured from the pinned Tempo version,
-// so the mapping is tested against what Tempo really sends.
+// The fixture is a real reply, captured 2026-10-15 from the pinned Tempo
+// (grafana/tempo 3.1.0) in compose.otel.yaml. Re-capture it when the pin
+// moves. Note what Tempo really sends: trace and span IDs as base64, not
+// hex, and a top-level "metrics" key — the lab schema has hex IDs and
+// neither wrapper.
 func fakeTempo() *httptest.Server {
 	body, err := os.ReadFile("testdata/tempo-v2-trace.json")
 	Expect(err).NotTo(HaveOccurred())
@@ -93,8 +95,8 @@ var _ = Describe("BR-070: a trace reply is the lab's own schema", func() {
 			Expect(server.Service).To(Equal("organizations-service"))
 			Expect(server.Kind).To(Equal("SERVER"))
 			Expect(server.ParentSpanID).To(BeEmpty())
-			Expect(server.StartUnixNano).To(Equal(int64(1760530000000000000)))
-			Expect(server.EndUnixNano).To(Equal(int64(1760530000012000000)))
+			Expect(server.StartUnixNano).To(Equal(int64(1792064400000000000)))
+			Expect(server.EndUnixNano).To(Equal(int64(1792064400012000000)))
 
 			client := byID["c8be7c8270314442"]
 			Expect(client.Kind).To(Equal("CLIENT"))
@@ -127,7 +129,7 @@ var _ = Describe("BR-070: a trace reply is the lab's own schema", func() {
 			Expect(json.Unmarshal(raw, &decoded)).To(Succeed())
 			keys := map[string]bool{}
 			keysAnywhere(decoded, keys)
-			for _, tempoKey := range []string{"trace", "batches", "resourceSpans", "scopeSpans", "instrumentationLibrarySpans", "stringValue"} {
+			for _, tempoKey := range []string{"trace", "metrics", "batches", "resourceSpans", "scopeSpans", "instrumentationLibrarySpans", "stringValue"} {
 				Expect(keys).NotTo(HaveKey(tempoKey))
 			}
 		})

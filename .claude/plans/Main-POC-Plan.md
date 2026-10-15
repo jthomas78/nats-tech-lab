@@ -1562,9 +1562,14 @@ Neither is fixed in place: this phase removes the code that has them.
         `shared/otelnats` (BR-064/065/066/069/071),
         `observability/internal/tracequery` (BR-067/070) and
         `accounts-service/auth/token_test.go` (BR-067). Skeletons only.
-  - [ ] **54a-2** — `deploy/cell/compose.otel.yaml` overlay: pinned
+  - [x] **54a-2** — `deploy/cell/compose.otel.yaml` overlay: pinned
         Collector (`file_storage` queue, no `batch` processor), Tempo
         (monolithic), Grafana with login. Only Grafana on the host.
+        Pins: otelcol-contrib 0.162.0, tempo 3.1.0, grafana 13.2.4.
+        Smoke-tested on `au-1` 2026-10-15: a span sent to the Collector
+        read back from Tempo; Grafana 401 without login; Tempo not
+        resolvable from `backend`. Found: Tempo's v2 reply carries IDs as
+        base64, not hex — the BR-070 fixture is now that real reply.
   - [ ] **54a-3** — implement `shared/otelnats`; its specs green.
   - [ ] **54a-4** — the fleet-asset path (`organizations-service`) and
         refdata `item.get` use `otelnats` when the overlay is on.
