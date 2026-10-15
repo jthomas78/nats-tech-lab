@@ -586,3 +586,55 @@ just a maybe.
 - [ ] Decide relationship to the existing poll-only Account Activity panel
 
 ---
+
+### Phase 109 (candidate, from Phase 54's design gate, 2026-10-15) — Operator Login: Gate the PLATFORM Credential Mints
+
+#### Goal
+
+`accounts-service`'s `/api/auth/*` routes are deliberately ungated
+(`auth/handler.go`), so anyone who reaches accounts-service can call
+`GET /api/auth/adminConnectInfo` and receive an operator PLATFORM
+credential. NATS subject permissions then decide what that credential may
+do, but nothing decides who gets it. Phase 54 makes trace queries an
+operator-only NATS capability (decision 4) and records this as a known lab
+gap; this phase closes it.
+
+#### Design decisions (partial — full design still needed before this leaves PROPOSED)
+
+Login decides who **receives** a PLATFORM credential; NATS still decides
+what that credential may do. Refined 2026-10-15 after a Codex review.
+
+- **Flow.** Admin UI has no credential → "Sign in" redirects to an
+  identity provider (passwords, MFA, org policy live there) → backend
+  verifies the callback **and** checks operator membership (signed in is
+  not enough) → secure HttpOnly session cookie → `adminConnectInfo`
+  requires that session and issues a **short-lived** PLATFORM credential →
+  UI connects to NATS.
+- **Authorization model:** not signed in → no credential; signed in but not
+  an approved operator → no credential; approved operator → credential with
+  cross-tenant trace queries. No per-operator tenant scope needed. Initial
+  membership: an explicit allowlist of identity-provider user IDs.
+- **Scope: every *privileged* mint, not every mint.** `adminConnectInfo`
+  and `refdataAdminConnectInfo` (publish-capable) are privileged.
+  `shellConnectInfo` grants registry subjects only — decide at the gate
+  whether it counts. Whether each UI needs its own login screen depends on
+  whether they share one session; the target is one shared session.
+- **Credential lifecycle:** short expiry, renewal only while still
+  authorized, and a defined revocation path.
+- **Logout** ends the session **and** closes the browser's NATS
+  connection. Deleting the cookie does not invalidate credentials already
+  issued — expiry or revocation does.
+- **Frontend:** signed-in, signed-out and access-denied states; reconnect
+  after credential renewal.
+- The same exposure exists on `observability-service`'s ungated REST routes
+  (e.g. `/api/kv/buckets/{account}/{bucket}/entries`); decide whether this
+  phase gates them too or retires them in favour of NATS `api.*`.
+- Identity provider not decided. Demo 07 evaluates WorkOS through auth
+  callout; its findings should feed this choice.
+- **Smallest credible version:** one identity provider, one operator
+  allowlist, one shared login session, short-lived NATS credentials.
+- Proof: an unauthenticated caller and a signed-in non-operator cannot
+  obtain an operator credential; an approved operator can; a revoked
+  operator's credential stops working within its expiry.
+- Until this ships, the accurate statement is: **anyone who can reach
+  `adminConnectInfo` can obtain the operator access it grants.**

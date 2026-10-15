@@ -824,6 +824,53 @@ together.
 
 ---
 
+### Phase 44 — Completed (archived 2026-08-18)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
+
+- [x] Phase 44 (IMPLEMENTED 2026-08-18) — Request/Reply gets a `Pulse` Tab.
+      Split the requests/errors/avg-latency pulse strip off `TraceWaterfall.vue`'s
+      *Traces* view onto its own tab in front of it — `[Pulse] [Traces]
+      [Messages]` — pairing the enlarged pulse cards with a "what
+      request/reply covers" card (including the `parentSpanId`/`spanId`
+      chaining mechanism, previously undocumented anywhere in the panel) and
+      an animated Client → NATS Server → Service flow diagram, per the
+      approved mockup (`diagrams/admin-rpc-overview-mockup.html`). New
+      `PulsePanel.vue` duplicates `TraceWaterfall.vue`'s bootstrap/subscribe/
+      trace-grouping rather than sharing it (matching `RpcPanel.vue`'s
+      existing Messages-tab precedent) and aggregates the *full* unfiltered
+      trace set rather than `Traces`' toolbar-filtered view, since the two
+      are no longer co-rendered once `Pulse` is a separate tab. `ui.rpcTab`'s
+      default changed to `'pulse'`. `BUSINESS_RULES-SHIPPING.md`'s Phase 28p
+      entry amended; `ARCHITECTURE-ADMIN.md` §4.5 updated from proposed to
+      shipped, including resolving its "one deliberate omission" tension
+      explicitly rather than leaving it unaddressed. Frontend Vitest suite
+      green (3 pre-existing, unrelated `TraceWaterfall.spec.js` failures
+      confirmed present before this phase's changes too, left as found);
+      verified live against the docker stack.
+
+---
+
+### Phase 45 — Completed (archived 2026-08-19)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
+
+- [x] Phase 45 (IMPLEMENTED 2026-08-18) — Accounts Overview: nav restructure
+      (Accounts moved PLATFORM → SYSTEM as its first entry, absorbing the
+      retired standalone Account Activity panel into a new `Overview` tab;
+      `TOPOLOGY` renamed `Sharing`), `observability-service` ring-buffer
+      trend history (60min @ 10s, delta'd throughput, `5m/30m/1h` duration
+      selector via new `GET /api/nats/account-activity/history`), and a
+      gated name-filter search shown only past 3 accounts (BR-034 amended,
+      BR-043/BR-044 added). Live-verified against the real ring buffer;
+      `go build`/tests and frontend build/Vitest green.
+
+---
+
 ### Phase 46 — PROPOSED (follows 39a; design inherited from Phase 39) — GIT Certificate Change Log + `Awaiting` Presentation Fix
 
 > Split out of Phase 39 at the 2026-08-22 design gate. The design decisions
@@ -1161,6 +1208,580 @@ rationale, the design decisions, or the verification log).
 ---
 
 
+### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 drafted, to be written with 54a) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
+
+> Reverses the deferred decision recorded in ARCHITECTURE-COMMUNICATIONS.md
+> § 6 ("Revisit the real SDK if this POC graduates"). Agreed direction
+> 2026-10-14, after a Claude/Codex review: the user wants the custom tracing
+> pipeline removed, not extended. Design approved 2026-10-15 after a second
+> Claude/Codex review of buffering, the client interface and access.
+> Revised 2026-10-15 after a third Claude/Codex review (static, not run
+> against the stack): decisions 3, 4, 8, 10, 11, 12 and 13 amended;
+> decisions 15 (Pulse meaning) and 16 (cutover style) added; the user
+> chose **15 (c)** — Pulse waits for Phase 55's metrics — and **16 (a)** —
+> one planned cutover, gated on 54c — the same day; BR-071 added. One review finding
+> was withdrawn: seeded tenants *can* get a browser token, because startup
+> runs `ensureSigningKey` for them (`accounts-service/cmd/main.go`), so the
+> 54a path stays browser-driven. Not yet verified on the running stack.
+
+#### Goal
+
+OpenTelemetry owns span creation, context propagation, sampling and export.
+The OTel Collector owns ingestion; Grafana Tempo owns storage and query.
+`observability-service` is the **only client-facing trace interface**: any
+authorized NATS client (the Admin UI first) queries traces over `api.*`
+request/reply and never learns Tempo exists. Grafana gives operators deeper
+investigation on the same trace ID. The custom envelope, its stream, its KV
+projection and the OTLP bridge are retired.
+
+#### Why now — two defects in the current bridge path (verified 2026-10-14)
+
+- **Tenant spans never reach Jaeger.** `otlp-bridge` filters `TRACES` on
+  `obs.trace.>` only (`otlp-bridge/cmd/main.go` `tracesSubjectWildcard`),
+  but tenant spans land on `monitor.*.trace.>` (BR-AC36, `tracestore.go`
+  `TenantSubjectWildcard`). Only PLATFORM spans are exported.
+- **Outbound spans carry the callee's service name.** `StartOutbound`
+  callers pass the destination (`"refdata"`) as `service`
+  (`refdataconsumer/consumer.go`, `refdataclient/client.go`), and
+  `otlpmap` uses that as `service.name`. The caller's client span shows
+  under the callee.
+
+Neither is fixed in place: this phase removes the code that has them.
+
+#### Design decisions
+
+1. **OTel Go SDK in every service.** `go.opentelemetry.io/otel` API + SDK,
+   W3C `traceparent` via the standard propagator. The lab's own glue —
+   a `TextMapCarrier` over `nats.Header`, so inject/extract works on NATS
+   messages the same way it does on HTTP, plus the policy in decisions 4
+   and 7 — lives in one shared package (decision 14), never per service.
+2. **Pipeline: SDK → OTLP → Collector → Tempo; Grafana reads Tempo.**
+   Jaeger is removed. Collector, Tempo and Grafana join the cell's base
+   compose, not an opt-in profile, because the Admin UI now depends on them.
+   **Only Grafana is published on the host** (3000, +50 in `au-1`, recorded
+   in both `local-*.env` files), with its login on and anonymous access off.
+   The Collector (4318) and Tempo (3200) stay inside the Docker network:
+   a published Collector would accept forged spans with any tenant
+   (decision 4), and a published Tempo would let a client bypass
+   `observability-service` (decision 9).
+   **Tempo runs in monolithic mode on local disk in the lab** (chosen
+   2026-10-14). That is a development setup, not a production one:
+   production Tempo 3.x (microservices mode) needs a Kafka-compatible queue
+   and object storage, and Tempo is AGPLv3. **The V3 trace store is a
+   separate V3 decision**; the alternative already weighed is Jaeger v2 +
+   OpenSearch (no Kafka, Apache 2.0, an OpenSearch cluster to run instead).
+   Decision 9's gateway keeps that swap to the Collector config and one
+   query adapter — no service code changes.
+3. **Telemetry leaves the NATS account model.** Services export OTLP over
+   HTTP straight to the Collector. Tenant accounts stop exporting
+   `obs.trace.>` and PLATFORM stops importing it (BR-AC36's trace half
+   retired; BR-AC34's `obs.pubsub.>` half is untouched — ADR-047's wire tap
+   is out of scope). **Out of scope means its transport and behaviour, not
+   its code:** the `obs.pubsub.*` envelope is published by `natstrace`
+   itself (`Tracer.ObservePublish`/`ObservePublishAs`,
+   `shared/natstrace/natstrace.go`), so decision 13 must move that
+   publisher before deleting the package.
+4. **Access: operators read all tenants; tenants read nothing.** (Agreed
+   2026-10-15.) The lab has no per-operator tenant scope, so none is
+   invented here.
+   - *Who may call* is a NATS subject permission: the trace subjects are
+     granted only in `MintAdminToken`'s PLATFORM profile and are never
+     exported to a tenant account. A tenant credential **cannot reach the
+     trace service or read trace data**. The error it sees is not the
+     rule: `MintBrowserToken` grants `Pub api.>`, so a tenant publish is
+     allowed and returns *no responders*, because nothing in the tenant
+     account answers. That passes. An explicit `Pub.Deny api._platform.>`
+     is an optional extra policy, not needed to meet this rule.
+   - *Which tenant a span belongs to* replaces BR-051, which derived it from
+     the server-written arrival subject. With no arrival subject, the
+     **receiving service** sets two attributes, kept apart (Codex review
+     2026-10-15):
+     - the **receiving account** — from the connection the message arrived
+       on. Always known. For `refdata-service` this is PLATFORM, because it
+       runs on `platform.creds`; that matches BR-051's per-span `_platform`
+       attribution today.
+     - the **originating tenant** — set only from trusted routing context
+       the NATS server writes (54a picks the source and proves **a tenant
+       client** cannot forge it), else left empty and shown as
+       `unattributed` (BR-054). A PLATFORM connection serves many tenants,
+       so the connection alone cannot name one.
+
+     Neither comes from a client-written header, the body or
+     `Nats-Requestor`. A header the **server** writes — for example
+     `Nats-Request-Info`, which the server adds when the import sets
+     `share: true` — **qualifies only after 54a verifies that a client
+     cannot spoof or override the value the receiving service reads**: a
+     client-sent copy is replaced, not kept beside it, and the service
+     reads the server's copy. Naming such a header in BR-069 does not by
+     itself give that guarantee; the 54a check does. Until it passes, the
+     header is not a source.
+   - **The trust model names its attacker: a tenant client.** Platform
+     services are trusted, not checked. The import-renamed subject token
+     (`rpc.{tenant}.refdata.…`, `provisioner.go` `tenantImports`) is
+     server-written only when the message comes through the tenant's
+     import. `platform.creds` has no publish limits
+     (`nats/bootstrap-operator.sh`), so any PLATFORM service can publish
+     `rpc.acme.refdata.…` directly and pick any tenant token. That is
+     accepted in the lab because tenants run no code and only lab services
+     can reach the Collector (decision 2). In V3 the Collector must
+     authenticate senders and platform credentials need limits; both are V3
+     decisions.
+   - The tenant attribute is **metadata and a query filter, never a
+     security boundary**, and the docs must not describe it as one.
+   - **Known lab gap, not fixed here:** `GET /api/auth/adminConnectInfo` is
+     deliberately ungated (`accounts-service/auth/handler.go`), so anyone who
+     reaches accounts-service can obtain an operator credential. This is
+     today's exposure too (the trace KV is readable through
+     `observability-service`'s ungated `/api/kv/…`). Operator login is
+     candidate Phase 109. The 404-vs-403 choice (agreed: 404) applies when
+     per-tenant access exists, not in this phase.
+5. **Span semantics.** Each process sets its own `service.name`. Spans carry
+   a kind: `SERVER` for inbound `rpc.*`/`api.*`, `CLIENT` for outbound
+   requests, `PRODUCER`/`CONSUMER` for `evt.*`/`notify.*`, `INTERNAL`
+   otherwise. An outbound span belongs to the caller; the destination is an
+   attribute. BR-037's "one span per logical call, never per retry" and
+   `rpc.retry_count` carry over unchanged.
+   **Untrusted trace context at the browser edge (BR-071).** A browser can
+   send any `traceparent` — any trace ID, and `sampled = 0`. `natstrace`
+   continues it today (`parseTraceparent` in `Start`). So on an inbound
+   `api.*` call the SERVER span **always starts a new trace**; an incoming
+   `traceparent` is kept only as a **span link** (a reference, not a
+   parent). That edge is sampled always-on, not parent-based, so a browser
+   cannot turn tracing off for its own calls. Between trusted services
+   (`rpc.*`, `evt.*`, `notify.*`) normal parent/child propagation applies.
+   Cost, accepted: browser and server trace ancestry are separate traces.
+6. **Context propagation through the adapters.** Inbound context is
+   extracted at the adapter and passed down; outbound context is injected
+   into NATS headers. The domain layer stays framework-free: it may receive
+   a `context.Context` (stdlib) but never imports `otel`. Codex's audit
+   counted 85 `context.Background()` expressions in adapters, 18 already
+   carrying a span — 54a re-verifies that count before relying on it. Not
+   every one is wrong; each is examined, not blanket-replaced.
+7. **Request and reply bodies are kept, as named span events.** Events
+   `rpc.request.body` and `rpc.reply.body` (headers alongside). Capture is
+   opt-in per service. Redaction, then truncation, happen in-process
+   **before export** — BR-036's denylist and 4 KiB cap carry over, and
+   `redacted`/`truncated` become event attributes. This is application code
+   and is accepted as such; standard OTel instrumentation does not provide it.
+8. **The Traces panel polls instead of being pushed.** It polls the
+   decision 9 `api.*` subjects. A push hint is Phase 56, not this phase.
+   Poll every few
+   seconds while the panel is visible; pause when the page is hidden; show
+   the last refresh time; offer a manual refresh. An open trace may fill in
+   as late spans arrive. Preserving body inspection outranks preserving push.
+   **Visibility delay is measured, not assumed.** The SDK batch delay, the
+   Collector and Tempo's ingest each add time before a new trace appears.
+   54a records the time from "call made" to "trace returned by
+   `trace.search.v1`" and to "returned by `trace.get.v1`"; 54c sets the
+   poll interval and the panel's "may be late" wording from that number.
+9. **Trace queries are NATS `api.*` request/reply only** (agreed
+   2026-10-15; no REST trace routes, so BR-040's allowlist is unchanged):
+   - `api._platform.observability.trace.search.v1`
+   - `api._platform.observability.trace.get.v1` (resources, attributes,
+     events and links preserved)
+   - `api._platform.observability.trace.services.v1` (filter values)
+
+   `api.*` per BR-023 (browser-facing; no backend reads traces, so no
+   `rpc.*` adapter). One query implementation behind them, with query
+   limits and timeouts. `observability-service` calls Tempo over HTTP
+   internally; clients never do. **The reply is the lab's own versioned
+   schema, never Tempo's passed through** — that contract, not hiding a URL,
+   is what makes the Tempo → Jaeger v2 swap a change to one adapter. The
+   Admin UI also offers "Open in Grafana" for the same trace ID.
+10. **Export never blocks a business call.** SDK batch span processor,
+    asynchronous, drop on a full queue (its default). Collector outage
+    behaviour is measured in 54a, not assumed, in **two** failure modes:
+    *stopped* (connection refused at once) and *hung* (`docker pause` — it
+    accepts nothing and answers nothing, the same reason demo 03 cuts with
+    `kill -STOP`). A hung Collector holds each export until it times out,
+    so `shared/otelnats` sets an explicit export timeout and an explicit
+    SDK shutdown timeout, so a service never waits on a dead Collector to
+    stop.
+11. **Durable buffering moves from JetStream to the Collector; replay is
+    given up.** Which component is down decides what protects a span:
+    - *Tempo down* — the Collector's sending queue, backed by the
+      `file_storage` extension on a named volume (an in-memory queue does
+      not survive a Collector restart), with `retry_on_failure` set
+      deliberately (the default gives up after 5 min; `max_elapsed_time: 0`
+      retries until the queue or disk is full). Sized to hold a **2-hour**
+      Tempo outage at measured peak span volume, with headroom (agreed
+      2026-10-15). Also agreed: with the Collector down, p95 business
+      latency rises **< 5 ms**.
+    - *Collector restarting* — the persisted queue survives; spans in
+      flight in memory or sent during the restart can be lost.
+    - *Collector unreachable from a service* — only the SDK's bounded
+      in-memory queue. This is the remaining loss window, measured, not
+      closed. A local Collector agent per host would shrink it; not in the
+      lab (one cell, one Collector).
+    Re-exporting past spans to a new backend is no longer possible;
+    accepted, since no requirement asks for it. `TRACES` is not retired
+    (54d) until 54a has proved the recovery below.
+    **Configuration is not evidence; three separate tests are.**
+    - *Durability* — with Tempo down, queued spans survive a graceful
+      Collector restart **and** a hard kill (`docker kill`). Proved in 54a.
+    - *Capacity* — the queue holds 2 hours of representative peak traffic,
+      including body-capture sizes, with headroom. Peak volume needs every
+      service instrumented, so this is proved **after 54b**, not in 54a.
+    - *Overflow* — fill the queue to full: the loss is visible (a counted,
+      logged number, not silent) and business calls are unaffected.
+      Proved after 54b, with the capacity test.
+    **No in-memory `batch` processor in front of the persistent queue** —
+    it is a second loss window on restart. Batch in the exporter instead,
+    or, if a `batch` processor is kept, write that window down. **Pin one
+    exact Collector version** and run every test against it: an upstream
+    issue reports persistent-queue loss on shutdown in v0.157.x
+    (open-telemetry/opentelemetry-collector#15677). That does not prove
+    this setup is hit; it is why the tests, not the config, are the
+    evidence.
+12. **Sampling stays 100% in the lab.** Between trusted services it is
+    parent-based always-on; at the browser edge it is always-on with a new
+    root (decision 5, BR-071). Parent-based alone is not 100%: the Go SDK
+    honours an unsampled remote parent, so a browser could opt out. The
+    Pulse tab's trace-derived counts are only correct while nothing is
+    sampled out — and only as complete as the spans that reached Tempo
+    (decision 11). After the KV feed goes, Pulse waits for Phase 55
+    (decision 15 (c)).
+13. **Retired at the end:** `shared/natstrace`, the `obs.trace.*` envelope,
+    the `TRACES` stream, the `trace-request-reply` KV bucket and its
+    `tracestore` projector, `otlp-bridge`, and the Admin UI's KV-watch
+    trace feed (`useTraceFeed.js`). **Two things depend on these and must
+    move first:**
+    - *The Messages wire tap's publisher.* `ObservePublish`/
+      `ObservePublishAs` move to a surviving shared package
+      (`shared/otelnats` is the default home, not a requirement) and take
+      the trace and span IDs from the OTel span context, so a Messages row
+      still links to its trace. BR-045–BR-047 keep their behaviour; only
+      their "Enforced in" paths change. Callers today: `shared/jstream`,
+      `shared/natsnotify`.
+    - *Every reader of `useTraceFeed.js`*, not only the Traces panel:
+      `TraceWaterfall.vue`, `PulsePanel.vue` and `RpcPanel.vue`'s
+      `[messages]` tab. All three move in 54c.
+14. **One thin shared package, `shared/otelnats`** (agreed 2026-10-15
+    after a Codex review). `natstrace` was five per-service copies until
+    Phase 34 merged them; OTel must not repeat that. The split:
+
+    | Responsibility | `shared/otelnats` owns | The service supplies |
+    |---|---|---|
+    | SDK lifecycle | one init helper (exporter config, resource) and one shutdown helper | its `service.name`, its config, and the init/shutdown calls in its own `main.go` |
+    | NATS propagation | standard OTel inject/extract through `nats.Header` | the request `context.Context` |
+    | Body capture (decision 7) | opt-in capture, redact-then-truncate, the span-event format | whether capture is on |
+    | Tenant attribution (decision 4) | the attribute names and the rules for setting them | the trusted account and routing context from its receiving adapter |
+
+    - **Thin.** Standard OTel providers, tracers, propagators and span
+      kinds — not a new in-house tracing framework. Domain code still gets
+      a plain `context.Context` and never imports the package.
+    - **Wired into the existing shared seams** (`shared/browserrpc`,
+      `shared/jstream`, `shared/natsnotify`, `shared/natstenants`) where
+      they already call `natstrace`, to remove repetition.
+    - **No promise that service code stays unchanged.** A helper cannot
+      repair a dropped context or choose a span's boundaries. Decision 6's
+      adapter context audit still runs, service by service.
+15. **Pulse waits for Phase 55's metrics** (chosen by the user
+    2026-10-15, option (c)). Today `PulsePanel.vue` counts the whole live
+    trace set from `useTraceFeed.js`. Decision 9's search has a result
+    limit, so a capped search is **never** shown as a total count.
+    - From the cutover (decision 16) until Phase 55 ships, the Pulse tab is
+      **marked unavailable** — it says why and points to Phase 55. It never
+      shows numbers from a capped search. The tab stays, so the
+      explanation card and flow diagram (Phase 44) are kept.
+    - `ui.rpcTab`'s default moves off `'pulse'` for that period, so the
+      panel does not open on an empty tab.
+    - Phase 55 decision 10 rebuilds Pulse on Prometheus. 54's finish
+      therefore leaves a known gap that 55 closes.
+    - Not chosen: (a) keep the time window with a new count/aggregate query
+      in the gateway — more 54c work for a panel 55 replaces anyway; (b)
+      "the last N traces" from one capped search — changes the feature's
+      meaning.
+16. **One planned cutover, gated on 54c** (chosen by the user 2026-10-15,
+    option (a)). 54a moves `refdata-service`, which every caller uses.
+    Propagation already interoperates (`natstrace` speaks W3C
+    `traceparent`), but storage does not: run mixed, the Admin UI (KV feed)
+    misses OTel spans and Tempo misses `natstrace` spans, so a trace
+    through `refdata-service` is half in each store. So it never runs
+    mixed on the default stack:
+    - 54a, 54b and 54c are built and tested off the default stack (a
+      branch, or one compose switch). The default stack keeps `natstrace`,
+      `TRACES`, the KV feed and Jaeger throughout.
+    - **The gate is 54c complete and validated** — not 54c merged. That
+      means every 54a/54b test green on the OTel stack, plus the Admin UI
+      checks in 54c (Traces, `[messages]`, Messages-to-trace link, Pulse
+      marked unavailable) passed against it.
+    - Then one switch moves every service and the UI together.
+    - **Nothing old is deleted before the gate.** No code, stream, bucket,
+      export/import, `otlp-bridge` or Jaeger is removed until the switch
+      has been made and checked; that removal is 54d.
+    - **History is not migrated.** Tempo starts empty at the switch. Spans
+      from before it stay only in the old stores — `trace-request-reply`
+      (15 min) and `TRACES` (1 h), PLATFORM spans in Jaeger — which the new
+      UI does not read, and which go in 54d. Accepted: this is a diagnostic
+      window, and decision 11 already gave up replay.
+    - Not chosen: (b) move services one at a time and accept split traces
+      for 54a → 54c; dual-writing both stores from `otelnats` — more code to
+      delete later, in a lab.
+
+#### Slicing
+
+- **54a — one cross-account request, end to end.** Path: browser `api.*`
+  → `organizations-service` (tenant account) → `rpc.*` → `refdata-service`
+  (PLATFORM), via `organizations/internal/refdataclient`. Builds
+  `shared/otelnats` (decision 14) **alongside this one path**, so the
+  package is proved by real use before 54b spreads it. Instrumented with
+  OTel only: correct parent/child links and kinds, the caller's
+  `service.name` on the client span, both tenant attributes per decision 4
+  (receiving account; originating tenant from a trusted source, or empty),
+  and retrieval through `api._platform.observability.trace.get.v1`.
+  Driven by a real browser token for a seeded tenant (startup gives seeded
+  tenants a signing key; confirm on the running stack first). Built and
+  tested off the default stack (decision 16). Proves:
+  - outage tests (decision 11 — durability only; capacity and overflow
+    come after 54b). (1) *Durability:* stop Tempo, send known traces,
+    restart the Collector gracefully while Tempo is still down, start
+    Tempo: every known span arrives. Repeat with a hard kill
+    (`docker kill`) instead of a restart. (2) *Collector stopped:* the
+    business call still succeeds, p95 rises < 5 ms, and the SDK's loss
+    window is measured and recorded. (3) *Collector hung* (`docker pause`):
+    the same three things, plus a service stops within its shutdown
+    timeout. All on the one pinned Collector version.
+  - four access checks. (1) An operator credential reads traces from every
+    tenant. (2) A tenant credential cannot reach the trace service or read
+    trace data: *no responders* or a permission error passes, a reply with
+    trace data fails. Run with both a tenant browser token and the tenant's
+    `.creds`. (3) Tempo and the Collector are not reachable from the host;
+    Grafana requires a login. (4) No doc calls the tenant attribute a
+    security boundary.
+  - the trust checks. (1) A tenant client cannot set the originating
+    tenant (decision 4); the doc names "tenant client" as the attacker. If
+    a server-written header is the source, a client-sent copy of it is
+    replaced and cannot change the attribute. (2)
+    A browser-sent `traceparent`, sampled or not, does not become a parent:
+    the `api.*` SERVER span starts a new trace with a link (BR-071).
+  - the visibility delay (decision 8), recorded as a number.
+
+  Sets the pattern.
+- **54b — remaining services**, one at a time, following 54a's pattern and
+  using `shared/otelnats` — no service-local copy of its four jobs. Each
+  service gets decision 6's context audit. Moves the `obs.pubsub.*`
+  publisher off `natstrace` (decision 13). Ends with the capacity and
+  overflow tests (decision 11), now that peak volume can be measured.
+- **54c — Admin UI** switches to the gateway: polling, body events,
+  "Open in Grafana". Covers every `useTraceFeed.js` reader:
+  `TraceWaterfall.vue`, `RpcPanel.vue`'s `[messages]` tab, and
+  `PulsePanel.vue`, which is marked unavailable and loses the default tab
+  (decision 15). Poll interval set from 54a's measured visibility delay.
+  **Ends at decision 16's gate:** 54c complete and validated, then the one
+  switch on the default stack.
+- **54d — retire** everything in decision 13, Jaeger, and the
+  accounts-service trace export/import. Only after the switch has been
+  made and checked, and the Messages panel is proved to still work and to
+  link to its trace. Old trace history goes with it (decision 16).
+
+#### Business rules this phase adds or changes
+
+New (drafted 2026-10-15, written into BUSINESS_RULES-SHIPPING.md with 54a):
+
+- **BR-064** — one request across services is one trace: SERVER → CLIENT →
+  SERVER parent/child, linked by `traceparent` in NATS headers.
+- **BR-065** — an outbound CLIENT span carries the caller's `service.name`;
+  the destination is an attribute.
+- **BR-066** — with the Collector down — stopped or hung — the business
+  call succeeds, spans drop within a bounded queue, p95 rises < 5 ms, and a
+  service still stops within its shutdown timeout.
+- **BR-067** — only an operator credential may call
+  `api._platform.observability.trace.{search|get|services}.v1`; a tenant
+  credential cannot reach the trace service or read trace data (*no
+  responders* or a permission error both satisfy this) (decision 4).
+- **BR-068** — with Tempo down, the Collector keeps spans on disk across a
+  graceful restart and a hard kill; the queue holds a 2-hour outage at
+  measured peak traffic; all queued spans arrive when Tempo returns; a full
+  queue's loss is counted and visible, and business calls are unaffected.
+  Durability proved in 54a, capacity and overflow after 54b.
+- **BR-069** — replaces BR-051: the receiving service sets two span
+  attributes — the receiving account, from the connection the message
+  arrived on, and the originating tenant, only from server-written routing
+  context (else empty, shown `unattributed`). Never from a client-supplied
+  header, the body or `Nats-Requestor`. A server-written header is a source
+  only after a test proves a client cannot spoof or override the value the
+  service reads. Unforgeable by a tenant client; platform services are
+  trusted, not checked.
+- **BR-070** — every trace reply is the lab's own versioned schema, never
+  Tempo's passed through.
+- **BR-071** — an inbound `api.*` call always starts a new trace, sampled
+  always-on; a browser-sent `traceparent` becomes a span link, never a
+  parent, and cannot turn sampling off.
+
+Changed, in the same commits as the code (Quality Rule 4): BR-035 (push →
+poll), BR-036 (envelope → span events; redact-before-truncate kept), BR-037
+(propagation via OTel; one span per logical call kept), BR-051 (superseded
+by BR-069), BR-053 (retired with the bucket), BR-056 (retired — OTel
+carries real start and end times), BR-AC36 (trace import retired), BR-AC18
+(`MintAdminToken` gains the three trace subjects), BR-045–BR-047
+("Enforced in" paths move off `natstrace`; behaviour unchanged), and
+BR-035's Pulse amendment (Phase 44: Pulse marked unavailable until Phase
+55, decision 15).
+BR-040 is unchanged (no REST trace routes). BR-041's requester identity
+stays observability-only, recorded as a span attribute. ARCHITECTURE-COMMUNICATIONS.md § 6 and
+ARCHITECTURE-OBSERVABILITY.md are revised with it (including an "after"
+edition of `observability-message-path`), and an ADR records the reversal.
+
+---
+
+### Phase 55 — PROPOSED (awaiting approval; follows Phase 54) — Logs in Loki, Metrics in Prometheus, One Grafana View With Traces
+
+> Proposed 2026-10-14. Phase 54 puts traces in Tempo and Grafana; this phase
+> adds the other two signals so one Grafana view links a trace, its log
+> lines and the metrics around it. Design gate only — no tasks, tests or
+> code until approved.
+
+#### Goal
+
+Grafana shows traces (Tempo, Phase 54), logs (Loki) and metrics
+(Prometheus) and links between them: span → its log lines, log line → its
+trace, slow point on a latency chart → an example trace. NATS server
+metrics appear beside the services' own.
+
+#### Starting point (verified 2026-10-14)
+
+- Services log with `slog.NewTextHandler(os.Stdout, …)` — plain text, no
+  trace ID, collected by nothing but `docker compose logs`.
+- No Prometheus, no metrics endpoint in any service. NATS exposes its
+  monitoring port (`8222`, `NATS_MONITOR_PORT`) and nothing scrapes it.
+
+#### Design decisions
+
+1. **Depends on Phase 54.** It reuses 54's Collector, Grafana and context
+   propagation: a log line can only carry a trace ID when `ctx` reaches the
+   logging call. 55a alone (NATS server metrics) has no such dependency.
+2. **Logs go out over OTLP.** Each service's `slog` handler is wrapped with
+   the OTel `otelslog` bridge: records go to the Collector → Loki (Loki 3
+   accepts OTLP natively), and still to stdout so `docker compose logs`
+   keeps working. Logging calls on a request path use the `…Context(ctx, …)`
+   forms so `trace_id`/`span_id` attach automatically.
+3. **Loki labels stay low-cardinality.** Labels: `service.name`, `level`.
+   `trace_id`, `span_id`, tenant and `{context}` are structured metadata,
+   never labels. Entity IDs never become labels.
+4. **Log lines carry no request or reply bodies.** Bodies live only in
+   Phase 54's span events, behind its redaction and size limit. A log line
+   that needs a payload detail names a field, not the payload.
+5. **Service metrics are OTel metrics, pushed.** Each service records
+   request count, error count and a duration histogram per operation
+   (RED), plus JetStream consumer lag where it consumes. The SDK pushes
+   OTLP to the Collector → Prometheus (OTLP receiver). No `/metrics`
+   endpoint per service.
+6. **Exemplars link metrics to traces.** The duration histogram carries the
+   trace ID of sampled requests as an exemplar, so a slow point on a chart
+   opens its trace in Tempo.
+7. **Metric labels stay low-cardinality.** `service.name`, operation
+   (subject with IDs stripped to the taxonomy positions), status. Tenant
+   and `{context}` are allowed as labels only if the count stays bounded in
+   the lab; never entity IDs.
+8. **NATS server metrics come from `prometheus-nats-exporter`** (the
+   NATS project's own exporter), scraping `8222` (`varz`, `connz`, `jsz`,
+   `accstatz`). Prometheus scrapes the exporter. A NATS dashboard is
+   provisioned in Grafana.
+9. **Grafana is configured from files in the repo.** Data sources and the
+   links between them are provisioned, not clicked: Tempo → Loki (trace to
+   logs by `trace_id`), Tempo → Prometheus, Loki derived field → Tempo,
+   Prometheus exemplars → Tempo. Dashboards are JSON files in the repo.
+10. **The Pulse tab moves to metrics.** Phase 54 decision 12 keeps Pulse
+    trace-derived only while sampling is 100%. Here Pulse reads request
+    rate, error rate and latency from Prometheus through
+    `observability-service`, over NATS `api._platform.observability.*.v1`
+    request/reply like Phase 54 decision 9, which frees sampling to change
+    later. **This is now the only path back for Pulse:** Phase 54 decision
+    15 (c) marks the tab unavailable from 54's cutover until this ships,
+    and restoring it (and `ui.rpcTab`'s `'pulse'` default) is part of this
+    phase.
+11. **Grafana is an operator tool, not a tenant one.** It sits on the
+    platform side, with its login on and anonymous access off (Phase 54
+    decision 2). Access follows Phase 54 decision 4: operators read all
+    tenants, tenants read nothing; Grafana has no tenant login in the lab.
+12. **Lab storage is local disk, short retention.** Loki and Prometheus run
+    as single processes with local storage, **inside the Docker network
+    only** (Loki 3100, Prometheus 9090, exporter 7777 — not published on the
+    host, for the same reason as Tempo in Phase 54 decision 2).
+13. **Production stores are a V3 decision.** As with Tempo (Phase 54
+    decision 2): Loki scales on object storage and is AGPLv3; Prometheus is
+    Apache 2.0 but single-node, so V3 needs Mimir (AGPLv3) or another
+    long-term store. Not decided here.
+14. **Out of scope:** Postgres metrics, host/container metrics, alerting.
+    Each is a candidate if wanted.
+
+#### Proposed slicing (for approval — becomes sub-phases only after the gate)
+
+- **55a — NATS server metrics.** Prometheus, `prometheus-nats-exporter`,
+  the NATS dashboard. Needs nothing from Phase 54.
+- **55b — service metrics.** RED metrics and exemplars in one service
+  first, then the rest; exemplar → Tempo link working.
+- **55c — logs.** `otelslog` bridge, Loki, trace ID on request-path logs;
+  span → logs and log → trace links working.
+- **55d — Pulse tab on metrics** through `observability-service`.
+
+#### Business rules this phase adds or changes
+
+New rules (IDs assigned at the gate): log labels and metric labels stay
+low-cardinality (decisions 3, 7); log lines never carry bodies
+(decision 4); every request-path log line carries `trace_id`
+(decision 2); Grafana links are provisioned from the repo (decision 9).
+Changed: the Pulse rule in BUSINESS_RULES-SHIPPING.md (Phase 28p entry,
+amended by Phase 44) moves Pulse to metrics (decision 10). ARCHITECTURE-OBSERVABILITY.md gains a logs-and-metrics
+section.
+
+---
+
+### Phase 56 — PROPOSED (awaiting approval; follows Phase 54) — Trace Activity Hints: a Push Event So Clients Refresh Without Polling Blind
+
+> Proposed 2026-10-15, split out of Phase 54 after a Claude/Codex review.
+> Phase 54 gives every authorized client trace queries over NATS `api.*`;
+> this phase adds an optional push, shaped like the NATS server's own
+> advisories (`$SYS.ACCOUNT.<id>.CONNECT`): a small typed event that says
+> something happened, with the detail fetched by request/reply. Design gate
+> only — no tasks, tests or code until approved.
+
+#### Goal
+
+A client subscribed to one subject learns that new trace activity was
+observed, then fetches the trace through Phase 54's
+`api._platform.observability.trace.get.v1`. Polling stays the fallback and
+the reconciliation path.
+
+#### Design decisions (draft)
+
+1. **The event means "root-span end observed" — a refresh hint, not "trace
+   complete".** A root span may end before async `evt.*` spans arrive, the
+   root span may be missing, and export retries can deliver it twice. The
+   event never claims completeness.
+2. **Subject and shape.** One subject on PLATFORM, e.g.
+   `notify._platform.observability.trace.root-ended` (name fixed at the
+   gate). Payload: `type`
+   (`io.linebooker.observability.v1.trace_root_ended`), `traceId`, service,
+   operation, status, duration, tenant. No attributes beyond these, no
+   bodies.
+3. **Best effort, core NATS.** No stream, no replay. A client that missed
+   events reconciles with `trace.search.v1` after reconnect; that is
+   reconciliation, not guaranteed replay. Clients de-duplicate by `traceId`
+   and retry a fetch a bounded number of times.
+4. **No ordering with Tempo.** The event can arrive before the trace is
+   retrievable, or while Tempo is down. A failed fetch after the retries is
+   an expected outcome, shown as such, not an error.
+5. **Source: a second Collector export to `observability-service`.** Only
+   this phase needs it; Phase 54's queries do not. It is a separate exporter
+   with its own queue, and a failing notification receiver must never stop
+   or slow the durable Tempo export (Phase 54 decision 11) — proved by a
+   test, not assumed.
+6. **Access as Phase 54 decision 4.** The subject is granted only in the
+   operator PLATFORM profile and never exported to a tenant account. One
+   shared subject cannot filter by the JSON `tenant` field, so per-tenant
+   delivery would need its own design (subject per tenant via a
+   provisioned export, or service-managed private inboxes) — out of scope
+   until per-tenant access exists.
+
+#### Open at the gate
+
+- Whether the Admin UI uses the hint at all, or keeps polling only.
+- Event rate limits under load (one event per root span may be noisy).
+
+---
+
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase
@@ -1329,53 +1950,6 @@ rationale needs revising.
 
 ---
 
-### Phase 44 — Completed (archived 2026-08-18)
-
-Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
-(not read into context by default — open only when you need original
-rationale or checklist detail).
-
-- [x] Phase 44 (IMPLEMENTED 2026-08-18) — Request/Reply gets a `Pulse` Tab.
-      Split the requests/errors/avg-latency pulse strip off `TraceWaterfall.vue`'s
-      *Traces* view onto its own tab in front of it — `[Pulse] [Traces]
-      [Messages]` — pairing the enlarged pulse cards with a "what
-      request/reply covers" card (including the `parentSpanId`/`spanId`
-      chaining mechanism, previously undocumented anywhere in the panel) and
-      an animated Client → NATS Server → Service flow diagram, per the
-      approved mockup (`diagrams/admin-rpc-overview-mockup.html`). New
-      `PulsePanel.vue` duplicates `TraceWaterfall.vue`'s bootstrap/subscribe/
-      trace-grouping rather than sharing it (matching `RpcPanel.vue`'s
-      existing Messages-tab precedent) and aggregates the *full* unfiltered
-      trace set rather than `Traces`' toolbar-filtered view, since the two
-      are no longer co-rendered once `Pulse` is a separate tab. `ui.rpcTab`'s
-      default changed to `'pulse'`. `BUSINESS_RULES-SHIPPING.md`'s Phase 28p
-      entry amended; `ARCHITECTURE-ADMIN.md` §4.5 updated from proposed to
-      shipped, including resolving its "one deliberate omission" tension
-      explicitly rather than leaving it unaddressed. Frontend Vitest suite
-      green (3 pre-existing, unrelated `TraceWaterfall.spec.js` failures
-      confirmed present before this phase's changes too, left as found);
-      verified live against the docker stack.
-
----
-
-### Phase 45 — Completed (archived 2026-08-19)
-
-Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
-(not read into context by default — open only when you need original
-rationale or checklist detail).
-
-- [x] Phase 45 (IMPLEMENTED 2026-08-18) — Accounts Overview: nav restructure
-      (Accounts moved PLATFORM → SYSTEM as its first entry, absorbing the
-      retired standalone Account Activity panel into a new `Overview` tab;
-      `TOPOLOGY` renamed `Sharing`), `observability-service` ring-buffer
-      trend history (60min @ 10s, delta'd throughput, `5m/30m/1h` duration
-      selector via new `GET /api/nats/account-activity/history`), and a
-      gated name-filter search shown only past 3 accounts (BR-034 amended,
-      BR-043/BR-044 added). Live-verified against the real ring buffer;
-      `go build`/tests and frontend build/Vitest green.
-
----
-
 ### Candidate, deferred, and on-hold phases
 
 Not in flight. Full detail lives in
@@ -1403,6 +1977,8 @@ starts.
 - [ ] **Phase 108** (candidate, deferred from Phase 43's design gate,
       2026-08-20) — Live Account Activity Panel via `$SYS`
       Account-Monitoring Exports.
+- [ ] **Phase 109** (candidate, from Phase 54's design gate, 2026-10-15) —
+      Operator Login: Gate the PLATFORM Credential Mints.
 
 ---
 

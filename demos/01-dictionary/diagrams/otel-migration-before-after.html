@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tracing — before and after the OpenTelemetry move</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1024px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 85ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+.fig-body h2 { margin-bottom: 12px; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b, li b { color: var(--text); font-weight: 600; }
+code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 92ch; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: .5; }
+.lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: .07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.hop { fill: none; stroke: var(--hop); stroke-width: 1.4; }
+.defect { font-family: var(--mono); font-size: 9.5px; fill: var(--bad); }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head"><div class="head-txt">
+    <span class="eyebrow">Phase 54 (proposed — design approved 2026-10-15, not built) · ARCHITECTURE-COMMUNICATIONS §6</span>
+    <h1>Tracing — before and after the OpenTelemetry move</h1>
+    <p class="sub">Today a hand-rolled tracer publishes spans over NATS and two consumers read them. After Phase 54 the OTel SDK exports straight to a Collector, Tempo stores the traces, and clients query them over NATS <code>api.*</code> through observability-service — never Tempo directly.</p>
+  </div></header>
+
+  <figure>
+    <div class="fig-body">
+      <h2>BEFORE — today (natstrace over NATS)</h2>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 740" role="img" aria-label="Today shipping, pricing and organizations use shared/natstrace in separate tenant accounts. Each publishes obs.trace.> and an export/import remaps those subjects to monitor.{tenant}.trace.> in PLATFORM. Refdata and accounts publish obs.trace.> directly in PLATFORM. The TRACES stream retains both subject families for one hour and feeds two consumers. The tracestore projector in observability-service writes the trace-request-reply KV bucket, whose watch pushes to the Admin UI. The otlp-bridge exports only obs.trace.> to in-memory Jaeger over OTLP/HTTP, dropping tenant spans because its filter misses monitor.*.trace.>. Another defect assigns the callee to outbound span service.name.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="a-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+        </defs>
+        <!-- Widths >= longest line × (0.6 × font size) + 20, rounded even.
+             Independent tenant lanes: x=220/244/268; y=176/200/224.
+             No shared collinear connectors; all target gaps are 8–11px. -->
+        <rect class="nb" x="16" y="16" width="600" height="136" rx="4"/>
+        <text class="grp" x="32" y="38">TENANT ACCOUNTS — ONE PER TENANT</text>
+        <rect class="n" x="40" y="60" width="126" height="44" rx="3"/>
+        <text class="lbl" x="103" y="79" text-anchor="middle">shipping-service</text>
+        <text class="lbl2" x="103" y="92" text-anchor="middle">shared/natstrace</text>
+        <rect class="n" x="240" y="60" width="120" height="44" rx="3"/>
+        <text class="lbl" x="300" y="79" text-anchor="middle">pricing-service</text>
+        <text class="lbl2" x="300" y="92" text-anchor="middle">shared/natstrace</text>
+        <rect class="n" x="440" y="60" width="160" height="44" rx="3"/>
+        <text class="lbl" x="520" y="79" text-anchor="middle">organizations-service</text>
+        <text class="lbl2" x="520" y="92" text-anchor="middle">shared/natstrace</text>
+        <text class="defect" x="620" y="78">outbound span</text>
+        <text class="defect" x="620" y="94">service.name = callee</text>
+        <text class="edge" x="112" y="125">obs.trace.&gt;</text>
+        <text class="edge" x="112" y="141">per-tenant publish</text>
+
+        <rect class="nb" x="16" y="268" width="908" height="452" rx="4"/>
+        <text class="grp" x="32" y="290">PLATFORM ACCOUNT</text>
+        <path class="flow" d="M103 104 V176 H220 V414 H290" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M300 104 V200 H244 V430 H290" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M520 104 V224 H268 V446 H290" marker-end="url(#a-sync)"/>
+        <text class="edge" x="280" y="250">export/import · obs.trace.&gt;</text>
+        <text class="edge" x="280" y="286">remapped to monitor.{tenant}.trace.&gt;</text>
+
+        <rect class="n" x="600" y="296" width="120" height="44" rx="3"/>
+        <text class="lbl" x="660" y="315" text-anchor="middle">refdata-service</text>
+        <text class="lbl2" x="660" y="328" text-anchor="middle">shared/natstrace</text>
+        <rect class="n" x="780" y="296" width="126" height="44" rx="3"/>
+        <text class="lbl" x="843" y="315" text-anchor="middle">accounts-service</text>
+        <text class="lbl2" x="843" y="328" text-anchor="middle">shared/natstrace</text>
+        <path class="flow" d="M660 340 V364 H470 V381" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M843 340 V414 H570" marker-end="url(#a-sync)"/>
+        <text class="edge" x="680" y="358">obs.trace.&gt; directly</text>
+
+        <path class="n" d="M300 398 V450 A130 8 0 0 0 560 450 V398"/>
+        <ellipse class="n" cx="430" cy="398" rx="130" ry="8"/>
+        <text class="lbl" x="430" y="422" text-anchor="middle">TRACES stream</text>
+        <text class="lbl2" x="430" y="438" text-anchor="middle">obs.trace.&gt; + monitor.*.trace.&gt; · 1h</text>
+
+        <path class="flow" d="M390 458 V482 H153 V510" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M470 458 V482 H688 V510" marker-end="url(#a-sync)"/>
+        <rect class="n" x="74" y="520" width="158" height="44" rx="3"/>
+        <text class="lbl" x="153" y="539" text-anchor="middle">tracestore projector</text>
+        <text class="lbl2" x="153" y="552" text-anchor="middle">observability-service</text>
+        <rect class="n" x="600" y="520" width="176" height="44" rx="3"/>
+        <text class="lbl" x="688" y="539" text-anchor="middle">otlp-bridge</text>
+        <text class="lbl2" x="688" y="552" text-anchor="middle">filter: obs.trace.&gt; only</text>
+        <text class="defect" x="600" y="590">tenant spans dropped —</text>
+        <text class="defect" x="600" y="606">filter misses monitor.*.trace.&gt;</text>
+
+        <path class="proj" d="M153 564 V622" marker-end="url(#a-store)"/>
+        <text class="edge" x="163" y="599">write</text>
+        <path class="n" d="M70 640 V678 A83 8 0 0 0 236 678 V640"/>
+        <ellipse class="n" cx="153" cy="640" rx="83" ry="8"/>
+        <text class="lbl" x="153" y="665" text-anchor="middle">KV trace-request-reply</text>
+        <path class="rep" d="M236 660 H360" marker-end="url(#a-evtl)"/>
+        <text class="edge" x="248" y="654">KV watch push</text>
+        <rect class="n" x="370" y="638" width="160" height="44" rx="3"/>
+        <text class="lbl" x="450" y="657" text-anchor="middle">Admin UI Traces panel</text>
+        <text class="lbl2" x="450" y="670" text-anchor="middle">live push</text>
+        <path class="rep" d="M776 542 H876 V660 H786" marker-end="url(#a-evtl)"/>
+        <text class="edge" x="792" y="532">OTLP/HTTP</text>
+        <rect class="n" x="600" y="638" width="176" height="44" rx="3"/>
+        <text class="lbl" x="688" y="657" text-anchor="middle">Jaeger</text>
+        <text class="lbl2" x="688" y="670" text-anchor="middle">in-memory · otlp profile</text>
+      </svg>
+    </div>
+    <figcaption><b>Today.</b> <code>natstrace</code> builds a custom envelope; NATS accounts carry it to PLATFORM. The <code>TRACES</code> stream feeds both the KV projection the Admin UI watches and the <code>otlp-bridge</code> that feeds Jaeger. Two defects remain: the bridge filter drops tenant spans on <code>monitor.*.trace.&gt;</code>, and outbound spans report the callee as <code>service.name</code>. References: <code>BR-036</code>, <code>BR-AC36</code>, <code>BR-053</code>.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <h2>AFTER — proposed Phase 54 (OpenTelemetry; design approved, not yet built or verified)</h2>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 566" role="img" aria-label="After proposed Phase 54, not yet built: shipping, pricing, organizations, refdata and accounts each use the OTel Go SDK. An organizations-to-refdata RPC propagates traceparent in NATS headers. All five services export asynchronously over OTLP/HTTP directly to the OTel Collector, which holds a persistent disk queue sized for at least two hours of Tempo outage and writes Tempo. The Collector and Tempo run on the internal network with no host-published ports. Telemetry no longer crosses NATS accounts. Grafana, which requires a login, queries Tempo. The Admin UI polls observability-service over NATS api request/reply every few seconds while visible; observability-service is the only client-facing trace API, for PLATFORM operator credentials only with no tenant-account access, and it queries Tempo. Operator login is deferred, a known lab gap. The Admin UI also links to Grafana.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="b-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--hop)"/></marker>
+        </defs>
+        <!-- Five exports have distinct lanes and ordered Collector ports, 24px apart. -->
+        <path class="flow" d="M443 80 V42 H620 V70" marker-end="url(#b-sync)"/>
+        <text class="edge" x="451" y="24">traceparent in NATS headers</text>
+        <text class="edge" x="473" y="57">rpc.*</text>
+        <rect class="n" x="30" y="80" width="100" height="44" rx="3"/>
+        <text class="lbl" x="80" y="99" text-anchor="middle">shipping</text>
+        <text class="lbl2" x="80" y="112" text-anchor="middle">OTel Go SDK</text>
+        <rect class="n" x="210" y="80" width="100" height="44" rx="3"/>
+        <text class="lbl" x="260" y="99" text-anchor="middle">pricing</text>
+        <text class="lbl2" x="260" y="112" text-anchor="middle">OTel Go SDK</text>
+        <rect class="n" x="390" y="80" width="106" height="44" rx="3"/>
+        <text class="lbl" x="443" y="99" text-anchor="middle">organizations</text>
+        <text class="lbl2" x="443" y="112" text-anchor="middle">OTel Go SDK</text>
+        <rect class="n" x="570" y="80" width="100" height="44" rx="3"/>
+        <text class="lbl" x="620" y="99" text-anchor="middle">refdata</text>
+        <text class="lbl2" x="620" y="112" text-anchor="middle">OTel Go SDK</text>
+        <rect class="n" x="750" y="80" width="100" height="44" rx="3"/>
+        <text class="lbl" x="800" y="99" text-anchor="middle">accounts</text>
+        <text class="lbl2" x="800" y="112" text-anchor="middle">OTel Go SDK</text>
+        <path class="rep" d="M80 124 V196 H395 V230" marker-end="url(#b-evtl)"/>
+        <path class="rep" d="M260 124 V172 H419 V230" marker-end="url(#b-evtl)"/>
+        <path class="rep" d="M443 124 V230" marker-end="url(#b-evtl)"/>
+        <path class="rep" d="M620 124 V172 H467 V230" marker-end="url(#b-evtl)"/>
+        <path class="rep" d="M800 124 V196 H491 V230" marker-end="url(#b-evtl)"/>
+        <text class="edge" x="90" y="190">OTLP/HTTP</text>
+        <rect class="n" x="350" y="240" width="186" height="44" rx="3"/>
+        <text class="lbl" x="443" y="259" text-anchor="middle">OTel Collector</text>
+        <text class="lbl2" x="443" y="272" text-anchor="middle">persistent disk queue · ≥2 h</text>
+        <rect class="nb" x="340" y="222" width="206" height="226" rx="4"/>
+        <text class="grp" x="348" y="440">INTERNAL · NO HOST PORTS</text>
+        <text class="lbl2" x="554" y="258">Telemetry no longer crosses NATS accounts.</text>
+        <path class="proj" d="M443 284 V352" marker-end="url(#b-store)"/>
+        <text class="edge" x="453" y="320">store traces</text>
+        <path class="n" d="M393 370 V414 A50 8 0 0 0 493 414 V370"/>
+        <ellipse class="n" cx="443" cy="370" rx="50" ry="8"/>
+        <text class="lbl" x="443" y="390" text-anchor="middle">Tempo</text>
+        <text class="lbl2" x="443" y="404" text-anchor="middle">trace store</text>
+        <rect class="n" x="196" y="370" width="100" height="44" rx="3"/>
+        <text class="lbl" x="246" y="389" text-anchor="middle">Grafana</text>
+        <text class="lbl2" x="246" y="402" text-anchor="middle">login required</text>
+        <path class="flow" d="M296 392 H383" marker-end="url(#b-sync)"/>
+        <text class="edge" x="303" y="386">query</text>
+        <rect class="n" x="30" y="490" width="198" height="44" rx="3"/>
+        <text class="lbl" x="129" y="509" text-anchor="middle">Admin UI Traces panel</text>
+        <text class="lbl2" x="129" y="522" text-anchor="middle">polls every few s · visible only</text>
+        <rect class="n" x="600" y="490" width="216" height="52" rx="3"/>
+        <text class="lbl" x="708" y="509" text-anchor="middle">observability-service</text>
+        <text class="lbl2" x="708" y="522" text-anchor="middle">PLATFORM operator creds only</text>
+        <text class="lbl2" x="708" y="535" text-anchor="middle">no tenant-account access</text>
+        <text class="defect" x="600" y="558">operator login deferred — known lab gap</text>
+        <path class="flow" d="M228 512 H590" marker-end="url(#b-sync)"/>
+        <text class="edge" x="300" y="506">NATS api.* request/reply</text>
+        <path class="flow" d="M708 490 V392 H503" marker-end="url(#b-sync)"/>
+        <text class="edge" x="590" y="386">query</text>
+        <path class="hop" d="M129 490 V456 H246 V424" marker-end="url(#b-hop)"/>
+        <text class="edge" x="136" y="442">Open in Grafana</text>
+      </svg>
+    </div>
+    <figcaption><b>After proposed Phase 54 — not yet built or verified.</b> OTel owns span creation, propagation, sampling and export; the Collector ingests and Tempo stores. The Collector's persistent disk queue is <b>sized</b> for ≥ 2 hours of Tempo outage at measured peak load (<code>BR-068</code>) — a capacity target, not a property of enabling the queue; it protects spans already queued, not new spans sent while the Collector itself is unreachable. Collector and Tempo run on the internal network with no host-published ports; Grafana requires a login. <code>observability-service</code> is the only client-facing trace API — <code>api._platform.observability.trace.{search|get|services}.v1</code> request/reply, PLATFORM operator credentials only, no tenant-account access (<code>BR-067</code>), replying in the lab's own schema (<code>BR-070</code>). Operator credential issuance stays ungated — a known lab gap. Each span records its receiving account, from the connection the message arrived on. Originating tenant comes only from verified, server-established routing context. Client-supplied body or header values are not trusted (<code>BR-069</code>). One cross-tenant trace may hold spans attributed to different tenants or PLATFORM. It is metadata and a filter, not a security boundary. Request and reply bodies remain as span events <code>rpc.request.body</code> / <code>rpc.reply.body</code>, redacted then truncated (4 KiB) before export.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>What changes</h2>
+    <ul>
+      <li><b>Removed:</b> <code>shared/natstrace</code>, the <code>obs.trace.*</code> envelope, the <code>TRACES</code> stream, the <code>trace-request-reply</code> KV bucket and its projector, <code>otlp-bridge</code>, Jaeger, the tenant <code>obs.trace.&gt;</code> export/import, the Admin UI KV-watch feed.</li>
+      <li><b>Added:</b> OTel SDK in each service, OTel Collector, Tempo, Grafana (login required), NATS <code>api.*</code> trace subjects on <code>observability-service</code> for any operator client.</li>
+      <li><b>Kept:</b> request/reply bodies (as span events, redact before truncate), one span per logical call (<code>BR-037</code>), durable buffering (moved from the <code>TRACES</code> stream to the Collector's disk queue), the <code>obs.pubsub.*</code> wire tap (<code>ADR-047</code>) untouched.</li>
+      <li><b>Lost, on purpose:</b> replaying old spans to a new backend; live push in the Traces panel (now polling — live notifications deferred to proposed Phase 56).</li>
+      <li><b>Still open:</b> anyone who can reach <code>adminConnectInfo</code> can obtain an operator credential — unchanged by this phase; operator login is candidate Phase 109.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
