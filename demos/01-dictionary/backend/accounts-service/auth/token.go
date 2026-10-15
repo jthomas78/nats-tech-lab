@@ -112,8 +112,9 @@ func MintBrowserToken(ctx context.Context, reg accounts.UserRegistry, accountPub
 // parameterized with tenant=platform. It subscribes to account/refdata and
 // centralized observability notifications, plus reply inboxes for exactly
 // three read-only refdata requests: type.list, locales.list, and context.list,
-// the Users panel's explicit subjects, and four operator registry subjects.
-// No tenant business api.* or direct obs.* subject is reachable.
+// the Users panel's explicit subjects, the operator registry subjects, and
+// the three trace query subjects (BR-067). No tenant business api.* or
+// direct obs.* subject is reachable.
 //
 // The notification set is notify.accounts.account.>, the REFDATA notify.*
 // subject, notify._platform.kv.trace-request-reply.> for the
@@ -155,6 +156,16 @@ func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, 
 		// registration table. shared/mferegistry is the one copy both sides
 		// read — the grant here and the endpoints there.
 		claims.Permissions.Pub.Allow.Add(mferegistry.Operator()...)
+		// Phase 54 (BR-067) — the trace query gateway, decision 9. Operator
+		// only: no other profile names these, and no tenant account imports
+		// them. Literals, because observability-service's tracequery package
+		// is internal; tracequery.Subjects() is the serving side's copy, and
+		// both specs list the same three.
+		claims.Permissions.Pub.Allow.Add(
+			"api._platform.observability.trace.search.v1",
+			"api._platform.observability.trace.get.v1",
+			"api._platform.observability.trace.services.v1",
+		)
 		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
 			// Phase 43b (BR-047): the Messages panel's live feed, the same
 			// bucket-notify shape as trace-request-reply above. This grants the

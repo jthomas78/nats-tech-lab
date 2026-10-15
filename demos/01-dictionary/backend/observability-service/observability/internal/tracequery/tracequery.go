@@ -7,16 +7,21 @@
 // the PLATFORM connection only, and only MintAdminToken grants the subjects
 // (BR-067).
 //
-// STATUS: skeleton. The exported shape is fixed so the BR-067/BR-070 specs
-// compile; the behaviour is not written yet, and the specs are red.
+// STATUS: trace.get implemented (54a-5). search and services are served,
+// so the subject set is fixed, but they answer 501 until their query shape
+// is specified in 54c.
 package tracequery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
+	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/micro"
 )
 
 // The three query subjects (decision 9).
@@ -32,8 +37,18 @@ const SchemaVersion = "lab.trace.v1"
 // ErrNotFound means the backend has no trace with that ID.
 var ErrNotFound = errors.New("tracequery: trace not found")
 
-// Subjects lists every subject the adapter serves.
-func Subjects() []string { return nil }
+// Subjects lists every subject the adapter serves. It reads the same table
+// Mount registers, so the two cannot drift.
+func Subjects() []string {
+	var out []string
+	for _, ep := range (&adapter{}).endpoints() {
+		out = append(out, ep.subject)
+	}
+	return out
+}
+
+// QueryTimeout bounds one backend call, whatever the caller's timeout.
+const QueryTimeout = 5 * time.Second
 
 // Trace is one trace in the lab schema.
 type Trace struct {
@@ -80,6 +95,81 @@ type Backend interface {
 	GetTrace(ctx context.Context, traceID string) (Trace, error)
 }
 
+// GetRequest is the trace.get.v1 request body.
+type GetRequest struct {
+	TraceID string `json:"traceId"`
+}
+
+var traceIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// Mount serves the query subjects on nc. nc must be the PLATFORM
+// connection (BR-067). Call stop on shutdown.
+func Mount(nc *nats.Conn, backend Backend) (stop func() error, err error) {
+	svc, err := micro.AddService(nc, micro.Config{
+		Name:        "observability-service",
+		Version:     "1.0.0",
+		Description: "observability-service trace query gateway (Phase 54, decision 9)",
+	})
+	if err != nil {
+		return nil, err
+	}
+	a := &adapter{backend: backend}
+	for _, ep := range a.endpoints() {
+		if err := svc.AddEndpoint(ep.name, ep.handler, micro.WithEndpointSubject(ep.subject)); err != nil {
+			_ = svc.Stop()
+			return nil, err
+		}
+	}
+	return svc.Stop, nil
+}
+
+type adapter struct {
+	backend Backend
+}
+
+type endpoint struct {
+	name    string
+	subject string
+	handler micro.HandlerFunc
+}
+
+func (a *adapter) endpoints() []endpoint {
+	return []endpoint{
+		{"trace-search", SearchSubject, notImplemented},
+		{"trace-get", GetSubject, a.handleGet},
+		{"trace-services", ServicesSubject, notImplemented},
+	}
+}
+
+func (a *adapter) handleGet(req micro.Request) {
+	var in GetRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		_ = req.Error("400", "request body is not JSON", nil)
+		return
+	}
+	// The ID goes into a Tempo URL path, so only a real trace ID passes.
+	if !traceIDPattern.MatchString(in.TraceID) {
+		_ = req.Error("400", "traceId must be 32 lowercase hex characters", nil)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout)
+	defer cancel()
+	trace, err := a.backend.GetTrace(ctx, in.TraceID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		_ = req.Error("404", "trace not found", nil)
+	case err != nil:
+		// The backend's own error text is not passed on (BR-070).
+		_ = req.Error("503", "trace store unavailable", nil)
+	default:
+		_ = req.RespondJSON(trace)
+	}
+}
+
+func notImplemented(req micro.Request) {
+	_ = req.Error("501", "not implemented until Phase 54c", nil)
+}
+
 // Tempo is the Backend for Grafana Tempo's HTTP API.
 type Tempo struct {
 	baseURL string
@@ -90,15 +180,4 @@ type Tempo struct {
 // "http://tempo:3200".
 func NewTempo(baseURL string, client *http.Client) *Tempo {
 	return &Tempo{baseURL: baseURL, client: client}
-}
-
-// GetTrace fetches one trace and maps it to the lab schema.
-func (t *Tempo) GetTrace(_ context.Context, _ string) (Trace, error) {
-	return Trace{}, nil
-}
-
-// Mount serves the query subjects on nc. nc must be the PLATFORM
-// connection (BR-067).
-func Mount(_ *nats.Conn, _ Backend) (stop func() error, err error) {
-	return func() error { return nil }, nil
 }

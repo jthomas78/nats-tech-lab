@@ -94,6 +94,8 @@ services:
   observability-service:
     networks:
       - telemetry
+    environment:
+      TEMPO_URL: http://tempo:3200
 
   # Decision 16's switch, one service at a time. Only this file sets the
   # endpoint; without it a service stays on natstrace. 54a moves two paths:

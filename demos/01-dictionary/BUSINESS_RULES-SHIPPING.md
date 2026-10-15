@@ -1285,8 +1285,10 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > BR-066, BR-069 and BR-071 are green. Two paths use it when the `otel`
 > overlay is on (54a-4): fleet-asset add in `organizations-service`, with its
 > refdata client, and `rpc.*.refdata.item.get` in `refdata-service`. Their
-> adapter specs are green. Still red: BR-067 (`MintAdminToken`,
-> `tracequery.Mount`) and BR-070 (`tracequery`), until 54a-5. A smoke run on
+> adapter specs are green. The `trace.get` gateway is built (54a-5): the
+> unit specs for BR-067 (`MintAdminToken`, `tracequery.Mount`) and BR-070
+> (`tracequery`) are green. `trace.search` and `trace.services` are served
+> but reply 501 until 54c specifies their query shape. A smoke run on
 > `au-1` showed one trace across both services; the 54a-6 stack checks have
 > not run yet. Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
@@ -1361,7 +1363,7 @@ The attacker is a **tenant client**. Platform services are trusted, not checked:
 `observability-service` calls Tempo over HTTP internally and maps the result. The reply names its schema version. Resources, attributes, events and links are kept. That contract, not hiding a URL, is what makes a later Tempo → Jaeger v2 swap a change to one adapter.
 
 - **Enforced in:** `observability-service/observability/internal/tracequery` — the Tempo adapter and the mapping to the lab schema.
-- **Test:** `tracequery/tracequery_test.go`, `Context("BR-070: …")` — against a fake Tempo HTTP server: the reply carries the lab schema version, keeps span events and links, and carries none of Tempo's own top-level keys.
+- **Test:** `tracequery/tracequery_test.go`, `Context("BR-070: …")` — against a fake Tempo HTTP server: the reply carries the lab schema version, keeps span events and links, and carries none of Tempo's own top-level keys. Also: an unknown trace is a 404, a malformed request or trace ID is a 400 (the ID goes into a Tempo URL path, so only 32 lowercase hex characters pass), and a Tempo failure is a 503 that does not pass Tempo's own error text on.
 
 ### BR-071 (Phase 54a) — An inbound `api.*` call always starts a new trace, sampled always-on; a browser-sent `traceparent` becomes a span link, never a parent, and cannot turn sampling off
 

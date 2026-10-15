@@ -466,10 +466,14 @@ echo "==> restricted PLATFORM observability creds (Phase 30c)"
 # --allow-sub: the stream captures obs.pubsub.>/monitor.*.pubsub.> server-side
 # (stream ingestion is not a subscription), and the projector's own consumer
 # delivers on _INBOX.>, which is already granted.
+# Phase 54 (BR-067) — the trace query gateway (decision 9). Subscribe on the
+# three exact api._platform.observability.trace.*.v1 subjects, nothing wider,
+# and publish on _INBOX.> to send the replies (the mfe-registry-service shape
+# below). Only MintAdminToken grants the request side.
 nsc add user --account PLATFORM observability >/dev/null
 nsc edit user --account PLATFORM --name observability \
-  --allow-pub 'monitor.>,$SRV.>,$JS.API.INFO,$JS.API.STREAM.LIST,$JS.API.STREAM.INFO.*,$JS.API.CONSUMER.CREATE.*,$JS.API.CONSUMER.CREATE.*.*,$JS.API.CONSUMER.CREATE.*.*.>,$JS.API.CONSUMER.MSG.NEXT.*.*,$JS.API.CONSUMER.DELETE.*.*,$JS.API.STREAM.CREATE.TRACES,$JS.API.STREAM.UPDATE.TRACES,$JS.API.STREAM.CREATE.KV_trace-request-reply,$JS.API.STREAM.UPDATE.KV_trace-request-reply,$JS.API.DIRECT.GET.KV_trace-request-reply.>,$JS.ACK.TRACES.trace-store-projector.>,$JS.FC.KV_trace-request-reply.>,$KV.trace-request-reply.>,notify._platform.kv.trace-request-reply.>,$JS.API.STREAM.CREATE.PUBSUB,$JS.API.STREAM.UPDATE.PUBSUB,$JS.API.STREAM.CREATE.KV_pubsub-messages,$JS.API.STREAM.UPDATE.KV_pubsub-messages,$JS.API.DIRECT.GET.KV_pubsub-messages.>,$JS.ACK.PUBSUB.pubsub-store-projector.>,$JS.FC.KV_pubsub-messages.>,$KV.pubsub-messages.>,notify._platform.kv.pubsub-messages.>' \
-  --allow-sub 'monitor.>,$SRV.>,_INBOX.>' >/dev/null
+  --allow-pub 'monitor.>,$SRV.>,$JS.API.INFO,$JS.API.STREAM.LIST,$JS.API.STREAM.INFO.*,$JS.API.CONSUMER.CREATE.*,$JS.API.CONSUMER.CREATE.*.*,$JS.API.CONSUMER.CREATE.*.*.>,$JS.API.CONSUMER.MSG.NEXT.*.*,$JS.API.CONSUMER.DELETE.*.*,$JS.API.STREAM.CREATE.TRACES,$JS.API.STREAM.UPDATE.TRACES,$JS.API.STREAM.CREATE.KV_trace-request-reply,$JS.API.STREAM.UPDATE.KV_trace-request-reply,$JS.API.DIRECT.GET.KV_trace-request-reply.>,$JS.ACK.TRACES.trace-store-projector.>,$JS.FC.KV_trace-request-reply.>,$KV.trace-request-reply.>,notify._platform.kv.trace-request-reply.>,$JS.API.STREAM.CREATE.PUBSUB,$JS.API.STREAM.UPDATE.PUBSUB,$JS.API.STREAM.CREATE.KV_pubsub-messages,$JS.API.STREAM.UPDATE.KV_pubsub-messages,$JS.API.DIRECT.GET.KV_pubsub-messages.>,$JS.ACK.PUBSUB.pubsub-store-projector.>,$JS.FC.KV_pubsub-messages.>,$KV.pubsub-messages.>,notify._platform.kv.pubsub-messages.>,_INBOX.>' \
+  --allow-sub 'monitor.>,$SRV.>,_INBOX.>,api._platform.observability.trace.search.v1,api._platform.observability.trace.get.v1,api._platform.observability.trace.services.v1' >/dev/null
 nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/observability.creds"
 
 # mfe-registry-service — the curated micro-frontend registry, split out of

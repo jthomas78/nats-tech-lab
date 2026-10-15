@@ -15,6 +15,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/pubsubstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/rest"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/tracequery"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/tracestore"
 )
 
@@ -24,6 +25,9 @@ type Handlers struct {
 	rest        *rest.Handlers
 	traceStore  jetstream.ConsumeContext
 	pubsubStore jetstream.ConsumeContext
+	// stopTraceQuery stops the Phase 54 trace query gateway. Nil when
+	// TempoURL is unset (the default stack has no Tempo).
+	stopTraceQuery func() error
 }
 
 // Config is Startup's non-NATS configuration — the HTTP-reachable
@@ -36,6 +40,10 @@ type Config struct {
 	NatsLogPath        string
 	AccountsURL        string
 	AccountsAuthSecret string
+	// TempoURL is Tempo's HTTP API, set only by compose.otel.yaml (Phase 54,
+	// decision 9). Empty means the trace query gateway is not mounted, so
+	// its subjects get no responders.
+	TempoURL string
 }
 
 // Startup wires this service's dependencies. nc is the single PLATFORM
@@ -70,6 +78,20 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 	history := rest.NewAccstatzHistory(cfg.NatsMonitorURL, log)
 	go history.Run(ctx, 10*time.Second)
 
+	// Phase 54 (BR-067, BR-070): the trace query gateway, on this same
+	// PLATFORM connection and nowhere else.
+	var stopTraceQuery func() error
+	if cfg.TempoURL != "" {
+		backend := tracequery.NewTempo(cfg.TempoURL, &http.Client{Timeout: tracequery.QueryTimeout})
+		stopTraceQuery, err = tracequery.Mount(nc, backend)
+		if err != nil {
+			pubsubStore.Stop()
+			traceStore.Stop()
+			return nil, err
+		}
+		log.Info("trace query gateway mounted", "subjects", tracequery.Subjects())
+	}
+
 	return &Handlers{
 		rest: rest.New(rest.Deps{
 			NC:             nc,
@@ -84,7 +106,8 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 			History: history,
 		}),
 		traceStore:  traceStore,
-		pubsubStore: pubsubStore,
+		pubsubStore:    pubsubStore,
+		stopTraceQuery: stopTraceQuery,
 	}, nil
 }
 
@@ -96,6 +119,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 // Stop drains the trace-store and pubsub-store projectors' consumers.
 // Nil-safe (either Register returns a nil ConsumeContext if nc/js were nil).
 func (h *Handlers) Stop() {
+	if h.stopTraceQuery != nil {
+		_ = h.stopTraceQuery()
+	}
 	if h.pubsubStore != nil {
 		h.pubsubStore.Stop()
 	}

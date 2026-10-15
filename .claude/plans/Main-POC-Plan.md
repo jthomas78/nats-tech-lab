@@ -1637,8 +1637,33 @@ Neither is fixed in place: this phase removes the code that has them.
     Tempo about 18 s later. Known gap until 54b: other callers of
     `item.get` (shipping, pricing) send `natstrace`'s `Traceparent`, which
     refdata now continues on OTel, so their traces are split.
-  - [ ] **54a-5** — `trace.get` gateway in `observability-service`, its
+  - [x] **54a-5** — `trace.get` gateway in `observability-service`, its
         NATS user permissions, the `MintAdminToken` grant; specs green.
+    Done 2026-10-15. `tracequery.Mount` adds a micro service on the
+    PLATFORM connection, only when `TEMPO_URL` is set (only
+    `compose.otel.yaml` sets it). `trace.get` maps Tempo's v2 reply to
+    `lab.trace.v1`: base64 IDs become hex, typed attribute values are
+    unwrapped. Errors: 400 bad body or ID, 404 unknown trace, 503 Tempo
+    failure without Tempo's text. `trace.search` and `trace.services` are
+    served but reply 501 until 54c specifies their shape. `MintAdminToken`
+    names the three subjects (BR-AC18 amended); the observability user
+    subscribes on them and publishes on `_INBOX.>` for replies
+    (`bootstrap-operator.sh`). Specs: tracequery 13, accounts and auth
+    suites green; observability-service vets clean with `GOWORK=off`.
+    Process slip: the 404/400/501 specs were written with the code, not
+    run red first.
+    `nats/creds/observability.creds` was re-signed, not regenerated: the
+    nsc store is not on disk, so a one-off tool kept the same user NKey and
+    name, set the grants from `bootstrap-operator.sh`, and signed with the
+    PLATFORM signing key (`nats/keys/platform-signing-key.nk`). No
+    `down -v`; `za-1` is untouched. A later `--force` run gives the same
+    grants, signed by the account identity key instead.
+    Smoke on `au-1`, PLATFORM creds: `trace.get` for the 54a-4 trace
+    returned `lab.trace.v1` with all three spans (hex IDs, typed attributes
+    unwrapped); unknown ID 404; `../../api/search` 400; `trace.search` 501.
+    `acme.creds`: no responders. No permission errors in the service log.
+    Not yet run with a minted admin browser token; that is 54a-6's access
+    check.
   - [ ] **54a-6** — stack checks: access, trust, outage/durability,
         visibility delay.
 - **54b — remaining services**, one at a time, following 54a's pattern and

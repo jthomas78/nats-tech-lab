@@ -141,6 +141,21 @@ var _ = Describe("MintBrowserToken", func() {
 		_, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, "not-a-real-seed", "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).To(HaveOccurred())
 	})
+
+	// Phase 54 (BR-067): the tenant profile's api.> lets a publish through,
+	// and it gets no responders, because nothing in the tenant account
+	// serves the trace subjects. What it must not do is name one.
+	It("BR-067: names none of the trace query subjects", func() {
+		info, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		claims, err := jwt.DecodeUserClaims(info.JWT)
+		Expect(err).NotTo(HaveOccurred())
+
+		for _, list := range [][]string{claims.Permissions.Pub.Allow, claims.Permissions.Sub.Allow} {
+			Expect(list).NotTo(ContainElement(ContainSubstring("observability")))
+			Expect(list).NotTo(ContainElement(HavePrefix("api._platform.")))
+		}
+	})
 })
 
 var _ = Describe("MintAdminToken", func() {
@@ -213,6 +228,10 @@ var _ = Describe("MintAdminToken", func() {
 			"api._platform.mfe-registry.audit.list.v1",
 			"api._platform.mfe-registry.publishers.list.v1",
 			"api._platform.mfe-registry.publishers.write.v1",
+			// Phase 54 (BR-067) — the trace query gateway. Operator-only.
+			"api._platform.observability.trace.search.v1",
+			"api._platform.observability.trace.get.v1",
+			"api._platform.observability.trace.services.v1",
 		))
 		Expect(claims.Permissions.Pub.Deny).To(BeEmpty())
 
@@ -226,8 +245,7 @@ var _ = Describe("MintAdminToken", func() {
 	// Phase 54 (BR-067, amends BR-AC18): the three trace query subjects are
 	// operator-only. They are named one by one, never as an
 	// api._platform.observability.> prefix, for the same reason as the users
-	// subjects above. When this goes green, the exact ConsistOf above gains
-	// the same three lines.
+	// subjects above.
 	It("BR-067: grants exactly the three trace query subjects, and nothing else under observability", func() {
 		info, err := auth.MintAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())

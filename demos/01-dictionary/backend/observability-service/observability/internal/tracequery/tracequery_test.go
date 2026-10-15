@@ -166,6 +166,41 @@ var _ = Describe("BR-067: the gateway serves exactly the three trace subjects", 
 		Expect(got.Spans).To(HaveLen(2))
 	})
 
+	DescribeTable("BR-067: replies with a micro service error, never a Tempo body, when trace.get cannot answer",
+		func(body, code string) {
+			nc := startNATS()
+			stop, err := tracequery.Mount(nc, tracequery.NewTempo(fakeTempo().URL, http.DefaultClient))
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(stop)
+
+			reply, err := nc.Request(tracequery.GetSubject, []byte(body), 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal(code))
+			Expect(reply.Header.Get("Nats-Service-Error")).NotTo(BeEmpty())
+		},
+		Entry("an unknown trace ID", `{"traceId":"ffffffffffffffffffffffffffffffff"}`, "404"),
+		Entry("a trace ID that is not 32 hex characters", `{"traceId":"../../api/search"}`, "400"),
+		Entry("a body that is not JSON", `not json`, "400"),
+	)
+
+	// search and services are served from 54a-5 so the subject set is
+	// fixed, but their query shape is not specified until 54c. Until then
+	// they answer, and say so.
+	DescribeTable("BR-067: search and services answer, as not implemented yet",
+		func(subject string) {
+			nc := startNATS()
+			stop, err := tracequery.Mount(nc, tracequery.NewTempo(fakeTempo().URL, http.DefaultClient))
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(stop)
+
+			reply, err := nc.Request(subject, []byte(`{}`), 5*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("501"))
+		},
+		Entry("search", tracequery.SearchSubject),
+		Entry("services", tracequery.ServicesSubject),
+	)
+
 	It("BR-067: does not answer a fourth subject under the same prefix", func() {
 		nc := startNATS()
 		stop, err := tracequery.Mount(nc, tracequery.NewTempo(fakeTempo().URL, http.DefaultClient))

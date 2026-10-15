@@ -586,6 +586,14 @@ refdata subjects used for UI copy and the legacy Overview bootstrap:
 unlisted publish; in particular there is no tenant business `api.>`, `rpc.>`,
 direct `obs.>`, `$JS.API.>`, or `$KV.>` access.
 
+**Amended Phase 54 (BR-067).** The publish allowlist also names the three
+trace query subjects, one by one:
+`api._platform.observability.trace.search.v1`,
+`api._platform.observability.trace.get.v1` and
+`api._platform.observability.trace.services.v1`. They are served by
+`observability-service` on its PLATFORM connection. No other profile grants
+them, and no tenant account imports them.
+
 `frontend/admin/src/nats/usePlatformConnection.js` opens this connection once
 at boot and never connects the browser to `acme`, `globex`, or any other
 tenant account. Central observability arrives through the PLATFORM KV-notify
