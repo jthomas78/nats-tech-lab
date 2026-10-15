@@ -1280,8 +1280,11 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 
 ### Phase 54 — OpenTelemetry tracing (BR-064 to BR-071)
 
-> **Status: PROPOSED 2026-10-15. Specs are written first (red); nothing here
-> is implemented.** Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
+> **Status: IN PROGRESS 2026-10-15. Specs were written first (red).**
+> `shared/otelnats` is implemented (54a-3): the unit specs for BR-064, BR-065,
+> BR-066, BR-069 and BR-071 are green. Still red: BR-067 (`MintAdminToken`,
+> `tracequery.Mount`) and BR-070 (`tracequery`), until 54a-5. No stack check
+> has run yet. Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or

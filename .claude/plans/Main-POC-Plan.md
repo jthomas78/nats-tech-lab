@@ -1570,7 +1570,12 @@ Neither is fixed in place: this phase removes the code that has them.
         read back from Tempo; Grafana 401 without login; Tempo not
         resolvable from `backend`. Found: Tempo's v2 reply carries IDs as
         base64, not hex — the BR-070 fixture is now that real reply.
-  - [ ] **54a-3** — implement `shared/otelnats`; its specs green.
+  - [x] **54a-3** — implement `shared/otelnats`; its specs green. Done
+    2026-10-15: 26 of 26 specs green, also with `-race` over five runs.
+    Choices: the provider never sets the OTel globals; the exporter has
+    no retry (durability is the Collector's queue, BR-068); `Endpoint` is
+    the Collector base URL and `/v1/traces` is added; `HeaderCarrier.Get`
+    matches a key in any case, because `natstrace` writes `Traceparent`.
   - [ ] **54a-4** — the fleet-asset path (`organizations-service`) and
         refdata `item.get` use `otelnats` when the overlay is on.
   - [ ] **54a-5** — `trace.get` gateway in `observability-service`, its

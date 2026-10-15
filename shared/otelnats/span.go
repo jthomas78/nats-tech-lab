@@ -2,6 +2,7 @@ package otelnats
 
 import (
 	"context"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel/attribute"
@@ -39,19 +40,78 @@ type Trust struct {
 	OriginatingTenant string
 }
 
-// StartServer starts the SERVER span for an inbound message.
-func (p *Provider) StartServer(ctx context.Context, _ *nats.Msg, _ Edge, _ Trust) (context.Context, trace.Span) {
-	return ctx, trace.SpanFromContext(ctx)
+// Attribute keys from the OTel messaging and peer conventions (BR-065).
+const (
+	attrMessagingSystem      = attribute.Key("messaging.system")
+	attrMessagingDestination = attribute.Key("messaging.destination.name")
+	attrPeerService          = attribute.Key("peer.service")
+)
+
+// StartServer starts the SERVER span for an inbound message. The span is
+// named for the subject.
+//
+// EdgeRPC continues the trace in ctx; when ctx holds none, it extracts one
+// from msg. EdgeAPI always starts a new, sampled root, and keeps a valid
+// traceparent from msg as one link, never as the parent (BR-071).
+//
+// The tenant attributes come from trust only (BR-069). StartServer reads
+// msg's subject and its traceparent, and nothing else in it.
+func (p *Provider) StartServer(ctx context.Context, msg *nats.Msg, edge Edge, trust Trust) (context.Context, trace.Span) {
+	attrs := []attribute.KeyValue{
+		attrMessagingSystem.String("nats"),
+		attrMessagingDestination.String(msg.Subject),
+		AttrReceivingAccount.String(trust.ReceivingAccount),
+	}
+	if trust.OriginatingTenant != "" {
+		attrs = append(attrs, AttrOriginatingTenant.String(trust.OriginatingTenant))
+	}
+	opts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(attrs...),
+	}
+
+	switch edge {
+	case EdgeAPI:
+		opts = append(opts, trace.WithNewRoot())
+		sent := trace.SpanContextFromContext(Extract(context.Background(), msg.Header))
+		if sent.IsValid() {
+			opts = append(opts, trace.WithLinks(trace.Link{SpanContext: sent}))
+		}
+	default:
+		if !trace.SpanContextFromContext(ctx).IsValid() {
+			ctx = Extract(ctx, msg.Header)
+		}
+	}
+	return p.tracer.Start(ctx, msg.Subject, opts...)
 }
 
-// StartClient starts the CLIENT span for an outbound request. The span
-// belongs to the caller; peerService and subject are attributes (BR-065).
-func (p *Provider) StartClient(ctx context.Context, _, _ string) (context.Context, trace.Span) {
-	return ctx, trace.SpanFromContext(ctx)
+// StartClient starts the CLIENT span for an outbound request, as the child
+// of the span in ctx. The span belongs to the caller; peerService and subject
+// are attributes (BR-065).
+func (p *Provider) StartClient(ctx context.Context, subject, peerService string) (context.Context, trace.Span) {
+	return p.tracer.Start(ctx, subject,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attrMessagingSystem.String("nats"),
+			attrMessagingDestination.String(subject),
+			attrPeerService.String(peerService),
+		),
+	)
 }
 
 // OriginatingTenantFromRPCSubject reads the tenant token from an
 // import-renamed subject, rpc.{tenant}.{service}.…, or returns "" (BR-069).
 // The subject is a trusted source only once the 54a stack check has proved a
 // tenant client cannot choose it.
-func OriginatingTenantFromRPCSubject(_ string) string { return "" }
+func OriginatingTenantFromRPCSubject(subject string) string {
+	tokens := strings.Split(subject, ".")
+	if len(tokens) < 3 || tokens[0] != "rpc" {
+		return ""
+	}
+	switch tenant := tokens[1]; tenant {
+	case "", "*", ">":
+		return ""
+	default:
+		return tenant
+	}
+}
