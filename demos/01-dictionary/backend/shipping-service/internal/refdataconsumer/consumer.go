@@ -39,9 +39,13 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/micro"
 	"github.com/nats-io/nuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 var ErrNotFound = errors.New("refdata item not found")
@@ -124,6 +128,9 @@ type Consumer struct {
 
 	tracer *natstrace.Tracer
 
+	// otel, when set by WithTracing, puts requestRPC on the OTel path.
+	otel *otelnats.Provider
+
 	rpcRequestTimeout time.Duration
 	rpcRetries        int
 	rpcBackoff        time.Duration
@@ -145,6 +152,11 @@ func WithRPCRetries(n int) Option { return func(c *Consumer) { c.rpcRetries = n 
 // WithRPCBackoff overrides the backoff between rpc.* retry attempts
 // (default 150ms, scaled linearly by attempt number).
 func WithRPCBackoff(d time.Duration) Option { return func(c *Consumer) { c.rpcBackoff = d } }
+
+// WithTracing makes each logical call one OTel CLIENT span instead of a
+// natstrace span (Phase 54b-4, BR-064, BR-065). A nil provider is the same
+// as not passing the option.
+func WithTracing(p *otelnats.Provider) Option { return func(c *Consumer) { c.otel = p } }
 
 func New(nc *nats.Conn, opts ...Option) *Consumer {
 	c := &Consumer{
@@ -512,7 +524,7 @@ const requestorHeader = "Nats-Requestor"
 // fails. There is no REST fallback to fall through to (BR-D28) — this is
 // the only transport this consumer has.
 //
-// BR-037: exactly one natstrace span covers the whole call — minted before
+// BR-037: exactly one span (OTel with WithTracing, else natstrace) covers the whole call — minted before
 // the retry loop starts, not one per attempt. The span continues whatever
 // parent natstrace.ContextWithSpan attached to ctx, or mints a root span if
 // ctx carries none (true of every caller today: no browserrpc handler in
@@ -527,20 +539,12 @@ const requestorHeader = "Nats-Requestor"
 // carry {context} at all, and parsing it positionally would silently
 // mislabel the span.
 func (c *Consumer) requestRPC(ctx context.Context, subject, contextValue, entity, action string, body []byte) ([]byte, error) {
-	sp := c.tracer.StartOutbound(natstrace.SpanFromContext(ctx), subject, body, contextValue, "refdata", entity, action)
 	msg := &nats.Msg{
 		Subject: subject,
 		Data:    body,
-		Header: nats.Header{
-			requestorHeader:             []string{c.requestorID},
-			natstrace.TraceparentHeader: []string{sp.Traceparent()},
-		},
+		Header:  nats.Header{requestorHeader: []string{c.requestorID}},
 	}
-	// The outbound span has to be told its own headers: it exists before they
-	// do (Traceparent() above is one of the values in them). Without this the
-	// client-side span shows "no Nats-Requestor" while publishing exactly that
-	// identity on the wire for the callee's span to record.
-	sp.SetRequestHeaders(map[string][]string(msg.Header))
+	finish := c.startCall(ctx, msg, contextValue, entity, action)
 	var lastErr error
 	attempt := 0
 	for ; attempt <= c.rpcRetries; attempt++ {
@@ -548,8 +552,7 @@ func (c *Consumer) requestRPC(ctx context.Context, subject, contextValue, entity
 			select {
 			case <-time.After(c.rpcBackoff * time.Duration(attempt)):
 			case <-ctx.Done():
-				sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt))
-				sp.Fail(ctx.Err(), nil, nil)
+				finish(attempt, nil, ctx.Err())
 				return nil, ctx.Err()
 			}
 		}
@@ -557,14 +560,50 @@ func (c *Consumer) requestRPC(ctx context.Context, subject, contextValue, entity
 		reply, err := c.nc.RequestMsgWithContext(rctx, msg)
 		cancel()
 		if err == nil {
-			sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt))
-			sp.End(reply.Data, map[string][]string(reply.Header))
+			finish(attempt, reply, nil)
 			return reply.Data, nil
 		}
 		lastErr = err
 	}
-	sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt-1))
 	finalErr := fmt.Errorf("%w (subject %s): %v", ErrRPCUnavailable, subject, lastErr)
-	sp.Fail(finalErr, nil, nil)
+	finish(attempt-1, nil, finalErr)
 	return nil, finalErr
+}
+
+// startCall starts the call's one span, writes its traceparent into msg, and
+// returns the function that ends it. With WithTracing the span is an OTel
+// CLIENT span (Phase 54b-4, BR-064, BR-065), the same shape as
+// organizations-service's refdataclient; without it, natstrace's.
+func (c *Consumer) startCall(ctx context.Context, msg *nats.Msg, contextValue, entity, action string) func(retries int, reply *nats.Msg, err error) {
+	if c.otel != nil {
+		ctx, span := c.otel.StartClient(ctx, msg.Subject, "refdata")
+		otelnats.Inject(ctx, msg)
+		return func(retries int, reply *nats.Msg, err error) {
+			span.SetAttributes(attribute.Int("rpc.retry_count", retries))
+			switch {
+			case err != nil:
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+			case reply.Header.Get(micro.ErrorHeader) != "":
+				span.SetStatus(codes.Error, reply.Header.Get(micro.ErrorHeader))
+			}
+			span.End()
+		}
+	}
+
+	sp := c.tracer.StartOutbound(natstrace.SpanFromContext(ctx), msg.Subject, msg.Data, contextValue, "refdata", entity, action)
+	msg.Header[natstrace.TraceparentHeader] = []string{sp.Traceparent()}
+	// The outbound span has to be told its own headers: it exists before they
+	// do (Traceparent() above is one of the values in them). Without this the
+	// client-side span shows "no Nats-Requestor" while publishing exactly that
+	// identity on the wire for the callee's span to record.
+	sp.SetRequestHeaders(map[string][]string(msg.Header))
+	return func(retries int, reply *nats.Msg, err error) {
+		sp.SetAttribute("rpc.retry_count", strconv.Itoa(retries))
+		if err != nil {
+			sp.Fail(err, nil, nil)
+			return
+		}
+		sp.End(reply.Data, map[string][]string(reply.Header))
+	}
 }

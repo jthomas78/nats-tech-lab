@@ -50,6 +50,7 @@ import (
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // Subject constants — {context} is a wildcard token resolved per-request
@@ -114,6 +115,11 @@ type Deps struct {
 	// connection (Phase 18's Nats-Responder invariant — see the Config
 	// literal below), so per-tenant identity travels as metadata instead.
 	Tenant string
+	// Tracing, when set, traces every endpoint with OTel instead of
+	// natstrace (Phase 54b-4): an EdgeAPI SERVER span with Tenant as the
+	// receiving account (BR-064, BR-069, BR-071), and the port register
+	// notify.* as a PRODUCER span under it. Nil keeps natstrace.
+	Tracing *otelnats.Provider
 }
 
 // Adapter is shipping-service's api.* frontend-to-service adapter for one
@@ -131,6 +137,8 @@ type Adapter struct {
 	log        *slog.Logger
 	svc        micro.Service
 	tracer     *natstrace.Tracer
+	otel       *otelnats.Provider
+	tenant     string
 }
 
 // isNotFoundErr mirrors rest/handlers.go's writeCommandError/writeQueryError
@@ -195,7 +203,7 @@ type containerManifestRequest struct {
 func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	a := &Adapter{
 		nc:         nc,
-		notifier:   natsnotify.New(nc, deps.Log, natsnotify.WithObservation(nc)),
+		notifier:   natsnotify.New(nc, deps.Log, natsnotify.WithObservation(nc), natsnotify.WithOTel(deps.Tracing)),
 		ships:      deps.Ships,
 		containers: deps.Containers,
 		ports:      deps.Ports,
@@ -205,6 +213,8 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		js:         deps.JS,
 		log:        deps.Log,
 		tracer:     natstrace.New(nc),
+		otel:       deps.Tracing,
+		tenant:     deps.Tenant,
 	}
 
 	svc, err := micro.AddService(nc, micro.Config{
@@ -249,12 +259,26 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"meta-known-containers", a.handleMetaKnownContainers, MetaKnownContainersSubject},
 	}
 	for _, ep := range endpoints {
-		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
+		handler := a.tracer.Middleware(ep.handler)
+		if a.otel != nil {
+			// A browser call: a new root, any sent traceparent only a link
+			// (BR-071). The receiving account is this adapter's tenant, and
+			// the originating tenant stays empty (BR-069).
+			handler = a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
+		}
+		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
 	}
 	return a, nil
+}
+
+// trust is the tenant context this adapter vouches for (BR-069): the
+// account its connection authenticated into. No originating tenant — on a
+// browser call there is no upstream service to name one.
+func (a *Adapter) trust(micro.Request) otelnats.Trust {
+	return otelnats.Trust{ReceivingAccount: a.tenant}
 }
 
 // Stop drains the adapter's subscriptions.
@@ -294,7 +318,7 @@ func (a *Adapter) shipCommand(req micro.Request, cmd func(context.Context, comma
 	}
 	in.Context = itemContext
 
-	state, err := cmd(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in)
+	state, err := cmd(sharedbrowserrpc.SpanContext(req), in)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -314,7 +338,7 @@ func (a *Adapter) handleShipCorrectID(req micro.Request) {
 	}
 	in.Context = itemContext
 
-	state, err := a.ships.CorrectShipID(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in)
+	state, err := a.ships.CorrectShipID(sharedbrowserrpc.SpanContext(req), in)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -333,7 +357,7 @@ func (a *Adapter) handleShipList(req micro.Request) {
 	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
-	ships, err := a.shipReads.ListShips(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
+	ships, err := a.shipReads.ListShips(sharedbrowserrpc.SpanContext(req), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -366,7 +390,7 @@ func (a *Adapter) containerCommand(req micro.Request, cmd func(context.Context, 
 	}
 	in.Context = itemContext
 
-	state, err := cmd(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in)
+	state, err := cmd(sharedbrowserrpc.SpanContext(req), in)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -382,7 +406,7 @@ func (a *Adapter) handleContainerList(req micro.Request) {
 	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
-	containers, err := a.terminal.List(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
+	containers, err := a.terminal.List(sharedbrowserrpc.SpanContext(req), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -407,7 +431,7 @@ func (a *Adapter) handleContainerManifest(req micro.Request) {
 		return
 	}
 
-	containers, err := a.terminal.ListByShip(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext, in.ShipID)
+	containers, err := a.terminal.ListByShip(sharedbrowserrpc.SpanContext(req), itemContext, in.ShipID)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -421,7 +445,7 @@ func (a *Adapter) handlePortList(req micro.Request) {
 	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
-	ports, err := a.ports.List(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
+	ports, err := a.ports.List(sharedbrowserrpc.SpanContext(req), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -454,7 +478,7 @@ func (a *Adapter) handlePortRegister(req micro.Request) {
 		return
 	}
 
-	spanCtx := natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
+	spanCtx := sharedbrowserrpc.SpanContext(req)
 	if err := a.ports.Register(spanCtx, itemContext, in.Name); err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -495,7 +519,7 @@ func (a *Adapter) handleMetaKnownContainers(req micro.Request) {
 	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
-	values, err := a.meta.KnownContainers(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
+	values, err := a.meta.KnownContainers(sharedbrowserrpc.SpanContext(req), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return

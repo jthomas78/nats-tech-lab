@@ -109,6 +109,10 @@ services:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
 
+  shipping-service:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
 networks:
   # The trace store's own network. Members: the Collector, Tempo, Grafana and
   # observability-service. Compose namespaces it by project, like `backend`.

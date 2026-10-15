@@ -44,6 +44,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -102,6 +103,10 @@ type Deps struct {
 	// minted by accounts-service after this process started ever becomes
 	// visible without a restart.
 	CredsDir string
+	// Tracing, when set, puts every tenant's api.* adapter, evt.* publisher,
+	// projectors, KV notify and lifecycle subscriptions on OTel (Phase
+	// 54b-4). Nil keeps natstrace. Read once, at NewHandlers, like NatsURL.
+	Tracing *otelnats.Provider
 }
 
 type Handlers struct {
@@ -124,6 +129,7 @@ func NewHandlers(deps Deps) *Handlers {
 		func(tenant string, res *tenantResources) error {
 			return teardownTenantResources(tenant, res, deps.Log)
 		},
+		natstenants.WithTracing(deps.Tracing),
 	)
 	return h
 }

@@ -10,15 +10,21 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/monolith"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
 // initialTenant is which tenant account shipping-service connects as when
 // the process starts, before any operator has used the tenant selector.
 const initialTenant = "acme"
 
-type Module struct{}
+// Module is the shipping module. Tracing, when set, puts every tenant's
+// traffic on OTel (Phase 54b-4); nil keeps natstrace. It is a field, not a
+// monolith.Monolith method, because only this module reads it.
+type Module struct {
+	Tracing *otelnats.Provider
+}
 
-func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
+func (m Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	log := mono.Logger()
 
 	if err := postgres.Migrate(ctx, mono.DB()); err != nil {
@@ -42,6 +48,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		PortRepo:      portRepo,
 		NatsURL:       mono.NatsURL(),
 		CredsDir:      mono.CredsDir(),
+		Tracing:       m.Tracing,
 	})
 
 	// The initial tenant connect and every later switch are the same code

@@ -1369,7 +1369,18 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > 54b-3b (2026-10-15) switched organizations-service over: every api.*
 > endpoint, the TRANSPORTER `evt.*` append and its projector. See BR-TP75's
 > OTel note in `BUSINESS_RULES-ORGANIZATIONS.md`. The Temporal hop is still
-> not traced (BR-064). shipping-service is next (54b-4). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
+> not traced (BR-064).
+>
+> 54b-4 (2026-10-15) switched shipping-service over: every api.* endpoint
+> (SERVER, receiving account = tenant), the `evt.*` publish (PRODUCER under
+> the SERVER span), the three projectors (CONSUMER per message), their
+> `notify.*` and KV notify (PRODUCER), and the `refdataconsumer` `item.get`
+> call (CLIENT). Specs: `dictionary/browserrpc_otel_test.go`,
+> `dictionary/internal/rest/otel_wiring_test.go`,
+> `internal/refdataconsumer/otel_54b4_test.go`. `refdataconsumer` has no
+> production caller today. The REST infra routes stay on natstrace until
+> 54d. pricing-service, mfe-registry-service and accounts-service are next
+> (54b-5). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or

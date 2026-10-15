@@ -38,8 +38,9 @@ type metaEvent struct {
 // after every KV write that actually changes the set, this fire-and-forget
 // publishes notify.{context}.shipping.meta.changed carrying the full,
 // updated known-containers array.
-func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, log *slog.Logger) (jetstream.ConsumeContext, error) {
-	n := notifier(nc, log)
+func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, log *slog.Logger, opts ...Option) (jetstream.ConsumeContext, error) {
+	cfg := newProjectorConfig(opts)
+	n := cfg.notifier(nc, log)
 	// See handler.go's register() for why: the Consume callback below closes
 	// over this context for the projector's entire lifetime, so it must not
 	// be tied to whatever short-lived context the caller used to register it
@@ -71,24 +72,20 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 			return
 		}
 
-		// One span per message (BR-037, Phase 28d) — see handler.go's
-		// register() for the full rationale.
-		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
-		sp.SetAttribute("entity_id", id)
-		sp.SetAttribute(consumerDurableAttr, MetaProjectorDurable)
-		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
+		// One span per message — see startMessage.
+		spanCtx, end := cfg.startMessage(tracer, msgCtx, msg, event.Context, aggregate, eventType, id, MetaProjectorDurable)
 
 		data, err := mergeSet(spanCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
 		if err != nil {
 			log.Error("meta projection failed, will redeliver", "subject", msg.Subject(), "err", err)
-			sp.Fail(err, nil, nil)
+			end(err)
 			_ = msg.Nak()
 			return
 		}
 		if data != nil {
 			n.Publish(spanCtx, notify.Changed(event.Context, "meta"), data)
 		}
-		sp.End(nil, nil)
+		end(nil)
 		_ = msg.Ack()
 	})
 }

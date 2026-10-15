@@ -18,6 +18,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/shared/jstream"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 )
 
@@ -164,13 +165,14 @@ func buildTenantResources(ctx context.Context, nc *nats.Conn, tenant string, dep
 	// given stack happened to run first, and the KV inspector 400s on the
 	// rest.
 	for _, kv := range []*kvstore.Store{kvShips, kvContainers, kvMeta} {
-		kv.EnableNotify(nc, deps.Log)
+		kv.EnableNotify(nc, deps.Log, natsnotify.WithOTel(deps.Tracing))
 		if err := kv.Ensure(ctx); err != nil {
 			return nil, fmt.Errorf("provision kv bucket for tenant %q: %w", tenant, err)
 		}
 	}
 
-	projectors, err := registerProjectors(ctx, js, kvShips, kvContainers, kvMeta, nc, deps.ShipRepo, deps.ContainerRepo, deps.Log)
+	projectors, err := registerProjectors(ctx, js, kvShips, kvContainers, kvMeta, nc, deps.ShipRepo, deps.ContainerRepo, deps.Log,
+		eventhandler.WithTracing(deps.Tracing, tenant))
 	if err != nil {
 		return nil, fmt.Errorf("register projectors for tenant %q: %w", tenant, err)
 	}
@@ -179,7 +181,7 @@ func buildTenantResources(ctx context.Context, nc *nats.Conn, tenant string, dep
 	// obs.pubsub.* observation, which PLATFORM imports under
 	// monitor.{tenant}.pubsub.> for the Admin UI's Messages panel. nc must be
 	// this tenant's own connection — see jstream.WithObservation.
-	pub := jstream.NewPublisher(js, jstream.WithObservation(nc))
+	pub := jstream.NewPublisher(js, jstream.WithObservation(nc), jstream.WithOTel(deps.Tracing))
 	ships := commands.NewShipHandler(pub, js, deps.PortRepo)
 	containers := commands.NewContainerHandler(pub, js, deps.PortRepo)
 	terminal := queries.NewTerminal(kvContainers)
@@ -195,6 +197,7 @@ func buildTenantResources(ctx context.Context, nc *nats.Conn, tenant string, dep
 		ShipReads:  shipReads,
 		Log:        deps.Log,
 		Tenant:     tenant,
+		Tracing:    deps.Tracing,
 	})
 	if err != nil {
 		stopAll(projectors)
@@ -301,23 +304,24 @@ func registerProjectors(
 	shipRepo domain.ShipRepository,
 	containerRepo domain.ContainerRepository,
 	log *slog.Logger,
+	opts ...eventhandler.Option,
 ) ([]jetstream.ConsumeContext, error) {
 	var out []jetstream.ConsumeContext
 
-	ccShips, err := eventhandler.RegisterShips(ctx, js, kvShips, nc, shipRepo, log)
+	ccShips, err := eventhandler.RegisterShips(ctx, js, kvShips, nc, shipRepo, log, opts...)
 	if err != nil {
 		return nil, err
 	}
 	out = append(out, ccShips)
 
-	ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, containerRepo, log)
+	ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, containerRepo, log, opts...)
 	if err != nil {
 		stopAll(out)
 		return nil, err
 	}
 	out = append(out, ccCont)
 
-	ccMeta, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nc, log)
+	ccMeta, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nc, log, opts...)
 	if err != nil {
 		stopAll(out)
 		return nil, err

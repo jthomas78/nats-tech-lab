@@ -57,9 +57,10 @@ const consumerDurableAttr = "consumer.durable"
 // entity's sole notify.* publisher (BR-024's "exactly one publisher per
 // event" invariant). See notify_test.go for the payload contract this
 // relies on.
-func RegisterShips(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
-	n := notifier(nc, log)
-	return register(ctx, js, ShipProjectorDurable, nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
+func RegisterShips(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, repo domain.ShipRepository, log *slog.Logger, opts ...Option) (jetstream.ConsumeContext, error) {
+	cfg := newProjectorConfig(opts)
+	n := cfg.notifier(nc, log)
+	return register(ctx, js, ShipProjectorDurable, nc, log, cfg, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
 		oldKey := shipKVKey(subject, event)
 		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
 		agg.Apply(subject, event)
@@ -125,6 +126,7 @@ func register(
 	durable string,
 	nc *nats.Conn,
 	log *slog.Logger,
+	cfg projectorConfig,
 	project func(context.Context, string, domain.ShipEvent) error,
 ) (jetstream.ConsumeContext, error) {
 	// The Consume callback below closes over ctx for the projector's entire
@@ -169,31 +171,23 @@ func register(
 		}
 		event.ID = id
 
-		// One span per message (BR-037, Phase 28d) — continuing the
-		// traceparent header the evt.* publish carried (PublishWithTrace) if
-		// present, else a fresh root span. context/entity/action come from
-		// the subject fields already parsed above, never re-parsed
-		// positionally by StartFromHeaders itself: evt.*'s six-token shape
-		// (evt.{context}.{service}.{entity}.{entity-id}.{event}) isn't the
-		// rpc.*/api.* shape splitSubject assumes (see StartFromHeaders' doc
-		// comment).
-		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
-		sp.SetAttribute("entity_id", id)
-		sp.SetAttribute(consumerDurableAttr, durable)
-		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
+		// One span per message, continuing the traceparent the evt.* publish
+		// carried if present, else a fresh root — see startMessage.
+		spanCtx, end := cfg.startMessage(tracer, msgCtx, msg, event.Context, aggregate, eventType, id, durable)
 
 		if err := project(spanCtx, msg.Subject(), event); err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
-			sp.Fail(err, nil, nil)
+			end(err)
 			_ = msg.Nak()
 			return
 		}
-		sp.End(nil, nil)
+		end(nil)
 		_ = msg.Ack()
 	})
 }
 
-// notifier returns this package's notify.* seam.
+// notifier returns this package's notify.* seam; opts are extra natsnotify
+// options (projectorConfig.notifier adds WithOTel).
 //
 // Phase 43d: publishNotify and publishRawNotify used to live here — two
 // helpers that concatenated a subject, published it, log-and-swallowed the
@@ -205,6 +199,6 @@ func register(
 // Observation is enabled on the same connection the notify goes out on, which
 // is what BR-D45 requires: the envelope has to be inside the publishing
 // tenant's account for BR-AC34's import remap to attribute it correctly.
-func notifier(nc *nats.Conn, log *slog.Logger) *natsnotify.Notifier {
-	return natsnotify.New(nc, log, natsnotify.WithObservation(nc))
+func notifier(nc *nats.Conn, log *slog.Logger, opts ...natsnotify.Option) *natsnotify.Notifier {
+	return natsnotify.New(nc, log, append([]natsnotify.Option{natsnotify.WithObservation(nc)}, opts...)...)
 }

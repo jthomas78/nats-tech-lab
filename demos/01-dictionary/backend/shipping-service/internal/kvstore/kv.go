@@ -49,11 +49,14 @@ func New(js jetstream.JetStream, prefix string) *Store {
 // construction would force every one of them to pass nil, the same
 // mechanical churn EnableNotify avoids. Unset (the default) means Put never
 // publishes, matching today's behavior exactly.
-func (s *Store) EnableNotify(nc *nats.Conn, log *slog.Logger) {
+//
+// opts are extra natsnotify options — natsnotify.WithOTel(p) puts the
+// notify on the OTel path (Phase 54b-4).
+func (s *Store) EnableNotify(nc *nats.Conn, log *slog.Logger, opts ...natsnotify.Option) {
 	// Observation goes out on the same connection the notify does, which is
 	// what BR-D45 requires: the envelope has to sit inside the publishing
 	// tenant's account for BR-AC34's import remap to name the right tenant.
-	s.notifier = natsnotify.New(nc, log, natsnotify.WithObservation(nc))
+	s.notifier = natsnotify.New(nc, log, append([]natsnotify.Option{natsnotify.WithObservation(nc)}, opts...)...)
 }
 
 // Ensure creates the bucket now rather than on first Put/Get/Keys.

@@ -1898,8 +1898,51 @@ Neither is fixed in place: this phase removes the code that has them.
       trace continuity across the Temporal hop required (a Temporal OTel
       interceptor, with its own rule and tests), or an accepted limitation
       (written into BR-064)? Not decided.
-  - [ ] **54b-4** — `shipping-service`. Closes 54a-4's split-trace gap
+  - [x] **54b-4** — `shipping-service`. Closes 54a-4's split-trace gap
         for shipping's `item.get` calls.
+        Done 2026-10-15. Specs first: 16 new specs ran red on their
+        assertions (`testing` 3: refdataconsumer 2, rest wiring 1;
+        dictionary Ginkgo 13). One guard spec (no tracing → natstrace)
+        passed from the start. Then all green:
+        - api.*: every endpoint on `EdgeAPI` when `Deps.Tracing` is set.
+          Receiving account = the adapter's tenant. All 9 handler ctx
+          sites use `sharedbrowserrpc.SpanContext(req)`.
+        - evt.*: `commands.Publisher` is now ctx-only
+          (`Publish(ctx, subject, data)`); the tenant publisher gets
+          `jstream.WithOTel(p)`, so the evt.* PRODUCER span is a child of
+          the SERVER span.
+        - Projectors: `eventhandler.WithTracing(p, tenant)` on all three
+          (ships, container, meta). Each message is a CONSUMER span
+          (receiving account = tenant, `consumer.durable` set); its
+          `notify.*` publishes are PRODUCER spans under it. New file
+          `eventhandler/tracing.go`.
+        - notify.*: `kvstore.EnableNotify` and the adapter's notifier take
+          `natsnotify.WithOTel(p)`.
+        - `refdataconsumer`: `WithTracing(p)` makes each `item.get` one
+          CLIENT span (`peer.service` refdata, `rpc.retry_count`, Error
+          status on no answer or a service-error header) with its
+          traceparent on the request.
+        - Wiring: `natstenants.WithTracing` in `rest.NewHandlers`;
+          `dictionary.Module{Tracing}`; `cmd/main.go` calls
+          `otelnats.InitFromEnv(ctx, "shipping-service")`;
+          `deploy/cell/compose.otel.yaml` sets shipping-service's
+          `OTEL_EXPORTER_OTLP_ENDPOINT`.
+        - **Finding:** `internal/refdataconsumer` (the only `item.get`
+          caller) has no production caller. Only its tests use it. So no
+          live split trace exists today. It gets the CLIENT span anyway,
+          so a future caller is traced.
+        - Kept as is: REST `trace_middleware.go` stays on natstrace (it
+          covers only the infra routes `/api/admin/ports`, `/api/tenant`,
+          `/api/tenant/switch`; it retires in 54d).
+          `RegisterRefdataNotify` (the PLATFORM bridge) has no tracing.
+          `commands.dropConsumer`'s detached 5 s ctx is not request-scoped.
+        - `shipping-service` `go test ./...` green; dictionary Ginkgo 105
+          passed, 0 failed, 13 pending (the old Phase 43a `PDescribe`, not
+          this step). All seven services build.
+        Not tested directly: natstenants lifecycle tracing through
+        `NewHandlers` (tested where the option is defined) and the
+        `cmd/main.go` `InitFromEnv` call. The Temporal gap above is
+        unchanged and still needs a decision.
   - [ ] **54b-5** — `pricing-service`, `mfe-registry-service` and
         `accounts-service`.
   - [ ] **54b-6** — `api._platform.observability.service.list.v1` in

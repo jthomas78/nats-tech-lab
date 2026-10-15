@@ -27,6 +27,7 @@ import (
 
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/docs"
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/httpx"
@@ -113,7 +114,16 @@ func run(log *slog.Logger) error {
 
 	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, credsDir: credsDir, mux: http.NewServeMux(), logger: log}
 
-	modules := []monolith.Module{dictionary.Module{}}
+	// Phase 54b-4: nil when OTEL_EXPORTER_OTLP_ENDPOINT is unset, which keeps
+	// every tenant's traffic on natstrace.
+	tracing, err := otelnats.InitFromEnv(ctx, "shipping-service")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tracing.Shutdown(context.Background()) }()
+	log.Info("tracing", "otel", tracing != nil)
+
+	modules := []monolith.Module{dictionary.Module{Tracing: tracing}}
 	for _, m := range modules {
 		if err := m.Startup(ctx, a); err != nil {
 			return err

@@ -31,8 +31,10 @@ func RegisterContainers(
 	nc *nats.Conn,
 	repo domain.ContainerRepository,
 	log *slog.Logger,
+	opts ...Option,
 ) (jetstream.ConsumeContext, error) {
-	n := notifier(nc, log)
+	cfg := newProjectorConfig(opts)
+	n := cfg.notifier(nc, log)
 	// See handler.go's register() for why: the Consume callback below closes
 	// over this context for the projector's entire lifetime, so it must not
 	// be tied to whatever short-lived context the caller used to register it
@@ -64,14 +66,8 @@ func RegisterContainers(
 		}
 		event.ID = id
 
-		// One span per message (BR-037, Phase 28d) — see handler.go's
-		// register() for the full rationale on why context/entity/action
-		// come from the already-parsed subject fields rather than being
-		// re-derived by StartFromHeaders itself.
-		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
-		sp.SetAttribute("entity_id", id)
-		sp.SetAttribute(consumerDurableAttr, ContainerProjectorDurable)
-		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
+		// One span per message — see startMessage.
+		spanCtx, end := cfg.startMessage(tracer, msgCtx, msg, event.Context, aggregate, eventType, id, ContainerProjectorDurable)
 
 		agg := currentContainerAgg(spanCtx, kv, event)
 		agg.Apply(msg.Subject(), event)
@@ -80,20 +76,20 @@ func RegisterContainers(
 		persisted, err := repo.Upsert(spanCtx, state)
 		if err != nil {
 			log.Error("container projection failed, will redeliver", "subject", msg.Subject(), "err", err)
-			sp.Fail(err, nil, nil)
+			end(err)
 			_ = msg.Nak()
 			return
 		}
 		data, err := json.Marshal(persisted)
 		if err != nil {
 			log.Error("marshal container state", "err", err)
-			sp.Fail(err, nil, nil)
+			end(err)
 			_ = msg.Nak()
 			return
 		}
 		if _, err := kv.Put(spanCtx, event.Context, state.KVKey(), data); err != nil {
 			log.Error("container kv write failed, will redeliver", "subject", msg.Subject(), "err", err)
-			sp.Fail(err, nil, nil)
+			end(err)
 			_ = msg.Nak()
 			return
 		}
@@ -101,7 +97,7 @@ func RegisterContainers(
 		if rawData, err := json.Marshal(event); err == nil {
 			n.Publish(spanCtx, notify.Raw(event.Context, "container", eventType), rawData)
 		}
-		sp.End(nil, nil)
+		end(nil)
 		_ = msg.Ack()
 	})
 }
