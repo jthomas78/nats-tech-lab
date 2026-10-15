@@ -101,6 +101,13 @@ Split by domain so a rule add/edit only requires reading its own file:
   carrying one) rather than a format. It relocates BR-058's user NKey off
   the cell tooltip and into the cell. The clipboard may carry all 56
   characters where the screen may not, from a detail pane only.
+  BR-064–071 (Phase 54, PROPOSED 2026-10-15 — specs first, not implemented)
+  govern the OpenTelemetry path that replaces `natstrace`: one trace per
+  request (064), the caller owns its CLIENT span (065), a dead Collector never
+  blocks a call (066), only an operator reads traces (067), the Collector's
+  disk queue survives restarts (068), tenant attributes come from trusted
+  context only (069, replacing BR-051), replies use the lab's own schema
+  (070), and a browser `traceparent` is a link, never a parent (071).
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D48, BR-D39 being the Phase 28 `obs.trace.*` mirror of
   BR-036 and BR-D45 (Phase 43a, CONFIRMED) pointing this service's `evt.*`

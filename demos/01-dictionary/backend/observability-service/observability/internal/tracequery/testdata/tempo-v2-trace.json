@@ -1,0 +1,58 @@
+{
+  "trace": {
+    "resourceSpans": [
+      {
+        "resource": {
+          "attributes": [
+            { "key": "service.name", "value": { "stringValue": "organizations-service" } }
+          ]
+        },
+        "scopeSpans": [
+          {
+            "scope": { "name": "github.com/jthomas78/nats-tech-lab/shared/otelnats" },
+            "spans": [
+              {
+                "traceId": "0af7651916cd43dd8448eb211c80319c",
+                "spanId": "b7ad6b7169203331",
+                "name": "api.acme.organizations.fleet-asset.add.v1",
+                "kind": "SPAN_KIND_SERVER",
+                "startTimeUnixNano": "1760530000000000000",
+                "endTimeUnixNano": "1760530000012000000",
+                "attributes": [
+                  { "key": "lab.tenant.receiving_account", "value": { "stringValue": "ACME" } }
+                ],
+                "events": [
+                  {
+                    "timeUnixNano": "1760530000001000000",
+                    "name": "rpc.request.body",
+                    "attributes": [
+                      { "key": "body", "value": { "stringValue": "{\"make\":\"Volvo\"}" } },
+                      { "key": "redacted", "value": { "boolValue": false } }
+                    ]
+                  }
+                ],
+                "links": [
+                  { "traceId": "4bf92f3577b34da6a3ce929d0e0e4736", "spanId": "00f067aa0ba902b7" }
+                ],
+                "status": { "code": "STATUS_CODE_UNSET" }
+              },
+              {
+                "traceId": "0af7651916cd43dd8448eb211c80319c",
+                "spanId": "c8be7c8270314442",
+                "parentSpanId": "b7ad6b7169203331",
+                "name": "refdata.item.get.v1",
+                "kind": "SPAN_KIND_CLIENT",
+                "startTimeUnixNano": "1760530000002000000",
+                "endTimeUnixNano": "1760530000010000000",
+                "attributes": [
+                  { "key": "peer.service", "value": { "stringValue": "refdata" } }
+                ],
+                "status": { "code": "STATUS_CODE_ERROR", "message": "NO_SUCH_VEHICLE_TYPE" }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

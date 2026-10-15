@@ -25,4 +25,5 @@ use (
 	./shared/natstenants
 	./shared/natstest
 	./shared/natstrace
+	./shared/otelnats
 )

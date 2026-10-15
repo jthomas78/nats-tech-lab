@@ -1278,6 +1278,93 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 
 ---
 
+### Phase 54 — OpenTelemetry tracing (BR-064 to BR-071)
+
+> **Status: PROPOSED 2026-10-15. Specs are written first (red); nothing here
+> is implemented.** Design: `Main-POC-Plan.md` Phase 54, decisions 1–16. These
+> rules govern the OTel path only. Until decision 16's gate (54c complete and
+> validated), the default stack still runs `natstrace`, and BR-035–BR-037,
+> BR-051, BR-053 and BR-056 still describe it. Each of those is amended or
+> retired in the commit that switches it, not before.
+>
+> Where a rule needs the running stack (an outage, a real tenant credential,
+> a measured delay), its test is a **stack check**, run by hand against the
+> `otel` stack and recorded in the plan. A unit spec cannot prove those, and
+> none pretends to.
+
+### BR-064 (Phase 54a) — One request across services is one trace: SERVER → CLIENT → SERVER, linked by `traceparent` in NATS headers
+
+The receiving adapter starts a SERVER span. An outbound request starts a CLIENT span that is the child of the current span, and writes the W3C `traceparent` into the NATS message headers with the standard OTel propagator. The next service extracts it, and its SERVER span is the child of that CLIENT span. All three spans share one trace ID.
+
+`natstrace` already sends `traceparent` (`natstrace.go:55`), so the header name does not change. What changes is the code that writes and reads it: standard OTel inject/extract through a `TextMapCarrier` over `nats.Header`, in one shared package (decision 14).
+
+- **Enforced in:** `shared/otelnats` — `HeaderCarrier`, `Inject`, `Extract`, `StartServer`, `StartClient`.
+- **Test:** `shared/otelnats/propagation_test.go`, `Context("BR-064: …")` — two services on an in-process NATS server; three spans, one trace ID, parent links and kinds checked; plus carrier round-trip specs.
+
+### BR-065 (Phase 54a) — An outbound CLIENT span carries the caller's `service.name`; the destination is an attribute
+
+A span's `service.name` is the process that made it. The CLIENT span for `organizations-service → refdata-service` belongs to `organizations-service`, and `refdata` is recorded as `peer.service`, with the subject as `messaging.destination.name`. This fixes one of the two defects that motivate Phase 54: `natstrace`'s outbound spans report the callee as `service.name`.
+
+BR-037's "one span per logical call, never one per retry" and `rpc.retry_count` carry over unchanged.
+
+- **Enforced in:** `shared/otelnats` — `Init` sets the resource from `Config.ServiceName`; `StartClient` sets the destination attributes.
+- **Test:** `shared/otelnats/span_test.go`, `Context("BR-065: …")`.
+
+### BR-066 (Phase 54a) — With the Collector down, stopped or hung, the business call succeeds, spans drop within a bounded queue, p95 rises < 5 ms, and a service still stops within its shutdown timeout
+
+Export is asynchronous (the SDK batch span processor) and drops on a full queue. Two failure modes are tested, because they fail differently: *stopped* refuses at once; *hung* (`docker pause`) accepts nothing and answers nothing, so every export waits until it times out. `shared/otelnats` sets an explicit export timeout and an explicit shutdown timeout, so a service never waits on a dead Collector to stop.
+
+- **Enforced in:** `shared/otelnats` — `Config.ExportTimeout`, `Config.ShutdownTimeout`, `Provider.Shutdown`.
+- **Test:** `shared/otelnats/lifecycle_test.go`, `Context("BR-066: …")` — against a refused port and against a listener that accepts and never answers: ending spans does not block, and `Shutdown` returns within its timeout. **Stack check (54a):** business call success, p95 rise and the SDK's loss window, with the Collector stopped and with it paused.
+
+### BR-067 (Phase 54a) — Only an operator credential may call `api._platform.observability.trace.{search|get|services}.v1`; a tenant credential cannot reach the trace service or read trace data
+
+The three subjects are granted only in `MintAdminToken`'s PLATFORM profile, named one by one (its allowlist is explicit by design), and are never exported to a tenant account. `observability-service` serves them on its PLATFORM connection only.
+
+The error a tenant sees is **not** the rule. `MintBrowserToken` grants `Pub api.>`, so a tenant publish is allowed and gets *no responders*, because nothing in the tenant account answers. *No responders* or a permission error both pass; a reply that carries trace data fails. An explicit `Pub.Deny api._platform.>` is optional extra policy.
+
+- **Enforced in:** `accounts-service/auth/token.go` — `MintAdminToken` (BR-AC18 amended); `observability-service/observability/internal/tracequery` — `Subjects()`, mounted on the PLATFORM connection.
+- **Test:** `accounts-service/auth/token_test.go`, `It("BR-067: …")` — the admin profile grants exactly the three trace subjects, and the browser profile names none of them; `tracequery/tracequery_test.go`, `Context("BR-067: …")` — the adapter serves exactly those three subjects. **Stack check (54a):** an operator credential reads traces from every tenant; a tenant browser token **and** the tenant's `.creds` both fail to read trace data.
+
+### BR-068 (Phase 54a durability; 54b capacity and overflow) — With Tempo down, the Collector keeps spans on disk across a graceful restart and a hard kill, holds a 2-hour outage at measured peak, delivers every queued span when Tempo returns, and counts what it loses when full
+
+The Collector's sending queue is backed by the `file_storage` extension on a named volume, with `retry_on_failure` set deliberately. No in-memory `batch` processor sits in front of the persistent queue. One exact Collector version is pinned, and every test runs against it (upstream issue open-telemetry/opentelemetry-collector#15677 reports persistent-queue loss on shutdown in v0.157.x).
+
+Configuration is not evidence; three separate tests are. *Durability* is proved in 54a. *Capacity* and *overflow* need every service instrumented to measure peak volume, so they are proved after 54b.
+
+- **Enforced in:** the Collector configuration under `demos/01-dictionary/deploy/` (the `otel` stack).
+- **Test:** **stack checks only.** (1) Durability, 54a: stop Tempo, send known traces, restart the Collector gracefully, start Tempo — every known span arrives; repeat with `docker kill`. (2) Capacity, after 54b. (3) Overflow, after 54b: the loss is a counted, visible number and business calls are unaffected.
+
+### BR-069 (Phase 54a) — The receiving service sets the receiving account and the originating tenant, from trusted context only, never from a client-supplied header, the body or `Nats-Requestor`
+
+Replaces BR-051 on the OTel path. With no arrival subject to read, the **receiving service** sets two span attributes, kept apart:
+
+- `lab.tenant.receiving_account` — from the connection the message arrived on. Always known. For `refdata-service` it is PLATFORM, because it runs on `platform.creds`.
+- `lab.tenant.originating` — only from routing context the NATS server writes, else empty and shown as `unattributed` (BR-054).
+
+The candidate source is the import-renamed subject token: a tenant publishes `refdata.item.get.v1`, and the server renames it to `rpc.{tenant}.refdata.item.get.v1` in PLATFORM (`provisioner.go` `tenantImports`). No import sets `share: true` today, so `Nats-Request-Info` is not present. **A server-written value is a source only after a stack check proves a tenant client cannot spoof or override the value the service reads.** Until that check passes, the attribute stays empty.
+
+The attacker is a **tenant client**. Platform services are trusted, not checked: `platform.creds` has no publish limits, so a PLATFORM service could publish `rpc.acme.refdata.…` directly. That is accepted in the lab and is a V3 decision. The tenant attribute is **metadata and a query filter, never a security boundary**.
+
+- **Enforced in:** `shared/otelnats` — `Trust`, `StartServer`, `OriginatingTenantFromRPCSubject`; each receiving adapter supplies the `Trust` value.
+- **Test:** `shared/otelnats/tenant_test.go`, `Context("BR-069: …")` — attributes come from `Trust` only: a `Nats-Requestor` header, a `tenant` body field and a client-sent `Nats-Request-Info` header naming another tenant change nothing; an empty originating tenant stays empty; the subject parser accepts the renamed form and rejects near-misses. **Stack check (54a):** a tenant client cannot make the attribute name another tenant.
+
+### BR-070 (Phase 54a) — Every trace reply is the lab's own versioned schema, never Tempo's passed through
+
+`observability-service` calls Tempo over HTTP internally and maps the result. The reply names its schema version. Resources, attributes, events and links are kept. That contract, not hiding a URL, is what makes a later Tempo → Jaeger v2 swap a change to one adapter.
+
+- **Enforced in:** `observability-service/observability/internal/tracequery` — the Tempo adapter and the mapping to the lab schema.
+- **Test:** `tracequery/tracequery_test.go`, `Context("BR-070: …")` — against a fake Tempo HTTP server: the reply carries the lab schema version, keeps span events and links, and carries none of Tempo's own top-level keys.
+
+### BR-071 (Phase 54a) — An inbound `api.*` call always starts a new trace, sampled always-on; a browser-sent `traceparent` becomes a span link, never a parent, and cannot turn sampling off
+
+A browser can send any `traceparent` — any trace ID, and `sampled = 0`. `natstrace` continues it today (`parseTraceparent` in `Start`). On an inbound `api.*` call the SERVER span therefore starts a new root; a valid incoming `traceparent` is kept only as a span link. Between trusted services (`rpc.*`, `evt.*`, `notify.*`) normal parent-based propagation applies. Cost, accepted: browser and server ancestry are separate traces.
+
+- **Enforced in:** `shared/otelnats` — `StartServer` with `EdgeAPI`.
+- **Test:** `shared/otelnats/edge_test.go`, `Context("BR-071: …")` — a sampled and an unsampled browser `traceparent` both give a new, sampled trace with one link to the sent context; a malformed one gives a new trace with no link; `EdgeRPC` still continues its parent.
+
+---
+
 ---
 
 ## Guards (not numbered rules)

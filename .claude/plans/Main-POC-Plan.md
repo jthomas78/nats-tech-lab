@@ -1208,7 +1208,7 @@ rationale, the design decisions, or the verification log).
 ---
 
 
-### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 drafted, to be written with 54a) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
+### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 written into BUSINESS_RULES-SHIPPING.md 2026-10-15, specs red; 54a IN PROGRESS) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
 
 > Reverses the deferred decision recorded in ARCHITECTURE-COMMUNICATIONS.md
 > § 6 ("Revisit the real SDK if this POC graduates"). Agreed direction
@@ -1557,7 +1557,21 @@ Neither is fixed in place: this phase removes the code that has them.
     the `api.*` SERVER span starts a new trace with a link (BR-071).
   - the visibility delay (decision 8), recorded as a number.
 
-  Sets the pattern.
+  Sets the pattern. Build order:
+  - [x] **54a-1** — BR-064–BR-071 written; failing specs in
+        `shared/otelnats` (BR-064/065/066/069/071),
+        `observability/internal/tracequery` (BR-067/070) and
+        `accounts-service/auth/token_test.go` (BR-067). Skeletons only.
+  - [ ] **54a-2** — `deploy/cell/compose.otel.yaml` overlay: pinned
+        Collector (`file_storage` queue, no `batch` processor), Tempo
+        (monolithic), Grafana with login. Only Grafana on the host.
+  - [ ] **54a-3** — implement `shared/otelnats`; its specs green.
+  - [ ] **54a-4** — the fleet-asset path (`organizations-service`) and
+        refdata `item.get` use `otelnats` when the overlay is on.
+  - [ ] **54a-5** — `trace.get` gateway in `observability-service`, its
+        NATS user permissions, the `MintAdminToken` grant; specs green.
+  - [ ] **54a-6** — stack checks: access, trust, outage/durability,
+        visibility delay.
 - **54b — remaining services**, one at a time, following 54a's pattern and
   using `shared/otelnats` — no service-local copy of its four jobs. Each
   service gets decision 6's context audit. Moves the `obs.pubsub.*`

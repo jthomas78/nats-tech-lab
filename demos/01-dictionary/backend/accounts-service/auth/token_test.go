@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -220,6 +221,30 @@ var _ = Describe("MintAdminToken", func() {
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpc.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$KV")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
+	})
+
+	// Phase 54 (BR-067, amends BR-AC18): the three trace query subjects are
+	// operator-only. They are named one by one, never as an
+	// api._platform.observability.> prefix, for the same reason as the users
+	// subjects above. When this goes green, the exact ConsistOf above gains
+	// the same three lines.
+	It("BR-067: grants exactly the three trace query subjects, and nothing else under observability", func() {
+		info, err := auth.MintAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		claims, err := jwt.DecodeUserClaims(info.JWT)
+		Expect(err).NotTo(HaveOccurred())
+
+		var observability []string
+		for _, s := range claims.Permissions.Pub.Allow {
+			if strings.HasPrefix(s, "api._platform.observability.") {
+				observability = append(observability, s)
+			}
+		}
+		Expect(observability).To(ConsistOf(
+			"api._platform.observability.trace.search.v1",
+			"api._platform.observability.trace.get.v1",
+			"api._platform.observability.trace.services.v1",
+		))
 	})
 
 	It("stamps the expiry from the ttl argument", func() {
