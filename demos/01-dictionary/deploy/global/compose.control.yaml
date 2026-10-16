@@ -143,6 +143,12 @@ services:
       # RETENTION to 0 DISABLES the reaper; it does not mean reap-on-expiry.
       ACCOUNTS_SESSION_RETENTION: 24h
       ACCOUNTS_REAPER_INTERVAL: 15m
+      # Phase 54, decision 16 — traces go to the cell's Collector
+      # (../cell/compose.telemetry.yaml). Run as the standalone lb-global
+      # project there is no Collector to resolve; the exporter drops spans
+      # and the service carries on (BR-066).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
     ports:
       - "${ACCOUNTS_PORT:-7202}:8080"
     volumes:

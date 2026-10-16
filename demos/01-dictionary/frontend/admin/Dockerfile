@@ -8,7 +8,7 @@ COPY demos/01-dictionary/shared ./demos/01-dictionary/shared
 COPY demos/01-dictionary/frontend/admin ./demos/01-dictionary/frontend/admin
 WORKDIR /repo/demos/01-dictionary/frontend/admin
 # Phase 54c: the Traces panel's "Open in Grafana" link. Empty hides the
-# link; deploy/cell/compose.otel.yaml sets it from GRAFANA_PORT.
+# link; deploy/cell/compose.runtime.yaml sets it from GRAFANA_PORT.
 ARG VITE_GRAFANA_URL=""
 ENV VITE_GRAFANA_URL=$VITE_GRAFANA_URL
 RUN npm install && npm run build

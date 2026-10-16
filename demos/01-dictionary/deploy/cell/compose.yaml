@@ -19,6 +19,10 @@
 #     -f compose.yaml -f ../global/compose.control.yaml up -d
 #
 # See deploy/global/compose.control.yaml's header, and ADR-055.
+#
+# compose.telemetry.yaml is the OpenTelemetry stack (Collector, Tempo,
+# Grafana). Part of every cell since Phase 54's decision 16 switch.
 include:
   - compose.infra.yaml
   - compose.runtime.yaml
+  - compose.telemetry.yaml

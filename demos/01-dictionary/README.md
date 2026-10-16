@@ -136,14 +136,13 @@ live-tails `obs.trace.>` by default (durable consumer, resumes across
 restarts); set `OTLP_BRIDGE_REPLAY=true` on the `otlp-bridge` service to
 re-export the whole retained hour on the next start instead.
 
-**Optional — OpenTelemetry stack (Phase 54, in progress):** an overlay, not
-part of the default stack until Phase 54's cutover. It adds the OTel
-Collector, Grafana Tempo and Grafana. Only Grafana gets a host port; the
-Collector and Tempo stay inside Docker. Add it with one more `-f`:
-
-```bash
-docker compose -p poc --env-file ../environments/local-za-1.env -f compose.yaml -f ../global/compose.control.yaml -f compose.otel.yaml up -d --build
-```
+**OpenTelemetry stack (Phase 54):** part of every cell since the decision 16
+switch. `compose.yaml` includes `compose.telemetry.yaml`, which runs the OTel
+Collector, Grafana Tempo and Grafana. Every service sends its traces to the
+Collector. Only Grafana gets a host port; the Collector and Tempo stay inside
+Docker. The cell command above brings it up; there is no extra `-f`.
+Request and reply bodies are off by default (decision 7); start the stack with
+`OTEL_CAPTURE_BODIES=true` to record them.
 
 Then open **http://localhost:3000** and sign in (`admin` / `admin` in the lab).
 
@@ -176,7 +175,7 @@ Then open **http://localhost:3000** and sign in (`admin` / `admin` in the lab).
 | Temporal UI          | http://localhost:8233                                        |
 | Jaeger UI (opt-in, `--profile otlp`) | http://localhost:16686                           |
 | Jaeger OTLP/HTTP receiver (opt-in)   | http://localhost:4318                            |
-| Grafana (opt-in, `compose.otel.yaml`; `au-1`: 3050) | http://localhost:3000             |
+| Grafana (`compose.telemetry.yaml`; `au-1`: 3050) | http://localhost:3000              |
 
 **Postgres credentials.** One instance (`lb-postgres`, host `localhost`, port `5432`). Each service has its own database and its own role, and a role can `CONNECT` only to its own database (Phase 53, ADR-052 — created once by `postgres/init.sql`). Password equals the role name.
 

@@ -2145,7 +2145,7 @@ in `labDemos.js`, which always named demos 02 and 03 by hand.
 ## Phase 54b-5 — mfe-registry-service on OpenTelemetry (no rule change)
 
 Tracing only; no BR-AS rule changes. With `registry.WithTracing(p)` set
-(`OTEL_EXPORTER_OTLP_ENDPOINT` in `deploy/cell/compose.otel.yaml`):
+(`OTEL_EXPORTER_OTLP_ENDPOINT` in `deploy/cell/compose.runtime.yaml`):
 
 - Every `api._platform.mfe-registry.*` endpoint is an OTel SERVER span on the
   `PLATFORM` account. It starts a new root and links a sent `traceparent`

@@ -4,7 +4,7 @@
 # a production one: production Tempo 3.x needs a Kafka-compatible queue and
 # object storage, and the V3 trace store is a separate V3 decision.
 #
-# Image pinned in deploy/cell/compose.otel.yaml (grafana/tempo 3.1.0). Based
+# Image pinned in deploy/cell/compose.telemetry.yaml (grafana/tempo 3.1.0). Based
 # on Tempo's own single-binary example at that tag, minus the metrics
 # generator (no Prometheus until Phase 55).
 #
@@ -36,7 +36,7 @@ query_frontend:
   # A search leaves out the newest query_end_cutoff of its time range, so a
   # new trace is searchable only after this long. Tempo's default is 30s,
   # and that is the value here unless the cell's env file sets
-  # TEMPO_QUERY_END_CUTOFF (compose.otel.yaml; this file is read with
+  # TEMPO_QUERY_END_CUTOFF (compose.telemetry.yaml; this file is read with
   # -config.expand-env). Local cells set 5s. Never 0: the live-store runs
   # with fail_on_high_lag, which needs the cutoff.
   query_end_cutoff: ${TEMPO_QUERY_END_CUTOFF:-30s}

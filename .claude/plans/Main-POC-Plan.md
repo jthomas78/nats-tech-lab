@@ -1208,7 +1208,7 @@ rationale, the design decisions, or the verification log).
 ---
 
 
-### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 written into BUSINESS_RULES-SHIPPING.md 2026-10-15, specs red; 54a–54c BUILT, 54c validated on au-1 2026-10-16, default-stack switch NOT made) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
+### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 written into BUSINESS_RULES-SHIPPING.md 2026-10-15, specs red; 54a–54c BUILT, 54c validated on au-1 2026-10-16, decision 16 switch MADE 2026-10-16 on au-1; 54d next) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
 
 > Reverses the deferred decision recorded in ARCHITECTURE-COMMUNICATIONS.md
 > § 6 ("Revisit the real SDK if this POC graduates"). Agreed direction
@@ -2116,6 +2116,32 @@ Neither is fixed in place: this phase removes the code that has them.
       float noise (now whole µs); `[messages]` rows were in load order (now
       newest first by finish time); both tabs showed a false empty state
       during the first search (now "Searching the trace store…").
+- **Decision 16 switch — MADE 2026-10-16, checked on `au-1`.** OTel is the
+  default on every cell. The six legacy rules (BR-035–BR-037, BR-051,
+  BR-053, BR-056) carry a "Decision 16 switch" note, confirmed by the user.
+  - **What changed.** `deploy/cell/compose.otel.yaml` is gone. Its
+    Collector, Tempo and Grafana blocks are now
+    `deploy/cell/compose.telemetry.yaml`, which `compose.yaml` includes. The
+    per-service settings moved onto each service's own block:
+    `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_CAPTURE_BODIES` on shipping,
+    refdata, mfe-registry, pricing and organizations
+    (`compose.runtime.yaml`) and accounts (`global/compose.control.yaml`);
+    observability-service's `telemetry` network and `TEMPO_URL`; the Admin
+    UI's `VITE_GRAFANA_URL` build argument. Every reference to the old file
+    was updated (README, `otel/clear-tempo.sh`, env files, comments).
+  - **Nothing old was deleted.** natstrace, TRACES, the KV feed, Jaeger and
+    `otlp-bridge` stay until 54d. History is not migrated.
+  - **Bodies are off by default** (decision 7). The 54c validation ran with
+    `OTEL_CAPTURE_BODIES=true`; the switched stack does not set it.
+  - **Checks (au-1, plain cell command, no overlay).** `docker compose
+    config` gives the same services, networks and volume names as the
+    overlay did; Compose left the Collector, Tempo, observability-service
+    and the Admin UI running, unchanged. Every OTel service has the
+    endpoint. `otel-stackcheck gateway 3`: G1–G5 pass (search p50 9.89 s).
+    The Admin UI Traces tab polls and shows new traces at 1920x1080.
+  - **Open: za-1 cannot start next to the chronicle stack.** za-1's
+    `GRAFANA_PORT=3000` and `JAEGER_OTLP_PORT=4318` are taken by the
+    chronicle `lgtm` container. Not checked on za-1.
 - **54d — retire** everything in decision 13, Jaeger, and the
   accounts-service trace export/import. Only after the switch has been
   made and checked, and the Messages panel is proved to still work and to

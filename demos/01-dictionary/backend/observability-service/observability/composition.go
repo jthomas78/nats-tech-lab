@@ -44,7 +44,7 @@ type Config struct {
 	NatsLogPath        string
 	AccountsURL        string
 	AccountsAuthSecret string
-	// TempoURL is Tempo's HTTP API, set only by compose.otel.yaml (Phase 54,
+	// TempoURL is Tempo's HTTP API, set by compose.runtime.yaml (Phase 54,
 	// decision 9). Empty means the trace query gateway is not mounted, so
 	// its subjects get no responders.
 	TempoURL string

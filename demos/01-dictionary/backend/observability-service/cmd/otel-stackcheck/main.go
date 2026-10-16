@@ -1,5 +1,5 @@
 // Command otel-stackcheck runs Phase 54a's stack checks against a cell
-// started with the `otel` overlay (deploy/cell/compose.otel.yaml). It is the
+// with the OTel stack up (deploy/cell/compose.telemetry.yaml). It is the
 // repeatable form of the checks recorded in Main-POC-Plan.md, 54a-6.
 //
 // It drives the real fleet-asset path — api.{ctx}.organizations.fleet-asset.

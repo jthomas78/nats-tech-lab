@@ -127,7 +127,8 @@ func tracesURL(endpoint string) string {
 }
 
 // EndpointEnv is the one switch onto the OTel path (decision 16). Only
-// compose.otel.yaml sets it; unset, a service stays on natstrace.
+// the cell compose files set it on every service; unset, a service stays on
+// natstrace.
 const EndpointEnv = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
 // CaptureBodiesEnv is a service's opt-in for body capture (decision 7,

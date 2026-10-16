@@ -24,7 +24,7 @@ const fixtureTraceID = "0af7651916cd43dd8448eb211c80319c"
 // Tempo's v2 trace-by-ID route, and 404 for anything else.
 //
 // The fixture is a real reply, captured 2026-10-15 from the pinned Tempo
-// (grafana/tempo 3.1.0) in compose.otel.yaml. Re-capture it when the pin
+// (grafana/tempo 3.1.0) in compose.telemetry.yaml. Re-capture it when the pin
 // moves. Note what Tempo really sends: trace and span IDs as base64, not
 // hex, and a top-level "metrics" key — the lab schema has hex IDs and
 // neither wrapper.

@@ -39,8 +39,7 @@ NETWORK=${PROJECT}_telemetry
 compose() {
   docker compose -p "$PROJECT" --env-file "$ENV_FILE" \
     -f "$DEMO/deploy/cell/compose.yaml" \
-    -f "$DEMO/deploy/global/compose.control.yaml" \
-    -f "$DEMO/deploy/cell/compose.otel.yaml" "$@"
+    -f "$DEMO/deploy/global/compose.control.yaml" "$@"
 }
 
 if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then

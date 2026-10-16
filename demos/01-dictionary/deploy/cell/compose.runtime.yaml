@@ -34,6 +34,11 @@ services:
       NATS_ADMIN_CREDS_PATH: /etc/nats/creds/shipping-admin.creds
       DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
       HTTP_ADDR: ":8080"
+      # Phase 54, decision 16 — traces go to the Collector in
+      # compose.telemetry.yaml. OTEL_CAPTURE_BODIES is decision 7's
+      # per-service opt-in (BR-036): off unless the shell sets it.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
     ports:
       - "${SHIPPING_PORT:-7200}:8080"
     volumes:
@@ -81,6 +86,9 @@ services:
       # after boot is invisible to this service.
       NATS_CREDS_DIR: /etc/nats/creds:/var/lib/nats/creds
       HTTP_ADDR: ":8080"
+      # Phase 54, decision 16 (see shipping-service above).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
     ports:
       - "${REFDATA_PORT:-7201}:8080"
     volumes:
@@ -174,6 +182,9 @@ services:
       # only preloaded plugin was withheld — an empty registry from a port
       # hidden in a *data* file rather than in compose.
       PLUGIN_CATALOG_PORT: "${PLUGIN_CATALOG_PORT:-7112}"
+      # Phase 54, decision 16 (see shipping-service above).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
     ports:
       - "${MFE_REGISTRY_PORT:-7206}:8080"
     volumes:
@@ -262,6 +273,9 @@ services:
       # mints into at runtime. Without the second entry a tenant created
       # after boot is invisible to this service.
       NATS_CREDS_DIR: /etc/nats/creds:/var/lib/nats/creds
+      # Phase 54, decision 16 (see shipping-service above).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
     ports:
       - "${PRICING_PORT:-7203}:8080"
     volumes:
@@ -323,6 +337,9 @@ services:
       # BR-TP28 — how often the GIT monitor re-checks a vetted transporter's
       # cover. Short for a lab: a drop nobody can watch happen is not a
       # demonstration. Production would measure this in hours.
+      # Phase 54, decision 16 (see shipping-service above).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
     ports:
       - "${ORGANIZATIONS_PORT:-7204}:8080"
     volumes:
@@ -353,9 +370,13 @@ services:
     networks:
       - backend
       - frontend
+      # Phase 54 — the trace query gateway (decision 9) calls Tempo over
+      # HTTP. Only this service joins `telemetry` from the business side.
+      - telemetry
     environment:
       NATS_URL: nats://nats:4222
       NATS_CREDS_PATH: /etc/nats/creds/observability.creds
+      TEMPO_URL: http://tempo:3200
       HTTP_ADDR: ":8080"
       # Phase 17c — Connections/AccountActivity proxy the NATS server's HTTP
       # monitoring port (distinct from NATS_URL's client port 4222).
@@ -384,6 +405,11 @@ services:
       # theme preset (shared/unifi-theme) alongside the app source.
       context: ../../../..
       dockerfile: demos/01-dictionary/frontend/admin/Dockerfile
+      args:
+        # Phase 54c. The browser opens Grafana on the host port, not on the
+        # telemetry network, so the link is built from GRAFANA_PORT at image
+        # build time.
+        VITE_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
     # nginx.conf looks every upstream up per request (a variable + Docker's
     # resolver, 2026-10-16), so a missing or recreated backend no longer
     # stops or strands nginx. Kept as a plain crash guard.
@@ -527,6 +553,9 @@ networks:
   # prove locally.
   backend:
   frontend:
+  # Phase 54 — declared in compose.telemetry.yaml too; observability-service
+  # joins it to reach Tempo.
+  telemetry:
 
 volumes:
   # BR-AC46 — where accounts-service writes a runtime-minted tenant's

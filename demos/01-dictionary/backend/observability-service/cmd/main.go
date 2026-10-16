@@ -62,7 +62,7 @@ func run(log *slog.Logger) error {
 		// LocalAddr-matching trick (accounts_client.go's doc comment).
 		AccountsURL:        envOr("ACCOUNTS_URL", ""),
 		AccountsAuthSecret: envOr("ACCOUNTS_AUTH_SECRET", ""),
-		// Phase 54 — set only by compose.otel.yaml; empty leaves the trace
+		// Phase 54 — set by compose.runtime.yaml; empty leaves the trace
 		// query gateway unmounted.
 		TempoURL: envOr("TEMPO_URL", ""),
 	}

@@ -63,7 +63,7 @@ func run(log *slog.Logger) error {
 	// One NATS connection per known tenant, carrying BR-TP14's refdata
 	// validation client and (Phase 26g) a micro-service registration for $SRV
 	// discovery. The Admin UI still reads/writes over REST below.
-	// Phase 54a-4: only compose.otel.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
+	// Phase 54a-4: compose.runtime.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
 	// Unset, tracing is nil and every path stays on natstrace.
 	tracing, err := otelnats.InitFromEnv(ctx, "organizations-service")
 	if err != nil {

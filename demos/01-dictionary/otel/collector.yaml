@@ -1,6 +1,6 @@
 # OpenTelemetry Collector — Phase 54 (decisions 2, 10, 11).
 #
-# Image pinned in deploy/cell/compose.otel.yaml (otelcol-contrib 0.162.0).
+# Image pinned in deploy/cell/compose.telemetry.yaml (otelcol-contrib 0.162.0).
 # Every outage test runs against that one version, because the tests, not
 # this file, are the evidence (decision 11; upstream issue
 # open-telemetry/opentelemetry-collector#15677 reports persistent-queue loss

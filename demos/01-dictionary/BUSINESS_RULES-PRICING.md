@@ -466,7 +466,7 @@ Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing pub
 - **Test:** `pricing/internal/natstrace/natstrace_test.go` — the shared cross-service contract test (BR-036's clone) asserting the `traceSpan` JSON shape decodes identically to shipping-service's, and that an old-shape `obsEnvelope` with none of the Phase 28 fields still decodes.
 
 > **OTel path (Phase 54b-5, 2026-10-15).** With `MountAPI(..., tracing)` set
-> (`OTEL_EXPORTER_OTLP_ENDPOINT` in `deploy/cell/compose.otel.yaml`), every
+> (`OTEL_EXPORTER_OTLP_ENDPOINT` in `deploy/cell/compose.runtime.yaml`), every
 > one of the 33 `api.*` endpoints is an OTel SERVER span named for its
 > subject, on the tenant's account (BR-069), that starts a new root and
 > links a sent `traceparent` (BR-071). The span's context reaches the

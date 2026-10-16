@@ -81,7 +81,7 @@ func run(log *slog.Logger) error {
 	}
 	defer nc.Drain() //nolint:errcheck
 
-	// Phase 54a-4: only compose.otel.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
+	// Phase 54a-4: compose.runtime.yaml sets OTEL_EXPORTER_OTLP_ENDPOINT.
 	// Unset, tracing is nil and every path stays on natstrace. It starts before
 	// Startup, because Startup builds the evt.* publisher (Phase 54b-3a).
 	tracing, err := otelnats.InitFromEnv(ctx, "refdata-service")

@@ -1,14 +1,16 @@
 # Phase 54 — the OpenTelemetry stack: Collector → Tempo, Grafana reads Tempo.
 #
-# An overlay, never the default, until decision 16's gate. 54a, 54b and 54c
-# are built and tested off the default stack; the default stack keeps
-# natstrace, TRACES, the KV feed and Jaeger throughout. At the gate (54c
-# complete and validated) one switch moves these three services into the
-# cell's base compose (decision 2) and every service onto them together.
+# Part of every cell since decision 16's switch (54c validated). compose.yaml
+# includes this file, so the plain cell command brings it up:
 #
 #   docker compose -p lb-au-1 --env-file ../environments/local-au-1.env \
-#     -f compose.yaml -f ../global/compose.control.yaml -f compose.otel.yaml \
-#     up -d --build
+#     -f compose.yaml -f ../global/compose.control.yaml up -d --build
+#
+# Until the switch this was the opt-in overlay compose.otel.yaml. The
+# per-service settings it carried (OTEL_EXPORTER_OTLP_ENDPOINT,
+# OTEL_CAPTURE_BODIES, observability-service's TEMPO_URL, the Admin UI's
+# VITE_GRAFANA_URL) now sit on each service's own block in
+# compose.runtime.yaml and ../global/compose.control.yaml.
 #
 # WHAT IS REACHABLE FROM WHERE (decision 2; BR-067 access check 3)
 #
@@ -93,62 +95,10 @@ services:
       - tempo
     restart: unless-stopped
 
-  # The trace query gateway (decision 9) calls Tempo over HTTP. Only this
-  # service joins `telemetry` from the business side.
-  observability-service:
-    networks:
-      - telemetry
-    environment:
-      TEMPO_URL: http://tempo:3200
-
-  # Decision 16's switch, one service at a time. Only this file sets the
-  # endpoint; without it a service stays on natstrace. 54a moves two paths:
-  # fleet-asset add (organizations-service, with its refdata client) and
-  # rpc.*.refdata.item.get (refdata-service).
-  #
-  # OTEL_CAPTURE_BODIES is decision 7's per-service opt-in (BR-036). Off
-  # unless the shell sets it; the BR-068 capacity runs (54b-7b) set it to
-  # true, so the measured peak includes body sizes.
-  organizations-service:
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
-
-  refdata-service:
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
-
-  shipping-service:
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
-
-  # 54b-5. accounts-service lives in global/compose.control.yaml; this entry
-  # merges onto it because the overlay is always run with that file.
-  pricing-service:
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
-
-  mfe-registry-service:
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
-
-  accounts-service:
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
-
-  # 54c. The browser opens Grafana on the host port, not on the telemetry
-  # network, so the link is built from GRAFANA_PORT at image build time.
-  admin-frontend:
-    build:
-      args:
-        VITE_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
-
 networks:
+  # Declared here as in the other band files; Compose reconciles the same
+  # name to one network per project.
+  backend:
   # The trace store's own network. Members: the Collector, Tempo, Grafana and
   # observability-service. Compose namespaces it by project, like `backend`.
   telemetry:

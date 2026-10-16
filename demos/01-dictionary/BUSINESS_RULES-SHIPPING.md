@@ -429,6 +429,14 @@ This obeys the exceptional-state rendering rule BR-034 established (ARCHITECTURE
 
 > **Phase 28g amendment — the account gutter is a coarse PLATFORM/TENANT split (`accountOf` in `TraceWaterfall.vue`), not the per-tenant label ("ACME", "ACME → PLATFORM") this rule's prose implies.** `traceSpan` (BR-036) never serializes a per-span context/tenant field — only `StartOutbound`'s caller-supplied `contextValue` is used to build the `obs.trace.{context}...` *publish subject*, never stored in the payload itself — so there is no wire signal for which specific tenant a span ran under, only which `service` published it. `accountOf` therefore classifies by a small fixed set (`refdata`, `accounts` → `PLATFORM`; everything else → `TENANT`), which still surfaces this rule's crux scenario (a tenant service crossing into a PLATFORM service) but cannot distinguish ACME from GLOBEX. Upgrading this to a real per-tenant label would require adding a context field to the wire span — not done in this phase. Separately, the detail pane's OTel `spanKind` (client/server/producer/consumer/internal) from the design mockup is omitted entirely rather than shown with a fabricated value: `direction` is always `"reply"` (BR-037's one-span-per-call design), so there is no wire signal for it either. Verified against the live docker-compose stack (not just the unit test above): real `obs.trace.*` traffic from refdata-service/accounts-service/the Admin UI's own `api.*`/auth calls populated the `traces` KV bucket end to end, and both the bootstrap fetch and the live `notify._platform.kv.traces.>` feed were observed working (the visible trace count grew live while the panel was open, with no page reload).
 
+> **Decision 16 switch (2026-10-16).** The panel now reads traces from the
+> gateway (BR-076), not the `traces` KV bucket. The one-row-per-trace view,
+> the reply-sent split and the two durations stay the same. **Amends the 28g
+> note:** the account gutter now shows the real tenant. It comes from each
+> span's `lab.tenant.originating` attribute (BR-069), not from the service
+> name. `PLATFORM` shows for `_platform`. A span with no tenant shows
+> `unattributed`. The `spanKind` can now come from the OTel span.
+
 ### BR-036 (Phase 28) — The `obs.trace.*` envelope is a strict superset of `obs.rpc.*`/`obs.api.*`, publishes to the PLATFORM account only, and redacts before it truncates
 
 `traceSpan` extends `obsEnvelope` (BR-D26, BR-D36) — every existing field (`direction`, `correlationId`, `subject`, `payload`, `error`, `headers`, `timestamp`, `payloadBytes`) keeps its name and type unchanged, and `correlationId` is retained as-is: it is a per-hop field, **not** the span id. New fields, all `omitempty`, mirror the OTLP `Span` message 1:1: `traceId` and `spanId` (both mandatory in practice, `omitempty` only so a pre-Phase-28 envelope still decodes), `parentSpanId` (absent on a root span), `service`/`entity`/`action` (the taxonomy positions the wire subject already encodes), `statusCode`/`statusMessage` (OTLP's own naming, not a bespoke ok/error enum), `attributes` (a flat key/value map — this is where `rpc.retry_count`, BR-037, lives), `redacted` (the list of field names a denylist stripped from `payload` before truncation — never silently dropped with no trace they existed), and `truncated` (`true` the moment the 4 KiB cap trims `payload`; `payloadBytes` always holds the **pre-truncation** length, so a truncated span's true size is still knowable even though its body isn't).
@@ -572,7 +580,7 @@ Every `obs.trace.{context}.{service}.{entity}.{action}` publish happens on the *
 - **The opt-in switch (54b-7b, 2026-10-16):** a service turns capture on with
   `OTEL_CAPTURE_BODIES`, read by `otelnats.InitFromEnv`. Unset means off. A
   value `strconv.ParseBool` cannot read stops the service from starting, so
-  a typo never turns capture on or off silently. `compose.otel.yaml` passes
+  a typo never turns capture on or off silently. The cell compose files pass
   `${OTEL_CAPTURE_BODIES:-false}` to every OTel service; the BR-068 capacity
   runs set it to `true`. Before this switch no running service could turn
   capture on. Test: `shared/otelnats/env_test.go`, `Describe("BR-036:
@@ -585,6 +593,13 @@ Every `obs.trace.{context}.{service}.{entity}.{action}` publish happens on the *
   check (au-1): after a `load`, Tempo returns the `type.list` reply at
   4,096 B with `body.bytes` 23,371 and `truncated` true, the `ship.list`
   reply whole at 4,072 B, and Tempo logs no "attributes truncated".
+
+> **Decision 16 switch (2026-10-16).** No switched service publishes this
+> envelope now. On the OTel path, bodies are span events (the 54b-2 bullet
+> above). Capture is off unless `OTEL_CAPTURE_BODIES=true`. The envelope
+> rules stay in force for the paths that still run natstrace, which are the
+> REST infra routes. On au-1, TRACES got 2 spans in the hour after the
+> switch. This rule is retired in 54d, together with `shared/natstrace`.
 
 ### BR-037 (Phase 28) — Trace context propagates on every outbound NATS message, one span per logical RPC call, never one per retry attempt
 
@@ -635,6 +650,14 @@ A NATS KV entry **cannot** carry trace context — `jetstream.KeyValue.Put` take
   `refdata-service/refdata/notify_otel_test.go`,
   `shared/natstenants/lifecycle_otel_test.go`'s
   `TestManagerWithTracingTracesEachTenantsLifecycleDeliveries`.
+
+> **Decision 16 switch (2026-10-16).** The rule still holds on the OTel
+> path: a W3C `traceparent` on every outbound message, and one span per
+> logical call with `rpc.retry_count`. It is enforced by the OTel seams in
+> the 54b-2 and 54b-3a bullets above. Proof:
+> `refdataconsumer/otel_54b4_test.go` and `refdataclient/otel_test.go` (one
+> ERROR CLIENT span with `rpc.retry_count=2`). The natstrace "Enforced in"
+> list is for the legacy path only, and it goes in 54d.
 
 ---
 
@@ -1044,6 +1067,12 @@ The exact rule BR-047 already states for `obs.pubsub.*`, applied to `obs.trace.*
 - **Enforced in:** `observability-service/observability/internal/tracestore/tracestore.go` — `PlatformSubjectWildcard`/`TenantSubjectWildcard` on `TRACES`, the removal of the consumer's `FilterSubject`, `tenantFromSubject`, the `storedSpan{Tenant, Span}` wrapper and its `UnmarshalJSON`, and `tenant` threaded through `appendSpan`. Read side: `admin/src/nats/useTraceFeed.js` — `normalizeSpans` flattens the wrapper to an `attributedTenant` field on each span for the panels.
 - **Test:** `tracestore_test.go` — `TestRegisterCapturesBothSubjectSets` (verified red with the second subject removed), `TestTenantFromSubject` (both real shapes plus the near-misses that must *not* read as a tenant, including `monitor.*.pubsub.>`, which is a real subject on this server), `TestPlatformArrivalIsAttributedToPlatform`, `TestTenantIsDerivedFromSubjectNotEnvelope` — a span whose payload names a *different* tenant than its subject does, which is the spec the rule exists for and which an envelope-reading implementation would fail while passing every other spec in the file — `TestCrossAccountTraceKeepsBothAttributions`, and `TestLegacyBareSpansStillDecode` (verified red with the custom decoder removed, where the pre-48c span was dropped). Frontend: `useTraceFeed.spec.js` — `useTraceFeed span attribution`. Publishing side: BR-AC36. Panel side: BR-054.
 
+> **Decision 16 switch (2026-10-16).** This rule now covers only the legacy
+> TRACES store. On the OTel path, the receiving service sets the tenant from
+> trusted context only (BR-069), and the gateway reads it back from the span.
+> The principle is the same: never take the tenant from anything the
+> publisher wrote. TRACES still captures both subject sets until 54d.
+
 ### BR-052 (Phase 48b, RETIRED 2026-08-26 in Phase 48c) — ~~Within one `traceId`, the first tenant attributed wins~~
 
 **Retired the day it landed, because it fires on legitimate traffic.** The rule read two tenants under one `traceId` as "never normal traffic" — either a `traceId` collision or an attempt to attach spans to another tenant's trace — and so froze the trace's tenant at the first writer, logging any later disagreement at warn level.
@@ -1100,6 +1129,12 @@ Two things about that read path came out differently from the design, and are wo
 - **Enforced in:** `tracestore.go` — the bucket config (`BucketMaxAge`, `BucketMaxBytes`, applied in `Register`), the stream's `Duplicates`, and `storeSpan`'s key shape and `Put`; `shared/natstrace/natstrace.go` — `finish` setting `Nats-Msg-Id`; `frontend/admin/src/nats/useTraceFeed.js` — `spansFromRecord`/`mergeSpans` and the prefix-grouped read.
 - **Test:** `tracestore_test.go` — `TestRegisterCreatesBoundedBucket` asserts the TTL and `MaxBytes` the bucket was actually created with **and** that both stay strictly tighter than the stream's, which is the half a future "just bump it" edit would quietly violate. Verified red against the bare `KeyValueConfig{Bucket}` before the fix; every other spec in the file passes either way, because an unbounded bucket stores and reads back identically to a bounded one. `TestSpanIsStoredUnderItsOwnKey` asserts the per-span key **and** that the pre-48g merged key is not written; `TestRegisterDedupsRedeliveredSpan` covers the same `spanId` twice, now a property of the key rather than of a merge; `TestConcurrentSpanWritesLoseNothing` runs 16 concurrent writers against one `traceId` and was verified red (1 span of 16) against the read-modify-write; `TestStreamSetsDuplicatesExplicitly` pins the window. `shared/natstrace/natstrace_test.go` — *BR-053 — an `obs.trace.*` span carries `Nats-Msg-Id`*, mutation-verified. Read side: `useTraceFeed.spec.js` — `useTraceFeed per-span records (Phase 48g, BR-053)`, nine specs covering the join, per-span attribution surviving it, one `onUpsert` per trace rather than per span, live-merge and idempotency, a stale re-read adding nothing, both spanId-less gates, and a merged and a per-span record joining into one trace. The fifteen pre-48g specs above it pass unchanged, which is the back-compat proof.
 - **Measurement tool:** `observability-service/cmd/seed-traces -measure` reports the stored size distribution split by span count; `-runs N` repeats the OK/ERROR pair to build a multi-span sample worth sizing against.
+
+> **Decision 16 switch (2026-10-16).** The Admin UI no longer reads this
+> bucket. `useTraceFeed.js` has no reader left. The bucket stays bounded,
+> because natstrace still writes to it. Its page-load cost does not apply
+> now. The bucket, the projector and `useTraceFeed.js` are deleted in 54d.
+> Tempo holds the traces now (BR-068).
 
 ### BR-054 (Phase 48h/48c/48i, PARTLY IMPLEMENTED 2026-08-26 — harness 48h, traces panel 48c, Messages panel 48i outstanding) — The Admin UI names the originating account on both observability paths, and a multi-span cross-account trace is what proves it
 
@@ -1159,6 +1194,13 @@ Two details of that chain were written into this rule from the design and correc
 
 - **Enforced in:** `shared/natstrace/natstrace.go` (`traceSpan.DurationUs`, `finish`), `otlp-bridge/internal/otlpmap/map.go` (`WireSpan.DurationUs`, `ToSpan`), `frontend/admin/src/nats/spanTiming.js` (the one place a start time is derived).
 - **Test:** `natstrace_test.go` — a handler delayed by a known sub-millisecond amount reports a `durationUs` inside that band and **not** a whole multiple of 1000, which is what fails against `Milliseconds()`. `otlpmap/map_test.go` — a span whose duration is not a whole millisecond maps to a `startTimeUnixNano` matching it to the microsecond. `spanTiming.spec.js` — `durationUs` wins over a legacy `durationMs`, and a record carrying only `durationMs` still resolves.
+
+> **Decision 16 switch (2026-10-16).** On the OTel path, a span carries its
+> own start and end time in nanoseconds. A start time is not derived from
+> the duration now. The gateway view gives `durationUs` as whole
+> microseconds, as (end minus start) / 1000 (BR-076), so the display rule stays
+> the same. The "derive the start" contract and the `durationMs` fallback in
+> `spanTiming.js` remain only for legacy spans. They go in 54d.
 
 ---
 
@@ -1421,6 +1463,16 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or
 > retired in the commit that switches it, not before.
+>
+> **Decision 16 switch (2026-10-16).** OTel is now the default on every
+> cell: `deploy/cell/compose.telemetry.yaml` is included by `compose.yaml`,
+> and every service that has an OTel path gets `OTEL_EXPORTER_OTLP_ENDPOINT`
+> on its own compose block. Checked on `au-1` (plan, "Decision 16 switch").
+> Body capture stays off by default (BR-036, decision 7). The natstrace code
+> still runs where nothing replaced it (the REST infra routes) and is
+> retired in 54d. BR-035–BR-037, BR-051, BR-053 and BR-056 each carry a
+> "Decision 16 switch" note, as the paragraph above calls for (wording
+> confirmed by the user 2026-10-16).
 >
 > Where a rule needs the running stack (an outage, a real tenant credential,
 > a measured delay), its test is a **stack check**, run by hand against the
@@ -1733,7 +1785,7 @@ Every reader of the old `useTraceFeed.js` now uses `useTraceGateway`
   published them (BR-056).
 - **Grafana.** "Open in Grafana" opens the same trace ID in Grafana Explore
   on the `tempo` datasource. The base URL is the `VITE_GRAFANA_URL` build
-  argument (`compose.otel.yaml`). No URL, no link.
+  argument (`compose.runtime.yaml`). No URL, no link.
 - **Messages link.** A Pub/Sub row that carries a trace ID has "open trace".
   It calls `openTrace(id)` (`stores/ui.js`), which opens Request/Reply →
   Traces with that trace selected.
