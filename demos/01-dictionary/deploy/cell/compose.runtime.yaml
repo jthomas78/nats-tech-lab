@@ -384,13 +384,16 @@ services:
       # theme preset (shared/unifi-theme) alongside the app source.
       context: ../../../..
       dockerfile: demos/01-dictionary/frontend/admin/Dockerfile
-    restart: on-failure # nginx resolves upstream hostnames at startup; retry if accounts-service DNS isn't ready yet
+    # nginx.conf looks every upstream up per request (a variable + Docker's
+    # resolver, 2026-10-16), so a missing or recreated backend no longer
+    # stops or strands nginx. Kept as a plain crash guard.
+    restart: on-failure
     ports:
       - "${ADMIN_UI_PORT:-7100}:80"
     networks:
       - frontend
     # accounts-service is not listed: it is in deploy/global/ now, outside
-    # this project. restart: on-failure above already guards the DNS race.
+    # this project. nginx resolves it per request, so start order is free.
     depends_on:
       - shipping-service
       - organizations-service
@@ -400,9 +403,9 @@ services:
       context: ../../../..
       dockerfile: demos/01-dictionary/frontend/seafreight-app/Dockerfile
     # nginx proxies /api/auth/ to accounts-service, which is in deploy/global/
-    # now -- outside this project, so it cannot be named in depends_on. Retry
-    # on the startup DNS race instead, same as admin-frontend and
-    # refdata-frontend already do.
+    # now -- outside this project, so it cannot be named in depends_on.
+    # nginx.conf resolves it per request (see admin-frontend), so there is
+    # no startup DNS race left; restart stays as a crash guard.
     restart: on-failure
     ports:
       - "${SHIPPING_UI_PORT:-7101}:80"
@@ -415,10 +418,9 @@ services:
     build:
       context: ../../../..
       dockerfile: demos/01-dictionary/frontend/refdata/Dockerfile
-    # Phase 32: nginx.conf now also proxies /api/auth/ to accounts-service,
-    # which nginx resolves at startup (a static proxy_pass, not a variable)
-    # — restart if that DNS name isn't ready yet, same race admin-frontend's
-    # own restart: on-failure already guards against.
+    # Phase 32: nginx.conf now also proxies /api/auth/ to accounts-service.
+    # Since 2026-10-16 every upstream is a variable resolved per request, not
+    # once at startup (see admin-frontend); restart stays as a crash guard.
     restart: on-failure
     ports:
       - "${REFDATA_UI_PORT:-7102}:80"
@@ -457,7 +459,7 @@ services:
       # theme, the shared AppShell and demo-01's shared NATS URL resolver.
       context: ../../../..
       dockerfile: lab-shell/Dockerfile
-    restart: on-failure # nginx resolves upstream hostnames at startup; retry if accounts-service DNS isn't ready yet
+    restart: on-failure # crash guard; nginx.conf resolves upstreams per request (see admin-frontend)
     ports:
       - "${APP_SHELL_PORT:-7110}:80"
     networks:
