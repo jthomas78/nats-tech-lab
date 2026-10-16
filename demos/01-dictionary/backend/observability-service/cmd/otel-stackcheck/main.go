@@ -22,6 +22,11 @@
 //	trust                BR-069 and BR-071 (spoofed tenant headers and body
 //	                     change nothing; a sent traceparent is a link)
 //	delay <n>            decision 8's visibility delay, n runs
+//	movedelay <n>        n ship moves (depart or arrive of STK-SHIP-01):
+//	                     time until each trace is searchable, and until its
+//	                     span count stops growing, in Tempo (-tempo) and
+//	                     through Grafana's Tempo proxy (-grafana); run it on
+//	                     the telemetry network
 //	send <n> <batchID>   n calls, all linked to batchID; prints latency
 //	count <batchID>      traces in Tempo linked to batchID
 //	waitcount <batchID> <want> <secs>
@@ -109,6 +114,7 @@ var (
 	grafanaURL  = flag.String("grafana", "http://127.0.0.1:3000", "Grafana base URL (au-1: http://127.0.0.1:3050)")
 	credsDir    = flag.String("creds-dir", "demos/01-dictionary/nats/creds", "directory holding <tenant>.creds")
 	collector   = flag.String("collector", "http://otel-collector:4318", "Collector OTLP/HTTP base URL for flood (reachable only on the backend network)")
+	tempoURL    = flag.String("tempo", "http://tempo:3200", "Tempo base URL for movedelay (reachable only on the telemetry network)")
 )
 
 func main() {
@@ -124,6 +130,8 @@ func main() {
 		exit(trust())
 	case "delay":
 		delay(atoi(arg(args, 1)))
+	case "movedelay":
+		moveDelay(atoi(arg(args, 1)))
 	case "send":
 		send(atoi(arg(args, 1)), arg(args, 2))
 	case "count":
@@ -436,6 +444,187 @@ func delay(n int) {
 		fmt.Printf("run %d: tempo-search %.1fs, gateway get (3 spans) %.1fs\n", i, ds.Seconds(), dg.Seconds())
 	}
 	fmt.Printf("DELAY search: %s\nDELAY get: %s\n", stats(search), stats(get))
+}
+
+// tempoPath is one way to read Tempo: direct, or through Grafana's proxy.
+type tempoPath struct {
+	name, base string
+	auth       bool
+}
+
+func (p tempoPath) get(path string, v any) error {
+	req, _ := http.NewRequest(http.MethodGet, p.base+path, nil)
+	req.Header.Set("Accept", "application/json")
+	if p.auth {
+		req.SetBasicAuth("admin", envOr("GRAFANA_ADMIN_PASSWORD", "admin"))
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: status %d", path, resp.StatusCode)
+	}
+	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+func (p tempoPath) search(link string) string {
+	q := url.Values{}
+	q.Set("q", fmt.Sprintf(`{ link:traceID = "%s" }`, strings.TrimLeft(link, "0")))
+	q.Set("limit", "5")
+	q.Set("start", strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10))
+	q.Set("end", strconv.FormatInt(time.Now().Add(time.Minute).Unix(), 10))
+	var out struct {
+		Traces []struct {
+			TraceID string `json:"traceID"`
+		} `json:"traces"`
+	}
+	if p.get("/api/search?"+q.Encode(), &out) != nil || len(out.Traces) == 0 {
+		return ""
+	}
+	return out.Traces[0].TraceID
+}
+
+// spans returns "service name" for every span of trace id.
+func (p tempoPath) spans(id string) []string {
+	var tr struct {
+		Trace struct {
+			ResourceSpans []any `json:"resourceSpans"`
+		} `json:"trace"`
+	}
+	if p.get("/api/v2/traces/"+id, &tr) != nil {
+		return nil
+	}
+	out := []string{}
+	for _, r := range tr.Trace.ResourceSpans {
+		svc := ""
+		for _, a := range asList(asMap(asMap(r)["resource"])["attributes"]) {
+			if str(asMap(a)["key"]) == "service.name" {
+				svc = str(asMap(asMap(a)["value"])["stringValue"])
+			}
+		}
+		for _, ss := range asList(asMap(r)["scopeSpans"]) {
+			for _, s := range asList(asMap(ss)["spans"]) {
+				out = append(out, svc+" "+str(asMap(s)["name"]))
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// moveResult is when one path first found a move's trace, and when its
+// span count last grew.
+type moveResult struct {
+	found, whole time.Duration
+	spans        []string
+}
+
+// watchMove polls p from t0 until the trace linked to link is found and
+// its span count has not changed for settle.
+func watchMove(p tempoPath, link string, t0 time.Time) moveResult {
+	const settle, timeout = 20 * time.Second, 120 * time.Second
+	var r moveResult
+	id := ""
+	for id == "" && time.Since(t0) < timeout {
+		if id = p.search(link); id == "" {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	if id == "" {
+		return r
+	}
+	r.found = time.Since(t0)
+	last := time.Now()
+	for time.Since(last) < settle && time.Since(t0) < timeout {
+		if s := p.spans(id); len(s) > len(r.spans) {
+			r.spans, r.whole, last = s, time.Since(t0), time.Now()
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return r
+}
+
+// moveDelay moves one seeded ship n times and times each move's trace in
+// Tempo and in Grafana. A move is a depart, or an arrive when the ship is
+// at sea. t0 is the moment the reply comes back, which is when the UI
+// shows the move.
+func moveDelay(n int) {
+	acme := tenantConn("acme")
+	defer acme.Close()
+	paths := []tempoPath{
+		{"tempo", *tempoURL, false},
+		{"grafana", *grafanaURL + "/api/datasources/proxy/uid/tempo", true},
+	}
+	found := map[string][]float64{}
+	whole := map[string][]float64{}
+	const ship = "STK-SHIP-01"
+	move := func(action, port string) (string, string, error) {
+		link := randHex(16)
+		msg := nats.NewMsg("api.acme.shipping.ship." + action + ".v1")
+		msg.Header = nats.Header{}
+		msg.Header.Set("traceparent", "00-"+link+"-"+randHex(8)+"-01")
+		msg.Data, _ = json.Marshal(map[string]any{"shipID": ship, "port": port})
+		reply, err := acme.RequestMsg(msg, 5*time.Second)
+		if err != nil {
+			return link, "", err
+		}
+		return link, reply.Header.Get("Nats-Service-Error"), nil
+	}
+	// A depart names the port the ship is at. Ask once with no port: the
+	// error says where it is, or that it is at sea.
+	cur := ""
+	if _, e, _ := move("depart", ""); strings.Contains(e, "currently: ") {
+		cur = strings.TrimSuffix(strings.SplitN(e, "currently: ", 2)[1], ")")
+	}
+	for i := 0; i < n; i++ {
+		action, port := "depart", cur
+		if cur == "" {
+			action, port = "arrive", seedPorts[i%len(seedPorts)]
+		}
+		link, code, err := move(action, port)
+		t0 := time.Now()
+		if err != nil || code != "" {
+			fmt.Printf("move %d %s %s: err=%v error=%q\n", i, action, port, err, code)
+			continue
+		}
+		if action == "depart" {
+			cur = ""
+		} else {
+			cur = port
+		}
+		res := make([]moveResult, len(paths))
+		var wg sync.WaitGroup
+		for j, p := range paths {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				res[j] = watchMove(p, link, t0)
+			}()
+		}
+		wg.Wait()
+		line := fmt.Sprintf("move %d %s:", i, action)
+		for j, p := range paths {
+			r := res[j]
+			if r.found == 0 {
+				line += fmt.Sprintf(" %s NOT FOUND;", p.name)
+				continue
+			}
+			found[p.name] = append(found[p.name], r.found.Seconds())
+			whole[p.name] = append(whole[p.name], r.whole.Seconds())
+			line += fmt.Sprintf(" %s found %.1fs, whole (%d spans) %.1fs;", p.name, r.found.Seconds(), len(r.spans), r.whole.Seconds())
+		}
+		fmt.Println(line)
+		if i < 2 {
+			for _, s := range res[0].spans {
+				fmt.Println("   span:", s)
+			}
+		}
+	}
+	for _, p := range paths {
+		fmt.Printf("MOVEDELAY %s found: %s\nMOVEDELAY %s whole: %s\n", p.name, stats(found[p.name]), p.name, stats(whole[p.name]))
+	}
 }
 
 func send(n int, batch string) {

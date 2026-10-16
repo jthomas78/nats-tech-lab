@@ -57,7 +57,11 @@ services:
 
   tempo:
     image: grafana/tempo:3.1.0
-    command: ["-target=all", "-config.file=/etc/tempo.yaml"]
+    # -config.expand-env fills ${VAR:-default} in tempo.yaml from the
+    # environment below.
+    command: ["-target=all", "-config.file=/etc/tempo.yaml", "-config.expand-env=true"]
+    environment:
+      TEMPO_QUERY_END_CUTOFF: ${TEMPO_QUERY_END_CUTOFF:-30s}
     networks:
       - telemetry
     volumes:

@@ -32,6 +32,15 @@ distributor:
         grpc:
           endpoint: 0.0.0.0:4317
 
+query_frontend:
+  # A search leaves out the newest query_end_cutoff of its time range, so a
+  # new trace is searchable only after this long. Tempo's default is 30s,
+  # and that is the value here unless the cell's env file sets
+  # TEMPO_QUERY_END_CUTOFF (compose.otel.yaml; this file is read with
+  # -config.expand-env). Local cells set 5s. Never 0: the live-store runs
+  # with fail_on_high_lag, which needs the cutoff.
+  query_end_cutoff: ${TEMPO_QUERY_END_CUTOFF:-30s}
+
 storage:
   trace:
     backend: local

@@ -1712,7 +1712,9 @@ Neither is fixed in place: this phase removes the code that has them.
       search delay. The 54a-4 smoke saw about 18 s; that was a single,
       unpolled reading. Tempo and the Collector run their default timings;
       what sets the 31 s is not yet proved. `trace.search` itself is
-      unmeasured until 54c builds it.
+      unmeasured until 54c builds it. **Proved 2026-10-16 (54b-7b):**
+      Tempo's `query_end_cutoff` (default 30 s) sets it; local cells now
+      use 5 s, about 10–15 s end to end (BR-068).
     - **For 54c.** Tempo's TraceQL matches `link:traceID` only without
       leading zeros (`00ea51…` misses, `ea51…` hits); `trace.search` must
       strip them. The poll interval and "may be late" wording start from
@@ -2062,6 +2064,14 @@ Neither is fixed in place: this phase removes the code that has them.
           `distributor.max_attribute_bytes: 4096`; stack-checked on au-1
           (see BR-036). A larger cap (32 KiB) is a separate step: it
           changes BR-036 and needs BR-068 measured again.
+        - **Found and fixed:** a new trace was searchable only ~30.7 s
+          after its call. Cause proved: Tempo's
+          `query_frontend.query_end_cutoff` (default 30 s); `max_trace_live`
+          and `max_block_duration` were ruled out. `tempo.yaml` now reads
+          it from `TEMPO_QUERY_END_CUTOFF` (`-config.expand-env`, default
+          30s); both `local-*.env` set 5s. Ship moves on au-1: 14.7 s p50
+          (one earlier 5 s run: 9.7 s). New `otel-stackcheck movedelay`.
+          See BR-068.
         - **Open:** `type.list` throughput looks serial in
           `refdata-service` (not proved).
 - **54c — Admin UI** switches to the gateway: polling, body events,
