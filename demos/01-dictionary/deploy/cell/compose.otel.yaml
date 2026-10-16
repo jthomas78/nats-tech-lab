@@ -141,6 +141,13 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
 
+  # 54c. The browser opens Grafana on the host port, not on the telemetry
+  # network, so the link is built from GRAFANA_PORT at image build time.
+  admin-frontend:
+    build:
+      args:
+        VITE_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
+
 networks:
   # The trace store's own network. Members: the Collector, Tempo, Grafana and
   # observability-service. Compose namespaces it by project, like `backend`.

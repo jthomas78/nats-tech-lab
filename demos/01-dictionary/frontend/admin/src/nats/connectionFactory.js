@@ -227,6 +227,13 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
       timeout: REQUEST_TIMEOUT_MS,
       headers: h,
     })
+    // A NATS micro service error (Phase 54c) is an empty body plus two
+    // headers. Without this check it would resolve as an empty success.
+    const serviceCode = msg.headers?.get('Nats-Service-Error-Code')
+    if (serviceCode) {
+      const message = msg.headers.get('Nats-Service-Error') || `service error ${serviceCode}`
+      throw Object.assign(new Error(message), { code: serviceCode, serviceError: true })
+    }
     const body = msg.data.length ? JSON.parse(decoder.decode(msg.data)) : {}
     if (body.error) throw Object.assign(new Error(body.error), { body, code: body.code, conflict: body.conflict })
     return body

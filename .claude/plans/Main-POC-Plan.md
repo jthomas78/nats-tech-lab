@@ -1208,7 +1208,7 @@ rationale, the design decisions, or the verification log).
 ---
 
 
-### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 written into BUSINESS_RULES-SHIPPING.md 2026-10-15, specs red; 54a IN PROGRESS) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
+### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 written into BUSINESS_RULES-SHIPPING.md 2026-10-15, specs red; 54a–54c BUILT, 54c validated on au-1 2026-10-16, default-stack switch NOT made) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
 
 > Reverses the deferred decision recorded in ARCHITECTURE-COMMUNICATIONS.md
 > § 6 ("Revisit the real SDK if this POC graduates"). Agreed direction
@@ -1645,7 +1645,8 @@ Neither is fixed in place: this phase removes the code that has them.
     `lab.trace.v1`: base64 IDs become hex, typed attribute values are
     unwrapped. Errors: 400 bad body or ID, 404 unknown trace, 503 Tempo
     failure without Tempo's text. `trace.search` and `trace.services` are
-    served but reply 501 until 54c specifies their shape. `MintAdminToken`
+    served but reply 501 until 54c specifies their shape (54c did:
+    BR-074, BR-075). `MintAdminToken`
     names the three subjects (BR-AC18 amended); the observability user
     subscribes on them and publishes on `_INBOX.>` for replies
     (`bootstrap-operator.sh`). Specs: tracequery 13, accounts and auth
@@ -1671,7 +1672,8 @@ Neither is fixed in place: this phase removes the code that has them.
     below), which fetches real browser tokens from accounts-service, holds them in memory only, and
     finds each trace in Tempo by the link BR-071 makes from a sent
     `traceparent`. Tempo search ran through Grafana's proxy, because
-    `trace.search` replies 501 until 54c. All fleet-asset calls used a
+    `trace.search` replied 501 then (it has no link filter in 54c either,
+    so the link search still goes through Grafana). All fleet-asset calls used a
     vehicle type refdata does not know, so every trace is the 3-span
     ERROR shape.
     - **Access.** (1) PASS: an admin browser token read an acme and a
@@ -2085,6 +2087,35 @@ Neither is fixed in place: this phase removes the code that has them.
   no Services REST fallback. Include these checks in the cutover gate.
   **Ends at decision 16's gate:** 54c complete and validated, then the one
   switch on the default stack.
+  - **54c BUILT and VALIDATED (2026-10-16, `au-1` with
+    `compose.otel.yaml`, `OTEL_CAPTURE_BODIES=true`). The switch is NOT
+    made.** Rules BR-074–BR-077 were confirmed by the user on
+    2026-10-16; BR-072 has a 54c note.
+    - **Build order.** Backend `trace.search` / `trace.services`
+      (BR-074, BR-075, specs first) → `traceGateway.js` + `useTraceGateway`
+      → `ui.js` (default tab `traces`, `openTrace`) → `TraceWaterfall.vue`
+      → `PulsePanel.vue` unavailable (BR-077) → `RpcPanel.vue` `[messages]`
+      on the gateway → `MessagesPanel.vue` "open trace" → Admin
+      `Dockerfile` / `compose.otel.yaml` `VITE_GRAFANA_URL` →
+      `ServicesPanel.vue` on `service.list.v1` (decision 17, BR-072) →
+      `otel-stackcheck gateway`.
+    - **Poll interval: 5 s.** Measured visibility delay through
+      `trace.search` (`otel-stackcheck gateway 5`): min 9.82, p50 10.04,
+      p95 10.11, max 11.45 s; `trace.get` whole p50 10.13 s. G1–G5 pass.
+    - **Tests.** Admin 399/399, Vite build OK. observability-service Go
+      suite green. One flake: `pubsubstore`
+      `TestTenantIsDerivedFromTheImportRemapSubject` timed out once, then
+      passed 5/5 with `-count=5`; that package is unchanged.
+    - **Gate checks in the browser (1920x1080), all pass:** Traces (polls,
+      late note, a 6-span ship arrive trace with the reply-sent split,
+      account `acme` and both bodies, "Open in Grafana"); `[messages]`;
+      the Messages → trace link; Pulse unavailable; Services (13 services,
+      3 accounts, complete). The Grafana datasource and trace answer 200
+      through the Grafana proxy. The Grafana sign-in page was not tested.
+    - **Defects found on the stack and fixed, specs first:** durations had
+      float noise (now whole µs); `[messages]` rows were in load order (now
+      newest first by finish time); both tabs showed a false empty state
+      during the first search (now "Searching the trace store…").
 - **54d — retire** everything in decision 13, Jaeger, and the
   accounts-service trace export/import. Only after the switch has been
   made and checked, and the Messages panel is proved to still work and to

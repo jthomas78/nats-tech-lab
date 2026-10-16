@@ -7,9 +7,8 @@
 // the PLATFORM connection only, and only MintAdminToken grants the subjects
 // (BR-067).
 //
-// STATUS: trace.get implemented (54a-5). search and services are served,
-// so the subject set is fixed, but they answer 501 until their query shape
-// is specified in 54c.
+// STATUS: trace.get implemented (54a-5); trace.search (BR-074) and
+// trace.services (BR-075) implemented in 54c.
 package tracequery
 
 import (
@@ -93,6 +92,10 @@ type Link struct {
 // Backend is the trace store behind the gateway.
 type Backend interface {
 	GetTrace(ctx context.Context, traceID string) (Trace, error)
+	// Search returns at most q.Limit traces, in any order.
+	Search(ctx context.Context, q SearchQuery) ([]TraceSummary, error)
+	// Services returns the service names seen between start and end.
+	Services(ctx context.Context, start, end time.Time) ([]string, error)
 }
 
 // GetRequest is the trace.get.v1 request body.
@@ -135,9 +138,9 @@ type endpoint struct {
 
 func (a *adapter) endpoints() []endpoint {
 	return []endpoint{
-		{"trace-search", SearchSubject, notImplemented},
+		{"trace-search", SearchSubject, a.handleSearch},
 		{"trace-get", GetSubject, a.handleGet},
-		{"trace-services", ServicesSubject, notImplemented},
+		{"trace-services", ServicesSubject, a.handleServices},
 	}
 }
 
@@ -164,10 +167,6 @@ func (a *adapter) handleGet(req micro.Request) {
 	default:
 		_ = req.RespondJSON(trace)
 	}
-}
-
-func notImplemented(req micro.Request) {
-	_ = req.Error("501", "not implemented until Phase 54c", nil)
 }
 
 // Tempo is the Backend for Grafana Tempo's HTTP API.

@@ -14,7 +14,7 @@ import SubjectPath from './SubjectPath.vue'
 import TraceWaterfall from './TraceWaterfall.vue'
 import { highlightJson } from '../jsonHighlight.js'
 import { spanDurationMs } from '../nats/spanTiming.js'
-import { useTraceFeed } from '../nats/useTraceFeed.js'
+import { useTraceGateway } from '../nats/traceGateway.js'
 import { useUiStore } from '../stores/ui.js'
 
 const ui = useUiStore()
@@ -51,6 +51,12 @@ const ui = useUiStore()
 // There is also no more "pending" status: a span row only ever appears
 // already finished (natstrace publishes once, at End/Fail), so the
 // three-state status model (pending/ok/error) becomes two (ok/error).
+//
+// Phase 54c (BR-076): the spans come from the trace query gateway
+// (useTraceGateway), polled only while this tab is shown and not paused,
+// not from the KV feed. Each loaded trace still arrives through onUpsert,
+// so the flat, newest-first, MAX_ROWS-capped list below is unchanged. A row
+// links to its whole trace in the Traces tab (ui.openTrace).
 
 const spansById = reactive({})
 const order = ref([]) // spanIds, newest first
@@ -63,30 +69,44 @@ const truncated = ref(false) // sticky — set once eviction has happened at lea
 // Facet filtering below is purely positional for that reason.
 const FACET_POSITION_NAMES = ['family', 'context', 'service', 'entity', 'action', 'version']
 
-function upsertSpan(span) {
-  if (!span?.spanId) return
-  if (!(span.spanId in spansById)) {
-    order.value = [span.spanId, ...order.value]
-    if (order.value.length > MAX_ROWS) {
-      for (const id of order.value.slice(MAX_ROWS)) delete spansById[id]
-      order.value = order.value.slice(0, MAX_ROWS)
-      truncated.value = true
-    }
-  }
-  spansById[span.spanId] = span
+// Newest first by span finish time, not by load order: one poll loads a
+// whole batch, newest trace first, so putting each span on top reversed it.
+// The old push feed got away with arrival order. Eviction drops the oldest.
+function finishMs(id) {
+  const t = spansById[id]?.timestamp
+  return t ? new Date(t).getTime() : 0
 }
 
-const { connected, bootstrapFailed } = useTraceFeed({
+function upsertSpan(span) {
+  if (!span?.spanId) return
+  const isNew = !(span.spanId in spansById)
+  spansById[span.spanId] = span
+  if (!isNew) return
+  const next = [span.spanId, ...order.value].sort((a, b) => finishMs(b) - finishMs(a))
+  if (next.length > MAX_ROWS) {
+    for (const id of next.slice(MAX_ROWS)) delete spansById[id]
+    next.length = MAX_ROWS
+    truncated.value = true
+  }
+  order.value = next
+}
+
+// ── Pause — freezes which rows are VISIBLE. Since Phase 54c it also stops
+// the polling: a frozen list has no use for new rows.
+const paused = ref(false)
+
+// lastRefresh stays null until the first search answers; until then an
+// empty table means "not searched yet", never "no traffic".
+const { connected, bootstrapFailed, error: gatewayError, lastRefresh } = useTraceGateway({
+  active: computed(() => ui.rpcTab === 'messages' && !paused.value),
   onUpsert: (traceId, spans) => {
     for (const span of spans) upsertSpan(span)
   },
 })
 
-// ── Pause — freezes which rows are VISIBLE, not the SSE connection itself.
-// Live events keep landing in rowsById/order underneath (so a row already
-// on screen still updates in place, e.g. a pending call resolving), but the
-// visible list stops growing until resumed.
-const paused = ref(false)
+function openTrace(traceId) {
+  ui.openTrace(traceId)
+}
 const frozenOrder = ref([])
 function togglePause() {
   if (!paused.value) frozenOrder.value = [...order.value]
@@ -302,13 +322,13 @@ function copyHeaders(headers) {
         v-if="bootstrapFailed"
         class="err-line"
       >
-        Trace snapshot failed to load — this view may be incomplete. Retrying…
+        Trace search failed: {{ gatewayError || 'no reply' }}. This view shows the last good result. Retrying…
       </p>
       <p
         v-else-if="!connected"
         class="stale-line"
       >
-        Disconnected — this view is frozen, not losing data. It resyncs from the durable KV snapshot on reconnect.
+        Disconnected — this view is frozen, not losing data. Spans stay in the trace store; the next search after reconnect reads them.
       </p>
       <div
         v-if="truncated"
@@ -333,7 +353,8 @@ function copyHeaders(headers) {
         @row-click="selectRow($event.data)"
       >
         <template #empty>
-          <span class="lab-muted">Waiting for rpc.*/api.* traffic — trigger a shipping-service → refdata-service item lookup, or a Sea Freight Flow action, to see it here.</span>
+          <span v-if="!lastRefresh && !bootstrapFailed" class="lab-muted">Searching the trace store…</span>
+          <span v-else class="lab-muted">Waiting for rpc.*/api.* traffic — trigger a shipping-service → refdata-service item lookup, or a Sea Freight Flow action. A new span shows up here about 10–15 s after its call ends.</span>
         </template>
         <Column
           header="Status"
@@ -411,6 +432,14 @@ function copyHeaders(headers) {
             />
             <span>duration <b>{{ formatDuration(spanDurationMs(selectedSpan)) }}</b></span>
             <span>trace <b :title="selectedSpan.traceId">{{ selectedSpan.traceId }}</b></span>
+            <button
+              type="button"
+              class="chip open-trace"
+              data-testid="rpc-open-trace"
+              @click="openTrace(selectedSpan.traceId)"
+            >
+              <i class="pi pi-sitemap" /> open trace
+            </button>
           </span>
           <span
             class="close"

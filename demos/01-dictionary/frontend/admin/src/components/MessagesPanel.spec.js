@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MessagesPanel from './MessagesPanel.vue'
 import SubjectPath from './SubjectPath.vue'
+import { useUiStore } from '../stores/ui.js'
 
 // Phase 43c (BUSINESS_RULES-SHIPPING.md's BR-048). Specs derived from the
 // rule: its own panel (not a RpcPanel tab), an evt/notify family filter
@@ -171,5 +172,20 @@ describe('MessagesPanel (Phase 43c, BR-048)', () => {
     const wrapper = await mountPanel()
 
     expect(wrapper.text()).toContain('failed to load')
+  })
+
+  // Phase 54c — the Messages-to-trace link (decision 13, decision 16's gate).
+  it('links a message to its trace: asks the Traces tab for it and asks App to switch the view', async () => {
+    const pinia = createPinia()
+    const wrapper = mount(MessagesPanel, { global: { plugins: [PrimeVue, pinia] } })
+    mounted.push(wrapper)
+    await flushPromises()
+    const row = wrapper.findAllComponents(SubjectPath).find((c) => c.props('subject') === EVT_ACME.subject)
+    await row.trigger('click')
+    await wrapper.find('[data-testid="msg-open-trace"]').trigger('click')
+    const ui = useUiStore(pinia)
+    expect(ui.traceFocusId).toBe('t-s1')
+    expect(ui.rpcTab).toBe('traces')
+    expect(wrapper.emitted('open-trace')).toEqual([['t-s1']])
   })
 })

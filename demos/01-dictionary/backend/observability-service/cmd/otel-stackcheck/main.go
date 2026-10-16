@@ -12,8 +12,10 @@
 // Every call carries a sent `traceparent`. BR-071 turns it into a span link,
 // never a parent, so the check finds the trace in Tempo by
 // `{ link:traceID = "…" }`. That search goes through Grafana's datasource
-// proxy, because trace.search.v1 replies 501 until Phase 54c. Tempo matches a
-// link ID only without its leading zeros, so the query strips them.
+// proxy: it was written while trace.search.v1 still replied 501, and
+// trace.search.v1 has no link filter. Tempo matches a link ID only without
+// its leading zeros, so the query strips them. The gateway subcommand reads
+// through trace.search.v1 instead (Phase 54c).
 //
 // # Subcommands
 //
@@ -27,6 +29,9 @@
 //	                     span count stops growing, in Tempo (-tempo) and
 //	                     through Grafana's Tempo proxy (-grafana); run it on
 //	                     the telemetry network
+//	gateway <n>          Phase 54c: n ship moves found through trace.search
+//	                     and read through trace.get (the Admin UI's path);
+//	                     schema, limited, services, refusals (gateway.go)
 //	send <n> <batchID>   n calls, all linked to batchID; prints latency
 //	count <batchID>      traces in Tempo linked to batchID
 //	waitcount <batchID> <want> <secs>
@@ -132,6 +137,8 @@ func main() {
 		delay(atoi(arg(args, 1)))
 	case "movedelay":
 		moveDelay(atoi(arg(args, 1)))
+	case "gateway":
+		exit(gateway(atoi(arg(args, 1))))
 	case "send":
 		send(atoi(arg(args, 1)), arg(args, 2))
 	case "count":
@@ -228,7 +235,7 @@ func addFleet(nc *nats.Conn, ctx, link string, sampled bool, extra nats.Header, 
 	return time.Since(t0), err
 }
 
-// ---- Tempo search, a stand-in for trace.search until 54c ----------------
+// ---- Tempo search by link (trace.search.v1 has no link filter) ----------
 
 func findByLink(link string, limit int) []string {
 	q := url.Values{}

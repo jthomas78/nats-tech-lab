@@ -19,60 +19,86 @@ import { useUiStore } from '../stores/ui.js'
 // view: the old two-pane Request | Reply split is gone because a natstrace
 // span carries only the reply side (BR-037's one-span-per-call design).
 //
-// Live-update behavior (notify._platform.kv.trace-request-reply.>) isn't exercised here,
-// same as TraceWaterfall.spec.js — usePlatformConnection is mocked inert,
-// so these specs cover the bootstrap-derived rendering only.
+// Phase 54c (BR-076) — the spans come from the trace query gateway. The
+// connection is mocked with a request() that answers trace.search.v1 and
+// trace.get.v1 the way observability-service does, so these specs run the
+// real gateway adapter (../nats/traceGateway.js) end to end. The polling
+// itself is pinned in traceGateway.spec.js.
 
-vi.mock('../api', () => ({
-  getKvBucketEntries: vi.fn(),
-}))
+const conn = vi.hoisted(() => ({ request: null, subscribe: null, connected: null, epoch: null, traces: {} }))
 vi.mock('../nats/usePlatformConnection.js', () => ({
-  usePlatformConnection: () => ({ connected: ref(false), subscribe: vi.fn() }),
+  usePlatformConnection: () => conn,
 }))
+vi.mock('../api', () => ({ getKvBucketEntries: vi.fn() }))
 
-import { getKvBucketEntries } from '../api'
+import { TRACE_GET_SUBJECT, TRACE_SEARCH_SUBJECT } from '../nats/traceGateway.js'
 
-const BASE = 1755000000000
+const BASE_NS = 1755000000000 * 1e6
 
+// lab.trace.v1 spans: the same two calls the view-shape fixtures used to be.
 const OK_SPAN = {
   traceId: 't1',
   spanId: 'a1',
+  name: 'api.acme.shipping.ship.arrive.v1',
+  kind: 'SERVER',
   service: 'shipping',
-  entity: 'ship',
-  action: 'arrive',
-  subject: 'api.acme.shipping.ship.arrive.v1',
-  statusCode: 'OK',
-  durationMs: 12,
-  payloadBytes: 42,
-  headers: { 'Nats-Responder': ['shipping-service/abc'] },
-  payload: { ok: true },
-  timestamp: new Date(BASE).toISOString(),
+  startUnixNano: BASE_NS,
+  endUnixNano: BASE_NS + 12e6,
+  statusCode: 'UNSET',
+  attributes: { 'lab.tenant.originating': 'acme' },
+  events: [
+    {
+      name: 'rpc.reply.body',
+      timeUnixNano: BASE_NS + 12e6,
+      attributes: { body: '{"ok":true}', 'body.bytes': 42, headers: '{"Nats-Responder":["shipping-service/abc"]}' },
+    },
+  ],
+  links: [],
 }
 const ERROR_SPAN = {
   traceId: 't2',
   spanId: 'b1',
+  name: 'rpc.acme.refdata.item.get.v1',
+  kind: 'SERVER',
   service: 'refdata',
-  entity: 'item',
-  action: 'get',
-  subject: 'rpc.acme.refdata.item.get.v1',
+  startUnixNano: BASE_NS + 1000e6,
+  endUnixNano: BASE_NS + 1004e6,
   statusCode: 'ERROR',
-  error: 'not found',
-  durationMs: 4,
-  payloadBytes: 10,
-  timestamp: new Date(BASE + 1000).toISOString(),
+  statusMessage: 'not found',
+  attributes: {},
+  events: [],
+  links: [],
 }
 
-function kvEntry(traceId, spans) {
-  return { key: `_platform.trace.${traceId}`, op: 'PUT', revision: 1, value: { traceId, spans } }
+function serve(traces) {
+  conn.traces = traces
 }
+
+function summaryOf(traceId, spans) {
+  return { traceId, rootService: spans[0].service, rootName: spans[0].name, startUnixNano: spans[0].startUnixNano, durationMs: 1, spanCount: spans.length, errorCount: 0, services: [] }
+}
+
+function resetConn() {
+  conn.connected = ref(true)
+  conn.epoch = ref(1)
+  conn.subscribe = vi.fn()
+  conn.request = vi.fn(async (subject, body) => {
+    if (subject === TRACE_SEARCH_SUBJECT) {
+      return { schema: 'lab.tracesearch.v1', limit: 50, limited: false, traces: Object.entries(conn.traces).map(([id, spans]) => summaryOf(id, spans)) }
+    }
+    if (subject === TRACE_GET_SUBJECT) return { schema: 'lab.trace.v1', traceId: body.traceId, spans: conn.traces[body.traceId] ?? [] }
+    throw new Error('unexpected ' + subject)
+  })
+}
+
+const searchCount = () => conn.request.mock.calls.filter(([s]) => s === TRACE_SEARCH_SUBJECT).length
 
 async function mountMessagesTab() {
   const pinia = createPinia()
   const wrapper = mount(RpcPanel, { global: { plugins: [PrimeVue, pinia] } })
   // Force the messages tab directly rather than clicking the toggle — the
-  // default tab is 'traces' (ARCHITECTURE-ADMIN.md § 4.5), and mounting
-  // TraceWaterfall too would race its own getKvBucketEntries call against
-  // this spec's mock.
+  // default tab is 'traces' (Phase 54c), and this keeps the spec on the
+  // messages tab's own gateway.
   useUiStore(pinia).rpcTab = 'messages'
   await flushPromises()
   return wrapper
@@ -81,15 +107,40 @@ async function mountMessagesTab() {
 describe('RpcPanel [messages] tab (Phase 28g retirement, BR-026)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getKvBucketEntries.mockResolvedValue([kvEntry('t1', [OK_SPAN]), kvEntry('t2', [ERROR_SPAN])])
+    resetConn()
+    serve({ t1: [OK_SPAN], t2: [ERROR_SPAN] })
   })
 
-  it('renders one row per span, flattened out of the trace-request-reply KV bucket', async () => {
+  it('renders one row per span, flattened out of the gateway\'s traces', async () => {
     const wrapper = await mountMessagesTab()
 
     const subjects = wrapper.findAllComponents(SubjectPath).map((c) => c.props('subject'))
     expect(subjects).toContain('api.acme.shipping.ship.arrive.v1')
     expect(subjects).toContain('rpc.acme.refdata.item.get.v1')
+  })
+
+  it('orders rows newest first by span time, not by load order (Phase 54c, BR-076)', async () => {
+    // A search returns the newest trace first, and one poll loads the whole
+    // batch. Putting each loaded span on top reversed it; the old KV feed
+    // pushed spans in time order, so arrival order was time order.
+    serve({ t2: [ERROR_SPAN], t1: [OK_SPAN] })
+    const wrapper = await mountMessagesTab()
+
+    const subjects = wrapper.findAllComponents(SubjectPath).map((c) => c.props('subject'))
+    expect(subjects).toEqual(['rpc.acme.refdata.item.get.v1', 'api.acme.shipping.ship.arrive.v1'])
+  })
+
+  it('says it is searching, not "waiting for traffic", until the first search answers (Phase 54c)', async () => {
+    let answer
+    conn.request = vi.fn(() => new Promise((resolve) => { answer = resolve }))
+    const wrapper = await mountMessagesTab()
+
+    expect(wrapper.text()).toContain('Searching the trace store')
+    expect(wrapper.text()).not.toContain('Waiting for rpc.*/api.* traffic')
+
+    answer({ schema: 'lab.tracesearch.v1', limit: 50, limited: false, traces: [] })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Waiting for rpc.*/api.* traffic')
   })
 
   it('filters by family (rpc/api), derived from the span subject', async () => {
@@ -137,53 +188,67 @@ describe('RpcPanel [messages] tab (Phase 28g retirement, BR-026)', () => {
 
     expect(wrapper.find('.err-banner').text()).toBe('not found')
   })
+
+  it('links a row to its whole trace in the Traces tab (Phase 54c)', async () => {
+    const pinia = createPinia()
+    const wrapper = mount(RpcPanel, { global: { plugins: [PrimeVue, pinia] } })
+    const ui = useUiStore(pinia)
+    ui.rpcTab = 'messages'
+    await flushPromises()
+    const row = wrapper.findAllComponents(SubjectPath).find((c) => c.props('subject') === 'api.acme.shipping.ship.arrive.v1')
+    await row.trigger('click')
+    await wrapper.find('[data-testid="rpc-open-trace"]').trigger('click')
+    expect(ui.rpcTab).toBe('traces')
+    await flushPromises()
+    // TraceWaterfall took the request and loaded the trace by ID.
+    expect(conn.request).toHaveBeenCalledWith(TRACE_GET_SUBJECT, { traceId: 't1' })
+    expect(wrapper.find('.tw-wf-tid').text()).toContain('t1')
+  })
 })
 
 // Phase 28q — toggling [traces]/[messages] used to fully unmount/remount
-// TraceWaterfall on every switch (the `v-if="ui.rpcTab === 'traces'"` gate),
-// so switching back to [traces] re-ran its onMounted bootstrap: a fresh
-// getKvBucketEntries HTTP round-trip plus a full re-subscribe, on an
-// unbounded trace buffer that only grows over a session — the reported
-// sluggishness. `<KeepAlive>` around that same v-if keeps the lazy first
-// mount (still gated by v-if, so a messages-only test run — see
-// mountMessagesTab above — never mounts TraceWaterfall) while caching the
-// instance instead of destroying it once mounted, so a later switch away
-// and back reuses it with no repeat bootstrap call. Phase 44 added the
-// [pulse] tab as the new default (PulsePanel.vue, its own bootstrap/
-// subscribe pair) ahead of [traces] in the tab bar — wrapped in the same
-// `<KeepAlive>` pattern, so this spec now proves the property for both.
-describe('RpcPanel [pulse]/[traces] tab toggling (Phase 28q, extended Phase 44)', () => {
+// TraceWaterfall on every switch, so switching back re-ran its bootstrap on
+// an unbounded trace buffer — the reported sluggishness. `<KeepAlive>` keeps
+// the lazy first mount while caching the instance.
+//
+// Phase 54c: a kept-alive tab must also not POLL while hidden. Each tab
+// searches once when it is shown and stops when it is left; Pulse never
+// searches at all (BR-077).
+describe('RpcPanel tab toggling (Phase 28q, Phase 44, Phase 54c)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getKvBucketEntries.mockResolvedValue([kvEntry('t1', [OK_SPAN]), kvEntry('t2', [ERROR_SPAN])])
+    resetConn()
+    serve({ t1: [OK_SPAN], t2: [ERROR_SPAN] })
   })
 
-  it('keeps Pulse and Traces mounted across tab round-trips instead of re-fetching each time', async () => {
+  it('opens on the Traces tab, not on Pulse', () => {
+    const pinia = createPinia()
+    mount(RpcPanel, { global: { plugins: [PrimeVue, pinia] } })
+    expect(useUiStore(pinia).rpcTab).toBe('traces')
+  })
+
+  it('keeps Traces mounted across tab round-trips and searches only for the tab that is shown', async () => {
     const pinia = createPinia()
     const wrapper = mount(RpcPanel, { global: { plugins: [PrimeVue, pinia] } })
     await flushPromises()
+    const ui = useUiStore(pinia)
+    const traceWaterfall = () => wrapper.findComponent({ name: 'TraceWaterfall' })
 
-    // Initial mount: RpcPanel's own unconditional bootstrap (for [messages])
-    // plus the default [pulse] tab's own lazy first mount.
-    const afterInitialMount = getKvBucketEntries.mock.calls.length
-    expect(afterInitialMount).toBeGreaterThan(0)
+    // Default [traces]: one search, by TraceWaterfall; [messages] is idle.
+    expect(searchCount()).toBe(1)
+    const first = traceWaterfall().element
 
-    useUiStore(pinia).rpcTab = 'traces'
+    ui.rpcTab = 'pulse'
     await flushPromises()
-    // First visit to [traces] — its own lazy first mount, one more fetch.
-    const afterFirstTracesVisit = getKvBucketEntries.mock.calls.length
-    expect(afterFirstTracesVisit).toBeGreaterThan(afterInitialMount)
+    expect(searchCount()).toBe(1) // Pulse reads nothing
 
-    useUiStore(pinia).rpcTab = 'messages'
+    ui.rpcTab = 'messages'
     await flushPromises()
-    useUiStore(pinia).rpcTab = 'pulse'
-    await flushPromises()
-    useUiStore(pinia).rpcTab = 'traces'
-    await flushPromises()
+    expect(searchCount()).toBe(2) // the messages tab's own first search
 
-    // Round-tripping through [messages] and back must not trigger any
-    // further fetch — both [pulse] and [traces] are kept alive once first
-    // mounted.
-    expect(getKvBucketEntries.mock.calls.length).toBe(afterFirstTracesVisit)
+    ui.rpcTab = 'traces'
+    await flushPromises()
+    expect(searchCount()).toBe(3) // one fresh search on return …
+    expect(traceWaterfall().element === first).toBe(true) // … on the same kept-alive instance
   })
 })

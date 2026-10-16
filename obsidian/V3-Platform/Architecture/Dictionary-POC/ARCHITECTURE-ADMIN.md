@@ -55,7 +55,7 @@ alternatives that were rejected and why (§4.1, §4.3, §4.5).
 | Panel | Nav key | Component(s) | Backend endpoint(s) |
 |---|---|---|---|
 | Connections | `connections` | `ConnectionsPanel.vue` | `GET /api/nats/connections` |
-| Services | `services` | `ServicesPanel.vue` | `GET /api/nats/services` |
+| Services | `services` | `ServicesPanel.vue` | NATS `api._platform.observability.service.list.v1` (Phase 54c, BR-072; `GET /api/nats/services` retires in 54d) |
 | Log | `log` | `LogPanel.vue` | `GET /api/nats/log` |
 | Request/Reply & Traces | `rpc` | `RpcPanel.vue`, `PulsePanel.vue`, `TraceWaterfall.vue`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/trace-request-reply/entries` + live `notify._platform.kv.trace-request-reply.>` — all three tabs read the same feed (pulse: unfiltered, grouped by trace, Phase 44; traces: grouped by trace, toolbar-filtered; messages: flattened one row per span, Phase 28g retirement; bucket renamed `traces` → `trace-request-reply` in Phase 28l) |
 | Messages | `pubsub` | `MessagesPanel.vue`, `usePubsubFeed.js`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/pubsub-messages/entries` + live `notify._platform.kv.pubsub-messages.>` (Phase 43c) |
@@ -295,6 +295,14 @@ Two rules follow, and a panel adopting this archetype needs both:
   `usePubsubFeed.js` needs no guard: one entry there is a standalone envelope
   written once. Without the guard the resync that closes gaps becomes a
   source of them.
+- **Phase 54c: traces no longer use this seam.** `useTraceFeed.js` has no
+  reader left. The Traces tab, the `[messages]` tab and the Messages panel's
+  "open trace" use `useTraceGateway` (`nats/traceGateway.js`): it polls
+  `trace.search.v1` every 5 s only while shown, visible and not paused, and
+  asks `trace.get.v1` only for a new or changed trace (BR-074, BR-076).
+  Tempo makes a trace visible about 10 s after it ends, so the panel says
+  so. Pulse is unavailable until Phase 55 (BR-077). `usePubsubFeed.js` keeps
+  the seam above.
 
 **The outer reconnect must retry.** Related, and found the same way: nats-core
 resolves `closed()` only after exhausting its *own* reconnect budget, so by the
@@ -499,7 +507,7 @@ from `demos/01-dictionary/`.
 protocol `nats micro stats` uses), with per-instance, per-endpoint
 request/error/latency stats.
 
-**Backend + data flow.** Poll-only, `GET /api/nats/services`. No secondary
+**Backend + data flow.** Poll-only, every 10 s. Since Phase 54c it asks NATS `api._platform.observability.service.list.v1` (BR-072), which returns the lab's versioned snapshot across PLATFORM and each tenant account, with readiness, observation time and partial-result errors; there is no REST fallback. (Before 54c: `GET /api/nats/services`.) No secondary
 read (§3.2) — discovery either finds instances within the fixed collection
 window or it doesn't.
 

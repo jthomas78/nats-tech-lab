@@ -4,7 +4,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 
 import { highlightJson } from '../jsonHighlight.js'
 import { spanDurationMs, spanFinishMs, spanStartMs } from '../nats/spanTiming.js'
-import { useTraceFeed } from '../nats/useTraceFeed.js'
+import { grafanaBaseUrl, grafanaTraceUrl, useTraceGateway } from '../nats/traceGateway.js'
 import { useUiStore } from '../stores/ui.js'
 import SubjectPath from './SubjectPath.vue'
 
@@ -45,8 +45,34 @@ import SubjectPath from './SubjectPath.vue'
 // Phase 44 moved the request/error/latency pulse strip (Phase 28p) that used
 // to sit above the toolbar here out to its own Pulse tab (PulsePanel.vue) —
 // see this file's git history for the removed `pulse` computed and markup.
+//
+// Phase 54c (BR-076): the store is Tempo now, read through the trace query
+// gateway (useTraceGateway), and the KV text above is history. Three things
+// change for a person using the panel:
+//  - It polls. Tempo has no push, so the toolbar shows when it last looked
+//    and a refresh button, and says a new trace shows up late (measured p50
+//    9.9 s on a local cell). Pause stops the polling.
+//  - A selected trace opens in Grafana Explore by the same trace ID.
+//  - Another panel can ask for one trace (ui.openTrace, the Messages link).
+//    It is loaded by ID through trace.get, even when the search window
+//    does not hold it any more.
 
-const { traces, connected: platformConnected, bootstrapFailed } = useTraceFeed()
+const paused = ref(false)
+const ui = useUiStore()
+// Polls only while this tab is shown: RpcPanel keeps the panel alive in a
+// <KeepAlive> when another tab is open, and a hidden tab must not poll.
+const polling = computed(() => !paused.value && ui.rpcTab === 'traces')
+const {
+  traces,
+  connected: platformConnected,
+  bootstrapFailed,
+  error: gatewayError,
+  lastRefresh,
+  loading,
+  refresh,
+  load,
+} = useTraceGateway({ active: polling })
+const grafanaBase = grafanaBaseUrl()
 
 // Attribution is per SPAN, not per trace, and the ordinary cross-account
 // trace is what forces that: organizations-service runs on tenant-scoped
@@ -90,7 +116,6 @@ onUnmounted(() => {
 // for the same reason rpcTab/accountsTab do: App.vue's v-else-if nav tears
 // this component down on every section switch, and the width should survive
 // that the way a real split-pane would.
-const ui = useUiStore()
 const RAIL_WIDTH_MIN = 240
 const RAIL_WIDTH_MAX = 640
 const RAIL_WIDTH_STEP = 20
@@ -256,7 +281,6 @@ const requesterOptions = computed(() => {
   return Array.from(seen).sort()
 })
 
-const paused = ref(false)
 const frozenOrder = ref([])
 function togglePause() {
   if (!paused.value) frozenOrder.value = traceSummaries.value.map((t) => t.traceId)
@@ -294,6 +318,38 @@ function selectTrace(traceId) {
   selectedTraceId.value = traceId
   const t = traceSummaries.value.find((s) => s.traceId === traceId)
   selectedSpanId.value = t?.root?.spanId ?? t?.spans[0]?.spanId ?? null
+}
+
+// A trace another panel asked for (ui.openTrace). The filters are cleared,
+// so the auto-select watch above does not move the selection off it.
+const focusError = ref('')
+watch(
+  () => ui.traceFocusId,
+  async (traceId) => {
+    if (!traceId) return
+    ui.traceFocusId = ''
+    focusError.value = ''
+    try {
+      await load(traceId)
+    } catch {
+      focusError.value = `Trace ${traceId} was not found. It may not have reached the trace store yet, or it is older than the store keeps.`
+      return
+    }
+    searchText.value = ''
+    requesterFilter.value = ''
+    kindFilter.value = 'all'
+    filters.errorsOnly = false
+    filters.slowOnly = false
+    if (paused.value) frozenOrder.value = [traceId, ...frozenOrder.value.filter((id) => id !== traceId)]
+    selectTrace(traceId)
+  },
+  { immediate: true },
+)
+
+const grafanaUrl = computed(() => grafanaTraceUrl(grafanaBase, selectedTraceId.value))
+function formatClock(d) {
+  if (!d) return '—'
+  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':')
 }
 
 // ── Waterfall rows for the selected trace ─────────────────────────────────
@@ -485,9 +541,24 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
   <div class="trace-waterfall">
     <div class="tw-toolbar">
       <Tag
-        :severity="platformConnected ? 'success' : 'danger'"
-        :value="platformConnected ? 'live' : 'disconnected'"
+        :severity="!platformConnected ? 'danger' : paused ? 'secondary' : 'success'"
+        :value="!platformConnected ? 'disconnected' : paused ? 'paused' : 'polling'"
       />
+      <span
+        class="tw-refresh-status"
+        data-testid="tw-refresh-status"
+        title="Traces come from Tempo through the trace gateway. Tempo has no push, so this panel asks again every few seconds while it is shown."
+      >{{ lastRefresh ? `refreshed ${formatClock(lastRefresh)}` : 'searching…' }}</span>
+      <button
+        type="button"
+        class="chip"
+        data-testid="tw-refresh"
+        :disabled="loading"
+        aria-label="Refresh traces now"
+        @click="refresh"
+      >
+        <i class="pi pi-refresh" /> refresh
+      </button>
       <span class="search-box search-box-grow">
         <i class="pi pi-search" />
         <input
@@ -568,13 +639,22 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
       v-if="bootstrapFailed"
       class="err-line"
     >
-      Trace snapshot failed to load — this view may be incomplete. Retrying…
+      Trace search failed: {{ gatewayError || 'no reply' }}. This view shows the last good result. Retrying…
     </p>
     <p
       v-else-if="!platformConnected"
       class="stale-line"
     >
-      Disconnected — this view is frozen, not losing data. It resyncs from the durable KV snapshot on reconnect.
+      Disconnected — this view is frozen, not losing data. Traces stay in the trace store; the next search after reconnect reads them.
+    </p>
+    <p
+      v-if="focusError"
+      class="err-line"
+    >
+      {{ focusError }}
+    </p>
+    <p class="tw-late-note lab-muted">
+      New traces show up about 10–15 s late on a local cell, and about 30 s late with Tempo's default settings. The trace store indexes a trace only after it ends.
     </p>
 
     <div
@@ -619,11 +699,19 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
               <span class="tw-trace-spans">{{ t.spanCount }} spans</span>
             </span>
           </button>
+          <!-- Until the first search answers, empty means "not searched
+               yet", never "no traces" (Phase 54c). -->
           <div
-            v-if="!displayedSummaries.length"
+            v-if="!displayedSummaries.length && !lastRefresh && !bootstrapFailed"
             class="lab-muted tw-empty"
           >
-            Waiting for obs.trace.* traffic — trigger any api.*/rpc.* call to see a trace here.
+            Searching the trace store…
+          </div>
+          <div
+            v-else-if="!displayedSummaries.length"
+            class="lab-muted tw-empty"
+          >
+            No traces in the last 15 minutes yet — trigger any api.*/rpc.* call. It shows up here after the delay above.
           </div>
         </div>
       </div>
@@ -667,6 +755,14 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
             </span>
             <span class="tw-stat"><span class="k">spans</span><span class="v">{{ selectedTrace.spanCount }}</span></span>
             <span class="tw-stat"><span class="k">accounts</span><span class="v">{{ selectedTrace.accountCount }}</span></span>
+            <a
+              v-if="grafanaUrl"
+              class="tw-grafana"
+              data-testid="tw-open-grafana"
+              :href="grafanaUrl"
+              target="_blank"
+              rel="noopener"
+            ><i class="pi pi-external-link" /> Open in Grafana</a>
           </div>
 
           <div
@@ -944,6 +1040,24 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
 </template>
 
 <style scoped>
+.tw-refresh-status {
+  color: var(--lab-text-muted, var(--p-text-muted-color));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tw-late-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+.tw-grafana {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--p-primary-color);
+  text-decoration: none;
+}
+.tw-grafana:hover {
+  text-decoration: underline;
+}
 .trace-waterfall {
   flex: 1;
   min-height: 0;

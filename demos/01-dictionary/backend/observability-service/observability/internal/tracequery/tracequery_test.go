@@ -183,24 +183,6 @@ var _ = Describe("BR-067: the gateway serves exactly the three trace subjects", 
 		Entry("a body that is not JSON", `not json`, "400"),
 	)
 
-	// search and services are served from 54a-5 so the subject set is
-	// fixed, but their query shape is not specified until 54c. Until then
-	// they answer, and say so.
-	DescribeTable("BR-067: search and services answer, as not implemented yet",
-		func(subject string) {
-			nc := startNATS()
-			stop, err := tracequery.Mount(nc, tracequery.NewTempo(fakeTempo().URL, http.DefaultClient))
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(stop)
-
-			reply, err := nc.Request(subject, []byte(`{}`), 5*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("501"))
-		},
-		Entry("search", tracequery.SearchSubject),
-		Entry("services", tracequery.ServicesSubject),
-	)
-
 	It("BR-067: does not answer a fourth subject under the same prefix", func() {
 		nc := startNATS()
 		stop, err := tracequery.Mount(nc, tracequery.NewTempo(fakeTempo().URL, http.DefaultClient))

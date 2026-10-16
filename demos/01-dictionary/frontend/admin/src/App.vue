@@ -259,7 +259,7 @@ onUnmounted(() => {
          stream, and a tenant column none of the Request/Reply tabs can populate.
          MessagesPanel is its own .lab-panel, so the section stays flush. -->
     <section v-else-if="activeView === 'pubsub'" class="group group--flush" data-testid="pubsub-view">
-      <MessagesPanel />
+      <MessagesPanel @open-trace="activeView = 'rpc'" />
     </section>
 
     <!-- Connections — every active NATS connection, server-wide (Phase 17c).

@@ -1,11 +1,11 @@
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SubjectPath from './SubjectPath.vue'
 import TraceWaterfall from './TraceWaterfall.vue'
+import { useUiStore } from '../stores/ui.js'
 
 // BR-035 (Phase 28g) — the trace waterfall panel renders one row per trace,
 // not per span; the reply-ack line appears only for a trace with an async
@@ -13,19 +13,44 @@ import TraceWaterfall from './TraceWaterfall.vue'
 // the parent/child chain carry different account labels; and the header
 // shows both durations, with read-model-consistent always >= reply latency.
 //
-// Live-update behavior (the notify._platform.kv.trace-request-reply.> subscription) isn't
-// exercised here — usePlatformConnection is mocked inert (never connected),
-// so these specs cover the bootstrap-derived rendering only, which is where
-// BR-035's required assertions live.
+// Phase 54c — the panel reads the trace query gateway (useTraceGateway in
+// ../nats/traceGateway.js), not the KV feed. The gateway is mocked here with
+// traces already in the panels' span shape, so these specs cover rendering;
+// the polling itself is pinned in traceGateway.spec.js.
 
-vi.mock('../api', () => ({
-  getKvBucketEntries: vi.fn(),
-}))
-vi.mock('../nats/usePlatformConnection.js', () => ({
-  usePlatformConnection: () => ({ connected: ref(false), subscribe: vi.fn() }),
-}))
+const gw = vi.hoisted(() => ({ entries: [], last: null, opts: null, base: 'http://grafana.test:3050' }))
+vi.mock('../nats/traceGateway.js', async (importOriginal) => {
+  const real = await importOriginal()
+  const { ref } = await import('vue')
+  return {
+    ...real,
+    grafanaBaseUrl: () => gw.base,
+    useTraceGateway: (opts) => {
+      gw.opts = opts
+      const traces = ref(new Map(gw.entries))
+      gw.last = {
+        traces,
+        connected: ref(true),
+        bootstrapFailed: ref(false),
+        error: ref(''),
+        limited: ref(false),
+        lastRefresh: ref(new Date(2026, 9, 16, 9, 30, 5)),
+        loading: ref(false),
+        refresh: vi.fn(async () => {}),
+        load: vi.fn(async (id) => {
+          const spans = gw.loadable?.[id] ?? []
+          traces.value = new Map([...traces.value, [id, spans]])
+          return spans
+        }),
+      }
+      return gw.last
+    },
+  }
+})
 
-import { getKvBucketEntries } from '../api'
+function feed(entries) {
+  gw.entries = entries
+}
 
 const BASE = 1755000000000
 
@@ -197,25 +222,17 @@ const HTTP_ROOT_SIMPLE = {
 // of these traces — the wrapping is the store's shape, not something every
 // fixture should have to restate.
 function kvEntry(traceId, spans) {
-  return {
-    key: `_platform.trace.${traceId}`,
-    op: 'PUT',
-    revision: 1,
-    value: {
-      traceId,
-      spans: spans.map(({ _tenant, ...span }) => ({ tenant: _tenant ?? 'acme', span })),
-    },
-  }
+  return [traceId, spans.map(({ _tenant, ...span }) => ({ ...span, attributedTenant: _tenant ?? 'acme' }))]
 }
 
-function mountPanel() {
-  return mount(TraceWaterfall, { global: { plugins: [PrimeVue, createPinia()] } })
+function mountPanel(pinia = createPinia()) {
+  return mount(TraceWaterfall, { global: { plugins: [PrimeVue, pinia] } })
 }
 
 describe('TraceWaterfall (Phase 28g, BR-035)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getKvBucketEntries.mockResolvedValue([
+    feed([
       kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL]),
       kvEntry('t2', [FAILED_ROOT]),
     ])
@@ -396,7 +413,7 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
     // sort by `at` (traceStart), and t3's 2026 timestamp would otherwise
     // jump ahead of them and break every other test's `.tw-trace[0]` == t1
     // assumption.
-    getKvBucketEntries.mockResolvedValue([kvEntry('t3', [SUBMS_PARENT, SUBMS_CHILD])])
+    feed([kvEntry('t3', [SUBMS_PARENT, SUBMS_CHILD])])
     const wrapper = mountPanel()
     await flushPromises()
 
@@ -415,7 +432,7 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
   })
 
   it('walks the parentSpanId tree instead of flat-sorting by offset, so a grandparent HTTP span renders above its child and grandchild even when truncated durationMs ties their estimated start times (Phase 28m)', async () => {
-    getKvBucketEntries.mockResolvedValue([kvEntry('t4', [HTTP_INBOUND_GRANDCHILD, HTTP_OUTBOUND_CHILD, HTTP_ROOT])])
+    feed([kvEntry('t4', [HTTP_INBOUND_GRANDCHILD, HTTP_OUTBOUND_CHILD, HTTP_ROOT])])
     const wrapper = mountPanel()
     await flushPromises()
 
@@ -470,7 +487,7 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
   })
 
   it('tags each trace REST or NATS by its root span, and filters the list by transport (Phase 28o)', async () => {
-    getKvBucketEntries.mockResolvedValue([kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL]), kvEntry('t2', [FAILED_ROOT]), kvEntry('t5', [HTTP_ROOT_SIMPLE])])
+    feed([kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL]), kvEntry('t2', [FAILED_ROOT]), kvEntry('t5', [HTTP_ROOT_SIMPLE])])
     const wrapper = mountPanel()
     await flushPromises()
 
@@ -508,7 +525,7 @@ describe('TraceWaterfall account attribution (Phase 48c, BR-054)', () => {
   })
 
   it('names the specific tenant, so two tenants are distinguishable rather than both reading "TENANT"', async () => {
-    getKvBucketEntries.mockResolvedValue([
+    feed([
       kvEntry('t9', [{ ...ROOT, _tenant: 'globex', traceId: 't9', spanId: 'g1' }]),
     ])
     const wrapper = mountPanel()
@@ -524,7 +541,7 @@ describe('TraceWaterfall account attribution (Phase 48c, BR-054)', () => {
   })
 
   it('counts distinct real accounts in a trace, which is what makes the cross-account summary meaningful', async () => {
-    getKvBucketEntries.mockResolvedValue([kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL])])
+    feed([kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL])])
     const wrapper = mountPanel()
     await flushPromises()
 
@@ -533,14 +550,11 @@ describe('TraceWaterfall account attribution (Phase 48c, BR-054)', () => {
     expect(wrapper.find('.tw-trace').text()).toContain('2 accounts')
   })
 
-  it('renders a pre-48c span as unattributed rather than guessing an account for it', async () => {
-    // A record written before the wrapper existed: bare spans, no tenant.
-    // These age out within one bucket TTL, but while they are there the panel
-    // must not invent provenance for them — an invented account on this panel
-    // is worse than an absent one.
-    getKvBucketEntries.mockResolvedValue([
-      { key: '_platform.trace.t1', op: 'PUT', revision: 1, value: { traceId: 't1', spans: [ROOT] } },
-    ])
+  it('renders a span with no originating tenant as unattributed rather than guessing an account for it', async () => {
+    // BR-069: the originating tenant is set only from server-written routing
+    // context, else empty. The panel must not invent provenance for an empty
+    // one — an invented account on this panel is worse than an absent one.
+    feed([kvEntry('t1', [{ ...ROOT, _tenant: '' }])])
     const wrapper = mountPanel()
     await flushPromises()
 
@@ -614,7 +628,7 @@ const REFUSED_HANDLER = {
 describe('TraceWaterfall error rendering (Phase 48j, BR-055)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getKvBucketEntries.mockResolvedValue([
+    feed([
       kvEntry('t9', [REFUSED_ROOT, REFUSED_HOP, REFUSED_HANDLER]),
       kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL]),
     ])
@@ -738,7 +752,7 @@ describe('TraceWaterfall bar geometry under clock skew (BR-057)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    getKvBucketEntries.mockResolvedValue([kvEntry('ts', [SK_ROOT, SK_CHILD, SK_GRANDCHILD])])
+    feed([kvEntry('ts', [SK_ROOT, SK_CHILD, SK_GRANDCHILD])])
   })
 
   function barLefts(wrapper) {
@@ -784,5 +798,113 @@ describe('TraceWaterfall bar geometry under clock skew (BR-057)', () => {
     // that the column reports the SPAN, so a clamped bar must not rewrite it.
     const durations = wrapper.findAll('.tw-row .tw-dur').map((d) => d.text())
     expect(durations).toEqual(['2ms', '2ms', '1ms'])
+  })
+})
+
+// Phase 54c (BR-076) — what the panel adds on top of the gateway: Tempo has
+// no push, so the panel says when it last looked, lets a person look again
+// now, says a new trace can be late, and hands the same trace ID to Grafana.
+describe('TraceWaterfall on the trace gateway (Phase 54c, BR-076)', () => {
+  beforeEach(() => {
+    gw.base = 'http://grafana.test:3050'
+    gw.loadable = {}
+    feed([kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL])])
+  })
+
+  it('shows the last refresh time and says new traces can be late', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    const status = wrapper.find('[data-testid="tw-refresh-status"]')
+    expect(status.text()).toContain('09:30:05')
+    expect(wrapper.text()).toMatch(/new traces show up about 10.?15 s late/i)
+    wrapper.unmount()
+  })
+
+  it('refreshes at once from the refresh button', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.find('[data-testid="tw-refresh"]').trigger('click')
+    expect(gw.last.refresh).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('opens the selected trace in Grafana Explore by the same trace ID', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    const link = wrapper.find('[data-testid="tw-open-grafana"]')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('target')).toBe('_blank')
+    const url = new URL(link.attributes('href'))
+    expect(url.origin).toBe('http://grafana.test:3050')
+    expect(url.searchParams.get('panes')).toContain('"query":"t1"')
+    wrapper.unmount()
+  })
+
+  it('hides "Open in Grafana" when the build sets no Grafana URL', async () => {
+    gw.base = ''
+    const wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="tw-open-grafana"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('stops polling while paused (pause freezes the list, so polling would only be dropped)', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    expect(gw.opts.active.value).toBe(true)
+    await wrapper.find('.pause-btn').trigger('click')
+    expect(gw.opts.active.value).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('loads and selects a trace another panel asked for, even one the search did not return', async () => {
+    gw.loadable = { t9: [{ ...FAILED_ROOT, traceId: 't9', spanId: 's9', attributedTenant: 'acme' }] }
+    const pinia = createPinia()
+    const wrapper = mountPanel(pinia)
+    await flushPromises()
+    const ui = useUiStore(pinia)
+    ui.openTrace('t9')
+    await flushPromises()
+    expect(gw.last.load).toHaveBeenCalledWith('t9')
+    expect(wrapper.find('.tw-wf-tid').text()).toContain('t9')
+    expect(ui.traceFocusId).toBe('')
+    wrapper.unmount()
+  })
+
+  it('says so when a trace another panel asked for cannot be found', async () => {
+    const pinia = createPinia()
+    const wrapper = mountPanel(pinia)
+    await flushPromises()
+    gw.last.load.mockRejectedValueOnce(Object.assign(new Error('trace not found'), { code: '404' }))
+    useUiStore(pinia).openTrace('missing')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Trace missing was not found')
+    wrapper.unmount()
+  })
+
+  it('shows the search failure the gateway reports', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    gw.last.bootstrapFailed.value = true
+    gw.last.error.value = 'trace store unavailable'
+    await flushPromises()
+    expect(wrapper.find('.err-line').text()).toContain('trace store unavailable')
+    wrapper.unmount()
+  })
+
+  it('says it is searching, not "no traces", until the first search answers', async () => {
+    feed([])
+    const wrapper = mountPanel()
+    await flushPromises()
+    gw.last.lastRefresh.value = null
+    await flushPromises()
+    expect(wrapper.find('.tw-empty').text()).toContain('Searching the trace store')
+    expect(wrapper.text()).not.toContain('No traces in the last 15 minutes')
+    expect(wrapper.find('[data-testid="tw-refresh-status"]').text()).toBe('searching…')
+
+    gw.last.lastRefresh.value = new Date(2026, 9, 16, 9, 30, 5)
+    await flushPromises()
+    expect(wrapper.find('.tw-empty').text()).toContain('No traces in the last 15 minutes')
+    wrapper.unmount()
   })
 })

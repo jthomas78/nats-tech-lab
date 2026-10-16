@@ -7,6 +7,19 @@ import { computed, reactive, ref } from 'vue'
 import SubjectPath from './SubjectPath.vue'
 import { highlightJson } from '../jsonHighlight.js'
 import { usePubsubFeed } from '../nats/usePubsubFeed.js'
+import { useUiStore } from '../stores/ui.js'
+
+// Phase 54c — a row links to its trace (decision 13: the wire tap takes its
+// trace and span IDs from the OTel span context). openTrace() asks the
+// Traces tab to load that trace by ID; the 'open-trace' event asks App.vue
+// to switch the nav to Request/Reply, which this panel cannot do itself.
+const emit = defineEmits(['open-trace'])
+const ui = useUiStore()
+function openTrace(traceId) {
+  if (!traceId) return
+  ui.openTrace(traceId)
+  emit('open-trace', traceId)
+}
 
 // Cross-tenant pub/sub wire tap (Phase 43c, BR-048). Its own SYSTEM → NATS
 // nav entry rather than a fourth RpcPanel tab: RpcPanel's three tabs are all
@@ -263,6 +276,15 @@ defineExpose({ upsertMessage, MAX_ROWS })
         <span class="meta">
           <span>tenant <b>{{ selectedMsg.tenant }}</b></span>
           <span>trace <b :title="selectedMsg.traceId">{{ selectedMsg.traceId }}</b></span>
+          <button
+            v-if="selectedMsg.traceId"
+            type="button"
+            class="chip open-trace"
+            data-testid="msg-open-trace"
+            @click="openTrace(selectedMsg.traceId)"
+          >
+            <i class="pi pi-sitemap" /> open trace
+          </button>
         </span>
         <span
           class="close"

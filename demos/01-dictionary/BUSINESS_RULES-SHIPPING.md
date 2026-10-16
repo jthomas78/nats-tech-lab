@@ -1360,8 +1360,9 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > refdata client, and `rpc.*.refdata.item.get` in `refdata-service`. Their
 > adapter specs are green. The `trace.get` gateway is built (54a-5): the
 > unit specs for BR-067 (`MintAdminToken`, `tracequery.Mount`) and BR-070
-> (`tracequery`) are green. `trace.search` and `trace.services` are served
-> but reply 501 until 54c specifies their query shape. A smoke run on
+> (`tracequery`) are green. `trace.search` and `trace.services` were served
+> but replied 501 until 54c specified their query shape (BR-074, BR-075).
+> A smoke run on
 > `au-1` showed one trace across both services. The 54a stack checks ran on
 > `au-1` (54a-6) and passed: BR-066 (stopped and hung Collector), BR-067
 > access, BR-068 durability (graceful restart and hard kill), BR-069 and
@@ -1405,7 +1406,17 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 > the Users api.* adapter (`EdgeAPI`, PLATFORM), the `notify.accounts.*`
 > lifecycle publishes and, new, the REST API (BR-073). See the OTel notes
 > under BR-P25, BR-AC35, BR-AC40 and the app shell's Phase 54b-5 note.
-> 54b-6 (the live service list) is next. Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
+> 54b-6 built the live service list (BR-072); 54b-7 measured it and the
+> Collector on `au-1`.
+>
+> 54c (2026-10-16, **rules BR-074–BR-077 confirmed by the user the same
+> day**) built `trace.search` (BR-074) and `trace.services`
+> (BR-075), and moved the Admin UI onto the gateway (BR-076): Traces,
+> `[messages]` and the Messages-to-trace link poll the gateway, and Pulse
+> is marked unavailable (BR-077). The Services panel moved to the NATS
+> service list (BR-072). Validated on `au-1` with the `otel` overlay and
+> `OTEL_CAPTURE_BODIES=true`; results are in the plan, 54c. The default
+> stack is **not** switched yet (decision 16). Design: `Main-POC-Plan.md` Phase 54, decisions 1–17. These
 > rules govern the OTel path only. Until decision 16's gate (54c complete and
 > validated), the default stack still runs `natstrace`, and BR-035–BR-037,
 > BR-051, BR-053 and BR-056 still describe it. Each of those is amended or
@@ -1507,7 +1518,7 @@ A browser can send any `traceparent` — any trace ID, and `sampled = 0`. `natst
 
 ---
 
-### BR-072 (Phase 54b/54c; 54b-6 IMPLEMENTED 2026-10-15; 54b-7a stack-checked 2026-10-16) — Live micro discovery and endpoint statistics are independent of trace export
+### BR-072 (Phase 54b/54c; 54b-6 IMPLEMENTED 2026-10-15; 54b-7a stack-checked 2026-10-16; 54c UI IMPLEMENTED 2026-10-16) — Live micro discovery and endpoint statistics are independent of trace export
 
 NATS micro PING reports responding instances, INFO supplies identity/version
 and endpoint descriptions, and STATS supplies live request/error counts,
@@ -1598,11 +1609,23 @@ are outside this transport change.
     listed as 2 instances. observability-service does this (trace query
     gateway and service list), and refdata-service does in PLATFORM. A real
     second process was not started.
-- **Planned tests (54c):** UI
-  checks cover identity, account, statistics and observation/readiness states
-  over NATS with no REST fallback. Verify operator access, tenant exclusion,
-  absence of raw browser micro permissions, versioned replies and explicit
-  truncation through the real NATS adapter.
+- **Implementation status (54c, 2026-10-16):** the Services panel asks
+  `service.list.v1` over NATS (`frontend/admin/src/nats/serviceList.js`,
+  `ServicesPanel.vue`). It has no REST fallback. A card is keyed by account
+  and name, so the same service in two accounts is two cards. Each card shows
+  the account tag, the readiness (`ready`, `not-ready`, or "readiness
+  unknown"), and the versions. One line says when the snapshot was observed,
+  in which window, across how many accounts. A partial result lists its
+  errors and failed accounts. The empty line shows only for a complete
+  snapshot with no services. A failed request keeps the last snapshot. The
+  panel asks every 10 s. `GET /api/nats/services` stays until 54d.
+- **Tests (green, 54c):** `ServicesPanel.spec.js` — 17 specs: the subject,
+  totals, account and name keying, readiness, versions, the observed line,
+  a poll does not re-open a card, the BR-028 tag, errors, partial and
+  truncated results, a failed discovery is not an empty success, loading,
+  empty, a failed request keeps the snapshot, disconnected, and REST is never
+  called. **Stack check (`au-1`, 2026-10-16):** 13 services in 3 accounts,
+  `complete`, no partial line.
 - **Deployment scope:** validate local Docker in Phase 54 before a later
   Chronicle transfer. The eventual AWS and Docker deployments share these
   semantics with deployment-specific topology, credentials and timing.
@@ -1648,6 +1671,99 @@ with this policy on top. It is not a second HTTP tracer. The default stack
   the message's `traceparent` carries that trace.
   `accounts/otel_54b5_test.go` — `TraceHTTP` with a Provider gives an OTel
   SERVER span and no `obs.trace.*` span; with none, the natstrace span.
+
+---
+
+> **BR-074 to BR-077 were confirmed by the user on 2026-10-16 (Phase 54c).** They were
+> derived from Phase 54's decisions while 54c was built.
+
+### BR-074 (Phase 54c, IMPLEMENTED 2026-10-16, confirmed by the user) — `trace.search` returns capped trace summaries in the lab's own schema, and a capped result is never a total
+
+`api._platform.observability.trace.search.v1` takes `service`, `name`,
+`tenant`, `errorsOnly`, `sinceMs` and `limit`. Defaults: 50 traces, a 15 min
+window. Maximums: 200 traces, a 24 h window, 256 characters per filter
+value. A request outside a bound is refused with `400`, never clamped. A
+filter value with a quote or a backslash is refused, because it goes into a
+TraceQL query. Each filter is its own span set, so different spans may match.
+There is no link filter. The reply is `lab.tracesearch.v1`: the limit,
+`limited`, the window, and per trace the ID (32 hex characters), root
+service and name, start, duration, span and error counts, and services,
+newest first. `limited: true` when the reply fills the limit; the reply is
+then a sample, never a count. A Tempo failure is a `503` without Tempo's
+text.
+
+- **Enforced in:** `observability/internal/tracequery` — `search.go`,
+  `tempo_search.go`.
+- **Test:** `tracequery/search_test.go`, `Describe("BR-074: …")` — the
+  mapping, the query sent to Tempo, "a capped result is never a total", the
+  refusal table (each refused request never reaches Tempo), the `503`, and an
+  empty body is `{}`. **Stack check (`au-1`):** `otel-stackcheck gateway 5`,
+  G1–G5 pass. A finished trace is found by search after p50 10.04 s, p95
+  10.11 s, max 11.45 s.
+
+### BR-075 (Phase 54c, IMPLEMENTED 2026-10-16, confirmed by the user) — `trace.services` returns the service names seen in the trace store
+
+`api._platform.observability.trace.services.v1` takes an empty body or `{}`.
+It returns `lab.traceservices.v1`: the service names Tempo saw in the last
+hour, sorted. A body with fields is a `400`. A Tempo failure is a `503`
+without Tempo's text. This is the Traces panel's service filter. It is not
+the Services panel; that is BR-072.
+
+- **Enforced in:** `observability/internal/tracequery`.
+- **Test:** `tracequery/search_test.go`, `Describe("BR-075: …")`.
+  **Stack check:** G3 lists accounts, mfe-registry, refdata and shipping.
+
+### BR-076 (Phase 54c, IMPLEMENTED 2026-10-16, confirmed by the user) — The Admin UI reads traces from the gateway, polls only while it is shown, and links each trace to Grafana
+
+Every reader of the old `useTraceFeed.js` now uses `useTraceGateway`
+(`frontend/admin/src/nats/traceGateway.js`): the Traces tab, the Request/Reply
+`[messages]` tab, and the Messages panel's trace link. The rules:
+
+- **Polling.** The panel asks `trace.search` every 5 s, only while it is
+  shown, the page is visible, and it is not paused. The interval comes from
+  the measured visibility delay (about 10 s on a local cell), so a faster
+  poll finds nothing new. It asks `trace.get` only for a trace that is new
+  or changed.
+- **Late note.** The panel says that new traces show up about 10–15 s late
+  on a local cell, and about 30 s late with Tempo's default settings.
+- **Searching state.** Until the first search answers, the panel says
+  "Searching the trace store…", not an empty state.
+- **Order and units.** `[messages]` rows are newest first, by span finish
+  time, and at most 500. Durations are whole microseconds, as natstrace
+  published them (BR-056).
+- **Grafana.** "Open in Grafana" opens the same trace ID in Grafana Explore
+  on the `tempo` datasource. The base URL is the `VITE_GRAFANA_URL` build
+  argument (`compose.otel.yaml`). No URL, no link.
+- **Messages link.** A Pub/Sub row that carries a trace ID has "open trace".
+  It calls `openTrace(id)` (`stores/ui.js`), which opens Request/Reply →
+  Traces with that trace selected.
+- **Amends BR-035 and BR-036.** Body events (`rpc.request.body`,
+  `rpc.reply.body`) show as the request and reply bodies, when the services
+  run with `OTEL_CAPTURE_BODIES=true`. **Amends BR-054.** The attributed
+  tenant comes from `lab.tenant.originating`.
+
+- **Enforced in:** `nats/traceGateway.js`, `components/TraceWaterfall.vue`,
+  `components/RpcPanel.vue`, `components/MessagesPanel.vue`, `stores/ui.js`.
+- **Test:** `traceGateway.spec.js` (`toViewSpan`, `grafanaTraceUrl`,
+  `useTraceGateway`), `TraceWaterfall.spec.js`, `RpcPanel.spec.js`,
+  `MessagesPanel.spec.js`. **Stack check (`au-1`, 2026-10-16, 1920x1080):**
+  the Traces tab polls and shows the late note; a ship arrive trace shows 6
+  spans, the reply-sent split, account `acme` and both bodies; the Grafana
+  datasource and the trace answer `200` through the Grafana proxy; a Pub/Sub
+  row's "open trace" opens that trace. The Grafana sign-in page was not
+  tested in the browser.
+
+### BR-077 (Phase 54c, IMPLEMENTED 2026-10-16, confirmed by the user) — Pulse is unavailable until Phase 55
+
+Pulse counted requests, errors and latency from the old feed, which held
+every recent trace. A gateway search is capped (BR-074), and a capped result
+is never a total. So Pulse shows a notice and no numbers. It is no longer
+the default tab; Traces is. Phase 55 rebuilds Pulse on Prometheus metrics.
+
+- **Enforced in:** `components/PulsePanel.vue`, `stores/ui.js` (default tab
+  `traces`).
+- **Test:** `PulsePanel.spec.js` (`pulse-unavailable`). **Stack check:** the
+  notice shows on `au-1`.
 
 ---
 

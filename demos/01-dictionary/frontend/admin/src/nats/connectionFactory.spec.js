@@ -139,4 +139,25 @@ describe('createConnectionState reconnect lifecycle', () => {
     await expect(state.request('api._platform.mfe-registry.entries.upsert.v1', {})).rejects.toMatchObject({ conflict: true, code: 'stale-revision', body })
     await state.disconnect()
   })
+
+  // Phase 54c (BR-074): a NATS micro service error is an empty body with
+  // Nats-Service-Error and Nats-Service-Error-Code headers. It must reject,
+  // never resolve as an empty success.
+  it('rejects a micro service error reply, carrying its code and description', async () => {
+    const f = fakeConn()
+    const h = new Map([
+      ['Nats-Service-Error', 'trace store unavailable'],
+      ['Nats-Service-Error-Code', '503'],
+    ])
+    f.conn.request = vi.fn(async () => ({ data: new Uint8Array(), headers: { get: (k) => h.get(k) ?? '' } }))
+    wsconnect.mockResolvedValue(f.conn)
+    const state = makeState()
+    await state.connect()
+    await expect(state.request('api._platform.observability.trace.search.v1', {})).rejects.toMatchObject({
+      message: 'trace store unavailable',
+      code: '503',
+      serviceError: true,
+    })
+    await state.disconnect()
+  })
 })

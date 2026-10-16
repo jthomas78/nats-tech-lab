@@ -1,41 +1,56 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, unref } from 'vue'
 
-import { getNatsServices } from '../api'
 import { compactCount, exactCount } from '../format'
+import { listServices } from '../nats/serviceList.js'
+import { usePlatformConnection } from '../nats/usePlatformConnection.js'
 
-// Services panel (Phase 17c) — every service registered via nats.go/micro
-// (see ARCHITECTURE-COMMUNICATIONS.md §4), discovered by broadcasting
-// $SRV.STATS and collecting replies (the same protocol `nats micro stats`
-// uses). Complements the Connections panel: that shows every raw
-// subscription a process holds; this shows the endpoints a service
-// deliberately *offers* plus their request/error/latency counters.
+// Services panel (Phase 17c; NATS since Phase 54c, decision 17, BR-072) —
+// every service registered via nats.go/micro, read from
+// observability-service's live service list over the Admin UI's PLATFORM
+// connection (api._platform.observability.service.list.v1). There is no
+// REST fallback: GET /api/nats/services stays only until 54d retires it.
 //
-// Known gap (not a bug): accounts-service registers on the SYS account it
-// already holds for JWT operations, which this panel's query connections
-// (PLATFORM + the active tenant) can't see across the account boundary — see
-// the backend's nats_ops.go package doc and Main-POC-Plan.md Phase 17c.
+// The snapshot already did the discovery: PING/INFO/STATS in PLATFORM and in
+// each tenant account (BR-AC31's monitor.{tenant}.srv.> import) inside one
+// bounded window. So the panel reads three things straight off it:
+//
+//   - account — each card is one service name in one account. The same name
+//     in two accounts is two cards (keyed by account + name).
+//   - readiness — ready / not ready from shared/natsready, else unknown. A
+//     reply means responding, not dependency-ready; the panel never guesses.
+//   - complete — false when an account failed, the tenant list failed or the
+//     reply was truncated. The panel shows the errors; a failed discovery is
+//     never shown as an empty success.
+//
+// Known gap (not a bug): accounts-service registers on the SYS account, which
+// the discovery does not query.
 const REFRESH_MS = 10000
 
-const services = ref([])
+const { connected, request } = usePlatformConnection()
+
+const snapshot = ref(null)
 const loading = ref(true)
 const errorMsg = ref('')
 const expanded = ref(new Set())
 
+const services = computed(() => snapshot.value?.services ?? [])
+
 async function refresh() {
+  if (unref(connected) === false) {
+    errorMsg.value = 'Not connected to NATS — the service list is asked over the PLATFORM connection.'
+    loading.value = false
+    return
+  }
   try {
-    const res = await getNatsServices()
-    services.value = res?.services ?? []
+    snapshot.value = await listServices(request)
     errorMsg.value = ''
-    // Deliberately no auto-expand. An earlier version opened the first card
-    // whenever `expanded` was empty "so the panel isn't just a wall of
-    // collapsed bars" — but because refresh() is on a REFRESH_MS poll, that
-    // condition was re-tested every 10s, so collapsing every card made the
-    // first one silently re-open on the next tick. Expansion is the user's to
-    // control; the summary tiles above already carry the at-a-glance signal
-    // the auto-expand was reaching for.
+    // Deliberately no auto-expand: refresh() is on a REFRESH_MS poll, so an
+    // auto-expand re-opened a card the user had just collapsed. Expansion is
+    // the user's to control.
   } catch (err) {
-    errorMsg.value = err.message || 'Failed to load services'
+    // Keep the last snapshot; say this request failed.
+    errorMsg.value = `Service list request failed: ${err?.message || err}`
   } finally {
     loading.value = false
   }
@@ -48,10 +63,35 @@ onMounted(() => {
 })
 onUnmounted(() => clearInterval(timer))
 
-function toggle(name) {
+function cardKey(svc) {
+  return `${svc.account}/${svc.name}`
+}
+
+function toggle(key) {
   const next = new Set(expanded.value)
-  next.has(name) ? next.delete(name) : next.add(name)
+  next.has(key) ? next.delete(key) : next.add(key)
   expanded.value = next
+}
+
+// ── Discovery provenance ─────────────────────────────────────────────────
+const failedAccounts = computed(() => (snapshot.value?.accounts ?? []).filter((a) => a.status === 'error'))
+const partial = computed(() => snapshot.value != null && snapshot.value.complete === false)
+
+const READINESS = {
+  ready: { label: 'ready', dot: 'ok', title: 'natsready says its dependencies are ready.' },
+  'not-ready': { label: 'not ready', dot: 'bad', title: 'natsready says a dependency is not ready.' },
+}
+const UNKNOWN = {
+  label: 'readiness unknown',
+  dot: 'unknown',
+  title: 'It answered discovery, so it is responding. It has no natsready responder here, so its dependencies are not known.',
+}
+function readiness(svc) {
+  return READINESS[svc.readiness] ?? UNKNOWN
+}
+
+function versions(svc) {
+  return [...new Set(svc.instances.map((i) => i.version).filter(Boolean))].map((v) => `v${v}`).join(', ')
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────
@@ -114,20 +154,44 @@ function volumePct(e, instance) {
 
     <p v-if="loading" class="lab-muted loading-line">
       <span class="spinner" aria-hidden="true" />
-      Discovering services — this queries every micro-registered instance
-      and waits for replies, so it takes a moment…
+      Discovering services — this asks every micro-registered instance in
+      PLATFORM and each tenant account, and waits one window for replies…
     </p>
-    <p v-else-if="errorMsg" class="err-line">{{ errorMsg }}</p>
-    <p v-else-if="!services.length" class="lab-muted empty-line">
-      No micro-registered services discovered on the PLATFORM or active-tenant account.
+    <p v-if="errorMsg" class="err-line">{{ errorMsg }}</p>
+    <p v-if="snapshot" class="lab-muted observed-line" data-testid="svc-observed">
+      Observed {{ formatTime(snapshot.observedAt) }} in a {{ snapshot.windowMs }} ms window
+      across {{ (snapshot.accounts ?? []).length }} account(s). A reply means responding;
+      no reply means not observed in the window, not dead.
+    </p>
+    <div v-if="partial" class="partial-line" data-testid="svc-partial">
+      <strong>Partial result.</strong> These are the services that answered — not all of them.
+      <ul>
+        <li v-for="e in snapshot.errors ?? []" :key="e">{{ e }}</li>
+        <li v-for="a in failedAccounts" :key="a.name">{{ a.name }}: {{ a.error || 'discovery failed' }}</li>
+      </ul>
+    </div>
+    <p v-if="snapshot && !partial && !services.length" class="lab-muted empty-line">
+      No micro service answered within the {{ snapshot.windowMs }} ms window, in PLATFORM or any tenant account.
     </p>
 
     <div class="svc-scroll">
-      <div v-for="svc in services" :key="svc.name" class="svc-card" :class="{ expanded: expanded.has(svc.name) }">
-        <button type="button" class="svc-head" @click="toggle(svc.name)">
-          <span class="dot ok" />
+      <div
+        v-for="svc in services"
+        :key="cardKey(svc)"
+        class="svc-card"
+        :class="{ expanded: expanded.has(cardKey(svc)) }"
+      >
+        <button type="button" class="svc-head" @click="toggle(cardKey(svc))">
+          <span class="dot" :class="readiness(svc).dot" />
           <span class="svc-name">{{ svc.name }}</span>
-          <span class="svc-version">v{{ svc.version }}</span>
+          <span class="svc-version">{{ versions(svc) }}</span>
+          <span class="account-tag" :title="`Found in the ${svc.account} account`">{{ svc.account }}</span>
+          <span
+            class="readiness-tag"
+            :class="readiness(svc).dot"
+            :title="readiness(svc).title"
+            data-testid="svc-readiness"
+          >{{ readiness(svc).label }}</span>
           <span class="svc-meta">
             <span class="stat"><b>{{ svc.instances.length }}</b><label>instances</label></span>
             <span class="stat"><b>{{ svc.instances.reduce((n, i) => n + i.endpoints.length, 0) }}</b><label>endpoints</label></span>
@@ -135,14 +199,14 @@ function volumePct(e, instance) {
           <span class="chevron">▾</span>
         </button>
 
-        <div v-if="expanded.has(svc.name)" class="instances">
+        <div v-if="expanded.has(cardKey(svc))" class="instances">
           <div v-for="inst in svc.instances" :key="inst.id" class="instance">
             <div class="instance-head">
-              <span class="dot ok" />
+              <span class="dot" :class="readiness(svc).dot" />
               <span>Instance</span>
               <span v-if="inst.metadata?.tenant" class="tenant-tag">{{ inst.metadata.tenant }}</span>
               <code class="inst-id" :title="inst.id">{{ inst.id }}</code>
-              <span class="instance-meta lab-muted">started {{ formatTime(inst.started) }}</span>
+              <span class="instance-meta lab-muted">v{{ inst.version || '?' }} · started {{ formatTime(inst.started) }}</span>
             </div>
             <table class="endpoints-table">
               <thead>
@@ -304,6 +368,57 @@ function volumePct(e, instance) {
 }
 .dot.ok {
   background: #2fbf71;
+}
+.dot.bad {
+  background: #e5484d;
+}
+/* Unknown is a hollow ring, not grey fill: "responding, dependencies not
+   known" must not read as a muted "ok". */
+.dot.unknown {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--p-text-disabled-color);
+}
+.observed-line {
+  flex: none;
+  margin: 0;
+  font-size: 11px;
+}
+/* Phase 54c: a partial discovery uses the lab's warning accent (#9a7b1e),
+   the same one Pulse's unavailable notice uses. */
+.partial-line {
+  flex: none;
+  font-size: 12px;
+  border: 1px solid rgba(154, 123, 30, 0.6);
+  border-left: 3px solid #9a7b1e;
+  background: rgba(154, 123, 30, 0.08);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+.partial-line ul {
+  margin: 4px 0 0;
+  padding-left: 1.1rem;
+}
+.account-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--p-text-muted-color);
+  border: 1px solid var(--lab-panel-border);
+  border-radius: 3px;
+  padding: 0 6px;
+}
+.readiness-tag {
+  font-size: 11px;
+  border-radius: 3px;
+  padding: 0 6px;
+  color: var(--p-text-muted-color);
+}
+.readiness-tag.ok {
+  color: #2fbf71;
+  background: rgba(47, 191, 113, 0.1);
+}
+.readiness-tag.bad {
+  color: #e5484d;
+  background: rgba(229, 72, 77, 0.1);
 }
 .svc-name {
   font-weight: 600;
