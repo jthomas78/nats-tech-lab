@@ -2012,10 +2012,32 @@ Neither is fixed in place: this phase removes the code that has them.
           not repeat).
         - `nats/bootstrap-operator.sh`: the `observability` user subscribes
           on the subject and may publish on
-          `rpc._platform.health.*.ready.v1`. Live only after
-          `./bootstrap-operator.sh --force` and a reseed — 54b-7.
-  - [ ] **54b-7** — stack checks on `au-1`: BR-072's integration checks
-        (above), then BR-068 capacity and overflow at measured peak.
+          `rpc._platform.health.*.ready.v1`. A new bootstrap needs
+          `--force`; on `au-1` the creds were re-signed instead (54b-7a).
+  - [x] **54b-7a** — BR-072's integration checks on `au-1`. Done
+        2026-10-16. `otel-stackcheck services` passes, with the Collector
+        and Tempo up and again with both stopped. Results are in BR-072.
+        - **Found and fixed:** a hung tenant list (Postgres paused) used the
+          whole request context, so PLATFORM read `ok` with an empty list.
+          The tenant list now has its own one-window budget; a request that
+          ends early marks the account `error`. 2 new specs; servicelist
+          18/18 (5 runs); observability-service 6 suites green (one
+          `pubsubstore` i/o timeout in unchanged code, green on 3 re-runs).
+        - **Build gaps from 54b-5, fixed:** the repo `go.work` hid missing
+          `go.sum` entries for otelhttp. Fixed with `GOWORK=off go mod tidy`
+          in observability-, organizations-, refdata- and shipping-service;
+          organizations-service's genproto pin was put back by hand. All 8
+          modules build with `GOWORK=off GOFLAGS=-mod=readonly`.
+          shipping-service's Dockerfile did not copy `shared/otelnats`.
+        - **Creds:** `nats/creds/observability.creds` was re-signed with the
+          existing PLATFORM signing key, same user key, with the 54b-6
+          grants. No `--force`, no reseed; all other keys and data kept.
+        - `otel-stackcheck` gains `services`, `snapshot` and `watch`.
+          `watch` connects first, because accounts-service cannot mint a
+          token while Postgres is paused.
+        - **Open:** one process with two same-name micro services lists as
+          2 instances (see BR-072). A real second process was not started.
+  - [ ] **54b-7b** — BR-068 capacity and overflow at measured peak.
 - **54c — Admin UI** switches to the gateway: polling, body events,
   "Open in Grafana". Covers every `useTraceFeed.js` reader:
   `TraceWaterfall.vue`, `RpcPanel.vue`'s `[messages]` tab, and

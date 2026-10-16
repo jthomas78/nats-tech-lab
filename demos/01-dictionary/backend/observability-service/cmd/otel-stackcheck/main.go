@@ -27,6 +27,14 @@
 //	waitcount <batchID> <want> <secs>
 //	                     polls count until want or secs elapse
 //	verify <batchID>     every trace linked to batchID has 3 spans
+//	services             BR-072 S1-S3 (one complete list across accounts;
+//	                     live endpoint statistics; tenants and raw $SRV
+//	                     requests are refused)
+//	snapshot             prints the service list, for the stop and pause
+//	                     checks
+//	watch <secs>         one connection, a snapshot every 2 s; start it
+//	                     before a `docker pause`, which can stop a token
+//	                     being minted
 //
 // The outage and durability checks (BR-066, BR-068) are send/count/verify
 // runs around `docker stop|pause|restart|kill` of the Collector and Tempo;
@@ -55,7 +63,8 @@ import (
 )
 
 const (
-	getSubject = "api._platform.observability.trace.get.v1"
+	getSubject         = "api._platform.observability.trace.get.v1"
+	serviceListSubject = "api._platform.observability.service.list.v1"
 	// An organization seeded in acme. The vehicle type below is not in
 	// refdata, so every call ends in ERROR — and still yields all 3 spans.
 	orgID       = "01M4ZQ0H2MF81CJX8VPWQR39T4"
@@ -80,7 +89,7 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 	if len(args) < 1 {
-		fail("usage: otel-stackcheck [flags] access|trust|delay|send|count|waitcount|verify …")
+		fail("usage: otel-stackcheck [flags] access|trust|delay|send|count|waitcount|verify|services|snapshot|watch …")
 	}
 	switch args[0] {
 	case "access":
@@ -97,6 +106,12 @@ func main() {
 		waitCount(arg(args, 1), atoi(arg(args, 2)), atoi(arg(args, 3)))
 	case "verify":
 		verify(arg(args, 1))
+	case "services":
+		exit(services())
+	case "snapshot":
+		snapshotCmd()
+	case "watch":
+		watchCmd(atoi(arg(args, 1)))
 	default:
 		fail("unknown subcommand " + args[0])
 	}
@@ -426,6 +441,197 @@ func verify(batch string) {
 		}
 	}
 	fmt.Printf("VERIFY traces with 3 spans: %d, incomplete: %d\n", full, short)
+}
+
+// ---- service list (BR-072) ---------------------------------------------
+
+type snapshot struct {
+	Schema    string   `json:"schema"`
+	WindowMs  int64    `json:"windowMs"`
+	Complete  bool     `json:"complete"`
+	Truncated bool     `json:"truncated"`
+	Errors    []string `json:"errors"`
+	Accounts  []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	} `json:"accounts"`
+	Services []struct {
+		Name      string `json:"name"`
+		Account   string `json:"account"`
+		Readiness string `json:"readiness"`
+		Instances []struct {
+			ID        string `json:"id"`
+			Version   string `json:"version"`
+			Endpoints []struct {
+				Subject     string `json:"subject"`
+				NumRequests int    `json:"numRequests"`
+				NumErrors   int    `json:"numErrors"`
+			} `json:"endpoints"`
+		} `json:"instances"`
+	} `json:"services"`
+}
+
+func serviceList(nc *nats.Conn) (snapshot, error) {
+	msg, err := nc.Request(serviceListSubject, nil, 5*time.Second)
+	if err != nil {
+		return snapshot{}, err
+	}
+	if code := msg.Header.Get("Nats-Service-Error-Code"); code != "" {
+		return snapshot{}, fmt.Errorf("service error %s: %s", code, msg.Header.Get("Nats-Service-Error"))
+	}
+	var s snapshot
+	err = json.Unmarshal(msg.Data, &s)
+	return s, err
+}
+
+// fleetAddCounts sums requests and errors on every acme endpoint whose
+// subject is the fleet-asset add.
+func fleetAddCounts(s snapshot) (reqs, errs, endpoints int) {
+	for _, svc := range s.Services {
+		if svc.Account != "acme" {
+			continue
+		}
+		for _, in := range svc.Instances {
+			for _, ep := range in.Endpoints {
+				if strings.HasSuffix(ep.Subject, "fleet-asset.add.v1") {
+					reqs += ep.NumRequests
+					errs += ep.NumErrors
+					endpoints++
+				}
+			}
+		}
+	}
+	return
+}
+
+func printSnapshot(s snapshot) {
+	fmt.Printf("schema=%s window=%dms complete=%v truncated=%v errors=%v\n",
+		s.Schema, s.WindowMs, s.Complete, s.Truncated, s.Errors)
+	for _, a := range s.Accounts {
+		fmt.Printf("  account %-10s %s %s\n", a.Name, a.Status, a.Error)
+	}
+	for _, svc := range s.Services {
+		ids := []string{}
+		for _, in := range svc.Instances {
+			ids = append(ids, in.ID)
+		}
+		fmt.Printf("  %-10s %-24s readiness=%-9s instances=%d %v\n",
+			svc.Account, svc.Name, svc.Readiness, len(svc.Instances), ids)
+	}
+}
+
+func snapshotCmd() {
+	admin := adminConn()
+	defer admin.Close()
+	s, err := serviceList(admin)
+	must(err)
+	printSnapshot(s)
+}
+
+// watchCmd connects once, then prints a snapshot every 2 s for secs. The
+// token is minted before anything is paused: accounts-service needs
+// Postgres to mint one.
+func watchCmd(secs int) {
+	admin := adminConn()
+	defer admin.Close()
+	fmt.Println("connected; watching for", secs, "s")
+	for t0 := time.Now(); time.Since(t0) < time.Duration(secs)*time.Second; time.Sleep(2 * time.Second) {
+		fmt.Printf("--- t=%.0fs\n", time.Since(t0).Seconds())
+		if s, err := serviceList(admin); err != nil {
+			fmt.Println("service.list:", err)
+		} else {
+			printSnapshot(s)
+		}
+	}
+}
+
+func services() bool {
+	admin := adminConn()
+	defer admin.Close()
+	pass := true
+
+	// S1: one call lists PLATFORM and tenant services, complete.
+	s, err := serviceList(admin)
+	if err != nil {
+		fmt.Println("S1 service.list:", err, "FAIL")
+		return false
+	}
+	printSnapshot(s)
+	accountsOK := len(s.Accounts) > 0
+	for _, a := range s.Accounts {
+		accountsOK = accountsOK && a.Status == "ok"
+	}
+	inPlatform, inTenant := false, false
+	for _, svc := range s.Services {
+		if svc.Account == "PLATFORM" {
+			inPlatform = true
+		} else {
+			inTenant = true
+		}
+	}
+	ok := s.Schema == "lab.servicelist.v1" && s.Complete && !s.Truncated && accountsOK && inPlatform && inTenant
+	pass = pass && ok
+	fmt.Printf("S1 complete=%v accounts ok=%v platform=%v tenant=%v %s\n",
+		s.Complete, accountsOK, inPlatform, inTenant, verdict(ok))
+
+	// S2: the endpoint statistics are live — they move by the calls sent.
+	r0, e0, eps := fleetAddCounts(s)
+	acme := tenantConn("acme")
+	const n = 3
+	for i := 0; i < n; i++ {
+		_, _ = addFleet(acme, "acme", randHex(16), true, nil, nil)
+	}
+	acme.Close()
+	s2, err := serviceList(admin)
+	r1, e1, _ := fleetAddCounts(s2)
+	ok = err == nil && eps > 0 && r1-r0 >= n
+	pass = pass && ok
+	fmt.Printf("S2 fleet-asset.add endpoints=%d requests %d→%d errors %d→%d (sent %d) err=%v %s\n",
+		eps, r0, r1, e0, e1, n, err, verdict(ok))
+
+	// S3: tenants cannot list; the admin token cannot discover by itself.
+	refused := func(label, subj string, nc *nats.Conn) {
+		// A publish permission violation arrives on the async error
+		// handler; the request itself only times out.
+		denied := make(chan error, 1)
+		nc.SetErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, e error) {
+			if isPermission(e) && strings.Contains(e.Error(), `"`+subj+`"`) {
+				select {
+				case denied <- e:
+				default:
+				}
+			}
+		})
+		msg, err := nc.Request(subj, nil, 3*time.Second)
+		if errors.Is(err, nats.ErrTimeout) {
+			select {
+			case e := <-denied:
+				err = e
+			default:
+			}
+		}
+		ok := msg == nil && (errors.Is(err, nats.ErrNoResponders) || isPermission(err))
+		pass = pass && ok
+		got := "no reply"
+		if msg != nil {
+			got = fmt.Sprintf("REPLY %d bytes", len(msg.Data))
+		}
+		fmt.Printf("S3 %s %s: err=%v %s %s\n", label, subj, err, got, verdict(ok))
+	}
+	for _, tenant := range []string{"acme", "globex"} {
+		nc := tenantConn(tenant)
+		refused(tenant+" browser token", serviceListSubject, nc)
+		nc.Close()
+		nc = credsConn(tenant)
+		refused(tenant+".creds", serviceListSubject, nc)
+		nc.Close()
+	}
+	refused("admin token", "$SRV.PING", admin)
+	refused("admin token", "monitor.acme.srv.PING", admin)
+
+	fmt.Println("SERVICES", verdict(pass))
+	return pass
 }
 
 // ---- helpers -----------------------------------------------------------

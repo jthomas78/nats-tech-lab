@@ -147,7 +147,11 @@ func Discover(ctx context.Context, nc *nats.Conn, tenants TenantSource, opts Opt
 	}
 
 	accounts := []queried{{name: PlatformAccount, prefix: ""}}
-	names, err := tenants.Tenants(ctx)
+	// The tenant list gets one window of its own, so a hung accounts-service
+	// cannot eat the discovery window.
+	tctx, cancel := context.WithTimeout(ctx, opts.Window)
+	names, err := tenants.Tenants(tctx)
+	cancel()
 	if err != nil {
 		// The cause stays out of the reply; the operator sees that the tenant
 		// accounts were not asked, never an empty tenant list.
@@ -210,6 +214,12 @@ func Discover(ctx context.Context, nc *nats.Conn, tenants TenantSource, opts Opt
 
 	askReadiness(nc, snap.Services, opts.Window)
 	return snap
+}
+
+// RequestBudget is the most one service-list request may take: one window
+// each for the tenant list, discovery and readiness, and one spare.
+func RequestBudget(opts Options) time.Duration {
+	return 4 * opts.withDefaults().Window
 }
 
 func (o Options) withDefaults() Options {
@@ -341,14 +351,17 @@ func collect(ctx context.Context, nc *nats.Conn, subject string, deadline time.T
 	if err := nc.PublishRequest(subject, inbox, nil); err != nil {
 		return nil, err
 	}
+	// The window ending is success: every instance had its chance. The
+	// request ending first is a failure, never an empty success.
+	wctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	var out [][]byte
 	for {
-		remaining := time.Until(deadline)
-		if remaining <= 0 || ctx.Err() != nil {
-			return out, nil
-		}
-		msg, err := sub.NextMsg(remaining)
+		msg, err := sub.NextMsgWithContext(wctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			return out, nil
 		}
 		out = append(out, msg.Data)
@@ -414,7 +427,7 @@ func Mount(nc *nats.Conn, tenants TenantSource, opts Options) (stop func() error
 				return
 			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*opts.Window)
+		ctx, cancel := context.WithTimeout(context.Background(), RequestBudget(opts))
 		defer cancel()
 		_ = req.RespondJSON(Discover(ctx, nc, tenants, opts))
 	})

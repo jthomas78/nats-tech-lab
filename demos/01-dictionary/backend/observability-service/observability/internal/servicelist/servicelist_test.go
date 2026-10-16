@@ -86,6 +86,15 @@ type tenants struct {
 
 func (t tenants) Tenants(context.Context) ([]string, error) { return t.names, t.err }
 
+// hangingTenants is accounts-service with its Postgres paused: the call
+// returns only when its context ends.
+type hangingTenants struct{}
+
+func (hangingTenants) Tenants(ctx context.Context) ([]string, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 var acmeOnly = tenants{names: []string{"acme"}}
 
 var short = servicelist.Options{Window: 200 * time.Millisecond}
@@ -255,6 +264,32 @@ var _ = Describe("BR-072: the live service list", func() {
 			Expect(snap.Errors).NotTo(BeEmpty())
 			_, ok := find(snap, servicelist.PlatformAccount, "refdata-service")
 			Expect(ok).To(BeTrue())
+		})
+
+		It("still lists PLATFORM when the tenant list hangs for the whole request budget", func() {
+			addService(r.platform, "refdata-service", "1.0.0")
+			ctx, cancel := context.WithTimeout(context.Background(), servicelist.RequestBudget(short))
+			defer cancel()
+
+			snap := servicelist.Discover(ctx, r.platform, hangingTenants{}, short)
+
+			Expect(snap.Complete).To(BeFalse())
+			Expect(snap.Errors).NotTo(BeEmpty())
+			Expect(account(snap, servicelist.PlatformAccount).Status).To(Equal(servicelist.AccountOK))
+			_, ok := find(snap, servicelist.PlatformAccount, "refdata-service")
+			Expect(ok).To(BeTrue(), "the hung tenant list must not eat PLATFORM's window")
+		})
+
+		It("marks an account failed, never an empty success, when the request ends before its window", func() {
+			addService(r.platform, "refdata-service", "1.0.0")
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			snap := servicelist.Discover(ctx, r.platform, acmeOnly, short)
+
+			Expect(snap.Complete).To(BeFalse())
+			Expect(account(snap, servicelist.PlatformAccount).Status).To(Equal(servicelist.AccountError))
+			Expect(account(snap, "acme").Status).To(Equal(servicelist.AccountError))
 		})
 
 		It("marks every account failed on a closed connection, never an empty success", func() {

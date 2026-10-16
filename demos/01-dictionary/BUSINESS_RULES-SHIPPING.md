@@ -1476,7 +1476,7 @@ A browser can send any `traceparent` — any trace ID, and `sampled = 0`. `natst
 
 ---
 
-### BR-072 (Phase 54b/54c; 54b-6 IMPLEMENTED 2026-10-15) — Live micro discovery and endpoint statistics are independent of trace export
+### BR-072 (Phase 54b/54c; 54b-6 IMPLEMENTED 2026-10-15; 54b-7a stack-checked 2026-10-16) — Live micro discovery and endpoint statistics are independent of trace export
 
 NATS micro PING reports responding instances, INFO supplies identity/version
 and endpoint descriptions, and STATS supplies live request/error counts,
@@ -1536,10 +1536,38 @@ are outside this transport change.
   `TestTenantsKeepsTheFailure`. `accounts-service/auth/token_test.go` —
   `MintAdminToken` grants `service.list.v1` and no `$SRV.*` or `monitor.*`
   subject.
-- **Planned tests (54b/54c):** real NATS integration checks across PLATFORM and
-  tenant imports; two instances; successful/error calls reflected in STATS;
-  stop/restart; supported readiness becoming false while micro still responds;
-  failed/partial discovery; repeat with Collector and Tempo unavailable. UI
+- **Amended 54b-7a (2026-10-16) — a hung tenant list.** Found on the stack:
+  with Postgres paused, accounts-service hangs, and the tenant list used the
+  whole request context. Discovery then returned no replies and no error, so
+  PLATFORM read `ok` with an empty inventory. Two rules now hold. The tenant
+  list gets its own budget of one window. A request that ends before an
+  account's window ends marks that account `error`, never `ok`.
+  `RequestBudget` is 4 windows: tenant list, discovery, readiness and one
+  spare. Specs: "still lists PLATFORM when the tenant list hangs for the whole
+  request budget" and "marks an account failed, never an empty success, when
+  the request ends before its window" (18/18, 5 runs).
+- **Stack checks (54b-7a, 2026-10-16, `au-1`):** `otel-stackcheck services`
+  and `watch`. All pass.
+  - One snapshot lists PLATFORM, `acme` and `globex`, `complete: true`, every
+    account `ok`.
+  - STATS move live: 3 fleet-asset calls add 3 to the `acme`
+    organizations-service endpoint.
+  - Tenant browser tokens and tenant `.creds` get no responders on the
+    subject. The admin token gets a permission violation on raw `$SRV.PING`
+    and `monitor.acme.srv.PING`.
+  - A stopped refdata-service leaves all 3 accounts. It returns with new
+    instance IDs.
+  - A stopped Postgres: refdata-service stays listed and reads `not-ready`,
+    then `ready` after the restart. A paused (hung) Postgres reads `unknown`,
+    because natsready's check waits up to 2 s and the window is 500 ms. That is
+    "no reply in time", as this rule says. In both cases the tenant list fails
+    and the snapshot says so.
+  - With the Collector and Tempo stopped, every check passes unchanged.
+  - **Open:** one process that registers two micro services with one name is
+    listed as 2 instances. observability-service does this (trace query
+    gateway and service list), and refdata-service does in PLATFORM. A real
+    second process was not started.
+- **Planned tests (54c):** UI
   checks cover identity, account, statistics and observation/readiness states
   over NATS with no REST fallback. Verify operator access, tenant exclusion,
   absence of raw browser micro permissions, versioned replies and explicit

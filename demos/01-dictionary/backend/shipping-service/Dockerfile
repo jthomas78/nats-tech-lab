@@ -10,6 +10,7 @@ COPY shared/natsnotify ./shared/natsnotify
 COPY shared/natstest ./shared/natstest
 COPY shared/natstenants ./shared/natstenants
 COPY shared/browserrpc ./shared/browserrpc
+COPY shared/otelnats ./shared/otelnats
 COPY demos/01-dictionary/backend/shipping-service ./demos/01-dictionary/backend/shipping-service
 WORKDIR /src/demos/01-dictionary/backend/shipping-service
 RUN go mod download
