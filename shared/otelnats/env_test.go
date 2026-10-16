@@ -30,3 +30,44 @@ var _ = Describe("BR-066: InitFromEnv is the one switch onto the OTel path", fun
 		Expect(p.Shutdown(context.Background())).To(Succeed())
 	})
 })
+
+var _ = Describe("BR-036: OTEL_CAPTURE_BODIES is the per-service opt-in for body capture", func() {
+	initWith := func(capture string) (*otelnats.Provider, error) {
+		GinkgoT().Setenv(otelnats.EndpointEnv, refusedEndpoint())
+		GinkgoT().Setenv(otelnats.CaptureBodiesEnv, capture)
+		p, err := otelnats.InitFromEnv(context.Background(), "organizations-service")
+		if p != nil {
+			DeferCleanup(p.Shutdown, context.Background())
+		}
+		return p, err
+	}
+
+	It("leaves capture off when the variable is unset", func() {
+		p, err := initWith("")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.CapturesBodies()).To(BeFalse())
+	})
+
+	It("turns capture on when the variable is true", func() {
+		p, err := initWith("true")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.CapturesBodies()).To(BeTrue())
+	})
+
+	It("leaves capture off when the variable is false", func() {
+		p, err := initWith("false")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p.CapturesBodies()).To(BeFalse())
+	})
+
+	It("fails to start on a value that is not a boolean, never guessing", func() {
+		p, err := initWith("yes please")
+		Expect(err).To(MatchError(ContainSubstring(otelnats.CaptureBodiesEnv)))
+		Expect(p).To(BeNil())
+	})
+
+	It("reports capture off on a nil Provider", func() {
+		var p *otelnats.Provider
+		Expect(p.CapturesBodies()).To(BeFalse())
+	})
+})

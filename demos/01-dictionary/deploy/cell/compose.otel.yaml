@@ -101,31 +101,41 @@ services:
   # endpoint; without it a service stays on natstrace. 54a moves two paths:
   # fleet-asset add (organizations-service, with its refdata client) and
   # rpc.*.refdata.item.get (refdata-service).
+  #
+  # OTEL_CAPTURE_BODIES is decision 7's per-service opt-in (BR-036). Off
+  # unless the shell sets it; the BR-068 capacity runs (54b-7b) set it to
+  # true, so the measured peak includes body sizes.
   organizations-service:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
 
   refdata-service:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
 
   shipping-service:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
 
   # 54b-5. accounts-service lives in global/compose.control.yaml; this entry
   # merges onto it because the overlay is always run with that file.
   pricing-service:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
 
   mfe-registry-service:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
 
   accounts-service:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_CAPTURE_BODIES: ${OTEL_CAPTURE_BODIES:-false}
 
 networks:
   # The trace store's own network. Members: the Collector, Tempo, Grafana and

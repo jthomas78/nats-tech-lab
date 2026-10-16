@@ -25,7 +25,9 @@ package otelnats
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,14 +130,34 @@ func tracesURL(endpoint string) string {
 // compose.otel.yaml sets it; unset, a service stays on natstrace.
 const EndpointEnv = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
-// InitFromEnv builds a Provider from EndpointEnv. When the variable is unset
-// it returns nil and no error: the caller stays on natstrace.
+// CaptureBodiesEnv is a service's opt-in for body capture (decision 7,
+// BR-036). Unset means off. A value strconv.ParseBool cannot read is an
+// error, so a typo never turns capture on or off silently.
+const CaptureBodiesEnv = "OTEL_CAPTURE_BODIES"
+
+// InitFromEnv builds a Provider from EndpointEnv and CaptureBodiesEnv. When
+// the endpoint is unset it returns nil and no error: the caller stays on
+// natstrace.
 func InitFromEnv(ctx context.Context, serviceName string) (*Provider, error) {
 	endpoint := strings.TrimSpace(os.Getenv(EndpointEnv))
 	if endpoint == "" {
 		return nil, nil
 	}
-	return Init(ctx, Config{ServiceName: serviceName, Endpoint: endpoint})
+	capture := false
+	if v := strings.TrimSpace(os.Getenv(CaptureBodiesEnv)); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("otelnats: %s=%q is not a boolean", CaptureBodiesEnv, v)
+		}
+		capture = b
+	}
+	return Init(ctx, Config{ServiceName: serviceName, Endpoint: endpoint, CaptureBodies: capture})
+}
+
+// CapturesBodies reports whether the provider records body events. A nil
+// Provider captures nothing.
+func (p *Provider) CapturesBodies() bool {
+	return p != nil && p.cfg.CaptureBodies
 }
 
 // Tracer returns the service's tracer.

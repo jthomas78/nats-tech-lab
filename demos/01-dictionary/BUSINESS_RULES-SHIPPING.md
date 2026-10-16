@@ -569,6 +569,15 @@ Every `obs.trace.{context}.{service}.{entity}.{action}` publish happens on the *
   (`RecordRequestBody`, `RecordReplyBody`), `redact.go` and `micro.go`
   (`Middleware` records the request at start and the reply, including a micro
   error reply, before the span ends). Test: `shared/otelnats/body_test.go`.
+- **The opt-in switch (54b-7b, 2026-10-16):** a service turns capture on with
+  `OTEL_CAPTURE_BODIES`, read by `otelnats.InitFromEnv`. Unset means off. A
+  value `strconv.ParseBool` cannot read stops the service from starting, so
+  a typo never turns capture on or off silently. `compose.otel.yaml` passes
+  `${OTEL_CAPTURE_BODIES:-false}` to every OTel service; the BR-068 capacity
+  runs set it to `true`. Before this switch no running service could turn
+  capture on. Test: `shared/otelnats/env_test.go`, `Describe("BR-036:
+  OTEL_CAPTURE_BODIES …")` — unset, `true`, `false`, a non-boolean value and
+  a nil Provider.
 
 ### BR-037 (Phase 28) — Trace context propagates on every outbound NATS message, one span per logical RPC call, never one per retry attempt
 
@@ -1435,7 +1444,7 @@ The error a tenant sees is **not** the rule. `MintBrowserToken` grants `Pub api.
 - **Enforced in:** `accounts-service/auth/token.go` — `MintAdminToken` (BR-AC18 amended); `observability-service/observability/internal/tracequery` — `Subjects()`, mounted on the PLATFORM connection.
 - **Test:** `accounts-service/auth/token_test.go`, `It("BR-067: …")` — the admin profile grants exactly the three trace subjects, and the browser profile names none of them; `tracequery/tracequery_test.go`, `Context("BR-067: …")` — the adapter serves exactly those three subjects. **Stack check (54a):** an operator credential reads traces from every tenant; a tenant browser token **and** the tenant's `.creds` both fail to read trace data.
 
-### BR-068 (Phase 54a durability; 54b capacity and overflow) — With Tempo down, the Collector keeps spans on disk across a graceful restart and a hard kill, holds a 2-hour outage at measured peak, delivers every queued span when Tempo returns, and counts what it loses when full
+### BR-068 (Phase 54a durability; 54b capacity and overflow; 54b-7b measured on au-1 2026-10-16) — With Tempo down, the Collector keeps spans on disk across a graceful restart and a hard kill, holds a 2-hour outage at measured peak, delivers every queued span when Tempo returns, and counts what it loses when full
 
 The Collector's sending queue is backed by the `file_storage` extension on a named volume, with `retry_on_failure` set deliberately. No in-memory `batch` processor sits in front of the persistent queue. One exact Collector version is pinned, and every test runs against it (upstream issue open-telemetry/opentelemetry-collector#15677 reports persistent-queue loss on shutdown in v0.157.x).
 
@@ -1443,6 +1452,20 @@ Configuration is not evidence; three separate tests are. *Durability* is proved 
 
 - **Enforced in:** the Collector configuration under `demos/01-dictionary/deploy/` (the `otel` stack).
 - **Test:** **stack checks only.** (1) Durability, 54a: stop Tempo, send known traces, restart the Collector gracefully, start Tempo — every known span arrives; repeat with `docker kill`. (2) Capacity, after 54b. (3) Overflow, after 54b: the loss is a counted, visible number and business calls are unaffected.
+
+**54b-7b results (au-1, otelcol-contrib 0.162.0, Tempo default limits, 2026-10-16).** Tool: `observability-service/cmd/otel-stackcheck` (`seedships`, `load`, `capture`, `flood`, `floodverify`); every service runs with `OTEL_CAPTURE_BODIES=true`.
+
+- **Dataset (acme):** 114 vehicle types and 4 categories (`refdata-service/cmd/seed-vehicle-types`), 5 ports and 20 ships (`seedships`).
+- **Workload:** each worker sends, in turn and with no think time, `fleet-asset.add` (3 spans; a service error is its normal reply), `refdata.type.list` (1 span; reply 23,371 B, cut to 4,096 B by BR-036) and `shipping.ship.list` (1 span; reply 4,072 B). That is 5 spans per 3 calls, each span with its request and reply bodies.
+- **Sustainable means:** at most 0.1% bad calls and p95 ≤ 250 ms over every call.
+- **Peak:** a ramp of 1–64 workers, 20 s each. Calls level off at about 168/s from 2 workers, because `type.list`'s latency grows in step with the workers. That points to one-at-a-time handling in `refdata-service`; the cause is not proved. From 16 workers p95 fails. The highest sustainable span rate is **290 spans/s** (2 workers). At every step the Collector accepted every expected span. The earlier 7,200 spans/s and 33 GB figures came from empty lists and are retracted.
+- **Bytes on disk:** with Tempo stopped and real load running, the queue file grows about **2,370 bytes per span** once the bbolt file's free pages are used.
+- **Queue size:** 290 spans/s × 7,200 s = 2,088,000 spans, × 2 = **4,176,000** (`collector.yaml`). The 2× headroom is an **assumption**, not a measurement. A full queue is about 10 GB.
+- **Capacity — PASS (volume only).** Tempo stopped. 300 known traces went through the services (`send`). Then `flood` sent 2,096,500 captured spans straight to the Collector at about 21,000 spans/s. These were real traces with fresh IDs, and with reply bodies rebuilt to the size the service exports. The Collector accepted all of them and refused none. Queue: 2,097,422 spans. Disk: 193,700 → 4,905,784 KiB (about 4.7 GiB). This is evidence of **two hours' equivalent volume** at the lab peak. It is not evidence of a two-hour elapsed outage (not tested), and not a V3 production capacity.
+- **Recovery under load — Collector PASS, span identity FAIL.** A real 2-worker load ran while Tempo started again. The Collector waited about 65 s (retry back-off), then drained at about 6,500 spans/s. The queue was 0 after 332 s. At the end, sent = accepted = 2,330,164, refused 0. The load stayed sustainable (154 calls/s, p95 39 ms; 2 bad calls of 139,524, both from tokens that expired during the 15-minute run). **But Tempo did not keep the spans.** Only 256 of the 300 known traces were found, and none had all 3 spans. Only 406 of 2,097 sampled flood traces were complete. Tempo's own counters prove why: `tempo_discarded_spans_total{reason="live_traces_exceeded"}` 2,774,351 and `{reason="rate_limited"}` 41,026. These are Tempo's default per-tenant limits; `tempo.yaml` sets none.
+- **Finding:** the Collector's `otelcol_exporter_sent_spans` means "Tempo's receiver took it", not "Tempo stored it". Tempo can drop spans after the Collector counts them as sent. Only a span-ID check, or Tempo's `tempo_discarded_spans_total`, proves storage. With default limits, Tempo cannot take a drain of two hours' volume. The lab keeps the defaults by decision (2026-10-16), so delivery of a full queue to Tempo is **not proved**.
+- **Overflow — PASS.** A temporary `queue_size: 20000`, Tempo stopped, a real 90 s load, and a 100,500-span flood. The queue stopped at its capacity. `otelcol_exporter_enqueue_failed_spans` = `otelcol_receiver_refused_spans` = 106,059. Accepted (19,995) plus refused equals every span offered. The load had 0 bad calls (170 calls/s, p95 34 ms). After Tempo started, the queue drained, sent 20,007. The size was then put back to 4,176,000.
+- **Also found:** Tempo stores an attribute of at most 2,048 bytes (`max_attribute_bytes`, its default). So a body Tempo returns can be shorter than the 4,096 B the service exported, with no `truncated` flag on the cut. For 54c.
 
 ### BR-069 (Phase 54a) — The receiving service sets the receiving account and the originating tenant, from trusted context only, never from a client-supplied header, the body or `Nats-Requestor`
 

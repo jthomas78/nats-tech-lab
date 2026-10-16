@@ -42,11 +42,13 @@ exporters:
     sending_queue:
       enabled: true
       storage: file_storage/queue
-      # Spans, not requests: BR-068 sizes the queue for a 2-hour Tempo
-      # outage at measured peak span volume. This number is a placeholder
-      # until the capacity test after 54b measures that peak.
+      # Spans, not requests: BR-068 sizes the queue for 2 hours' span volume
+      # at the measured lab peak (54b-7b): 290 spans/s x 7200 s = 2,088,000
+      # spans, x 2 headroom. The 2x is an assumption, not a measurement. At
+      # the measured ~2,370 bytes per span on disk, a full queue is ~10 GB.
+      # This is the au-1 lab's peak, not a V3 production size.
       sizer: items
-      queue_size: 2000000
+      queue_size: 4176000
       # Reject, never block, when full: a full queue must not slow the
       # receiver, so the SDK side keeps dropping instead of waiting. The
       # loss is counted in otelcol_exporter_enqueue_failed_spans.

@@ -2037,7 +2037,30 @@ Neither is fixed in place: this phase removes the code that has them.
           token while Postgres is paused.
         - **Open:** one process with two same-name micro services lists as
           2 instances (see BR-072). A real second process was not started.
-  - [ ] **54b-7b** — BR-068 capacity and overflow at measured peak.
+  - [x] **54b-7b** — BR-068 capacity and overflow at measured peak. Run
+        2026-10-16 on `au-1`. Full results are in BR-068.
+        - Peak 290 spans/s with seeded data (5 spans per 3 calls, real
+          bodies); ~2,370 bytes per span on disk. `queue_size` 4,176,000
+          (2 hours × 2; the 2× is an assumption). The earlier 7,200 spans/s
+          and 33 GB are retracted.
+        - Capacity PASS (volume only): 2,096,500 captured spans plus 300
+          known traces queued with Tempo stopped, ~4.7 GiB, none refused.
+          Not a two-hour elapsed outage; not V3 capacity.
+        - Recovery: the Collector drained in 332 s under real load,
+          sent = accepted. **Span identity FAIL**: Tempo's default limits
+          dropped most spans (`live_traces_exceeded`, `rate_limited`). The
+          defaults stay, by decision; the drop is a recorded finding, and
+          delivery of a full queue is not proved.
+        - Overflow PASS: the loss is counted (enqueue_failed = refused =
+          106,059) and business calls had 0 bad results.
+        - `OTEL_CAPTURE_BODIES` is now the per-service switch (BR-036;
+          `shared/otelnats/env_test.go`). `otel-stackcheck` gains
+          `seedships`, `load`, `capture`, `flood`, `floodverify`; its
+          missing-type vehicle code is now `STK-NEVER-SEEDED`.
+        - **For 54c:** Tempo cuts attributes at 2,048 B, below BR-036's
+          4,096 B cap, with no flag.
+        - **Open:** `type.list` throughput looks serial in
+          `refdata-service` (not proved).
 - **54c — Admin UI** switches to the gateway: polling, body events,
   "Open in Grafana". Covers every `useTraceFeed.js` reader:
   `TraceWaterfall.vue`, `RpcPanel.vue`'s `[messages]` tab, and
