@@ -19,6 +19,11 @@ server:
   log_level: info
 
 distributor:
+  # BR-036 caps a captured body at 4096 bytes (otelnats.MaxBodyBytes) and
+  # sets `truncated` when it cuts. Tempo's default here is 2048, which cut
+  # the body again with no flag (found in 54b-7b). Keep this at least as
+  # large as MaxBodyBytes. Tempo's ingest limits stay at their defaults.
+  max_attribute_bytes: 4096
   receivers:
     otlp:
       protocols:

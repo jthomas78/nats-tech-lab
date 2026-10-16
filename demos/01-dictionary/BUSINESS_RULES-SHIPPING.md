@@ -578,6 +578,13 @@ Every `obs.trace.{context}.{service}.{entity}.{action}` publish happens on the *
   capture on. Test: `shared/otelnats/env_test.go`, `Describe("BR-036:
   OTEL_CAPTURE_BODIES …")` — unset, `true`, `false`, a non-boolean value and
   a nil Provider.
+- **The store keeps the cap (2026-10-16):** Tempo's own
+  `distributor.max_attribute_bytes` defaults to 2,048 and cut the 4,096 B
+  body again, with no `truncated` flag. `otel/tempo.yaml` now sets it to
+  4,096, the same as `MaxBodyBytes`; keep it at least that large. Stack
+  check (au-1): after a `load`, Tempo returns the `type.list` reply at
+  4,096 B with `body.bytes` 23,371 and `truncated` true, the `ship.list`
+  reply whole at 4,072 B, and Tempo logs no "attributes truncated".
 
 ### BR-037 (Phase 28) — Trace context propagates on every outbound NATS message, one span per logical RPC call, never one per retry attempt
 
@@ -1465,7 +1472,7 @@ Configuration is not evidence; three separate tests are. *Durability* is proved 
 - **Recovery under load — Collector PASS, span identity FAIL.** A real 2-worker load ran while Tempo started again. The Collector waited about 65 s (retry back-off), then drained at about 6,500 spans/s. The queue was 0 after 332 s. At the end, sent = accepted = 2,330,164, refused 0. The load stayed sustainable (154 calls/s, p95 39 ms; 2 bad calls of 139,524, both from tokens that expired during the 15-minute run). **But Tempo did not keep the spans.** Only 256 of the 300 known traces were found, and none had all 3 spans. Only 406 of 2,097 sampled flood traces were complete. Tempo's own counters prove why: `tempo_discarded_spans_total{reason="live_traces_exceeded"}` 2,774,351 and `{reason="rate_limited"}` 41,026. These are Tempo's default per-tenant limits; `tempo.yaml` sets none.
 - **Finding:** the Collector's `otelcol_exporter_sent_spans` means "Tempo's receiver took it", not "Tempo stored it". Tempo can drop spans after the Collector counts them as sent. Only a span-ID check, or Tempo's `tempo_discarded_spans_total`, proves storage. With default limits, Tempo cannot take a drain of two hours' volume. The lab keeps the defaults by decision (2026-10-16), so delivery of a full queue to Tempo is **not proved**.
 - **Overflow — PASS.** A temporary `queue_size: 20000`, Tempo stopped, a real 90 s load, and a 100,500-span flood. The queue stopped at its capacity. `otelcol_exporter_enqueue_failed_spans` = `otelcol_receiver_refused_spans` = 106,059. Accepted (19,995) plus refused equals every span offered. The load had 0 bad calls (170 calls/s, p95 34 ms). After Tempo started, the queue drained, sent 20,007. The size was then put back to 4,176,000.
-- **Also found:** Tempo stores an attribute of at most 2,048 bytes (`max_attribute_bytes`, its default). So a body Tempo returns can be shorter than the 4,096 B the service exported, with no `truncated` flag on the cut. For 54c.
+- **Also found:** Tempo stores an attribute of at most 2,048 bytes (`max_attribute_bytes`, its default). So a body Tempo returns can be shorter than the 4,096 B the service exported, with no `truncated` flag on the cut. **Fixed the same day:** `tempo.yaml` sets it to 4,096 (see BR-036). The 54b-7b runs above ran before the fix; their bytes on disk are the Collector's, so the fix does not change them.
 
 ### BR-069 (Phase 54a) — The receiving service sets the receiving account and the originating tenant, from trusted context only, never from a client-supplied header, the body or `Nats-Requestor`
 

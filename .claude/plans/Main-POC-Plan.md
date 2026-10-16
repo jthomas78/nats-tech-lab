@@ -2057,8 +2057,11 @@ Neither is fixed in place: this phase removes the code that has them.
           `shared/otelnats/env_test.go`). `otel-stackcheck` gains
           `seedships`, `load`, `capture`, `flood`, `floodverify`; its
           missing-type vehicle code is now `STK-NEVER-SEEDED`.
-        - **For 54c:** Tempo cuts attributes at 2,048 B, below BR-036's
-          4,096 B cap, with no flag.
+        - **Found and fixed:** Tempo cut attributes at 2,048 B, below
+          BR-036's 4,096 B cap, with no flag. `otel/tempo.yaml` now sets
+          `distributor.max_attribute_bytes: 4096`; stack-checked on au-1
+          (see BR-036). A larger cap (32 KiB) is a separate step: it
+          changes BR-036 and needs BR-068 measured again.
         - **Open:** `type.list` throughput looks serial in
           `refdata-service` (not proved).
 - **54c — Admin UI** switches to the gateway: polling, body events,
