@@ -16,6 +16,19 @@ const (
 	AttrOriginatingTenant = attribute.Key("lab.tenant.originating")
 )
 
+// Identity headers (BR-027). NATS carries neither the caller's nor the
+// responder's identity on its own, so services stamp these. Both are
+// self-declared: they are for display only and never gate anything (BR-041).
+// They moved here from the retired legacy tracer in Phase 54d.
+const (
+	RequestorHeader = "Nats-Requestor"
+	ResponderHeader = "Nats-Responder"
+)
+
+// AttrRequester is the caller's self-declared Nats-Requestor value on a
+// SERVER span (BR-041). Display only. It is never a tenant source (BR-069).
+const AttrRequester = attribute.Key("lab.requester")
+
 // Edge says how far an inbound message's trace context is trusted.
 type Edge int
 
@@ -55,11 +68,15 @@ const (
 // traceparent from msg as one link, never as the parent (BR-071).
 //
 // The tenant attributes come from trust only (BR-069). StartServer reads
-// msg's subject and its traceparent, and nothing else in it.
+// msg's subject, its traceparent and its self-declared Nats-Requestor
+// (BR-041, display only as lab.requester), and nothing else in it.
 func (p *Provider) StartServer(ctx context.Context, msg *nats.Msg, edge Edge, trust Trust) (context.Context, trace.Span) {
 	opts := []trace.SpanStartOption{
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(tenantAttrs(msg.Subject, trust)...),
+	}
+	if requester := msg.Header.Get(RequestorHeader); requester != "" {
+		opts = append(opts, trace.WithAttributes(AttrRequester.String(requester)))
 	}
 
 	switch edge {

@@ -53,7 +53,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -208,8 +207,7 @@ func WithOTel(p *otelnats.Provider, receivingAccount string) LifecycleOption {
 
 // SubscribeLifecycle subscribes nc to accounts-service's imported PLATFORM
 // lifecycle events (notify.accounts.account.{created,suspended,reactivated})
-// and dispatches to h, tracing each delivery via shared/natstrace exactly
-// the way every other rpc.*/api.* handler does (BR-036). Each tenant
+// and dispatches to h. Each tenant
 // connection observes these events directly rather than the service holding
 // a second, separate PLATFORM-only creds file just for this — keeping the
 // cross-account path entirely in accounts-service's declared imports.
@@ -219,19 +217,8 @@ func WithOTel(p *otelnats.Provider, receivingAccount string) LifecycleOption {
 // account, and is the span on the ctx the handler gets.
 func SubscribeLifecycle(ctx context.Context, nc *nats.Conn, log *slog.Logger, h LifecycleHandlers, opts ...LifecycleOption) error {
 	ctx = context.WithoutCancel(ctx)
-	tracer := natstrace.New(nc)
 	type lifecycleEvent struct {
 		Name string `json:"name"`
-	}
-	// spanAction reads the trailing token off a notify.accounts.account.*
-	// subject — "created" is reused verbatim as the "reactivated" handler
-	// too (same idempotent Ensure operation), so the span's action label
-	// can't be a literal hardcoded per closure.
-	spanAction := func(subject string) string {
-		if i := strings.LastIndex(subject, "."); i >= 0 {
-			return subject[i+1:]
-		}
-		return subject
 	}
 	cfg := lifecycleConfig{}
 	for _, opt := range opts {
@@ -240,7 +227,7 @@ func SubscribeLifecycle(ctx context.Context, nc *nats.Conn, log *slog.Logger, h 
 
 	// delivery is one traced lifecycle delivery: the ctx the handler gets,
 	// and how its span ends. The OTel path is a CONSUMER span (decision 5);
-	// otherwise it is the natstrace span, as before.
+	// without OTel the delivery is untraced (Phase 54d).
 	type delivery struct {
 		ctx  context.Context
 		fail func(error)
@@ -255,12 +242,7 @@ func SubscribeLifecycle(ctx context.Context, nc *nats.Conn, log *slog.Logger, h 
 				end:  func() { span.End() },
 			}
 		}
-		sp := tracer.StartFromHeaders(msg.Header, msg.Subject, msg.Data, "_platform", "accounts", "account", spanAction(msg.Subject))
-		return delivery{
-			ctx:  natstrace.ContextWithSpan(ctx, sp),
-			fail: func(err error) { sp.Fail(err, msg.Data, nil) },
-			end:  func() { sp.End(msg.Data, nil) },
-		}
+		return delivery{ctx: ctx, fail: func(error) {}, end: func() {}}
 	}
 	// handle decodes one delivery and runs op on its tenant. decodeMsg and
 	// opMsg are the log messages for the two ways it can fail.
@@ -371,7 +353,7 @@ type ManagerOption func(*managerConfig)
 
 // WithTracing traces each tenant's lifecycle deliveries with OTel (Phase
 // 54b-3a). The receiving account is the tenant, because the subscription
-// lives on that tenant's connection. A nil Provider keeps the natstrace path.
+// lives on that tenant's connection. A nil Provider leaves them untraced.
 func WithTracing(p *otelnats.Provider) ManagerOption {
 	return func(c *managerConfig) { c.tracing = p }
 }

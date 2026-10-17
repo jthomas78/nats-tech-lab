@@ -1,9 +1,10 @@
 // Package pubsubstore projects PLATFORM's obs.pubsub.* envelopes — the
-// publish-side observations natstrace emits for every evt.*/notify.* publish
+// publish-side observations otelnats emits for every evt.*/notify.* publish
 // (BR-045) — into a KV bucket keyed by spanId, so the Admin UI's Messages
 // panel can read them (Phase 43b, BR-047).
 //
-// A deliberate sibling to tracestore, not an extension of it. The two differ
+// A deliberate sibling to tracestore (retired in Phase 54d), not an
+// extension of it. The two differ
 // in three ways worth stating up front, because each one is a decision the
 // design review made rather than a detail of this file:
 //

@@ -5,7 +5,6 @@ use (
 	./demos/01-dictionary/backend/mfe-registry-service
 	./demos/01-dictionary/backend/observability-service
 	./demos/01-dictionary/backend/organizations-service
-	./demos/01-dictionary/backend/otlp-bridge
 	./demos/01-dictionary/backend/pricing-service
 	./demos/01-dictionary/backend/refdata-service
 	./demos/01-dictionary/backend/shipping-service
@@ -24,6 +23,5 @@ use (
 	./shared/natsready
 	./shared/natstenants
 	./shared/natstest
-	./shared/natstrace
 	./shared/otelnats
 )

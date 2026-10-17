@@ -397,40 +397,11 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 		})
 	})
 
-	Context("obs.trace.* side-channel (BR-036/BR-037)", func() {
-		// traceSpan is a strict superset of the pre-Phase-28 obsEnvelope: this
-		// decodes it into the old shape (ignoring every new field) to assert
-		// backward compatibility, then again into the full shape for the new
-		// tracing fields. Phase 28b replaced the old two-event (request +
-		// reply) obs.api.* channel BR-026/BR-027 used to describe with this
-		// single reply-side span per call — see adapter.go's Deps doc comment
-		// for why no request-side event exists any more.
-		type legacyEnvelope struct {
-			Direction     string              `json:"direction"`
-			CorrelationID string              `json:"correlationId"`
-			Subject       string              `json:"subject"`
-			Payload       json.RawMessage     `json:"payload,omitempty"`
-			Error         string              `json:"error,omitempty"`
-			Headers       map[string][]string `json:"headers,omitempty"`
-			Timestamp     time.Time           `json:"timestamp"`
-			PayloadBytes  int                 `json:"payloadBytes"`
-		}
-		type traceSpan struct {
-			legacyEnvelope
-			TraceID       string            `json:"traceId,omitempty"`
-			SpanID        string            `json:"spanId,omitempty"`
-			ParentSpanID  string            `json:"parentSpanId,omitempty"`
-			Service       string            `json:"service,omitempty"`
-			Entity        string            `json:"entity,omitempty"`
-			Action        string            `json:"action,omitempty"`
-			StatusCode    string            `json:"statusCode,omitempty"`
-			StatusMessage string            `json:"statusMessage,omitempty"`
-			Attributes    map[string]string `json:"attributes,omitempty"`
-			Redacted      []string          `json:"redacted,omitempty"`
-			Truncated     bool              `json:"truncated,omitempty"`
-		}
-
-		It("still returns the real reply promptly with no obs.trace.> subscriber at all (BR-036 inherits BR-D26: tracing must never block the business path)", func() {
+	// Phase 54d retired the obs.trace.* side-channel (BR-036). Span shape is
+	// specified on the OTel path in browserrpc_otel_test.go; what stays here
+	// is the business path itself, with no tracing wired at all.
+	Context("the business path without tracing (BR-D26)", func() {
+		It("returns the real reply promptly (tracing must never block the business path)", func() {
 			start := time.Now()
 			msg := request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{
 				Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
@@ -444,67 +415,14 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 			Expect(resp.Ship.ShipID).To(Equal("orient-express"))
 		})
 
-		It("publishes one span per call to obs.trace.{context}.shipping.{entity}.{action}, decodable both as the old envelope shape and the new one", func() {
-			spans := make(chan *nats.Msg, 8)
-			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
-			Expect(nc.Flush()).To(Succeed())
-
-			request("api."+fleetCtx+".shipping.ship.list.v1", map[string]any{})
-
-			var msg *nats.Msg
-			Eventually(spans).Should(Receive(&msg))
-			Expect(msg.Subject).To(Equal("obs.trace." + fleetCtx + ".shipping.ship.list"))
-
-			var legacy legacyEnvelope
-			Expect(json.Unmarshal(msg.Data, &legacy)).To(Succeed())
-			Expect(legacy.Subject).To(Equal("api." + fleetCtx + ".shipping.ship.list.v1"))
-			Expect(legacy.PayloadBytes).To(BeNumerically(">", 0))
-
-			var span traceSpan
-			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
-			Expect(span.TraceID).NotTo(BeEmpty())
-			Expect(span.SpanID).NotTo(BeEmpty())
-			Expect(span.ParentSpanID).To(BeEmpty(), "a call with no inbound traceparent is a root span")
-			Expect(span.Service).To(Equal("shipping"))
-			Expect(span.Entity).To(Equal("ship"))
-			Expect(span.Action).To(Equal("list"))
-			Expect(span.StatusCode).To(Equal("OK"))
-		})
-
-		It("marks a failed call with statusCode ERROR and the error message, and still attaches the real Nats-Service-Error/-Code headers to the actual wire reply", func() {
-			spans := make(chan *nats.Msg, 8)
-			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
-			Expect(nc.Flush()).To(Succeed())
-
+		It("attaches the real Nats-Service-Error/-Code headers to a failed call's wire reply", func() {
 			reqBody, err := json.Marshal(commands.ContainerInput{Context: fleetCtx, ContainerID: "TCKU0000000", ShipID: "no-such-ship"})
 			Expect(err).NotTo(HaveOccurred())
 			reply, err := nc.Request("api."+fleetCtx+".shipping.container.load.v1", reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(reply.Header.Get("Nats-Service-Error")).NotTo(BeEmpty(), "the real wire reply must carry the error header, not just the span")
+			Expect(reply.Header.Get("Nats-Service-Error")).NotTo(BeEmpty())
 			Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("404"))
-
-			var msg *nats.Msg
-			Eventually(spans).Should(Receive(&msg))
-			var span traceSpan
-			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
-			Expect(span.StatusCode).To(Equal("ERROR"))
-			Expect(span.StatusMessage).NotTo(BeEmpty())
-			Expect(span.Headers).To(HaveKeyWithValue("Nats-Service-Error-Code", []string{"404"}))
-		})
-
-		It("still decodes an old-shape obs event with no headers/timestamp/payloadBytes/tracing fields at all", func() {
-			var span traceSpan
-			old := []byte(`{"direction":"reply","correlationId":"legacy-1","subject":"api.acme.shipping.ship.arrive.v1","payload":{"ship":{}}}`)
-			Expect(json.Unmarshal(old, &span)).To(Succeed())
-			Expect(span.Direction).To(Equal("reply"))
-			Expect(span.Headers).To(BeNil())
-			Expect(span.Timestamp).To(BeZero())
-			Expect(span.TraceID).To(BeEmpty())
 		})
 	})
 
@@ -513,8 +431,7 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 		// request/reply message, set independently of the observability
 		// side-channel (the caller sets Nats-Requestor on its own request;
 		// browserrpc.Adapter sets Nats-Responder on every reply it sends) —
-		// unaffected by Phase 28b's obs.api.* -> obs.trace.* migration above,
-		// so these assertions are unchanged from before that migration.
+		// unaffected by any tracing change, so these assertions are unchanged.
 		It("attaches a Nats-Responder header (service name/instance ID) to a successful reply", func() {
 			reqBody, err := json.Marshal(commands.ShipInput{Context: fleetCtx, ShipID: "orient-express-2", ShipName: "Orient Express 2", Port: "Hamburg"})
 			Expect(err).NotTo(HaveOccurred())

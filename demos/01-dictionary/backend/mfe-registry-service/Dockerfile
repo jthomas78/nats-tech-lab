@@ -10,7 +10,6 @@ COPY shared/natstest ./shared/natstest
 COPY shared/mferegistry ./shared/mferegistry
 COPY shared/natsconn ./shared/natsconn
 COPY shared/natsnotify ./shared/natsnotify
-COPY shared/natstrace ./shared/natstrace
 COPY demos/01-dictionary/backend/mfe-registry-service ./demos/01-dictionary/backend/mfe-registry-service
 WORKDIR /src/demos/01-dictionary/backend/mfe-registry-service
 RUN go mod download

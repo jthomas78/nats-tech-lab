@@ -71,7 +71,6 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 	handle("GET /api/kv/buckets/{account}/{bucket}/entries", h.kvBucketEntriesOnce)
 	handle("GET /api/jetstream/streams", h.listStreams)
 	handle("GET /api/jetstream/replay", h.jetstreamReplayOnce)
-	handle("GET /api/nats/services", h.listNatsServices)
 
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 	routes = append(routes, "/swagger/")

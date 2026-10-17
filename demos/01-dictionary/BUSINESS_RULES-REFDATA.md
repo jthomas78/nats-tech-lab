@@ -586,6 +586,17 @@ Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing pub
 >   still pass on the new interface. Not tested directly: that the handler
 >   ctx is the SERVER span.
 
+> **Phase 54d — retired (2026-10-16).** `shared/natstrace` and the
+> `obs.trace.*` envelope are deleted, as for BR-036. Without a Provider an
+> rpc.* call is untraced and still answers. `kvcache` publishes through
+> `jstream.WithOTel` only; with no Provider the pointer has no traceparent.
+>
+> - **Enforced now:** N/A — retired. Successor: the OTel path above, in
+>   `refdata/internal/natsrpc/adapter.go` (`otelnats.ContextFrom(req)`).
+> - **Test:** `refdata/natsrpc_test.go` — "BR-D39: without an otelnats
+>   Provider the call is untraced (Phase 54d)". The 28d `kvcache_test.go`
+>   traceparent spec is deleted; `otel_54b3a_test.go` covers it.
+
 ---
 
 ### BR-D40 (Phase 32) — refdata-service opens one additional NATS connection per provisioned tenant, alongside its single, unchanged PLATFORM connection

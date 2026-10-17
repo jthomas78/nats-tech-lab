@@ -17,8 +17,8 @@ const (
 )
 
 // Attribute keys on a body event. body.bytes is the size after redaction
-// and before truncation, as natstrace's payloadBytes, so a truncated body's
-// true size is still known.
+// and before truncation, like the obs.pubsub.* envelope's payloadBytes, so
+// a truncated body's true size is still known.
 const (
 	AttrBody          = "body"
 	AttrBodyBytes     = "body.bytes"

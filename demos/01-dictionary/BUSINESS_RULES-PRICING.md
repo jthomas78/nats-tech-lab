@@ -477,6 +477,15 @@ Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing pub
 > Test: `pricing/browserrpc_otel_test.go` (every endpoint, the link, no
 > natstrace, and the nil-Provider guard).
 
+> **Phase 54d — retired (2026-10-16).** `shared/natstrace` and the
+> `obs.trace.*` envelope are deleted, as for BR-036. Without a Provider an
+> api.* call is untraced and still answers.
+>
+> - **Enforced now:** N/A — retired. Successor: the OTel path above, in
+>   `pricing/internal/browserrpc/adapter.go`.
+> - **Test:** `pricing/browserrpc_otel_test.go` — "Phase 54d: no Provider
+>   leaves pricing untraced".
+
 ### BR-P26 (Phase 33.4) — Business operations are reachable only over `api.*`/`rpc.*`; REST reduces to infra health
 
 All 34 `/api/pricing/{context}/...` REST routes (FeeScale, RateSheet, FixedRate, and the diesel price index/overlay endpoints) are deleted now that `internal/browserrpc`'s `api.*` adapter (Phase 25f) has full 1:1 parity with them. Nothing outside pricing-service ever called them: `frontend/seafreight-app`, `frontend/admin`, and every other frontend in the repo already talk to pricing-service exclusively over `api.*`. REST's only remaining surface is `GET /healthz`, mirroring the convention `dictionary/internal/rest` already established. pricing-service has no admin-only or BasicAuth-gated REST routes to carve out an exception for — unlike `refdata-service`'s `/api/refdata/admin/*`, every pricing operation is tenant-facing business data, so there is no third "admin REST" category here, only the two: infra (`/healthz`) and business (`api.*`/`rpc.*`).

@@ -41,12 +41,11 @@ const ChangeStreamMaxAge = 48 * time.Hour
 // RPCTraceStreamName/RPCTraceMaxAge (the RPCTRACE stream backing the
 // obs.rpc.* side-channel, BR-D26/BR-D29) were retired in Phase 28g: nothing
 // has published to obs.rpc.* since Phase 28b replaced natsrpc.Adapter's
-// publishObs call with a natstrace span (see natsrpc/adapter.go's
-// ObsSubjectWildcard doc comment), so the stream this const pair
-// provisioned had stood permanently empty. The Admin UI's [messages] tab
-// now derives from obs.trace.*/the traces KV bucket instead (BR-026's
-// Phase 28g amendment, BUSINESS_RULES-SHIPPING.md; corresponding
-// BUSINESS_RULES-REFDATA.md amendments on BR-D29/BR-D36).
+// publishObs call with an obs.trace.* span, so the stream this const pair
+// provisioned had stood permanently empty (BR-026's Phase 28g amendment,
+// BUSINESS_RULES-SHIPPING.md; corresponding BUSINESS_RULES-REFDATA.md
+// amendments on BR-D29/BR-D36). That tracer and obs.trace.* were in turn
+// retired in Phase 54d; tracing is OTel only.
 
 // KVBucketPrefix names the versioned-read cache buckets: refdata-{context}.
 const KVBucketPrefix = "refdata"
@@ -66,8 +65,8 @@ type Handlers struct {
 	Corpus        *commands.CorpusHandler
 	VersionReader *kvcache.VersionReader
 	Translations  *commands.TranslationHandler
-	// tracing is the OTel Provider from WithTracing. nil keeps every path on
-	// natstrace.
+	// tracing is the OTel Provider from WithTracing. nil leaves every path
+	// untraced (Phase 54d).
 	tracing *otelnats.Provider
 }
 
@@ -80,8 +79,8 @@ type startupConfig struct {
 
 // WithTracing puts refdata-service on OTel (Phase 54b-3a): the evt.* change
 // pointer, every rpc.* and api.* endpoint, the tenant lifecycle
-// subscriptions and the BR-D42 notify bridge. A nil Provider keeps every path
-// on natstrace.
+// subscriptions and the BR-D42 notify bridge. A nil Provider leaves every
+// path untraced (Phase 54d).
 func WithTracing(p *otelnats.Provider) Option {
 	return func(c *startupConfig) { c.tracing = p }
 }
@@ -191,12 +190,11 @@ func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
 // 12.11) — a second transport onto the same command handlers Mount's REST
 // routes call. js is accepted for signature symmetry with Startup (and
 // because callers already hold it for the REFDATA/RPCTRACE streams above)
-// but is no longer forwarded into natsrpc.Deps: Phase 28b replaced the
-// natsrpc adapter's publishObs/RPCTRACE side-channel with natstrace's
-// obs.trace.* spans (BR-D39), which publish over the adapter's own
-// connection and need no JetStream handle. Callers should Stop() the
-// returned adapter on shutdown. With WithTracing every endpoint is on OTel
-// (Phase 54b-3a); without it every endpoint stays on natstrace.
+// but is no longer forwarded into natsrpc.Deps: Phase 28b retired the
+// natsrpc adapter's publishObs/RPCTRACE side-channel, and tracing (BR-D39)
+// needs no JetStream handle. Callers should Stop() the returned adapter on
+// shutdown. With WithTracing every endpoint is on OTel (Phase 54b-3a);
+// without it every endpoint runs untraced (Phase 54d).
 func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Logger) (*natsrpc.Adapter, error) {
 	return natsrpc.New(nc, natsrpc.Deps{
 		Localizations: h.Localizations,
@@ -268,7 +266,7 @@ type tenantPublisher struct {
 	mgr *natstenants.Manager[*browserrpc.Adapter]
 	log *slog.Logger
 	// tracing makes each notify.* publish a PRODUCER span (Phase 54b-3a).
-	// nil keeps the natstrace path.
+	// nil leaves the notify untraced (Phase 54d).
 	tracing *otelnats.Provider
 }
 

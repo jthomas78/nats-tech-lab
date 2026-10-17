@@ -49,7 +49,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/orchestration"
 	profileworker "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/worker"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -170,19 +169,18 @@ type Deps struct {
 	Tenant string
 	Log    *slog.Logger
 
-	// Tracing, when set, traces every endpoint with OTel instead of natstrace
-	// (Phase 54a-4 for fleet-asset add, 54b-3b for the rest; decision 16: set
-	// only on the OTel stack). Nil keeps natstrace on every endpoint.
+	// Tracing, when set, traces every endpoint with OTel (Phase 54a-4 for
+	// fleet-asset add, 54b-3b for the rest). Nil leaves every endpoint
+	// untraced (Phase 54d retired the legacy tracer).
 	Tracing *otelnats.Provider
 }
 
 // Adapter owns one tenant connection's micro service registration + endpoints.
 type Adapter struct {
-	nc     *nats.Conn
-	svc    micro.Service
-	log    *slog.Logger
-	tracer *natstrace.Tracer
-	otel   *otelnats.Provider
+	nc   *nats.Conn
+	svc  micro.Service
+	log  *slog.Logger
+	otel *otelnats.Provider
 
 	organizations     *commands.OrganizationHandler
 	activation        *orchestration.ActivationHandler
@@ -207,7 +205,6 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	a := &Adapter{
 		nc:             nc,
 		log:            deps.Log,
-		tracer:         natstrace.New(nc),
 		otel:           deps.Tracing,
 		organizations:  deps.Organizations,
 		documents:      deps.Documents,
@@ -272,7 +269,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"tracking-credential-list", a.handleTrackingCredentialList, TrackingCredentialListSubject},
 	}
 	for _, ep := range endpoints {
-		handler := a.tracer.Middleware(ep.handler)
+		handler := micro.HandlerFunc(ep.handler)
 		if a.otel != nil {
 			// A browser call: a new root, any sent traceparent only a link
 			// (BR-071). The receiving account is this adapter's tenant, and
@@ -1041,9 +1038,9 @@ func (a *Adapter) handleFleetAssetAdd(req micro.Request) {
 	// Manager.Exists -> refdataclient.Client's outbound rpc.* call, so that
 	// call's span continues this trace instead of starting a disconnected
 	// root, and it costs the command/domain layer nothing (ctx is already
-	// threaded everywhere unchanged). On the OTel stack the span is
-	// otelnats's (ContextFrom); otherwise natstrace's (BR-037). Each is a
-	// no-op where the other one wrapped req.
+	// threaded everywhere unchanged). The span is otelnats's (ContextFrom,
+	// BR-037); without a Provider the ctx carries none and the call is
+	// untraced (Phase 54d).
 	ctx := sharedbrowserrpc.SpanContext(req)
 	asset, err := a.fleetAssets.AddFleetAsset(
 		ctx, in.ID, a.tenant,
@@ -1187,7 +1184,7 @@ func (a *Adapter) actor(req micro.Request) commands.Actor {
 // reply is the shared tail end of every handler above: nil error replies with
 // result, any error replies with the mapped error response. Delegates to
 // shared/browserrpc.Reply, which derives subject/correlationID from req
-// itself, marshals, finishes the natstrace span, and stamps Nats-Responder.
+// itself, marshals, and stamps Nats-Responder.
 func (a *Adapter) reply(req micro.Request, result any, err error) {
 	sharedbrowserrpc.ReplyWithConflicts(req, a.svc, a.log, isNotFoundErr, isConflictErr, result, err)
 }

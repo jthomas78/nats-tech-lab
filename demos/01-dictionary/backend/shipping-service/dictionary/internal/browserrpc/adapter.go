@@ -49,7 +49,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -83,21 +82,12 @@ const (
 // tenant.go), so a call over api.* and a call over REST run identical
 // domain logic. JS is currently unused by this adapter (Phase 28b retired
 // the obs.api.* fire-and-forget/RPCTRACE publishing that used to consult
-// it — see natstrace's package doc comment) but is left on Deps rather than
+// it) but is left on Deps rather than
 // threaded out of composition.go/tenant.go, since a future call site inside
 // this adapter may still want it.
 //
-// Phase 28b superseded this adapter's old obs.api.* observability
-// side-channel (BR-026/BR-027) with natstrace's obs.trace.* one (BR-036/
-// BR-037): every api.* call now publishes exactly one reply-side span to
-// obs.trace.{context}.shipping.{entity}.{action} — PLATFORM account only —
-// instead of the old two-event (request + reply) obs.api.* pair. The Admin
-// UI's Request/Reply panel still reads the old obs.api.>/obs.rpc.> subjects
-// for its [messages] flat log until Phase 28g switches that view to derive
-// from trace spans instead, so that view goes dark for shipping-service
-// traffic in the interim — an accepted, phase-scoped gap (Main-POC-Plan.md
-// Phase 28's "full rollout in one phase" tradeoff), not a bug in this
-// adapter.
+// Tracing is OTel only (Phase 54d retired the obs.trace.* side-channel):
+// every api.* call is one SERVER span when Deps.Tracing is set.
 type Deps struct {
 	Ships      *commands.ShipHandler
 	Containers *commands.ContainerHandler
@@ -115,10 +105,9 @@ type Deps struct {
 	// connection (Phase 18's Nats-Responder invariant — see the Config
 	// literal below), so per-tenant identity travels as metadata instead.
 	Tenant string
-	// Tracing, when set, traces every endpoint with OTel instead of
-	// natstrace (Phase 54b-4): an EdgeAPI SERVER span with Tenant as the
+	// Tracing, when set, traces every endpoint with OTel (Phase 54b-4): an EdgeAPI SERVER span with Tenant as the
 	// receiving account (BR-064, BR-069, BR-071), and the port register
-	// notify.* as a PRODUCER span under it. Nil keeps natstrace.
+	// notify.* as a PRODUCER span under it. Nil leaves them untraced.
 	Tracing *otelnats.Provider
 }
 
@@ -136,7 +125,6 @@ type Adapter struct {
 	js         jetstream.JetStream
 	log        *slog.Logger
 	svc        micro.Service
-	tracer     *natstrace.Tracer
 	otel       *otelnats.Provider
 	tenant     string
 }
@@ -212,7 +200,6 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		shipReads:  deps.ShipReads,
 		js:         deps.JS,
 		log:        deps.Log,
-		tracer:     natstrace.New(nc),
 		otel:       deps.Tracing,
 		tenant:     deps.Tenant,
 	}
@@ -259,7 +246,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"meta-known-containers", a.handleMetaKnownContainers, MetaKnownContainersSubject},
 	}
 	for _, ep := range endpoints {
-		handler := a.tracer.Middleware(ep.handler)
+		handler := micro.HandlerFunc(ep.handler)
 		if a.otel != nil {
 			// A browser call: a new root, any sent traceparent only a link
 			// (BR-071). The receiving account is this adapter's tenant, and

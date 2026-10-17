@@ -5,7 +5,7 @@ package browserrpc
 // These exercise the package over a real embedded NATS server and the
 // actual nats.go/micro machinery, since the behavior that matters is what a
 // wrapped endpoint actually publishes on the wire — the same integration
-// style shared/natstrace's own tests use.
+// style shared/otelnats's own tests use.
 
 import (
 	"encoding/json"
@@ -321,7 +321,7 @@ func TestSpanContextIsNilSafeWithoutTracerMiddleware(t *testing.T) {
 		t.Fatalf("request: %v", err)
 	}
 	if panicked {
-		t.Fatal("SpanContext must be nil-safe when no natstrace.Tracer.Middleware wrapped the handler")
+		t.Fatal("SpanContext must be nil-safe when no otelnats.Middleware wrapped the handler")
 	}
 }
 

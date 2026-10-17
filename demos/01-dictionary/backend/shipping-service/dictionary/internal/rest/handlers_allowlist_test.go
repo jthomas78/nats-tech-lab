@@ -16,7 +16,7 @@ import (
 func TestMountRoutesMatchAdminAllowlist(t *testing.T) {
 	g := NewWithT(t)
 
-	h := newTraceMiddlewareTestHandlers(t, nil)
+	h := NewHandlers(Deps{Tenant: "acme", Log: discardLogger()})
 	mux := http.NewServeMux()
 
 	routes := h.Mount(mux)

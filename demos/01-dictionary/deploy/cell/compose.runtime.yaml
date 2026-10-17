@@ -13,7 +13,7 @@ services:
   shipping-service:
     build:
       # Phase 35: context is the repo root so the build can copy
-      # shared/natstrace alongside the service source (same pattern the
+      # the shared/* modules alongside the service source (same pattern the
       # frontend build blocks already use for shared/unifi-theme).
       context: ../../../..
       dockerfile: demos/01-dictionary/backend/shipping-service/Dockerfile
@@ -53,7 +53,7 @@ services:
   refdata-service:
     build:
       # Phase 35: context is the repo root so the build can copy
-      # shared/natstrace alongside the service source (same pattern the
+      # the shared/* modules alongside the service source (same pattern the
       # frontend build blocks already use for shared/unifi-theme).
       context: ../../../..
       dockerfile: demos/01-dictionary/backend/refdata-service/Dockerfile
@@ -252,7 +252,7 @@ services:
   pricing-service:
     build:
       # Phase 35: context is the repo root so the build can copy
-      # shared/natstrace alongside the service source (same pattern the
+      # the shared/* modules alongside the service source (same pattern the
       # frontend build blocks already use for shared/unifi-theme).
       context: ../../../..
       dockerfile: demos/01-dictionary/backend/pricing-service/Dockerfile
@@ -301,7 +301,7 @@ services:
   organizations-service:
     build:
       # Phase 35: context is the repo root so the build can copy
-      # shared/natstrace alongside the service source (same pattern the
+      # the shared/* modules alongside the service source (same pattern the
       # frontend build blocks already use for shared/unifi-theme).
       context: ../../../..
       dockerfile: demos/01-dictionary/backend/organizations-service/Dockerfile
@@ -364,7 +364,7 @@ services:
   observability-service:
     build:
       # Phase 43d/43e: context is the repo root so the build can copy the
-      # shared modules (natsnotify, natstrace) alongside the service source.
+      # shared modules (natsnotify) alongside the service source.
       context: ../../../..
       dockerfile: demos/01-dictionary/backend/observability-service/Dockerfile
     networks:
@@ -494,56 +494,8 @@ services:
     depends_on:
       - mfe-registry-service
 
-  # Phase 28g — the OTLP exporter pair (ARCHITECTURE-COMMUNICATIONS.md § 6).
-  # Both behind the `otlp` profile so a bare `docker compose up` is
-  # unaffected: `docker compose --profile otlp up` starts them together,
-  # `docker compose up` (no profile) leaves both off. This is the "no-code
-  # toggling" the design calls for — two services added or removed, not an
-  # env flag threaded through five service binaries.
-  #
-  # Jaeger keeps its own widely-recognized conventional ports (16686 UI,
-  # 4318 OTLP/HTTP receiver) rather than the 7100-7199/7200-7299 pool —
-  # same rationale CLAUDE.md already gives NATS/Postgres for staying on
-  # their own conventional ports.
-  jaeger:
-    image: jaegertracing/all-in-one:1.68.0
-    profiles: ["otlp"]
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
-    ports:
-      - "${JAEGER_UI_PORT:-16686}:16686" # web UI
-      - "${JAEGER_OTLP_PORT:-4318}:4318"   # OTLP/HTTP receiver
-    networks:
-      - backend
-
-  otlp-bridge:
-    build:
-      # Repo root, so the build can copy shared/natsconn (see the Dockerfile).
-      context: ../../../..
-      dockerfile: demos/01-dictionary/backend/otlp-bridge/Dockerfile
-    profiles: ["otlp"]
-    networks:
-      - backend
-    environment:
-      NATS_URL: nats://nats:4222
-      # otlp-bridge only ever reads (JetStream consume on TRACES) — reusing
-      # platform.creds rather than minting a dedicated credential mirrors
-      # refdata-service's own PLATFORM connection (above, in this file)
-      # rather than adding new NATS account provisioning for a demo-only
-      # exporter.
-      NATS_CREDS_PATH: /etc/nats/creds/platform.creds
-      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-      # OTLP_BRIDGE_REPLAY=true re-exports the whole TRACES retained window
-      # (the "start the collector late" case) instead of live-tailing —
-      # see otlp-bridge/cmd/main.go's openConsumer doc comment.
-      OTLP_BRIDGE_REPLAY: "false"
-    volumes:
-      - ../../nats/creds/platform.creds:/etc/nats/creds/platform.creds:ro
-    depends_on:
-      nats:
-        condition: service_started
-      jaeger:
-        condition: service_started
+  # Phase 54d retired the Phase 28g `otlp` profile (Jaeger and otlp-bridge).
+  # Traces go to the OTel Collector and Tempo in compose.telemetry.yaml.
 
 networks:
   # Trust-tier split (not per-service-pair): anything needing NATS/Postgres

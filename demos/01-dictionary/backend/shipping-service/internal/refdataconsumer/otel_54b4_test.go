@@ -2,7 +2,7 @@ package refdataconsumer
 
 // Phase 54b-4: with WithTracing(p) the Consumer's one span per logical call
 // is an OTel CLIENT span (BR-064, BR-065), the same as organizations-service's
-// refdataclient. Without it the natstrace specs in consumer_test.go hold.
+// refdataclient. Without it the call runs untraced (Phase 54d).
 
 import (
 	"context"
@@ -100,7 +100,7 @@ func TestLookupWithTracingIsOneClientSpanUnderTheCtxSpan(t *testing.T) {
 
 	select {
 	case m := <-legacy:
-		t.Fatalf("expected no natstrace span on the OTel path, got %s", m.Subject)
+		t.Fatalf("expected no obs.trace.* message (retired in Phase 54d), got %s", m.Subject)
 	case <-time.After(200 * time.Millisecond):
 	}
 }

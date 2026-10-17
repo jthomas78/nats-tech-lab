@@ -200,100 +200,36 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		})
 	})
 
-	Context("obs.trace.* side-channel (BR-036/BR-D39)", func() {
-		// traceSpan is a strict superset of the pre-Phase-28 obsEnvelope:
-		// this decodes it into the old shape (ignoring every new field) to
-		// assert backward compatibility, then again into the full shape for
-		// the new tracing fields. Mirrors organizations-service's
-		// browserrpc_roundtrip_test.go, which this test was cloned from —
+	Context("BR-D39: without an otelnats Provider the call is untraced (Phase 54d)", func() {
 		// Phase 28b replaced this adapter's publishObs side-channel
-		// (obs.rpc.*, BR-D26/BR-D36/BR-D37) with natstrace's obs.trace.*
-		// spans the same way Phase 28a did for browserrpc's obs.api.*.
-		type legacyEnvelope struct {
-			Direction     string              `json:"direction"`
-			CorrelationID string              `json:"correlationId"`
-			Subject       string              `json:"subject"`
-			Payload       json.RawMessage     `json:"payload,omitempty"`
-			Error         string              `json:"error,omitempty"`
-			Headers       map[string][]string `json:"headers,omitempty"`
-			Timestamp     time.Time           `json:"timestamp"`
-			PayloadBytes  int                 `json:"payloadBytes"`
-		}
-		type traceSpan struct {
-			legacyEnvelope
-			TraceID       string            `json:"traceId,omitempty"`
-			SpanID        string            `json:"spanId,omitempty"`
-			ParentSpanID  string            `json:"parentSpanId,omitempty"`
-			Service       string            `json:"service,omitempty"`
-			Entity        string            `json:"entity,omitempty"`
-			Action        string            `json:"action,omitempty"`
-			StatusCode    string            `json:"statusCode,omitempty"`
-			StatusMessage string            `json:"statusMessage,omitempty"`
-			Attributes    map[string]string `json:"attributes,omitempty"`
-			Redacted      []string          `json:"redacted,omitempty"`
-			Truncated     bool              `json:"truncated,omitempty"`
-		}
-
-		It("publishes one span per call to obs.trace.{context}.refdata.{entity}.{action}, decodable both as the old envelope shape and the new one", func() {
-			spans := make(chan *nats.Msg, 8)
-			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+		// (obs.rpc.*, BR-D26/BR-D36/BR-D37) with obs.trace.* spans; Phase 54d
+		// retired those for OTel. The traced path is natsrpc_otel_test.go and
+		// otel_54b3a_test.go; here there is no Provider, so a call still gets
+		// its reply and nothing is published on obs.trace.*.
+		It("still replies, and publishes nothing on obs.trace.*", func() {
+			legacy := make(chan *nats.Msg, 8)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
 			Expect(nc.Flush()).To(Succeed())
 
 			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
-			_, err = nc.Request(rpcSubject, reqBody, 2*time.Second)
+			reply, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(reply.Header.Get("traceparent")).To(BeEmpty())
 
-			var msg *nats.Msg
-			Eventually(spans).Should(Receive(&msg))
-			Expect(msg.Subject).To(Equal("obs.trace." + itemCtx + ".refdata.item.get"))
-
-			var legacy legacyEnvelope
-			Expect(json.Unmarshal(msg.Data, &legacy)).To(Succeed())
-			Expect(legacy.Subject).To(Equal(rpcSubject))
-			Expect(legacy.PayloadBytes).To(BeNumerically(">", 0))
-
-			var span traceSpan
-			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
-			Expect(span.TraceID).NotTo(BeEmpty())
-			Expect(span.SpanID).NotTo(BeEmpty())
-			Expect(span.ParentSpanID).To(BeEmpty(), "a call with no inbound traceparent is a root span")
-			Expect(span.Service).To(Equal("refdata"))
-			Expect(span.Entity).To(Equal("item"))
-			Expect(span.Action).To(Equal("get"))
-			Expect(span.StatusCode).To(Equal("OK"))
-		})
-
-		It("marks a failed call with statusCode ERROR and the error message", func() {
-			spans := make(chan *nats.Msg, 8)
-			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
 			Expect(nc.Flush()).To(Succeed())
-
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
-			Expect(err).NotTo(HaveOccurred())
-			_, err = nc.Request(rpcSubject, reqBody, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-
-			var msg *nats.Msg
-			Eventually(spans).Should(Receive(&msg))
-
-			var span traceSpan
-			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
-			Expect(span.StatusCode).To(Equal("ERROR"))
-			Expect(span.StatusMessage).NotTo(BeEmpty())
+			Consistently(legacy, 200*time.Millisecond).ShouldNot(Receive())
 		})
 	})
 
 	Context("BR-D37: every reply carries a Nats-Responder header identifying the answering service instance", func() {
 		// The obs.rpc.*-event assertions this Context used to make (forwarding
 		// Nats-Requestor into a request-side event) have no analog under
-		// natstrace: a span is a single reply-side publish, not a
-		// request/reply pair, so there is no separate "request event" left to
-		// assert against — only the real wire reply, checked here.
+		// span-based tracing: a span is not a request/reply pair, so there is
+		// no separate "request event" left to assert against — only the real
+		// wire reply, checked here.
 		It("attaches a Nats-Responder header (service name/instance ID) to a successful reply", func() {
 			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())

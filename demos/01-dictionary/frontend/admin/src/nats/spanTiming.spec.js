@@ -3,9 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { spanDurationMs, spanFinishMs, spanStartMs } from './spanTiming.js'
 
 // BR-056 — one seam for "how long did this span take" and "when did it
-// start", because three consumers derived a start time independently
-// (TraceWaterfall, PulsePanel, and otlp-bridge on the Go side) and all three
-// were wrong in the same way at once.
+// start", because several consumers once derived a start time independently
+// and were all wrong in the same way at once.
 describe('spanTiming (BR-056)', () => {
   const at = (isoFraction) => `2026-08-26T12:00:00.${isoFraction}Z`
 
@@ -14,16 +13,12 @@ describe('spanTiming (BR-056)', () => {
       expect(spanDurationMs({ durationUs: 1437 })).toBeCloseTo(1.437, 6)
     })
 
-    it('treats 0us as a measured duration, not as absence', () => {
-      expect(spanDurationMs({ durationUs: 0, durationMs: 9 })).toBe(0)
+    it('treats 0us as a measured duration', () => {
+      expect(spanDurationMs({ durationUs: 0 })).toBe(0)
     })
 
-    it('falls back to a legacy durationMs record so a deploy is invisible', () => {
-      expect(spanDurationMs({ durationMs: 41 })).toBe(41)
-    })
-
-    it('prefers durationUs when a record somehow carries both', () => {
-      expect(spanDurationMs({ durationUs: 1437, durationMs: 1 })).toBeCloseTo(1.437, 6)
+    it('ignores a legacy durationMs field (retired in 54d)', () => {
+      expect(spanDurationMs({ durationMs: 41 })).toBe(0)
     })
 
     it('reads a span with neither field as zero rather than NaN', () => {
@@ -58,9 +53,9 @@ describe('spanTiming (BR-056)', () => {
 
     it('inverts exactly as observed if the duration is only millisecond-resolved', () => {
       // The regression this guards, kept as an executable statement of it:
-      // the same two spans with durationMs alone derive backwards.
-      const parent = { timestamp: at('001900000'), durationMs: 1 }
-      const child = { timestamp: at('001500000'), durationMs: 1 }
+      // the same two spans with durations truncated to 1ms derive backwards.
+      const parent = { timestamp: at('001900000'), durationUs: 1000 }
+      const child = { timestamp: at('001500000'), durationUs: 1000 }
 
       expect(spanStartMs(parent)).toBeGreaterThan(spanStartMs(child))
     })

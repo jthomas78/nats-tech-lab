@@ -36,7 +36,7 @@ func TestTenantExportsIncludesObsPubsubStreamExport(t *testing.T) {
 		t.Fatalf("expected an obs.pubsub.> export on a freshly-minted tenant's own claims, got %#v", fresh.Exports)
 	}
 	if pubsubExport.Type != jwt.Stream {
-		t.Fatalf("obs.pubsub.> export must be a Stream export, same shape as obs.trace.>, got type %v", pubsubExport.Type)
+		t.Fatalf("obs.pubsub.> export must be a Stream export, got type %v", pubsubExport.Type)
 	}
 	if pubsubExport.AllowTrace {
 		t.Fatal("AllowTrace must not be set on this Stream export — jwt.Export.Validate rejects it on anything but a Service export")
@@ -45,7 +45,7 @@ func TestTenantExportsIncludesObsPubsubStreamExport(t *testing.T) {
 		t.Fatalf("ResponseType is meaningless on a Stream export, got %q", pubsubExport.ResponseType)
 	}
 
-	// Must survive a plain re-sign exactly like the trace export does — it
+	// Must survive a plain re-sign exactly like the $SRV.> export does — it
 	// must not require CrossAccountOpts to be supplied again.
 	preserved := newAccountClaims(tenant, "", JSLimits{}, fresh, CrossAccountOpts{})
 	found := false

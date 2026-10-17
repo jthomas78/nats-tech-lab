@@ -86,11 +86,9 @@ type ConnectInfo struct {
 // Sub no longer includes obs.api.> (Phase 23 granted it; Phase 28g retires
 // it) — that "supportive" observability side-channel was already dead
 // before the retirement: Phase 28a-28e replaced browserrpc's publishObs
-// call with a natstrace span, so nothing has published to obs.api.> since,
-// and the Admin UI's [messages] tab (the sole consumer of this grant) now
-// derives from obs.trace.*/the trace-request-reply KV bucket instead (BR-026's Phase
-// 28g amendment, BUSINESS_RULES-SHIPPING.md). obs.trace.* itself is never
-// granted here — it publishes to the PLATFORM account only, per BR-036.
+// call with a span, so nothing has published to obs.api.> since, and the
+// Admin UI's [messages] tab (the sole consumer of this grant) reads the
+// operator-only trace gateway now (BR-076), never granted here.
 func MintBrowserToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, tenant, wsURL string, ttl time.Duration) (ConnectInfo, error) {
 	return mintUserToken(ctx, reg, accountPub, accountSigningKeySeed, "browser-"+tenant, tenant, wsURL, ttl, func(claims *jwt.UserClaims) {
 		claims.Permissions.Pub.Allow.Add("api.>", "_INBOX.>")
@@ -117,12 +115,9 @@ func MintBrowserToken(ctx context.Context, reg accounts.UserRegistry, accountPub
 // direct obs.* subject is reachable.
 //
 // The notification set is notify.accounts.account.>, the REFDATA notify.*
-// subject, notify._platform.kv.trace-request-reply.> for the
-// Admin UI's trace waterfall/RPC panel, Phase 28g, and
-// notify._platform.kv.pubsub-messages.> for the Messages panel, Phase 43b —
-// internal/kvstore.Store.EnableNotify's existing
-// notify.{context}.kv.{bucket}.{key}.changed publish, reused unchanged for
-// the trace-request-reply KV bucket rather than a bespoke trace-notify subject) and,
+// subject, and notify._platform.kv.pubsub-messages.> for the Messages panel
+// (Phase 43b). Phase 54d removed notify._platform.kv.trace-request-reply.>
+// with its bucket; the trace panels read the gateway now (BR-076).
 // Unlike MintBrowserToken, it has no broad api.> grant. A non-empty Pub.Allow
 // list makes every unlisted publish forbidden in NATS permission semantics.
 // notify._platform.rpctrace.> (Phase 23) was retired in Phase
@@ -170,11 +165,11 @@ func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, 
 			// monitor.*.srv.* subject is granted to a browser.
 			"api._platform.observability.service.list.v1",
 		)
-		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
-			// Phase 43b (BR-047): the Messages panel's live feed, the same
-			// bucket-notify shape as trace-request-reply above. This grants the
+		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>",
+			// Phase 43b (BR-047): the Messages panel's live feed. This grants the
 			// KV-change notify only — obs.pubsub.> itself is still never granted
-			// to a browser credential (BR-AC34).
+			// to a browser credential (BR-AC34). Phase 54d removed the
+			// trace-request-reply notify grant with its bucket.
 			"notify._platform.kv.pubsub-messages.>", "_INBOX.>")
 	})
 }

@@ -4,17 +4,17 @@ package refdata_test
 // shared/jstream. The seam's contract is asserted once, there; this asserts
 // something about THIS service's event — that a refdata change is filed under
 // its typeKey, which is the entity token an operator filters the Messages
-// panel by.
+// panel by. Trace continuation into the observation is the seam's contract
+// too (shared/jstream's TestOTelPublishObservesWithTheProducerSpansIDs);
+// without an otelnats Provider the publish is untraced (Phase 54d).
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/shared/natstest"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 )
@@ -28,8 +28,7 @@ func TestRefdataChangeIsObservedUnderItsTypeKey(t *testing.T) {
 	obs := natstest.Observations(t, nc)
 
 	pub := jstream.NewPublisher(js, jstream.WithObservation(nc))
-	sp := natstrace.New(nc).StartFromHeaders(nil, "rpc.acme.refdata.item.update.v1", nil, "acme", "refdata", "item", "update")
-	if err := pub.PublishWithTrace(ctx, sp, "evt.acme.refdata.hazard-class.changed",
+	if err := pub.Publish(ctx, "evt.acme.refdata.hazard-class.changed",
 		[]byte(`{"typeKey":"hazard-class","context":"acme","version":7}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -41,10 +40,6 @@ func TestRefdataChangeIsObservedUnderItsTypeKey(t *testing.T) {
 		}
 		if m.Header.Get("Nats-Msg-Id") == "" {
 			t.Fatal("expected Nats-Msg-Id — BR-047's dedup depends on it")
-		}
-		traceID := strings.Split(sp.Traceparent(), "-")[1]
-		if !strings.Contains(string(m.Data), `"traceId":"`+traceID+`"`) {
-			t.Fatalf("observation did not continue the causing trace: %s", m.Data)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no obs.pubsub.* observation for an evt.* publish")

@@ -156,7 +156,16 @@ group.
 | Core | `api.*` | **Frontend-to-service** synchronous calls | NATS core request/reply (Micro), reached over WebSocket |
 | Core | `notify.*` | Service-side change notification to interested subscribers | Core pub/sub, fire-and-forget |
 | Supportive | `obs.rpc.*` / `obs.api.*` | Debugging/observability side-channel for RPC and API traffic; consumed by Admin and technical tooling only | Core pub/sub (+ `RPCTRACE` retention, BR-D29) |
-| Supportive | `obs.trace.*` | Distributed-trace spans — the same envelope enriched with W3C trace identity, joined across hops by `traceId` (Phase 28, BR-036/BR-D39) | Core pub/sub on the **PLATFORM account only** (+ `TRACES` retention, 1h) |
+| Supportive | ~~`obs.trace.*`~~ — **retired (Phase 54d)** | Distributed-trace spans — the same envelope enriched with W3C trace identity, joined across hops by `traceId` (Phase 28, BR-036/BR-D39, both retired) | Was core pub/sub on the PLATFORM account only (+ `TRACES` retention, 1h). Both are deleted. |
+
+> **Phase 54d (2026-10-16).** `obs.trace.*` and the `TRACES` stream are
+> retired. Traces no longer travel on a NATS subject family. Each service
+> exports OpenTelemetry spans over OTLP through `shared/otelnats` to the OTel
+> Collector, which sends them to Tempo (`deploy/cell/compose.telemetry.yaml`).
+> W3C `traceparent` still crosses each NATS hop in a header. The Admin UI
+> reads traces with `api._platform.observability.trace.{search|get|services}.v1`
+> (BR-076), an ordinary `api.*` call. `obs.pubsub.*` (BR-045..BR-048) is
+> still live.
 
 `cmd.*` remains **reserved, not in use**: durable asynchronous intent —
 publish, then observe the result via events or a status/read model. Named
@@ -182,7 +191,7 @@ api.{context}.{service}.{entity}.{action}.v{n}
 notify.{context}.{service}.{entity}.changed
 obs.rpc.{context}.{service}.{entity}.{action}
 obs.api.{context}.{service}.{entity}.{action}
-obs.trace.{context}.{service}.{entity}.{action}
+obs.trace.{context}.{service}.{entity}.{action}   # retired (Phase 54d)
 ```
 
 - The leading token is always a **fixed literal**, never a wildcard — a stream
@@ -678,7 +687,36 @@ requirement to see history from before the panel was opened. This is **not**
 a JetStream concern — it's a separate, best-effort side-channel off the
 `natsrpc/` adapter.
 
+> **Phase 54d (2026-10-16).** The legacy tracing pipeline in this section is
+> retired. Deleted: `shared/natstrace`, `obs.trace.*`, the PLATFORM `TRACES`
+> stream, the `trace-request-reply` bucket, the `tracestore` projector,
+> `otlp-bridge`, Jaeger and the compose `otlp` profile, `useTraceFeed.js`
+> and `cmd/seed-traces`. Rules BR-036, BR-051, BR-053, BR-D39, BR-P25,
+> BR-TP15 and BR-AC36 are retired.
+>
+> Now live: each service traces through `shared/otelnats`. Spans go over
+> OTLP to the OTel Collector, then to Tempo
+> (`deploy/cell/compose.telemetry.yaml`). REST routes are traced by the
+> Provider's `HTTPMiddleware` / `HTTPMiddlewareFor` (`shared/otelnats/http.go`).
+> A path without an otelnats
+> Provider is untraced. The Admin UI reads traces through observability-service's
+> trace gateway, `api._platform.observability.trace.{search|get|services}.v1`
+> (`frontend/admin/src/nats/traceGateway.js`, BR-076). The receiving service
+> sets the tenant on the span from trusted context (BR-069).
+>
+> Kept: `obs.pubsub.*`, the `PUBSUB` stream and the `pubsub-messages`
+> bucket (BR-045..BR-048), now published by `otelnats.Observer`. Also kept:
+> `Nats-Requestor` (now also the span attribute `lab.requester`, BR-041) and
+> `Nats-Responder` on NATS replies. The subsections below that describe the
+> trace half are history.
+
 ### The observability message path, end to end
+
+> **Phase 54d (2026-10-16).** Only the pub/sub path in the figure and the
+> notes below is live. The `obs.trace.*` path, the
+> `monitor.{tenant}.trace.>` remap (BR-AC36), `TRACES`,
+> `trace-request-reply`, BR-036's trace half, BR-051 and BR-053 are retired.
+> The figure is not redrawn.
 
 Both supportive subject families — `obs.trace.*` and `obs.pubsub.*` — travel
 the same five hops from a tenant service to an Admin UI panel, and the
@@ -749,6 +787,13 @@ The 1024px width is the geometry the page was reviewed at; changing it
 changes the layout. The `--clip=".wrap"` is load-bearing, not optional.
 
 ### `natstrace` and `browserrpc` also moved into `shared/` (Phase 35 — implemented 2026-08-18)
+
+> **Phase 54d (2026-10-16).** `shared/natstrace` is deleted. `shared/otelnats`
+> replaces it in every service. accounts-service's REST handlers now use the
+> Provider's `HTTPMiddleware`. The `otlp-bridge` and the KV trace store it
+> read from are deleted too. `shared/browserrpc` is unchanged and still
+> stamps `Nats-Responder`. The `natstrace` text from here to the end of § 6
+> is history.
 
 Everything below this point narrates the observability design as it evolved
 service by service, including two pieces that used to be pasted into each
@@ -909,6 +954,11 @@ shows otherwise.
 > bootstraps those buckets over REST and receives live changes through its
 > **single** PLATFORM connection on `notify._platform.kv.*`.
 >
+> **Phase 54d (2026-10-16).** `obs.trace.*` and the `trace-request-reply`
+> bucket are retired. Tenants now export only `obs.pubsub.*` for this path.
+> The Admin browser bootstraps only `pubsub-messages` this way. It reads
+> traces from the trace gateway (BR-076) on the same PLATFORM connection.
+>
 > The old `admin-tenant` connection outlived its observability consumer for a
 > while because UI-copy/refdata reads still borrowed its broad `api.>` grant.
 > That residue is removed: `MintAdminToken` now allows only the three exact
@@ -1033,6 +1083,11 @@ shows otherwise.
 > pinned by `otlpmap`'s `TestMarshalExportRequestPassesIdsThroughAsHex`.
 > Verified live: real `refdata`/`accounts` spans, correctly parented,
 > visible in Jaeger's UI and `/api/traces` query API.
+>
+> **Phase 54d (2026-10-16) — retired.** `backend/otlp-bridge/`, Jaeger and
+> the compose `otlp` profile are deleted. Services now export OTLP directly
+> through `shared/otelnats` to the OTel Collector, which sends spans to
+> Tempo (`deploy/cell/compose.telemetry.yaml`).
 
 **No dedicated stream (original decision, since revised — see below).** A
 `RPCTRACE`-style JetStream stream (`LimitsPolicy`, short `MaxAge`) was
@@ -1581,7 +1636,10 @@ are only unique within one.
 >   `$JS.API.INFO`, the filtered-`CONSUMER.CREATE` wildcard form,
 >   `$JS.API.DIRECT.GET`, `$JS.ACK`, and `$JS.FC.KV_trace-request-reply.>` —
 >   documented in `BUSINESS_RULES-SHIPPING.md`'s trace-store rule and this
->   plan's Phase 30i/Phase 62 notes.
+>   plan's Phase 30i/Phase 62 notes. Phase 54d (2026-10-16) removed the
+>   `TRACES` and `KV_trace-request-reply` subjects from that allow-list. The
+>   `observability` user keeps the same shape for `PUBSUB` and
+>   `KV_pubsub-messages` (`nats/bootstrap-operator.sh`).
 > - The **design itself — cross-account vs. tenant-scoped as two different
 >   axes, snapshot-crosses/live-tail-cannot, account-tagged rows** — carried
 >   over unchanged; only *which process* answers the two endpoints changed.

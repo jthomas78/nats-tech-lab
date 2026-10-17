@@ -19,7 +19,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -334,40 +333,6 @@ var _ = Describe("Handlers", func() {
 		Expect(evt.Name).To(Equal("notify-tenant"))
 	})
 
-	It("BR-037: notify.accounts.account.created carries the HTTP request's traceparent when the mux is wrapped in natstrace.HTTPMiddleware", func() {
-		notifyNC := ots.ConnectSys(GinkgoT())
-		defer notifyNC.Close()
-		sub, err := notifyNC.SubscribeSync("notify.accounts.account.created")
-		Expect(err).NotTo(HaveOccurred())
-		defer sub.Unsubscribe() //nolint:errcheck
-
-		notifyHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), notifyNC, auditLog)
-		mux := http.NewServeMux()
-		notifyHandlers.Mount(mux, authSecret)
-		tracer := natstrace.New(notifyNC)
-		notifyServer := httptest.NewServer(tracer.HTTPMiddleware("_platform", "accounts", mux))
-		defer notifyServer.Close()
-
-		parentTraceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		parentSpanID := "bbbbbbbbbbbbbbbb"
-		req, err := http.NewRequest(http.MethodPost, notifyServer.URL+"/api/accounts", bytes.NewReader([]byte(`{"name":"traced-tenant"}`)))
-		Expect(err).NotTo(HaveOccurred())
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("traceparent", "00-"+parentTraceID+"-"+parentSpanID+"-01")
-		req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
-		resp, err := notifyServer.Client().Do(req)
-		Expect(err).NotTo(HaveOccurred())
-		defer resp.Body.Close()
-		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-
-		msg, err := sub.NextMsg(2 * time.Second)
-		Expect(err).NotTo(HaveOccurred())
-		tp := msg.Header.Get(natstrace.TraceparentHeader)
-		Expect(tp).NotTo(BeEmpty(), "the notify publish must carry a traceparent")
-		Expect(tp).To(HavePrefix("00-" + parentTraceID + "-"))
-		Expect(tp).NotTo(ContainSubstring(parentSpanID), "the notify's own span mints a fresh child span id, not the inbound request's own span id")
-	})
-
 	// BR-073 (Phase 54b-5): on the OTel stack one REST operation is one
 	// trace. POST /api/accounts is a SERVER span that starts a new root and
 	// links what the caller sent; the notify.accounts.account.created publish
@@ -388,7 +353,7 @@ var _ = Describe("Handlers", func() {
 		otelHandlers.Tracing = p
 		mux := http.NewServeMux()
 		otelHandlers.Mount(mux, authSecret)
-		otelServer := httptest.NewServer(accounts.TraceHTTP(mux, p, natstrace.New(notifyNC)))
+		otelServer := httptest.NewServer(accounts.TraceHTTP(mux, p))
 		defer otelServer.Close()
 
 		sentTraceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -432,50 +397,59 @@ var _ = Describe("Handlers", func() {
 		Expect(otelnats.HeaderCarrier(msg.Header).Get("traceparent")).To(ContainSubstring(server[0].SpanContext.TraceID().String()))
 	})
 
-	// BR-AC35: the span POST /api/accounts publishes must name both ends —
-	// the Admin UI's self-declared caller identity and this instance. Driven
+	// BR-AC35: the span POST /api/accounts records must name both ends —
+	// the Admin UI's self-declared caller identity and this service. Driven
 	// through the real Mount'ed routes and BasicAuth, since that is the exact
 	// path the Accounts panel takes (the browser calls
 	// /api/platform/accounts, which nginx/vite rewrite onto this route).
-	It("BR-AC35: the POST /api/accounts span records the caller's Nats-Requestor and this instance's Nats-Responder", func() {
-		traceNC := ots.ConnectSys(GinkgoT())
-		defer traceNC.Close()
-		spans := make(chan *nats.Msg, 8)
-		sub, err := traceNC.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+	// Phase 54d: the span is OTel. The caller's Nats-Requestor becomes
+	// lab.requester; the Nats-Responder header the old tracer set on the reply is
+	// gone, and the span's service.name names this end instead.
+	It("BR-AC35: the POST /api/accounts span records the caller's Nats-Requestor and this service's name", func() {
+		exp := tracetest.NewInMemoryExporter()
+		p, err := otelnats.Init(context.Background(), otelnats.Config{ServiceName: "accounts-service", Exporter: exp})
 		Expect(err).NotTo(HaveOccurred())
-		defer sub.Unsubscribe() //nolint:errcheck
-		Expect(traceNC.Flush()).To(Succeed())
+		defer p.Shutdown(context.Background()) //nolint:errcheck
 
 		tracedHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), nil, auditLog)
 		mux := http.NewServeMux()
 		tracedHandlers.Mount(mux, authSecret)
-		tracedServer := httptest.NewServer(natstrace.New(traceNC).HTTPMiddleware("_platform", "accounts", mux))
+		tracedServer := httptest.NewServer(accounts.TraceHTTP(mux, p))
 		defer tracedServer.Close()
 
 		req, err := http.NewRequest(http.MethodPost, tracedServer.URL+"/api/accounts", bytes.NewReader([]byte(`{"name":"identity-tenant"}`)))
 		Expect(err).NotTo(HaveOccurred())
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set(natstrace.RequestorHeader, "admin-app/0123456789abcdef")
+		req.Header.Set(otelnats.RequestorHeader, "admin-app/0123456789abcdef")
 		req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
 		resp, err := tracedServer.Client().Do(req)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+		Expect(resp.Header.Get(otelnats.ResponderHeader)).To(BeEmpty(), "the REST responder header went with the old tracer (BR-AC35)")
 
-		var span struct {
-			Subject   string              `json:"subject"`
-			Requester string              `json:"requester"`
-			Headers   map[string][]string `json:"headers"`
+		Expect(p.ForceFlush(context.Background())).To(Succeed())
+		var server []tracetest.SpanStub
+		for _, s := range exp.GetSpans() {
+			if s.SpanKind == trace.SpanKindServer && s.Name == "POST /api/accounts" {
+				server = append(server, s)
+			}
 		}
-		var msg *nats.Msg
-		Eventually(spans, 3*time.Second).Should(Receive(&msg))
-		Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
-		Expect(span.Subject).To(Equal("/api/accounts"), "this is the span the Traces panel labels /api/accounts")
-		Expect(span.Requester).To(Equal("admin-app/0123456789abcdef"))
-		Expect(span.Headers).To(HaveKeyWithValue(natstrace.RequestorHeader, []string{"admin-app/0123456789abcdef"}))
-		Expect(span.Headers[natstrace.ResponderHeader]).To(HaveLen(1))
-		Expect(span.Headers[natstrace.ResponderHeader][0]).To(HavePrefix(traceNC.Opts.Name+"/"),
-			"the responder's name half is the publishing connection's own nats.Name")
+		Expect(server).To(HaveLen(1))
+		var requester string
+		for _, kv := range server[0].Attributes {
+			if kv.Key == otelnats.AttrRequester {
+				requester = kv.Value.AsString()
+			}
+		}
+		Expect(requester).To(Equal("admin-app/0123456789abcdef"))
+		var serviceName string
+		for _, kv := range server[0].Resource.Attributes() {
+			if kv.Key == "service.name" {
+				serviceName = kv.Value.AsString()
+			}
+		}
+		Expect(serviceName).To(Equal("accounts-service"))
 	})
 
 	It("does not fail account creation when NotifyNC is unset", func() {

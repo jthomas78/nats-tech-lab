@@ -19,7 +19,7 @@ import (
 // the reply is sent, so the caller never sees a reply whose span is still
 // open; a handler that never replies has its span ended when it returns.
 // A reply carrying micro's Nats-Service-Error header marks the span ERROR,
-// as natstrace does today (BR-055).
+// as the retired legacy tracer did (BR-055).
 //
 // With Config.CaptureBodies, the request body is a span event at the start
 // and the reply body is one just before the span ends (decision 7).

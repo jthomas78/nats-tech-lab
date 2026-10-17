@@ -8,7 +8,6 @@ WORKDIR /src
 # reach outside its build context.
 COPY shared/natsnotify ./shared/natsnotify
 COPY shared/natsconn ./shared/natsconn
-COPY shared/natstrace ./shared/natstrace
 COPY shared/natstest ./shared/natstest
 # Phase 54b-1: the OTel glue. The shared seams import it.
 COPY shared/otelnats ./shared/otelnats

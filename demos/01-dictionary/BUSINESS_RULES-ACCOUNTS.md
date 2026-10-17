@@ -1013,6 +1013,24 @@ it, the same way it is never granted `rpc.>` at all.
   > import + idempotent re-push), both in `accounts/provisioner_claims_test.go`
   > / `accounts/provisioner_test.go`.
 
+> **Phase 54d (2026-10-16).** The `obs.trace.>` half is retired. A new
+> tenant exports no `obs.trace.>`, and PLATFORM imports none. Spans leave
+> each service over OTLP, so no trace crosses an account on NATS now. The
+> `allow_trace` half stays: PLATFORM's `obs.pubsub.>` stream import keeps
+> `AllowTrace: true`. No browser credential gains a grant. An `obs.trace.>`
+> import that an older stack already minted is left in place. Nothing
+> publishes there, so it is harmless.
+>
+> - **Enforced now:** `accounts/provisioner.go` — `tenantExports` (no trace
+>   export) and `addPlatformPubsubImport` (`AllowTrace`);
+>   `nats/bootstrap-operator.sh` (no day-0 trace export or import).
+> - **Test now:** `accounts/provisioner_claims_test.go` —
+>   `TestNewAccountClaimsAddsNoTenantTraceExport`; `accounts/provisioner_test.go`
+>   — "adds no obs.trace.> import to PLATFORM for a new tenant", and the
+>   obs.pubsub.> import spec, which asserts `AllowTrace`.
+>   `TestAddPlatformTraceImportIsIdempotent` and the trace-import specs are
+>   deleted.
+
 ## BR-AC31 (Phase 30a) — Minted account JWTs carry a `$SRV.>` Service export back to PLATFORM, imported per tenant with a tenant-scoped local remap, so cross-account service discovery can reach every tenant account
 
 Without this grant, `$SRV.PING`/`$SRV.INFO`/`$SRV.STATS` discovery — the
@@ -1353,6 +1371,29 @@ REST exactly as it can over NATS.
 > SERVER span (`Handlers.Tracing`). Without a Provider this rule is
 > unchanged (decision 16).
 
+> **Phase 54d (2026-10-16).** The natstrace half is gone. The pair is now
+> recorded on the OTel SERVER span:
+>
+> - **Requestor** — the caller's `Nats-Requestor` value is the span
+>   attribute `lab.requester` (BR-041). It is set always, not only with body
+>   capture on. It is self-declared and for display only, as before.
+> - **Responder** — `service.name` on the span, here `accounts-service`.
+>   There is no `Nats-Responder` header on the REST response.
+>
+> Without a Provider the REST API is untraced. The frontends still send
+> `Nats-Requestor` on every REST call, so the audit specs stay.
+>
+> - **Enforced now:** `shared/otelnats/http.go` (`HTTPMiddleware`, sets
+>   `lab.requester`); `accounts/handler.go` (`TraceHTTP`); the frontend
+>   `requestorId.js` and `api.js` files, unchanged.
+> - **Test now:** `accounts/handler_test.go` — "BR-AC35: the POST
+>   /api/accounts span records the caller's Nats-Requestor and this
+>   service's name"; `shared/otelnats/http_account_test.go` and
+>   `requester_test.go`; shipping's `trace_middleware_test.go` —
+>   `TestHTTPTraceMiddlewareKeepsTheSelfDeclaredRequester`; the frontend
+>   `restRequestor.spec.js` and `restRequestorAudit.spec.js`. The natstrace
+>   responder specs, and shipping's two responder specs, are deleted.
+
 ### BR-AC36 (Phase 48a, IMPLEMENTED 2026-08-26) — The existing `obs.trace.>` import gains the same per-tenant `LocalSubject` remap BR-AC34 gave `obs.pubsub.>`
 
 BR-AC34 closed with a deliberate exclusion: *"retrofitting the same remap onto the existing `obs.trace.>` import, which would fix the Traces panel's coarse gutter too. That is a change to a shipped pipeline and belongs in its own phase."* This is that rule. It does not re-argue BR-AC34's correction (ADR-047 A1) — the account boundary disambiguates *delivery*, not *provenance* — it applies the conclusion to the one import BR-AC34 left alone.
@@ -1373,6 +1414,14 @@ BR-AC34 closed with a deliberate exclusion: *"retrofitting the same remap onto t
 - **Test:** `accounts/provisioner_test.go` — mirroring BR-AC34's spec: two tenants get `monitor.acme.trace.>` / `monitor.globex.trace.>` side by side, `AllowTrace` survives the change, and a retry does not duplicate the import. Plus a convergence spec that stands up PLATFORM as a pre-BR-AC36 deployment left it — the import present and correct in every respect except the remap — and asserts it is corrected in place rather than reported as a no-op success. Both verified red against the un-remapped provisioner. Consuming side: BR-051.
 - **Not needed:** any new NATS permission. PLATFORM's `observability` user already holds `monitor.>` on both pub and sub, so `monitor.{tenant}.trace.>` is covered by the same grant that carries `monitor.{tenant}.pubsub.>`.
 
+> **Phase 54d — retired (2026-10-16).** The `obs.trace.>` import is gone
+> (BR-AC30), so it has no remap to carry. `addPlatformTraceImport` and
+> `traceLocalSubjectTmpl` are deleted. Its consumer, BR-051, is retired.
+>
+> - **Enforced now:** N/A — retired.
+> - **Test:** none for this rule. The two-tenant remap spec and the
+>   convergence spec are deleted. The BR-AC34 pubsub remap spec stays.
+
 ### BR-AC37 (Phase 48d, IMPLEMENTED 2026-08-26) — PLATFORM's cross-account imports converge on every `accounts-service` start, for every account it already knows
 
 BR-AC36 changed a claim that lives in an already-minted JWT, and BR-AC34 changed one before it. Both landed with the same footnote: existing tenants do not get it for free. This rule is the answer to that footnote, stated once so the next export/import pair does not need its own rollout plan.
@@ -1389,6 +1438,17 @@ BR-AC36 changed a claim that lives in an already-minted JWT, and BR-AC34 changed
 
 - **Enforced in:** `accounts-service/cmd/main.go` — the `EnsurePlatformImports` call in `seedPreexistingAccounts`; `accounts/provisioner.go` — `EnsurePlatformImports`, the exported wrapper over the four `addPlatform*Import` calls `CreateAccount` already makes.
 - **Test:** `accounts/provisioner_test.go` — a pre-BR-AC36 PLATFORM (trace import present, remap absent) is corrected by `EnsurePlatformImports` alone, with no account minted; a second call pushes nothing — asserted by subscribing to `$SYS.REQ.CLAIMS.UPDATE` and requiring silence, **not** by comparing PLATFORM's JWT before and after, since a jti is a content hash of the claims and a gratuitous re-sign of unchanged claims therefore produces a byte-identical token (the first draft of this spec compared IDs and passed against a deliberately broken provisioner); PLATFORM's own public key is refused rather than importing itself. Live verification: BR-051's own, driven across two tenants (Phase 48d).
+
+> **Phase 54d (2026-10-16).** `EnsurePlatformImports` now makes **three**
+> calls, not four: the trace import is gone (BR-AC30). The behaviour is
+> otherwise unchanged. The pass does not remove an `obs.trace.>` import an
+> older stack already minted. The convergence example above (a stale trace
+> remap) is history only.
+>
+> - **Test now:** `accounts/provisioner_test.go` — "re-wires an existing
+>   tenant's PLATFORM-side imports without minting an account" (it leaves a
+>   retired `obs.trace.>` import alone), "pushes nothing when PLATFORM's
+>   imports are already correct", and "refuses PLATFORM's own public key".
 
 ### BR-AC38 (Phase 50a, IMPLEMENTED 2026-08-27) — A user is recorded before it is signed
 

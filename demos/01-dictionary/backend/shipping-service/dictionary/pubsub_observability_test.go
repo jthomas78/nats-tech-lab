@@ -35,7 +35,7 @@ var _ = PDescribe("obs.pubsub.* observability (Phase 43a, BR-045/BR-046/BR-049)"
 
 	PContext("hook placement discipline (BR-045)", func() {
 		PIt("is never wired inside the generic publish primitives beneath the shared/jstream seam")
-		PIt("never fires for observability-service's own tracestore.publishNotify (excluded — internal plumbing, not a domain event)")
+		PIt("never fires for observability-service's own pubsubstore.publishNotify (excluded — internal plumbing, not a domain event)")
 		PIt("does fire for internal/kvstore's publishChange, the original that copy was made from")
 	})
 
@@ -48,11 +48,7 @@ var _ = PDescribe("obs.pubsub.* observability (Phase 43a, BR-045/BR-046/BR-049)"
 		PIt("fails when a notify.* publish literal exists that is on neither the instrumented list nor the documented exclusion list")
 	})
 
-	PContext("relationship to the existing Phase 28d evt.*-projector-callback spans", func() {
-		PIt("obs.pubsub.* (publish-side) coexists with obs.trace.* (consume-side, trace_async_test.go) without duplicating it")
-	})
-
 	PContext("payload redaction (BR-046)", func() {
-		PIt("redacts obs.pubsub.* payloads using the same shared natstrace denylist as obs.trace.*, before the truncation cap")
+		PIt("redacts obs.pubsub.* payloads using otelnats's shared denylist (redact.go), before the truncation cap")
 	})
 })

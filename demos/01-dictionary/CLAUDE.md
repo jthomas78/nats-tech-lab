@@ -217,7 +217,7 @@ Apply to every task — features, changes, bug fixes:
    it's complete.
 2. **All tests green before a task is done.** Run `ginkgo ./...` from the service
    you changed. The backend is seven modules (`accounts-service`,
-   `observability-service`, `organizations-service`, `otlp-bridge`,
+   `mfe-registry-service`, `observability-service`, `organizations-service`,
    `pricing-service`, `refdata-service`, `shipping-service`). Also run
    `shipping-service`'s suite whenever a change reaches into it.
 3. **Business rules live in the domain layer.** Path differs per service

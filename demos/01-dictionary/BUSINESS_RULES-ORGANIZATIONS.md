@@ -364,6 +364,17 @@ Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing pub
 - **Enforced in:** `organizations/internal/natstrace` (new package, Phase 28a) — the prototype `Tracer.publish()` redaction-then-truncate ordering and `traceSpan` struct that Phase 28b's clones mirror field-for-field; the `AddEndpoint` decorator that starts a span per request without a hand-pasted `publishObs` call at each of the 14 handler sites.
 - **Test:** `organizations/internal/natstrace/natstrace_test.go` — the shared cross-service contract test (BR-036's clone) asserting the `traceSpan` JSON shape, and that an old-shape `obsEnvelope` still decodes; `browserrpc_roundtrip_test.go`'s `obs.*` side-channel context gains a decoding assertion (the existing test only checks the raw subject string, not the envelope shape).
 
+> **Phase 54d — retired (2026-10-16).** `shared/natstrace` and the
+> `obs.trace.*` envelope are deleted, as for BR-036. Every api.* endpoint
+> is an OTel SERVER span through `otelnats.Middleware` (54b-3b). Without a
+> Provider an api.* call is untraced and still answers.
+>
+> - **Enforced now:** N/A — retired. Successor: the OTel path in
+>   `organizations/internal/browserrpc/adapter.go`.
+> - **Test:** `organizations/browserrpc_roundtrip_test.go` — "BR-037 — with
+>   no Provider every api.* call is untraced"; the OTel spans are in
+>   `browserrpc_otel_54b3b_test.go`.
+
 ### BR-TP16 (Phase 33.5) — Business operations are reachable only over `api.*`/`rpc.*`; REST reduces to infra health
 
 All 14 `/api/organizations/{context}/...` REST routes (Organization registration/lifecycle/audit, ComplianceDocument review, FleetAsset registration) are deleted now that `internal/browserrpc`'s `api.*` adapter (Phase 26h) has full 1:1 parity with them. The browser consumer is now `frontend/refdata`'s Organizations panel (moved from Admin in Phase 36), which talks to organizations-service exclusively over `api.*`. REST's only remaining surface is `GET /healthz`, mirroring the convention `dictionary/internal/rest` and `pricing/internal/rest` already established (`BUSINESS_RULES-PRICING.md`'s BR-P26). organizations-service has no admin-only or BasicAuth-gated REST route distinct from its business CRUD to carve out an exception for — every one of the 14 deleted routes was tenant-facing business data (even the ones the whole-mux `BasicAuth` wrapper gated), so there is no third "admin REST" category here, only the two: infra (`/healthz`) and business (`api.*`/`rpc.*`). The now-unused `BasicAuth`/`auditActor` helpers (`internal/rest/middleware.go`) and the `ORGANIZATIONS_AUTH_SECRET` env var were removed with the routes they gated, rather than left wired to nothing.

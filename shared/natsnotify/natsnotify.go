@@ -16,7 +16,7 @@
 // the four observability tokens.
 //
 // Those tokens are always explicit and are never derived from the subject.
-// Deriving them by position is what natstrace.ObservePublish does for evt.*,
+// Deriving them by position is what otelnats.Observer.ObservePublish does for evt.*,
 // and it is wrong for two members of this family: refdata publishes
 // notify._platform.refdata.{context}.… but must be observed under
 // {context}, not the literal _platform in token 1; and accounts' four-token
@@ -29,7 +29,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel/codes"
@@ -71,14 +70,12 @@ type Subject struct {
 type Notifier struct {
 	nc  *nats.Conn
 	log *slog.Logger
-	obs *natstrace.Tracer // nil unless WithObservation was given
 
-	// otelObs is the same observation on the OTel path (decision 13).
-	// WithObservation sets both; WithOTel picks which one runs.
+	// otelObs is nil unless WithObservation was given (BR-045, decision 13).
 	otelObs *otelnats.Observer
 
 	// otel, when set by WithOTel, puts Publish on the OTel path (Phase 54,
-	// decision 16). Nil keeps natstrace.
+	// decision 16). Nil publishes with no span.
 	otel *otelnats.Provider
 }
 
@@ -109,7 +106,6 @@ type Option func(*Notifier)
 // shared/jstream deduplication lands.
 func WithObservation(obsNC *nats.Conn) Option {
 	return func(n *Notifier) {
-		n.obs = natstrace.New(obsNC)
 		n.otelObs = otelnats.NewObserver(obsNC)
 	}
 }
@@ -152,16 +148,11 @@ func (n *Notifier) Publish(ctx context.Context, subj Subject, payload []byte) {
 		n.publishOTel(ctx, subj, payload)
 		return
 	}
-	var sp *natstrace.Span
-	if ctx != nil {
-		sp = natstrace.SpanFromContext(ctx)
+	// Without OTel the notify carries no traceparent (Phase 54d).
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	msg := &nats.Msg{Subject: subj.Name, Data: payload}
-	if tp := sp.Traceparent(); tp != "" {
-		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
-	}
-
-	if err := n.nc.PublishMsg(msg); err != nil {
+	if err := n.nc.Publish(subj.Name, payload); err != nil {
 		if n.log != nil {
 			n.log.Warn("notify publish failed", "subject", subj.Name, "err", err)
 		}
@@ -169,7 +160,7 @@ func (n *Notifier) Publish(ctx context.Context, subj Subject, payload []byte) {
 	}
 
 	tok := subj.Tokens
-	n.obs.ObservePublishAs(sp, subj.Name, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
+	n.otelObs.ObservePublishAs(ctx, subj.Name, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
 }
 
 // publishOTel is Publish on the OTel path: a PRODUCER span under the span on

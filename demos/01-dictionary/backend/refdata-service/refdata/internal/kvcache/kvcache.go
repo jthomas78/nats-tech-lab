@@ -96,8 +96,8 @@ type ChangeEvent struct {
 // Publish takes the trace from ctx (Phase 54b-3a), so the change-event
 // pointer a mutation causes rides the same trace as the rpc.*/api.*/REST
 // request that caused it (BR-037, BR-D39). With OTel the seam makes it a
-// PRODUCER span; without, it carries the natstrace span in ctx, or no
-// traceparent when ctx holds none. One method, because that is all this
+// PRODUCER span; without, it is untraced and carries no traceparent
+// (Phase 54d). One method, because that is all this
 // package uses — Phase 43e unexported the primitives beneath the seam.
 type Publisher interface {
 	Publish(ctx context.Context, subject string, data []byte) error

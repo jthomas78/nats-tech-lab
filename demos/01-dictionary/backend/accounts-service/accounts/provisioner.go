@@ -117,21 +117,17 @@ func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits, tenant
 		return MintedAccount{}, err
 	}
 
-	// Phase 28f: PLATFORM's own account claims are a separate JWT that no
-	// tenant-side push can touch — the new tenant's obs.trace.> export
-	// (just wired into claims.Exports above via newAccountClaims, gated on
-	// the same platformPublicKey != "" condition) is inert until
-	// PLATFORM's claims are re-signed with a matching Stream import naming
-	// this account. See addPlatformTraceImport's doc comment. Skipped
+	// PLATFORM's own account claims are a separate JWT that no tenant-side
+	// push can touch — the new tenant's exports (just wired into
+	// claims.Exports above via newAccountClaims, gated on the same
+	// platformPublicKey != "" condition) are inert until PLATFORM's claims
+	// are re-signed with a matching import naming this account. Skipped
 	// entirely when platformPublicKey is empty — the caller has opted out
 	// of cross-account wiring altogether (e.g. low-level provisioner tests
-	// that mint bare, unconnected accounts).
+	// that mint bare, unconnected accounts). Phase 54d retired the Phase 28f
+	// obs.trace.> import that came first here: spans leave over OTLP now.
 	if platformPublicKey != "" {
-		if err := p.addPlatformTraceImport(ctx, platformPublicKey, accountPub, tenantName); err != nil {
-			return MintedAccount{}, fmt.Errorf("register platform trace import for new tenant: %w", err)
-		}
-		// BR-AC34 (Phase 43a): same re-sign, same gate, for the new
-		// tenant's obs.pubsub.> export.
+		// BR-AC34 (Phase 43a): the new tenant's obs.pubsub.> export.
 		if err := p.addPlatformPubsubImport(ctx, platformPublicKey, accountPub, tenantName); err != nil {
 			return MintedAccount{}, fmt.Errorf("register platform pubsub import for new tenant: %w", err)
 		}
@@ -240,46 +236,25 @@ func tenantImports(tenantName, platformPublicKey string) jwt.Imports {
 	}
 }
 
-// traceExportSubject is the one subject a tenant exports back to PLATFORM
-// (Phase 28f) — the reverse leg of tenantImports's PLATFORM-to-tenant
-// contract, needed so PLATFORM's cross-account trace store
-// (dictionary/composition.go's TRACES consumer) can subscribe to this
-// tenant's own obs.trace.* spans. Declared once so tenantExports and
-// addPlatformTraceImport's idempotency check can't drift apart.
-const traceExportSubject = "obs.trace.>"
-
-// pubsubExportSubject is the third tenant-to-PLATFORM export (BR-AC34,
-// Phase 43a) — the reverse leg needed so the Admin UI's Messages panel can
-// see every tenant's evt.*/notify.* publish traffic as obs.pubsub.* spans.
-// A Stream export, the same shape as traceExportSubject above; declared once
+// pubsubExportSubject is a tenant-to-PLATFORM export (BR-AC34, Phase 43a) —
+// the reverse leg of tenantImports's PLATFORM-to-tenant contract, needed so
+// the Admin UI's Messages panel can see every tenant's evt.*/notify.*
+// publish traffic as obs.pubsub.* envelopes. A Stream export; declared once
 // so tenantExports and addPlatformPubsubImport's idempotency check can't
-// drift apart.
+// drift apart. (Phase 54d retired the obs.trace.> export beside it.)
 const pubsubExportSubject = "obs.pubsub.>"
 
 // pubsubLocalSubjectTmpl is PLATFORM's per-tenant remap for that import
-// (BR-AC34, ADR-047 amendment A1). The obs.trace.> import took no remap when
-// this was written and gained one in BR-AC36 (see traceLocalSubjectTmpl
-// below); the argument was always the same: every tenant exports the identical
+// (BR-AC34, ADR-047 amendment A1). Every tenant exports the identical
 // literal "obs.pubsub.>", and the local subject is the only thing on the
 // wire that tells a PLATFORM subscriber which account a message came from.
 // The account boundary disambiguates *delivery*, not *provenance*.
-const pubsubLocalSubjectTmpl = "monitor.%s.pubsub.>"
-
-// traceLocalSubjectTmpl is the same remap for the obs.trace.> import
-// (BR-AC36, Phase 48a). It was added a phase later than its pubsub sibling
-// above, and the reason is worth keeping: the trace import genuinely did not
-// need a remap while the Traces panel showed only a coarse PLATFORM/TENANT
-// split, so BR-AC34 deliberately left it alone rather than changing a shipped
-// pipeline in passing. Once the panel names the tenant (BR-054), the same
-// argument that forced the pubsub remap applies here unchanged — every tenant
-// exports the identical literal "obs.trace.>", so the local subject is the
-// only thing on the wire that says which account a span came from.
 //
 // The token is trustworthy precisely because the NATS server inserts it at
 // the account boundary. A tenant cannot write its own account name into a
-// span payload and be believed; it cannot publish onto another tenant's
+// payload and be believed; it cannot publish onto another tenant's
 // monitor.* subject either, because it never sees one.
-const traceLocalSubjectTmpl = "monitor.%s.trace.>"
+const pubsubLocalSubjectTmpl = "monitor.%s.pubsub.>"
 
 // srvExportSubject is the second tenant-to-PLATFORM export (BR-AC31,
 // Phase 30a) — the reverse leg needed so cross-account service discovery
@@ -287,7 +262,7 @@ const traceLocalSubjectTmpl = "monitor.%s.trace.>"
 // tenant's registered nats.go/micro services, the same $SRV.PING/INFO/STATS
 // control protocol `nats micro stats` uses. Declared once so tenantExports
 // and addPlatformMonitorImport's idempotency check can't drift apart, same
-// convention as traceExportSubject above.
+// convention as pubsubExportSubject above.
 const srvExportSubject = "$SRV.>"
 
 // monitorLocalSubjectTmpl is the tenant-scoped local subject PLATFORM's
@@ -357,16 +332,15 @@ var jsAPIExportSubjects = []struct {
 	{jsAPIExportPrefix + "CONSUMER.DELETE.*.*", jwt.ResponseTypeSingleton},
 }
 
-// tenantExports is the tenant-to-PLATFORM export declaration. The obs.trace.>
+// tenantExports is the tenant-to-PLATFORM export declaration. The obs.pubsub.>
 // Stream export's AllowTrace is deliberately omitted here — jwt.Export.
 // Validate rejects it on anything but a Service-type export; the AllowTrace
-// flag that actually matters for that pipeline belongs on PLATFORM's Stream
-// *import* of it instead (addPlatformTraceImport below). The $SRV.> and
+// flag belongs on PLATFORM's Stream *import* of it instead
+// (addPlatformPubsubImport below). The $SRV.> and
 // $JS.API.* Service exports set ResponseType explicitly per BR-AC31/BR-AC32's
 // design notes rather than leaving the library default unstated.
 func tenantExports() jwt.Exports {
 	exports := jwt.Exports{
-		{Subject: jwt.Subject(traceExportSubject), Type: jwt.Stream},
 		{Subject: jwt.Subject(pubsubExportSubject), Type: jwt.Stream},
 		{Subject: jwt.Subject(srvExportSubject), Type: jwt.Service, ResponseType: jwt.ResponseTypeStream},
 	}
@@ -494,27 +468,27 @@ func (p *Provisioner) pushClaimsUpdate(ctx context.Context, accountJWT string) e
 }
 
 // EnsurePlatformImports re-runs the whole PLATFORM-side import wiring for one
-// tenant account (BR-AC37). CreateAccount makes these same four calls for a
+// tenant account (BR-AC37). CreateAccount makes these same three calls for a
 // tenant it has just minted; this is the same wiring reached for a tenant that
 // already exists, which is what every rule changing an already-minted claim
 // has needed and none of them had: BR-AC34 and BR-AC36 both shipped with the
-// footnote "existing tenants need a re-provision pass", and with all four
-// calls unexported behind CreateAccount the only pass available was a wipe and
+// footnote "existing tenants need a re-provision pass", and with every call
+// unexported behind CreateAccount the only pass available was a wipe and
 // reseed.
 //
 // Safe to call unconditionally, and called unconditionally — from
-// seedPreexistingAccounts on every start. Each of the four returns without a
-// push when its import is already present and correct, so a converged
-// deployment costs four resolver lookups per tenant and no claims update at
-// all. That is a property with a spec, not an assumption: a pass that re-signed
-// every time would turn each restart into a live claims update for every
-// tenant.
+// seedPreexistingAccounts on every start. Each of the three returns without a
+// push when its import is already present, so a converged deployment costs
+// three resolver lookups per tenant and no claims update at all. That is a
+// property with a spec, not an assumption: a pass that re-signed every time
+// would turn each restart into a live claims update for every tenant.
 //
-// It converges only as far as the calls below do. addPlatformTraceImport
-// corrects a wrong LocalSubject in place; addPlatformPubsubImport still only
-// dedupes on (Account, Subject), so a stale *pubsub* remap would survive this
-// pass. See addPlatformTraceImport's convergence note — that is where the next
-// change to that import starts.
+// It converges only as far as the calls below do. Each dedupes on
+// (Account, Subject), so a stale remap would survive this pass; the retired
+// Phase 48a trace import was the one that corrected a wrong LocalSubject in
+// place, and that is the shape the next remap change needs. Phase 54d
+// stopped adding the obs.trace.> import, and it does not remove one an
+// already-minted PLATFORM claim still carries: nothing publishes there.
 func (p *Provisioner) EnsurePlatformImports(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
 	if platformPublicKey == "" || tenantAccountPub == "" {
 		return errors.New("ensure platform imports: platform and tenant public keys are both required")
@@ -525,9 +499,6 @@ func (p *Provisioner) EnsurePlatformImports(ctx context.Context, platformPublicK
 	// the caller's tenant list is wrong.
 	if platformPublicKey == tenantAccountPub {
 		return fmt.Errorf("ensure platform imports: refusing to import PLATFORM (%s) into itself", tenantAccountPub)
-	}
-	if err := p.addPlatformTraceImport(ctx, platformPublicKey, tenantAccountPub, tenantName); err != nil {
-		return fmt.Errorf("platform trace import for %s: %w", tenantName, err)
 	}
 	if err := p.addPlatformPubsubImport(ctx, platformPublicKey, tenantAccountPub, tenantName); err != nil {
 		return fmt.Errorf("platform pubsub import for %s: %w", tenantName, err)
@@ -541,81 +512,22 @@ func (p *Provisioner) EnsurePlatformImports(ctx context.Context, platformPublicK
 	return nil
 }
 
-// addPlatformTraceImport re-signs and re-pushes PLATFORM's own account JWT
-// so it imports the newly-minted tenant's obs.trace.> export (Phase 28f).
-// This is the one leg tenantImports's "complete PLATFORM-to-tenant contract"
-// comment doesn't cover: everything else in this file grants a tenant
-// account access to PLATFORM's exports, but a cross-account trace store
-// needs the opposite direction too — PLATFORM importing a stream *from*
-// each tenant. There's no wildcard cross-account import in NATS's
-// decentralized JWT model, so this has to be a live per-tenant claims
-// update, mirroring the same $SYS.REQ.CLAIMS.UPDATE mechanism the rest of
-// this file already uses (see pushClaimsUpdate). Idempotent: if PLATFORM's
-// claims already import tenantAccountPub's obs.trace.>, this is a no-op —
-// safe to call unconditionally from CreateAccount without checking whether
-// a prior attempt already succeeded.
-func (p *Provisioner) addPlatformTraceImport(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
-	claims, err := p.LookupAccountClaims(ctx, platformPublicKey)
-	if err != nil {
-		return fmt.Errorf("lookup platform account claims: %w", err)
-	}
-	want := jwt.RenamingSubject(fmt.Sprintf(traceLocalSubjectTmpl, tenantName))
-	for _, imp := range claims.Imports {
-		if imp.Account != tenantAccountPub || imp.Subject != jwt.Subject(traceExportSubject) {
-			continue
-		}
-		// Converge rather than merely dedupe. An account minted before
-		// BR-AC36 already carries this import WITHOUT the remap, so a scan
-		// that matched on (Account, Subject) alone — which is all the
-		// pubsub sibling below does — would report success and change
-		// nothing, and BR-AC36's stated rollout ("already-minted accounts
-		// keep the un-remapped import until they are re-provisioned") would
-		// be unachievable: re-provisioning would be a no-op and the only
-		// path left would be a full wipe and reseed. Correcting a wrong
-		// LocalSubject in place is what makes 48d's re-provision pass a real
-		// operation.
-		if imp.LocalSubject == want {
-			return nil
-		}
-		imp.LocalSubject = want
-		token, err := claims.Encode(p.operatorSigningKey)
-		if err != nil {
-			return fmt.Errorf("encode platform account jwt: %w", err)
-		}
-		return p.pushClaimsUpdate(ctx, token)
-	}
-	claims.Imports.Add(&jwt.Import{
-		Account:      tenantAccountPub,
-		Subject:      jwt.Subject(traceExportSubject),
-		LocalSubject: want,
-		Type:         jwt.Stream,
-		AllowTrace:   true,
-	})
-	token, err := claims.Encode(p.operatorSigningKey)
-	if err != nil {
-		return fmt.Errorf("encode platform account jwt: %w", err)
-	}
-	return p.pushClaimsUpdate(ctx, token)
-}
-
 // addPlatformPubsubImport re-signs and re-pushes PLATFORM's own account JWT
 // so it imports the newly-minted tenant's obs.pubsub.> export (BR-AC34,
-// Phase 43a) — addPlatformTraceImport's sibling, same mechanism, same
-// idempotency contract (safe to call unconditionally from CreateAccount).
+// Phase 43a). There's no wildcard cross-account import in NATS's
+// decentralized JWT model, so this has to be a live per-tenant claims
+// update, through the same $SYS.REQ.CLAIMS.UPDATE mechanism the rest of this
+// file uses (see pushClaimsUpdate). Idempotent: safe to call unconditionally
+// from CreateAccount.
 //
-// Both carry a LocalSubject remap (ADR-047 amendment A1) for the same reason:
-// the local subject an imported message arrives on is the only thing that
-// carries provenance, and without it every tenant's stream lands on one
-// identical local subject. This one got the remap first, in Phase 43a,
-// because the Messages panel named the publishing tenant while the Traces
-// panel still showed a coarse PLATFORM/TENANT split; BR-AC36 (Phase 48a)
-// closed that gap, so the two imports now differ only in subject.
+// It carries a LocalSubject remap (ADR-047 amendment A1): the local subject
+// an imported message arrives on is the only thing that carries provenance,
+// and without it every tenant's stream lands on one identical local subject.
 //
-// Unlike its trace sibling, this one still only dedupes on
-// (Account, Subject) — it does not correct a LocalSubject that is present
-// but wrong. Nothing has ever needed it to, since this import has carried
-// its remap from the day it was introduced, but see addPlatformTraceImport's
-// convergence note for what that costs when a remap has to change.
+// It only dedupes on (Account, Subject) — it does not correct a
+// LocalSubject that is present but wrong. Nothing has ever needed it to,
+// since this import has carried its remap from the day it was introduced.
+// See EnsurePlatformImports for what that costs when a remap has to change.
 func (p *Provisioner) addPlatformPubsubImport(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
 	claims, err := p.LookupAccountClaims(ctx, platformPublicKey)
 	if err != nil {
@@ -642,9 +554,9 @@ func (p *Provisioner) addPlatformPubsubImport(ctx context.Context, platformPubli
 
 // addPlatformMonitorImport re-signs and re-pushes PLATFORM's own account JWT
 // so it imports the newly-minted tenant's $SRV.> export (BR-AC31, Phase
-// 30a) — the service-discovery counterpart to addPlatformTraceImport above,
+// 30a) — the service-discovery counterpart to addPlatformPubsubImport above,
 // same mechanism, same idempotency contract (safe to call unconditionally
-// from CreateAccount). Unlike the trace import, this is a Service import and
+// from CreateAccount). Unlike the pubsub import, this is a Service import. It
 // needs a tenant-scoped LocalSubject remap (monitorLocalSubjectTmpl): every
 // tenant exports the identical literal "$SRV.>" subject, so PLATFORM's
 // import of a second tenant would otherwise collide with the first.

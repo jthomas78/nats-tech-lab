@@ -7,7 +7,7 @@ import { SERVICE_LIST_SUBJECT } from '../nats/serviceList.js'
 
 // Phase 54c (decision 17, BR-072) — the Services panel reads the live
 // service list over NATS (api._platform.observability.service.list.v1), not
-// GET /api/nats/services. There is no REST fallback. The snapshot carries the
+// GET /api/nats/services, which Phase 54d retired. There is no REST fallback. The snapshot carries the
 // account each service was found in, readiness, and whether discovery was
 // complete; the panel shows all three and never shows a failed or partial
 // discovery as an empty success.
@@ -21,9 +21,7 @@ const conn = vi.hoisted(() => ({ request: vi.fn(), connected: null }))
 vi.mock('../nats/usePlatformConnection.js', () => ({
   usePlatformConnection: () => conn,
 }))
-vi.mock('../api', () => ({ getNatsServices: vi.fn() }))
-
-import { getNatsServices } from '../api'
+import * as api from '../api'
 
 const OBSERVED = '2026-10-16T09:14:05.000Z'
 
@@ -102,13 +100,13 @@ describe('ServicesPanel', () => {
     conn.request.mockResolvedValue(snapshot())
   })
 
-  it('BR-072: asks the NATS service list with an empty body, and never the REST route', async () => {
+  it('BR-072: asks the NATS service list with an empty body, and the REST route is gone', async () => {
     mountPanel()
     await flushPromises()
 
     expect(SERVICE_LIST_SUBJECT).toBe('api._platform.observability.service.list.v1')
     expect(conn.request).toHaveBeenCalledWith(SERVICE_LIST_SUBJECT, {})
-    expect(getNatsServices).not.toHaveBeenCalled()
+    expect(api.getNatsServices).toBeUndefined()
   })
 
   it('shows the summary totals', async () => {

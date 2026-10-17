@@ -18,7 +18,7 @@ import (
 const initialTenant = "acme"
 
 // Module is the shipping module. Tracing, when set, puts every tenant's
-// traffic on OTel (Phase 54b-4); nil keeps natstrace. It is a field, not a
+// traffic on OTel (Phase 54b-4); nil leaves it untraced. It is a field, not a
 // monolith.Monolith method, because only this module reads it.
 type Module struct {
 	Tracing *otelnats.Provider
@@ -80,7 +80,7 @@ func (m Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	// eventhandler.RegisterTraceStore, using the second unrestricted
 	// PLATFORM connection this service held only for that purpose) moved to
 	// observability-service's tracestore package — see Main-POC-Plan.md
-	// Phase 30g/30h.
+	// Phase 30g/30h. Phase 54d retired that store; Tempo holds traces now.
 	eventhandler.RegisterRefdataNotify(ctx, mono.JS(), mono.NC(), log)
 
 	handlers.Mount(mono.Mux())

@@ -13,7 +13,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -49,16 +48,12 @@ type JetStreamEventStore struct {
 	// observer, when set by WithObservation, emits an obs.pubsub.* copy of
 	// every event appended through this store (Phase 43a, BR-TP75). Nil by
 	// default, so a store built for a test or for the projector's own
-	// hydration path stays silent.
-	observer *natstrace.Tracer
-
-	// otelObserver is the same observation on the OTel path, set by
-	// WithObservation alongside observer; append uses it only when otel is
-	// set (Phase 54b-3b).
-	otelObserver *otelnats.Observer
+	// hydration path stays silent. With an OTel Provider the envelope carries
+	// the PRODUCER span's IDs; without one it carries none (Phase 54d).
+	observer *otelnats.Observer
 
 	// otel, when set by WithOTel, makes each append a PRODUCER span. Nil
-	// keeps natstrace (decision 16).
+	// leaves the append untraced (Phase 54d retired the legacy tracer).
 	otel *otelnats.Provider
 }
 
@@ -84,15 +79,14 @@ type Option func(*JetStreamEventStore)
 // is the construction idiom — observer nil unless asked for.
 func WithObservation(nc *nats.Conn) Option {
 	return func(s *JetStreamEventStore) {
-		s.observer = natstrace.New(nc)
-		s.otelObserver = otelnats.NewObserver(nc)
+		s.observer = otelnats.NewObserver(nc)
 	}
 }
 
 // WithOTel makes each append a PRODUCER span, the child of the span on ctx
 // (Phase 54b-3b, BR-037). The span's traceparent goes on the message, and
-// the obs.pubsub.* observation carries its IDs (BR-045). A nil Provider keeps
-// natstrace, as shared/jstream's WithOTel does.
+// the obs.pubsub.* observation carries its IDs (BR-045). A nil Provider leaves
+// the append untraced, as shared/jstream's WithOTel does (Phase 54d).
 func WithOTel(p *otelnats.Provider) Option {
 	return func(s *JetStreamEventStore) { s.otel = p }
 }
@@ -178,15 +172,8 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 	if s.otel != nil {
 		return s.appendOTel(ctx, msg)
 	}
-	// BR-037: every evt.* publish carries a traceparent derived from the span
-	// that caused it. This seam went without one from Phase 28 until Phase
-	// 43e — the rule existed, nothing enforced it here, and nothing on the
-	// consume side missed it loudly enough to notice. Nil-safe: no span
-	// reachable on ctx means no header, exactly as shared/jstream behaves.
-	sp := natstrace.SpanFromContext(ctx)
-	if tp := sp.Traceparent(); tp != "" {
-		msg.Header.Set(natstrace.TraceparentHeader, tp)
-	}
+	// No Provider: the append is untraced and carries no traceparent, exactly
+	// as shared/jstream behaves (Phase 54d retired the legacy tracer fallback).
 	ack, err := s.js.PublishMsg(ctx, msg)
 	if err != nil {
 		var jsErr jetstream.JetStreamError
@@ -200,7 +187,7 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 	// appear on an operator's wire tap. The emit itself is fire-and-forget —
 	// it drops its own error and cannot change this function's result or
 	// meaningfully delay it (ADR-047 A7).
-	s.observer.ObservePublish(sp, msg.Subject, data)
+	s.observer.ObservePublish(ctx, msg.Subject, data)
 	return ack.Sequence, nil
 }
 
@@ -208,7 +195,7 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 // optimistic-concurrency headers and ErrSequenceConflict mapping; only the
 // tracing differs. The observation is emitted while the PRODUCER span is
 // open, so its envelope carries that span's IDs, and only after the PubAck,
-// for the same reason as on the natstrace path.
+// for the same reason as on the untraced path.
 func (s *JetStreamEventStore) appendOTel(ctx context.Context, msg *nats.Msg) (uint64, error) {
 	ctx, span := s.otel.StartProducer(ctx, msg.Subject)
 	defer span.End()
@@ -222,6 +209,6 @@ func (s *JetStreamEventStore) appendOTel(ctx context.Context, msg *nats.Msg) (ui
 		}
 		return 0, fmt.Errorf("publish transporter profile event: %w", err)
 	}
-	s.otelObserver.ObservePublish(ctx, msg.Subject, msg.Data)
+	s.observer.ObservePublish(ctx, msg.Subject, msg.Data)
 	return ack.Sequence, nil
 }

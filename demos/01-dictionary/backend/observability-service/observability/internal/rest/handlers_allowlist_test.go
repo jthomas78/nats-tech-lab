@@ -32,7 +32,6 @@ func TestMountRoutesMatchAdminAllowlist(t *testing.T) {
 		"GET /api/kv/buckets/{account}/{bucket}/entries",
 		"GET /api/jetstream/streams",
 		"GET /api/jetstream/replay",
-		"GET /api/nats/services",
 		"/swagger/",
 	))
 }

@@ -2,10 +2,10 @@ package pricing_test
 
 // Phase 54b-5: every api.*.pricing.* endpoint on OTel. With a Provider in
 // Deps each endpoint is a SERVER span on the tenant's account (BR-069),
-// started as a new root (BR-071), and no natstrace span is published.
+// started as a new root (BR-071), and nothing is published on obs.trace.*.
 // Decision 6's audit: the ctx a handler hands the command layer carries that
-// SERVER span, not context.Background(). Without a Provider the adapter
-// stays on natstrace (decision 16: the default stack keeps it).
+// SERVER span, not context.Background(). Without a Provider the adapter runs
+// untraced (Phase 54d).
 
 import (
 	"context"
@@ -295,7 +295,7 @@ var _ = Describe("Phase 54b-5: every api.*.pricing.* endpoint on OTel", func() {
 		Expect(s.Links[0].SpanContext.TraceID().String()).To(Equal(sentTraceID))
 	})
 
-	It("publishes no natstrace span for any pricing endpoint (the path is OTel only)", func() {
+	It("publishes nothing on obs.trace.* for any pricing endpoint (the path is OTel only)", func() {
 		legacy := make(chan *nats.Msg, 8)
 		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })
 		Expect(err).NotTo(HaveOccurred())
@@ -309,10 +309,11 @@ var _ = Describe("Phase 54b-5: every api.*.pricing.* endpoint on OTel", func() {
 	})
 })
 
-var _ = Describe("Phase 54b-5: no Provider keeps pricing on natstrace (decision 16)", func() {
-	It("publishes a natstrace span when Deps.Tracing is nil", func() {
+var _ = Describe("Phase 54d: no Provider leaves pricing untraced", func() {
+	It("still answers, with no span on the ctx and nothing on obs.trace.*, when Deps.Tracing is nil", func() {
 		nc := startNATS()
-		startAdapter(nc, &spanRecorder{}, nil)
+		rec := &spanRecorder{}
+		startAdapter(nc, rec, nil)
 
 		legacy := make(chan *nats.Msg, 8)
 		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })
@@ -322,6 +323,8 @@ var _ = Describe("Phase 54b-5: no Provider keeps pricing on natstrace (decision 
 
 		_, err = nc.Request("api.acme-north.pricing.fee-scale.list.v1", []byte(`{}`), 2*time.Second)
 		Expect(err).NotTo(HaveOccurred())
-		Eventually(legacy, 2*time.Second).Should(Receive())
+		Expect(rec.seen().IsValid()).To(BeFalse(), "the handler passed a ctx with a span")
+		Expect(nc.Flush()).To(Succeed())
+		Consistently(legacy, 200*time.Millisecond).ShouldNot(Receive())
 	})
 })

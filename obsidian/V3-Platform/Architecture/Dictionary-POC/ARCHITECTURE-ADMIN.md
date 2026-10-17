@@ -24,9 +24,11 @@ specifically — it complements, rather than replaces, the docs that already
 own deeper pieces of it:
 
 - [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) §6 owns
-  the `obs.trace.*` wire protocol Request/Reply & Traces observes (the
-  predecessor `obs.rpc.*`/`obs.api.*` channel this panel used before Phase
-  28g is retired — §6's Phase 28g amendment) — including the W3C
+  the tracing that Request/Reply & Traces observes. Since Phase 54d
+  (2026-10-16) that is OpenTelemetry (`shared/otelnats` → OTel Collector →
+  Tempo), read through observability-service's trace gateway. The
+  `obs.trace.*` wire protocol §6 also records is retired, as is its
+  predecessor `obs.rpc.*`/`obs.api.*` channel (§6's Phase 28g amendment) — including the W3C
   `traceparent` propagation the trace view is built on (§2.2) — §11 owns
   Connections' account-label resolution, §12 owns the cross-account
   diagnostic-scope argument Streams/KV Buckets (and Connections/Services)
@@ -55,9 +57,9 @@ alternatives that were rejected and why (§4.1, §4.3, §4.5).
 | Panel | Nav key | Component(s) | Backend endpoint(s) |
 |---|---|---|---|
 | Connections | `connections` | `ConnectionsPanel.vue` | `GET /api/nats/connections` |
-| Services | `services` | `ServicesPanel.vue` | NATS `api._platform.observability.service.list.v1` (Phase 54c, BR-072; `GET /api/nats/services` retires in 54d) |
+| Services | `services` | `ServicesPanel.vue` | NATS `api._platform.observability.service.list.v1` (Phase 54c, BR-072; `GET /api/nats/services` retired in Phase 54d) |
 | Log | `log` | `LogPanel.vue` | `GET /api/nats/log` |
-| Request/Reply & Traces | `rpc` | `RpcPanel.vue`, `PulsePanel.vue`, `TraceWaterfall.vue`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/trace-request-reply/entries` + live `notify._platform.kv.trace-request-reply.>` — all three tabs read the same feed (pulse: unfiltered, grouped by trace, Phase 44; traces: grouped by trace, toolbar-filtered; messages: flattened one row per span, Phase 28g retirement; bucket renamed `traces` → `trace-request-reply` in Phase 28l) |
+| Request/Reply & Traces | `rpc` | `RpcPanel.vue`, `PulsePanel.vue`, `TraceWaterfall.vue`, `SubjectPath.vue` | NATS trace gateway `api._platform.observability.trace.{search\|get\|services}.v1` via `nats/traceGateway.js` (Phase 54c, BR-076) — traces and messages tabs poll `trace.search.v1` only while shown; Pulse is unavailable until Phase 55 (BR-077). The `trace-request-reply` bucket and its notify feed were retired in Phase 54d. |
 | Messages | `pubsub` | `MessagesPanel.vue`, `usePubsubFeed.js`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/pubsub-messages/entries` + live `notify._platform.kv.pubsub-messages.>` (Phase 43c) |
 | Streams | `streams` | `JetStreamPanel.vue`, `StreamView.vue` | `GET /api/jetstream/streams`, `GET /api/jetstream/replay` |
 | KV Buckets | `kv` | `KvInspector.vue` | `GET /api/kv/buckets`, `GET /api/kv/buckets/{account}/{bucket}/entries` + live `notify.*.kv.{bucket}.>` |
@@ -227,7 +229,7 @@ them. Naming them once here avoids re-deriving "is this live?" per panel:
 | Archetype | Description | Panels |
 |---|---|---|
 | **Poll-only** | A REST endpoint re-fetched on an interval; no NATS subscription backs it at all. | Log (4s poll), Connections/Services (10s poll), Streams' rail and KV Buckets' rail (15s poll) — also, outside this group, Accounts' `Overview` tab (10s poll, plus its own 10s poll against the Phase 45 history route on a duration change) |
-| **Snapshot + live notify** | A REST snapshot read paired with a live NATS subscription (`notify.*`) for anything published afterward — **subscribe first, then read**, and re-run the pair on every reconnect (see "Resync, not a one-shot bootstrap" below). | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply & Traces (both tabs — `GET /api/kv/buckets/platform/trace-request-reply/entries` + `notify._platform.kv.trace-request-reply.>`, Phase 28g retirement) |
+| **Snapshot + live notify** | A REST snapshot read paired with a live NATS subscription (`notify.*`) for anything published afterward — **subscribe first, then read**, and re-run the pair on every reconnect (see "Resync, not a one-shot bootstrap" below). | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Messages (`pubsub-messages`). Request/Reply & Traces left this archetype in Phase 54c; its `trace-request-reply` feed was retired in Phase 54d. It now polls the trace gateway over NATS request/reply. |
 | **Live-only** | A direct NATS subscription with no REST snapshot/replay at all — nothing to catch up on, or catching up was deliberately out of scope. | No panel currently instantiates this archetype — Request/Reply & Traces' old `api.*` half (`obs.api.>`) was the one example, retired in Phase 28g along with the rest of that channel. Kept here as a named shape in case a future panel needs it, not as a claim that one exists today. |
 
 **Resync, not a one-shot bootstrap.** The snapshot half runs on mount *and*
@@ -235,8 +237,9 @@ on every reconnect. This matters because the two halves have different
 durability: `notify.*` is a core-NATS, fire-and-forget publish with no
 replay, so anything sent while the browser's WebSocket was down is never
 redelivered — but the KV bucket it notifies about is a durable JetStream
-projection (for traces: the `TRACES` stream projected by an explicit-ack
-durable consumer), so every missed message is still readable. Re-reading the
+projection (for pub/sub: the `PUBSUB` stream projected by an explicit-ack
+durable consumer; the `TRACES` stream did the same for traces until
+Phase 54d), so every missed message is still readable. Re-reading the
 snapshot on reconnect therefore closes the gap completely, and a dropped
 socket is a staleness event, not a completeness one. `connectionFactory.js`'s
 `subscribe` has always documented this as the contract ("a missed message
@@ -303,6 +306,11 @@ Two rules follow, and a panel adopting this archetype needs both:
   Tempo makes a trace visible about 10 s after it ends, so the panel says
   so. Pulse is unavailable until Phase 55 (BR-077). `usePubsubFeed.js` keeps
   the seam above.
+- **Phase 54d (2026-10-16): the trace half of this section is history.**
+  `useTraceFeed.js`, `tracestore`, the `TRACES` stream and the
+  `trace-request-reply` bucket are deleted. The span-count guard above has
+  nothing left to guard. The resync rules still hold for `usePubsubFeed.js`
+  and the `PUBSUB` → `pubsub-messages` projection.
 
 **The outer reconnect must retry.** Related, and found the same way: nats-core
 resolves `closed()` only after exhausting its *own* reconnect budget, so by the
@@ -637,6 +645,21 @@ convenience, not a production log pipeline."
 
 ### 4.5 Request/Reply & Traces
 
+> **Phase 54d (2026-10-16).** The legacy data path in this section is
+> retired. `shared/natstrace`, `obs.trace.>`, the per-tenant `obs.trace.>`
+> export (BR-AC30's trace half), the `TRACES` stream, the
+> `trace-request-reply` bucket, `tracestore` and `useTraceFeed.js` are
+> deleted. Services now emit OpenTelemetry spans through `shared/otelnats`.
+> The OTel Collector sends them to Tempo (`deploy/cell/compose.telemetry.yaml`).
+> The panel reads Tempo through observability-service's trace gateway,
+> `api._platform.observability.trace.{search|get|services}.v1`
+> (`frontend/admin/src/nats/traceGateway.js`, BR-076). The account gutter
+> shows each span's `lab.tenant.originating` attribute (BR-069). The
+> requester comes from the span attribute `lab.requester` (BR-041). Pulse is
+> unavailable until Phase 55 (BR-077). The views, the account swimlane and
+> the reply-ack band below stay. The "Backend + data flow" text and the
+> envelope references (BR-036, BR-D39) below are history.
+
 **What it shows.** Two views of the same traffic behind a
 `[traces] [messages]` toggle. *Traces* (the default, Phase 28) shows one row
 per **trace** — every hop one originating request caused, across services,
@@ -757,6 +780,11 @@ Rows are 26px, matching this group's DataTable density.
 
 **Design history — the viewer, then the placement.**
 
+> **Phase 54d (2026-10-16).** Jaeger and `otlp-bridge` are deleted, with the
+> compose `otlp` profile. Tempo is now the trace store, not only an option.
+> This panel is still the viewer. It reads Tempo through the trace gateway
+> and links each trace to Grafana (BR-076).
+
 | Option | Shape | Why not chosen |
 |---|---|---|
 | Jaeger or Grafana Tempo as the viewer | OTel SDK in each service → OTLP → Jaeger/Grafana UI | A second UI, and one that cannot show the account swimlane or the reply-ack boundary — it has no concept of a NATS account or a read model. Jaeger is still adopted, but as a dev-time correctness oracle for this panel (Phase 28g), not as the product. |
@@ -870,8 +898,9 @@ explanatory content.
 
 **What it shows.** Every JetStream stream registered across every account
 this backend reaches — each tenant's `SHIPPING` plus PLATFORM's `REFDATA`
-and `TRACES` (`RPCTRACE`'s successor, Phase 28f; `RPCTRACE` itself was
-retired in Phase 28g) — with full retained-message inspection per stream.
+and `PUBSUB` — with full retained-message inspection per stream. PLATFORM's
+`TRACES` stream (`RPCTRACE`'s successor, Phase 28f; `RPCTRACE` itself was
+retired in Phase 28g) was retired in Phase 54d (2026-10-16).
 
 **Backend + data flow.** Rail: poll-only, `GET /api/jetstream/streams`
 (15s). Detail: **snapshot-only** — `GET /api/jetstream/replay?account=&stream=`,
@@ -959,15 +988,18 @@ payload size, with a detail pane carrying the redacted-and-truncated body.
 This is the publish side of the wire — a different question from §4.5's
 "what was called and what replied," which is why it is its own nav entry
 rather than a fourth tab on `RpcPanel.vue`. The three tabs there are three
-aggregations of *one* dataset (`obs.trace.*` spans); this reads a different
+aggregations of *one* dataset (spans — `obs.trace.*` until Phase 54d, OTel
+spans from Tempo since); this reads a different
 bucket, fed by a different stream, and carries a column none of them can
 populate.
 
 **Data flow.** §3.1's snapshot+notify archetype, KV-watch variant — the same
 shape §4.7 uses, and `usePubsubFeed.js` is deliberately the same
-bootstrap-fetch-plus-live-subscribe seam as `useTraceFeed.js` rather than a
-third hand-rolled copy. Publishers emit `obs.pubsub.{context}.{service}.
-{entity}.{action}` from `natstrace.ObservePublish`; each tenant account
+bootstrap-fetch-plus-live-subscribe seam as `useTraceFeed.js` (deleted in
+Phase 54d) rather than a third hand-rolled copy. Publishers emit
+`obs.pubsub.{context}.{service}.{entity}.{action}` from
+`otelnats.Observer.ObservePublish` (`natstrace.ObservePublish` until
+Phase 54d); each tenant account
 *exports* `obs.pubsub.>` and PLATFORM *imports* it under a per-tenant
 `monitor.{tenant}.pubsub.>` local subject (BR-AC34);
 `observability-service`'s `pubsubstore` consumes both subject sets into the

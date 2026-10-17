@@ -3,8 +3,8 @@
 // near-identical copies (shipping-service, pricing-service,
 // organizations-service, refdata-service's own internal/browserrpc
 // packages). What's shared is purely mechanical NATS/JSON plumbing:
-// pulling {context} off an api.* subject, marshaling a reply, finishing the
-// natstrace span, and stamping the Nats-Responder header micro.Request's
+// pulling {context} off an api.* subject, marshaling a reply, and stamping
+// the Nats-Responder header micro.Request's
 // own Respond doesn't set. What genuinely differs per service — Deps,
 // Adapter, subject constants, wire-shape request/response structs, and
 // every handle* endpoint method — stays in each service's own
@@ -26,9 +26,7 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go/micro"
-	"go.opentelemetry.io/otel/trace"
 
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -39,12 +37,9 @@ import (
 // subject alone doesn't distinguish which replica of a horizontally-scaled
 // service actually handled the call.
 //
-// Re-exported from natstrace rather than declared here (BR-AC35): the REST
-// entry points stamp the same header from natstrace.ResponderHeaders, and one
-// definition of the wire name is what keeps the two identity sources —
-// micro.Service.Info() here, nats.Conn.Opts.Name there — landing on the same
-// field of the same span envelope.
-const ResponderHeader = natstrace.ResponderHeader
+// Re-exported from otelnats (BR-027): one definition of the wire name for
+// every service. It moved there from the retired legacy tracer in Phase 54d.
+const ResponderHeader = otelnats.ResponderHeader
 
 // ErrorResponse is the wire shape for every failed api.* call, shared
 // across every service's adapter so a browser client handles all of their
@@ -88,19 +83,9 @@ func ResponderIdentity(svc micro.Service) string {
 	return fmt.Sprintf("%s/%s", info.Name, info.ID)
 }
 
-// Respond marshals out, sends the reply, and only then finishes this
-// request's natstrace span (BR-036/BR-037). Reply-before-trace is
-// deliberate, not incidental: End does a redact scan, a full JSON-marshal
-// of the span, and a Publish, and none of that may sit between the caller
-// getting its answer and the caller actually getting it — an rpc.*/api.*
-// call's measured duration must not include natstrace's own overhead. If
-// req.Respond itself errors, the span still finishes so the failure isn't
-// silently untraced. ResponderHeader is attached to both the real wire
-// reply and the span's headers (mirroring how RespondError attaches the
-// real error headers to both). natstrace.SpanFrom is nil-safe, so a
-// handler invoked directly (not through Tracer.Middleware, e.g. a unit
-// test calling a handler with a bare micro.Request) still replies
-// correctly, it just publishes no span.
+// Respond marshals out and sends the reply with ResponderHeader. A request
+// wrapped by otelnats.Middleware ends its SERVER span inside req.Respond
+// (BR-037); a bare micro.Request, e.g. in a unit test, just replies.
 func Respond(req micro.Request, svc micro.Service, log *slog.Logger, subject, correlationID string, out any) {
 	data, err := json.Marshal(out)
 	if err != nil {
@@ -111,14 +96,9 @@ func Respond(req micro.Request, svc micro.Service, log *slog.Logger, subject, co
 	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && log != nil {
 		log.Error("browserrpc: respond failed", "subject", subject, "err", err)
 	}
-	natstrace.SpanFrom(req).End(data, headers)
 }
 
-// RespondError sends the reply and only then finishes this request's
-// natstrace span on failure (BR-036/BR-037) — same reply-before-trace
-// ordering as Respond, for the same reason: a failed call's measured
-// duration must not include natstrace's own redact/marshal/publish
-// overhead either. The reply carries real Nats-Service-Error/
+// RespondError sends the failure reply. The reply carries real Nats-Service-Error/
 // Nats-Service-Error-Code headers (micro's own error-header convention) via
 // WithHeaders — additive to the existing JSON error body, so no client that
 // reads the body (NotFound bool, error string) needs to change. notFound
@@ -166,7 +146,6 @@ func RespondErrorBody(req micro.Request, svc micro.Service, log *slog.Logger, er
 	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && log != nil {
 		log.Error("browserrpc: respond failed", "subject", req.Subject(), "err", respErr)
 	}
-	natstrace.SpanFrom(req).Fail(err, data, headers)
 }
 
 // Reply is the shared tail end of every handler: nil error replies with
@@ -200,20 +179,13 @@ func ReplyWithConflicts(req micro.Request, svc micro.Service, log *slog.Logger, 
 	Respond(req, svc, log, subject, correlationID, result)
 }
 
-// SpanContext attaches req's natstrace span (nil-safe) onto a fresh
-// background context — the call every handler makes to get a ctx worth
-// passing into its application-layer call, since req's own context is
-// scoped to the NATS request lifecycle, not to the handler's downstream
-// work.
-//
-// A request wrapped by otelnats.Middleware gives its SERVER span's context
-// instead (Phase 54, decision 16), so the handler's downstream calls are
-// children of that span.
+// SpanContext is the ctx every handler passes into its application-layer
+// call. A request wrapped by otelnats.Middleware gives its SERVER span's
+// context, so the handler's downstream calls are children of that span
+// (Phase 54, decision 16). Any other request gives a plain background
+// context.
 func SpanContext(req micro.Request) context.Context {
-	if ctx := otelnats.ContextFrom(req); trace.SpanContextFromContext(ctx).IsValid() {
-		return ctx
-	}
-	return natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
+	return otelnats.ContextFrom(req)
 }
 
 // Decode unmarshals req's body into a fresh T, tolerating an empty body

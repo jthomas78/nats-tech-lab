@@ -2,9 +2,9 @@ package refdata_test
 
 // Phase 54b-3a: with an otelnats Provider, every refdata-service rpc.* and
 // api.* endpoint is traced with OTel, and the evt.* change pointer a mutation
-// publishes is a PRODUCER span under the mutation's ctx. Without a Provider
-// nothing changes — the natstrace specs in natsrpc_test.go and
-// kvcache_test.go cover that path.
+// publishes is a PRODUCER span under the mutation's ctx. Since Phase 54d OTel
+// is the only tracer: without a Provider the path is untraced, which the
+// no-Provider specs in natsrpc_test.go and kvcache_test.go cover.
 
 import (
 	"context"
@@ -122,7 +122,7 @@ var _ = Describe("Phase 54b-3a: the other rpc.*.refdata.* endpoints on OTel", fu
 			map[string]string{}),
 	)
 
-	It("publishes no natstrace span for any endpoint (the path is OTel only)", func() {
+	It("publishes nothing on obs.trace.* for any endpoint (the path is OTel only)", func() {
 		legacy := make(chan *nats.Msg, 8)
 		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })
 		Expect(err).NotTo(HaveOccurred())
@@ -193,7 +193,7 @@ var _ = Describe("Phase 54b-3a: api.*.refdata.* on OTel", func() {
 		})
 	})
 
-	It("publishes no natstrace span (the path is OTel only)", func() {
+	It("publishes nothing on obs.trace.* (the path is OTel only)", func() {
 		mount("acme")
 		legacy := make(chan *nats.Msg, 8)
 		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })

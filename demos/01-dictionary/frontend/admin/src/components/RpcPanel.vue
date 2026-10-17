@@ -22,39 +22,22 @@ const ui = useUiStore()
 // [messages] tab retired obs.rpc.*/obs.api.* (Phase 28g) — see BR-026's
 // Phase 28g amendment in BUSINESS_RULES-SHIPPING.md. Both channels were
 // already dead before this retirement even started: Phase 28a-28e replaced
-// every adapter's publishObs call with a natstrace span, so this view had
+// every adapter's publishObs call with a legacy-tracer span, so this view had
 // shown nothing for any of the five services since then — retiring it is
 // deleting a live pipe carrying nothing, not migrating working traffic.
 //
-// It now derives from the exact same obs.trace.* data [traces]
-// (TraceWaterfall.vue) reads — the trace-request-reply KV bucket, bootstrap fetch plus
-// notify._platform.kv.trace-request-reply.> live subscribe on the PLATFORM connection —
+// It derives from the exact same spans [traces] (TraceWaterfall.vue) reads,
 // flattened to one row per SPAN instead of one row per TRACE. This is the
 // flat "is anything arriving on this subject" view BR-035 always intended
-// this tab to keep being, just fed by the new pipe instead of the retired
-// one. Bootstrap/subscribe itself lives in useTraceFeed.js (shared with
-// PulsePanel.vue/TraceWaterfall.vue — an architecture review replaced three
-// drifted copies of the same adapter with this one seam); the flattening
-// below (upsertSpan/order/MAX_ROWS) stays local to this tab via
-// useTraceFeed's onUpsert hook, since grouped-by-trace vs. flat-by-span
-// insertion order can't be reconstructed from a plain watch() on the
-// composable's Map.
-//
-// One real, unavoidable difference from the old paired Request/Reply view:
-// a natstrace span carries only the REPLY side (BR-037's one-span-per-call
-// design — natstrace.go's Span.finish always publishes Direction: "reply";
-// there is no wire signal for the request side at all, confirmed against
-// the live code before this migration was written). The detail pane below
-// is therefore a single Body/Headers section, not the old two-pane
-// Request | Reply split — an eternally-empty "Request" pane would
-// misrepresent absence-of-data as a value that just hasn't arrived yet.
-// There is also no more "pending" status: a span row only ever appears
-// already finished (natstrace publishes once, at End/Fail), so the
-// three-state status model (pending/ok/error) becomes two (ok/error).
+// this tab to keep being. The flattening below (upsertSpan/order/MAX_ROWS)
+// stays local to this tab via the gateway's onUpsert hook, since
+// grouped-by-trace vs. flat-by-span insertion order can't be reconstructed
+// from a plain watch() on the composable's Map. The detail pane is a single
+// Body/Headers section, and a row only appears already finished, so status
+// is ok or error.
 //
 // Phase 54c (BR-076): the spans come from the trace query gateway
-// (useTraceGateway), polled only while this tab is shown and not paused,
-// not from the KV feed. Each loaded trace still arrives through onUpsert,
+// (useTraceGateway), polled only while this tab is shown and not paused. Each loaded trace still arrives through onUpsert,
 // so the flat, newest-first, MAX_ROWS-capped list below is unchanged. A row
 // links to its whole trace in the Traces tab (ui.openTrace).
 

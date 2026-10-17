@@ -1,9 +1,8 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
 # Phase 35: build context is the repo root (see deploy/global/compose.control.yaml) so this
-# can COPY shared/natstrace alongside the service source — the same pattern
+# can COPY the shared/* modules alongside the service source — the same pattern
 # the frontend Dockerfiles already use for shared/unifi-theme.
-COPY shared/natstrace ./shared/natstrace
 COPY shared/natsconn ./shared/natsconn
 COPY shared/natsnotify ./shared/natsnotify
 # Phase 50b: accounts/usersrpc.go answers the browser over api.* through the

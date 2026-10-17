@@ -1,20 +1,16 @@
 package dictionary
 
-// Tests for Phase 28d's async tail (BR-037): the evt.* JetStream publish an
-// api.* command triggers must carry the same traceId as that request's
-// reply-side span (natstrace.ContextWithSpan/SpanFromContext riding ctx down
-// through commands.go/container.go's publish, Piece 1/2 of this phase), and
-// each of the three eventhandler Consume callbacks (handler.go's shared
-// register(), used by RegisterShips; container_handler.go's
-// RegisterContainers; meta_handler.go's RegisterMeta) publishes exactly one
-// obs.trace.* span per message it processes, labeled with the entity/action
-// parsed off the evt.* subject plus entity_id and consumer.durable attributes (Piece 3). Uses
-// newNatsConnAndJS() (browserrpc_test.go) for a real embedded NATS/JetStream
-// server, same convention as notify_test.go.
+// BR-037 (Phase 28d, moved to OTel in Phase 54d): each of the three
+// eventhandler Consume callbacks (handler.go's shared register(), used by
+// RegisterShips; container_handler.go's RegisterContainers; meta_handler.go's
+// RegisterMeta) makes exactly one CONSUMER span per message it processes,
+// with entity_id and consumer.durable attributes. The api.* → evt.* half of
+// the async tail, and the two-projector durable split, are specified in
+// browserrpc_otel_test.go. Uses newNatsConnAndJS() (browserrpc_test.go) for a
+// real embedded NATS/JetStream server.
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"strings"
 	"time"
@@ -24,229 +20,90 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/shared/jstream"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
-// traceparentSpan is the subset of natstrace's traceSpan wire shape these
-// specs need to decode.
-type traceparentSpan struct {
-	TraceID    string            `json:"traceId"`
-	SpanID     string            `json:"spanId"`
-	Service    string            `json:"service"`
-	Entity     string            `json:"entity"`
-	Action     string            `json:"action"`
-	Attributes map[string]string `json:"attributes"`
-}
-
-// traceIDFromTraceparent extracts the traceId ("00-<traceid>-<spanid>-01")
-// segment from a Traceparent header value.
-func traceIDFromTraceparent(tp string) string {
-	GinkgoHelper()
-	parts := strings.Split(tp, "-")
-	Expect(parts).To(HaveLen(4), "malformed traceparent: %q", tp)
-	return parts[1]
-}
-
-// subscribeMsgs subscribes to subject and returns a channel of full *nats.Msg
-// (headers included, unlike notify_test.go's subscribeNotify which only
-// keeps Data) — these specs need headers to read Traceparent.
-func subscribeMsgs(nc *nats.Conn, subject string) chan *nats.Msg {
-	GinkgoHelper()
-	out := make(chan *nats.Msg, 16)
-	sub, err := nc.Subscribe(subject, func(m *nats.Msg) { out <- m })
-	Expect(err).NotTo(HaveOccurred())
-	DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
-	return out
-}
-
-var _ = Describe("BR-037 (Phase 28d): async tail carries the originating request's traceId", func() {
+var _ = Describe("BR-037: each JetStream projector Consume callback is exactly one CONSUMER span per message", func() {
 	const fleetCtx = "acme-pacific-fleet"
 
 	var (
-		ctx context.Context
-		nc  *nats.Conn
-		js  jetstream.JetStream
-		log *slog.Logger
+		ctx  context.Context
+		nc   *nats.Conn
+		js   jetstream.JetStream
+		log  *slog.Logger
+		prov *otelnats.Provider
+		exp  *tracetest.InMemoryExporter
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		nc, js = newNatsConnAndJS()
 		log = slog.New(slog.DiscardHandler)
+		exp = tracetest.NewInMemoryExporter()
+		var err error
+		prov, err = otelnats.Init(ctx, otelnats.Config{ServiceName: "shipping-service", Exporter: exp})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { _ = prov.Shutdown(context.Background()) })
 	})
 
-	It("propagates the api.* request's traceId onto the resulting evt.* JetStream publish", func() {
-		kvB := kvstore.New(js, "ships")
-		ccB, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log)
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(ccB.Stop)
-
-		ships := commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
-		adapter, err := browserrpc.New(nc, browserrpc.Deps{
-			Ships:     ships,
-			ShipReads: queries.NewShips(kvB, newFakeRepo()),
-			Log:       log,
-			Tenant:    fleetCtx,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
-
-		evts := subscribeMsgs(nc, "evt.>")
-		spans := subscribeMsgs(nc, "obs.trace.>")
-		Expect(nc.Flush()).To(Succeed())
-
-		reqBody, err := json.Marshal(commands.ShipInput{
-			Context: fleetCtx, ShipID: "trace-ship", ShipName: "Trace Ship", Port: "Hamburg",
-		})
-		Expect(err).NotTo(HaveOccurred())
-		_, err = nc.Request("api."+fleetCtx+".shipping.ship.arrive.v1", reqBody, 2*time.Second)
-		Expect(err).NotTo(HaveOccurred())
-
-		var evtMsg *nats.Msg
-		Eventually(evts).Should(Receive(&evtMsg))
-		Expect(evtMsg.Header.Get(natstrace.TraceparentHeader)).NotTo(BeEmpty(),
-			"the evt.* publish must carry a traceparent (PublishWithTrace, commands.go's publish)")
-
-		var spanMsg *nats.Msg
-		Eventually(spans).Should(Receive(&spanMsg))
-		var span traceparentSpan
-		Expect(json.Unmarshal(spanMsg.Data, &span)).To(Succeed())
-		Expect(span.TraceID).NotTo(BeEmpty())
-
-		Expect(traceIDFromTraceparent(evtMsg.Header.Get(natstrace.TraceparentHeader))).To(Equal(span.TraceID),
-			"the evt.* publish and the api.* reply-side span must share the same traceId")
-	})
-
-	It("still propagates a traceId with no inbound traceparent header at all (a root span minted by browserrpc.Adapter)", func() {
-		kvB := kvstore.New(js, "ships")
-		ccB, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log)
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(ccB.Stop)
-
-		ships := commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
-		adapter, err := browserrpc.New(nc, browserrpc.Deps{
-			Ships:     ships,
-			ShipReads: queries.NewShips(kvB, newFakeRepo()),
-			Log:       log,
-			Tenant:    fleetCtx,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
-
-		evts := subscribeMsgs(nc, "evt.>")
-		Expect(nc.Flush()).To(Succeed())
-
-		reqBody, err := json.Marshal(commands.ShipInput{
-			Context: fleetCtx, ShipID: "root-span-ship", ShipName: "Root Span Ship", Port: "Hamburg",
-		})
-		Expect(err).NotTo(HaveOccurred())
-		_, err = nc.Request("api."+fleetCtx+".shipping.ship.arrive.v1", reqBody, 2*time.Second)
-		Expect(err).NotTo(HaveOccurred())
-
-		var evtMsg *nats.Msg
-		Eventually(evts).Should(Receive(&evtMsg))
-		tp := evtMsg.Header.Get(natstrace.TraceparentHeader)
-		Expect(tp).NotTo(BeEmpty())
-		Expect(traceIDFromTraceparent(tp)).NotTo(BeEmpty())
-	})
-})
-
-var _ = Describe("BR-037 (Phase 28d): each JetStream projector Consume callback publishes exactly one span per message", func() {
-	const fleetCtx = "acme-pacific-fleet"
-
-	var (
-		ctx context.Context
-		nc  *nats.Conn
-		js  jetstream.JetStream
-		log *slog.Logger
-	)
-
-	BeforeEach(func() {
-		ctx = context.Background()
-		nc, js = newNatsConnAndJS()
-		log = slog.New(slog.DiscardHandler)
-	})
-
-	// firstMatching drains ch until a span decodes with the wanted action,
-	// returning it — a ship's first arrival implicitly registers it too
-	// (an extra .registered span alongside .arrived), so a spec asserting on
-	// one action can't just take the first message off the channel.
-	firstMatching := func(ch chan *nats.Msg, action string) traceparentSpan {
-		GinkgoHelper()
-		var found traceparentSpan
-		Eventually(func() bool {
-			select {
-			case m := <-ch:
-				var s traceparentSpan
-				if json.Unmarshal(m.Data, &s) == nil && s.Action == action {
-					found = s
-					return true
-				}
-				return false
-			default:
-				return false
+	// consumers returns the CONSUMER spans whose subject ends in .action. A
+	// ship's first arrival also registers it (an extra .registered event), so
+	// a spec on one action filters by it.
+	consumers := func(action string) []tracetest.SpanStub {
+		Expect(prov.ForceFlush(context.Background())).To(Succeed())
+		var out []tracetest.SpanStub
+		for _, s := range exp.GetSpans() {
+			if s.SpanKind == trace.SpanKindConsumer && strings.HasSuffix(s.Name, "."+action) {
+				out = append(out, s)
 			}
-		}, 3*time.Second, 20*time.Millisecond).Should(BeTrue(), "no span with action %q arrived in time", action)
-		return found
+		}
+		return out
 	}
-
-	// noMoreMatching asserts no further span with the wanted action arrives
-	// within a short window — the "exactly one" half of "exactly one span
-	// per message".
-	noMoreMatching := func(ch chan *nats.Msg, action string) {
-		GinkgoHelper()
-		Consistently(func() bool {
-			select {
-			case m := <-ch:
-				var s traceparentSpan
-				if json.Unmarshal(m.Data, &s) == nil && s.Action == action {
-					return true
-				}
-				return false
-			default:
-				return false
+	attr := func(s tracetest.SpanStub, key string) string {
+		for _, kv := range s.Attributes {
+			if string(kv.Key) == key {
+				return kv.Value.Emit()
 			}
-		}, 300*time.Millisecond, 20*time.Millisecond).Should(BeFalse())
+		}
+		return ""
 	}
+	// exactlyOne waits for one CONSUMER span for action, then checks that no
+	// second one follows — the "exactly one" half of the rule.
+	exactlyOne := func(action string) tracetest.SpanStub {
+		GinkgoHelper()
+		Eventually(func() []tracetest.SpanStub { return consumers(action) }, 3*time.Second, 20*time.Millisecond).Should(HaveLen(1))
+		Consistently(func() []tracetest.SpanStub { return consumers(action) }, 300*time.Millisecond, 20*time.Millisecond).Should(HaveLen(1))
+		return consumers(action)[0]
+	}
+	tracing := func() eventhandler.Option { return eventhandler.WithTracing(prov, fleetCtx) }
 
-	It("handler.go's shared register() (RegisterShips) publishes exactly one span for the .arrived event, labeled ship/arrived with an entity_id", func() {
+	It("RegisterShips makes one span for the .arrived event, with an entity_id and its durable", func() {
 		kvB := kvstore.New(js, "ships")
-		ccB, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log)
+		ccB, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log, tracing())
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(ccB.Stop)
-
-		spans := subscribeMsgs(nc, "obs.trace.>")
-		Expect(nc.Flush()).To(Succeed())
 
 		ships := commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 		_, err = ships.ArrivePort(ctx, commands.ShipInput{Context: fleetCtx, ShipID: "span-ship-b", ShipName: "Span Ship B", Port: "Hamburg"})
 		Expect(err).NotTo(HaveOccurred())
 
-		span := firstMatching(spans, "arrived")
-		Expect(span.Service).To(Equal("shipping"))
-		Expect(span.Entity).To(Equal("ship"))
-		Expect(span.Attributes).NotTo(BeEmpty())
-		Expect(span.Attributes["entity_id"]).NotTo(BeEmpty())
-		Expect(span.Attributes["consumer.durable"]).To(Equal("ship-projector"))
-
-		noMoreMatching(spans, "arrived")
+		span := exactlyOne("arrived")
+		Expect(attr(span, "entity_id")).NotTo(BeEmpty())
+		Expect(attr(span, "consumer.durable")).To(Equal("ship-projector"))
 	})
 
-	It("container_handler.go's RegisterContainers publishes exactly one span for the .registered event, labeled container/registered with an entity_id", func() {
+	It("RegisterContainers makes one span for the .registered event, with an entity_id and its durable", func() {
 		kvContainers := kvstore.New(js, "container")
-		ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, newFakeContainerRepo(), log)
+		ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, newFakeContainerRepo(), log, tracing())
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(ccCont.Stop)
-
-		spans := subscribeMsgs(nc, "obs.trace.>")
-		Expect(nc.Flush()).To(Succeed())
 
 		containers := commands.NewContainerHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 		_, err = containers.RegisterContainer(ctx, commands.ContainerInput{
@@ -254,29 +111,19 @@ var _ = Describe("BR-037 (Phase 28d): each JetStream projector Consume callback 
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		span := firstMatching(spans, "registered")
-		Expect(span.Service).To(Equal("shipping"))
-		Expect(span.Entity).To(Equal("container"))
-		Expect(span.Attributes["entity_id"]).NotTo(BeEmpty())
-		Expect(span.Attributes["consumer.durable"]).To(Equal("container-projector"))
-
-		noMoreMatching(spans, "registered")
+		span := exactlyOne("registered")
+		Expect(attr(span, "entity_id")).NotTo(BeEmpty())
+		Expect(attr(span, "consumer.durable")).To(Equal("container-projector"))
 	})
 
-	It("meta_handler.go's RegisterMeta publishes exactly one span for the .registered event, labeled container/registered with an entity_id", func() {
-		// RegisterContainers is deliberately NOT registered in this spec —
-		// both consumers read the same evt.*.shipping.container.> subject,
-		// and registering both would make "exactly one" ambiguous about
-		// which projector emitted which span. containers.RegisterContainer
-		// only needs the SHIPPING stream to exist (already true via
-		// newNatsConnAndJS), not a running container projector.
+	It("RegisterMeta makes one span for the .registered event, with an entity_id and its durable", func() {
+		// RegisterContainers is deliberately NOT registered here — both
+		// consumers read the same evt.*.shipping.container.> subject, and
+		// registering both would make "exactly one" ambiguous.
 		kvMeta := kvstore.New(js, "meta")
-		ccMeta, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nc, log)
+		ccMeta, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nc, log, tracing())
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(ccMeta.Stop)
-
-		spans := subscribeMsgs(nc, "obs.trace.>")
-		Expect(nc.Flush()).To(Succeed())
 
 		containers := commands.NewContainerHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 		_, err = containers.RegisterContainer(ctx, commands.ContainerInput{
@@ -284,87 +131,8 @@ var _ = Describe("BR-037 (Phase 28d): each JetStream projector Consume callback 
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		span := firstMatching(spans, "registered")
-		Expect(span.Service).To(Equal("shipping"))
-		Expect(span.Entity).To(Equal("container"))
-		Expect(span.Attributes["entity_id"]).NotTo(BeEmpty())
-		Expect(span.Attributes["consumer.durable"]).To(Equal("meta-projector"))
-
-		noMoreMatching(spans, "registered")
-	})
-
-	// The reason consumer.durable exists at all, asserted directly rather
-	// than inferred from the two single-projector specs above: with BOTH
-	// container-subject projectors running, ONE published .registered event
-	// produces TWO spans, same trace, same subject, same entity_id. Before
-	// the attribute they were indistinguishable in the Admin UI's waterfall
-	// and read as a duplicate publish. Deliberately does NOT use
-	// firstMatching/noMoreMatching — "exactly one" is the wrong assertion
-	// here; two is correct, and what matters is that they are told apart.
-	It("labels the two spans one .registered event produces with the distinct durable of each projector that consumed it", func() {
-		kvContainers := kvstore.New(js, "container")
-		ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, newFakeContainerRepo(), log)
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(ccCont.Stop)
-
-		kvMeta := kvstore.New(js, "meta")
-		ccMeta, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nc, log)
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(ccMeta.Stop)
-
-		// Driven through the api.* adapter rather than by calling the command
-		// handler directly, as the two specs above do: only that path seeds a
-		// span into ctx (Piece 1), so the evt.* publish carries a traceparent
-		// and both projectors CONTINUE one trace instead of each minting its
-		// own root. Continuing one trace is the condition under which the two
-		// spans actually collide in the waterfall — which is the case this
-		// spec exists to pin.
-		containers := commands.NewContainerHandler(jstream.NewPublisher(js), js, newFakePortRepo())
-		adapter, err := browserrpc.New(nc, browserrpc.Deps{
-			Containers: containers,
-			Terminal:   queries.NewTerminal(kvContainers),
-			Meta:       queries.NewMeta(kvMeta),
-			Log:        log,
-			Tenant:     fleetCtx,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
-
-		spans := subscribeMsgs(nc, "obs.trace.>")
-		Expect(nc.Flush()).To(Succeed())
-
-		reqBody, err := json.Marshal(commands.ContainerInput{
-			Context: fleetCtx, ContainerID: "TCKU7778889", Cargo: "coffee", OriginPort: "Hamburg", DestPort: "Rotterdam",
-		})
-		Expect(err).NotTo(HaveOccurred())
-		_, err = nc.Request("api."+fleetCtx+".shipping.container.register.v1", reqBody, 2*time.Second)
-		Expect(err).NotTo(HaveOccurred())
-
-		// Collect every .registered span that arrives, keyed by the durable
-		// that emitted it, until both projectors have reported.
-		byDurable := map[string]traceparentSpan{}
-		Eventually(func() int {
-			for {
-				select {
-				case m := <-spans:
-					var sp traceparentSpan
-					if json.Unmarshal(m.Data, &sp) == nil && sp.Action == "registered" {
-						byDurable[sp.Attributes["consumer.durable"]] = sp
-					}
-				default:
-					return len(byDurable)
-				}
-			}
-		}, 3*time.Second, 20*time.Millisecond).Should(Equal(2), "both projectors should report a distinctly-labeled span")
-
-		Expect(byDurable).To(HaveKey("container-projector"))
-		Expect(byDurable).To(HaveKey("meta-projector"))
-
-		// Same event, so same trace and same aggregate — the durable is the
-		// ONLY thing separating the two rows.
-		cont, meta := byDurable["container-projector"], byDurable["meta-projector"]
-		Expect(cont.TraceID).To(Equal(meta.TraceID))
-		Expect(cont.Attributes["entity_id"]).To(Equal(meta.Attributes["entity_id"]))
-		Expect(cont.SpanID).NotTo(Equal(meta.SpanID))
+		span := exactlyOne("registered")
+		Expect(attr(span, "entity_id")).NotTo(BeEmpty())
+		Expect(attr(span, "consumer.durable")).To(Equal("meta-projector"))
 	})
 })

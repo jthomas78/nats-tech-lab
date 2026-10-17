@@ -1,6 +1,6 @@
 // Package otelnats is the lab's thin glue between the OpenTelemetry Go SDK
-// and NATS (Phase 54, decision 14). It replaces shared/natstrace on the OTel
-// path.
+// and NATS (Phase 54, decision 14). It is the lab's only tracer: the legacy
+// tracer it replaced was retired in Phase 54d.
 //
 // It owns four jobs and nothing else:
 //
@@ -127,8 +127,8 @@ func tracesURL(endpoint string) string {
 }
 
 // EndpointEnv is the one switch onto the OTel path (decision 16). Only
-// the cell compose files set it on every service; unset, a service stays on
-// natstrace.
+// the cell compose files set it on every service; unset, a service runs
+// untraced.
 const EndpointEnv = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
 // CaptureBodiesEnv is a service's opt-in for body capture (decision 7,
@@ -137,8 +137,8 @@ const EndpointEnv = "OTEL_EXPORTER_OTLP_ENDPOINT"
 const CaptureBodiesEnv = "OTEL_CAPTURE_BODIES"
 
 // InitFromEnv builds a Provider from EndpointEnv and CaptureBodiesEnv. When
-// the endpoint is unset it returns nil and no error: the caller stays on
-// natstrace.
+// the endpoint is unset it returns nil and no error: the caller runs
+// untraced.
 func InitFromEnv(ctx context.Context, serviceName string) (*Provider, error) {
 	endpoint := strings.TrimSpace(os.Getenv(EndpointEnv))
 	if endpoint == "" {

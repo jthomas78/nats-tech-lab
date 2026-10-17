@@ -1,7 +1,7 @@
 // Command main bootstraps observability-service (Phase 30c) — the
 // PLATFORM-account home for the cross-account NATS/JetStream diagnostics
-// (Phase 30d/30e/30f) and trace store (30g) extracted from shipping-service
-// (Main-POC-Plan.md's Phase 30 Goal: none of it is shipping domain logic,
+// (Phase 30d/30e/30f) extracted from shipping-service, plus the Phase 54
+// trace query gateway over Tempo (Main-POC-Plan.md's Phase 30 Goal: none of it is shipping domain logic,
 // and shipping-service only ever held it because it was the one service
 // with the cross-account reach to answer it).
 //

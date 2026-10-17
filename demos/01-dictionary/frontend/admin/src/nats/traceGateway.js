@@ -1,11 +1,11 @@
 // Phase 54c — the Admin UI reads traces from the trace query gateway
 // (observability-service's api._platform.observability.trace.*.v1, BR-074,
-// BR-075), not from the trace-request-reply KV feed (useTraceFeed.js).
+// BR-075). The old trace-request-reply KV feed was retired in Phase 54d.
 //
 // Two jobs, both pinned by traceGateway.spec.js (BR-076):
 //
 //   - toViewSpan maps one lab.trace.v1 span onto the flat span shape every
-//     trace panel already reads (natstrace's traceSpan plus attributedTenant).
+//     trace panel already reads (the old wire span plus attributedTenant).
 //     The panels keep their reading of a span; only the store under it moved.
 //   - useTraceGateway polls trace.search while the page is visible and loads
 //     each found trace whole through trace.get (decision 8). Tempo has no
@@ -91,14 +91,16 @@ export function toViewSpan(span) {
     kind,
     direction: kind === 'CLIENT' || kind === 'PRODUCER' ? 'outbound' : 'inbound',
     timestamp: isoFromUnixNano(span.endUnixNano),
-    // Whole microseconds, as natstrace published them (BR-056).
+    // Whole microseconds (BR-056).
     durationUs: Math.round((span.endUnixNano - span.startUnixNano) / 1000),
     statusCode: span.statusCode,
     statusMessage: span.statusMessage,
     attributes: asText(attributes),
     attributedTenant: typeof attributes['lab.tenant.originating'] === 'string' ? attributes['lab.tenant.originating'] : '',
     headers,
-    requester: firstHeader(headers, 'Nats-Requestor'),
+    // BR-041: self-declared, display only. lab.requester is on every SERVER
+    // span; the header is there only when bodies are captured.
+    requester: (typeof attributes['lab.requester'] === 'string' && attributes['lab.requester']) || firstHeader(headers, 'Nats-Requestor'),
     events,
     links: span.links ?? [],
   }
@@ -154,7 +156,7 @@ export function traceServices(request) {
   return request(TRACE_SERVICES_SUBJECT, {})
 }
 
-// useTraceGateway returns what useTraceFeed returned — {traces, connected,
+// useTraceGateway returns the shape the old KV feed returned — {traces, connected,
 // bootstrapFailed} — so a panel swaps one for the other, plus the polling
 // controls the panel shows.
 //

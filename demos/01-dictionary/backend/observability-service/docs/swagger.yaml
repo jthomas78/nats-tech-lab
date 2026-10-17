@@ -318,23 +318,6 @@ definitions:
       server:
         $ref: '#/definitions/rest.natsServerLimits'
     type: object
-  rest.natsEndpoint:
-    properties:
-      averageProcessingTimeMs:
-        type: integer
-      lastError:
-        type: string
-      name:
-        type: string
-      numErrors:
-        type: integer
-      numRequests:
-        type: integer
-      queueGroup:
-        type: string
-      subject:
-        type: string
-    type: object
   rest.natsLogResponse:
     properties:
       lines:
@@ -351,39 +334,6 @@ definitions:
     properties:
       maxConnections:
         type: integer
-    type: object
-  rest.natsService:
-    properties:
-      instances:
-        items:
-          $ref: '#/definitions/rest.natsServiceInstance'
-        type: array
-      name:
-        type: string
-      version:
-        type: string
-    type: object
-  rest.natsServiceInstance:
-    properties:
-      endpoints:
-        items:
-          $ref: '#/definitions/rest.natsEndpoint'
-        type: array
-      id:
-        type: string
-      metadata:
-        additionalProperties:
-          type: string
-        type: object
-      started:
-        type: string
-    type: object
-  rest.natsServicesResponse:
-    properties:
-      services:
-        items:
-          $ref: '#/definitions/rest.natsService'
-        type: array
     type: object
 host: localhost:7205
 info:
@@ -647,24 +597,6 @@ paths:
           schema:
             $ref: '#/definitions/rest.errorResponse'
       summary: Tail the NATS server log
-      tags:
-      - nats
-  /api/nats/services:
-    get:
-      description: Every service registered via nats.go/micro, discovered by broadcasting
-        $SRV.STATS and collecting replies for a short window — the same protocol `nats
-        micro stats` uses. Queried on PLATFORM's own $SRV.STATS plus, for every tenant
-        accounts-service currently knows about, that tenant's $SRV.STATS via BR-AC31's
-        monitor.{tenant}.srv.> import — every known tenant at once, not just one active
-        session.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.natsServicesResponse'
-      summary: List NATS micro services
       tags:
       - nats
 swagger: "2.0"

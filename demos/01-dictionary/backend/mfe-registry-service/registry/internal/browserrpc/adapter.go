@@ -10,7 +10,6 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 	shared "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -73,7 +72,7 @@ func (a *Adapter) routes() []endpoint {
 
 // Mount serves the api.* endpoints. tracing, when set, makes each one an OTel
 // SERVER span on the PLATFORM account that starts a new root (BR-069,
-// BR-071 EdgeAPI). Nil keeps natstrace (decision 16).
+// BR-071 EdgeAPI). Nil serves them untraced (Phase 54d).
 func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger, tracing *otelnats.Provider) (*Adapter, error) {
 	a := &Adapter{endpoints: endpoints, log: log}
 	svc, err := micro.AddService(nc, micro.Config{Name: "mfe-registry-service", Version: "1.0.0", Description: "curated frontend registry api.*"})
@@ -81,9 +80,8 @@ func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger, tracing *oteln
 		return nil, err
 	}
 	a.svc = svc
-	tracer := natstrace.New(nc)
 	for _, ep := range a.routes() {
-		h := tracer.Middleware(ep.handler)
+		h := ep.handler
 		if tracing != nil {
 			h = tracing.Middleware(otelnats.EdgeAPI, platformTrust, ep.handler)
 		}

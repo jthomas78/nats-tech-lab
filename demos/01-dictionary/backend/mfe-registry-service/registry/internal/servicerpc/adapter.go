@@ -12,7 +12,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 	shared "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/micro"
@@ -224,7 +223,7 @@ type Adapter struct{ svc micro.Service }
 
 // Mount serves the rpc.* announcement endpoints. tracing, when set, makes
 // each one an OTel SERVER span that continues the trusted caller's trace
-// (BR-071 EdgeRPC). Nil keeps natstrace (decision 16).
+// (BR-071 EdgeRPC). Nil serves them untraced (Phase 54d).
 func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger, tracing *otelnats.Provider) (*Adapter, error) {
 	svc, err := micro.AddService(nc, micro.Config{Name: "mfe-registry-announcements", Version: "1.0.0", Description: "publisher registry rpc.*"})
 	if err != nil {
@@ -263,7 +262,7 @@ func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger, tracing *oteln
 		message, code, status := classify(err, "the withdrawal could not be recorded")
 		shared.RespondErrorBody(req, svc, log, err, status, UnregisterResponse{Error: message, Code: code})
 	})
-	wrap := natstrace.New(nc).Middleware
+	wrap := func(h micro.HandlerFunc) micro.HandlerFunc { return h }
 	if tracing != nil {
 		wrap = func(h micro.HandlerFunc) micro.HandlerFunc {
 			return tracing.Middleware(otelnats.EdgeRPC, platformTrust, h)

@@ -5,7 +5,7 @@ package registry_test
 // root (BR-071), every rpc.* endpoint is a SERVER span that continues a
 // trusted caller's trace (BR-071 EdgeRPC), and a notify.* hint a write
 // publishes is a PRODUCER child of that SERVER span (BR-037). Without it the
-// adapters stay on natstrace (decision 16).
+// adapters serve untraced (Phase 54d).
 
 import (
 	"context"
@@ -150,7 +150,7 @@ var _ = Describe("Phase 54b-5: mfe-registry-service on OTel", func() {
 		Expect(s.Parent.SpanID().String()).To(Equal(otelSentSpanID))
 	})
 
-	It("publishes no natstrace span on the OTel path", func() {
+	It("publishes nothing on obs.trace.* on the OTel path", func() {
 		legacy := make(chan *nats.Msg, 8)
 		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })
 		Expect(err).NotTo(HaveOccurred())
@@ -166,8 +166,8 @@ var _ = Describe("Phase 54b-5: mfe-registry-service on OTel", func() {
 	})
 })
 
-var _ = Describe("Phase 54b-5: no Provider keeps mfe-registry on natstrace (decision 16)", func() {
-	It("publishes a natstrace span for an api.* read when WithTracing is not given", func() {
+var _ = Describe("Phase 54d: no Provider serves mfe-registry untraced", func() {
+	It("still answers api.* and rpc.* when WithTracing is not given, and publishes nothing on obs.trace.*", func() {
 		nc := otelRegistry(context.Background())
 
 		legacy := make(chan *nats.Msg, 8)
@@ -178,6 +178,9 @@ var _ = Describe("Phase 54b-5: no Provider keeps mfe-registry on natstrace (deci
 
 		_, err = nc.Request(browserrpc.ShellReadSubject, []byte(`{"heldRevision":null}`), 2*time.Second)
 		Expect(err).NotTo(HaveOccurred())
-		Eventually(legacy, 2*time.Second).Should(Receive())
+		_, err = nc.Request(mferegistry.Announce, []byte(`{}`), 2*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(nc.Flush()).To(Succeed())
+		Consistently(legacy, 200*time.Millisecond).ShouldNot(Receive())
 	})
 })

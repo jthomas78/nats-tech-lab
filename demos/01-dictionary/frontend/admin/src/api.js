@@ -237,10 +237,6 @@ export function getNatsClosedConnections() {
   return request('/api/nats/connections/closed')
 }
 
-export function getNatsServices() {
-  return request('/api/nats/services')
-}
-
 export function getNatsAccountActivity() {
   return request('/api/nats/account-activity')
 }

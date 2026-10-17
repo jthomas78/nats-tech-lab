@@ -63,7 +63,7 @@ describe('toViewSpan (BR-076): a lab.trace.v1 span in the panels\' shape', () =>
 
   it('gives a duration in whole microseconds and a finish timestamp with its sub-millisecond part (BR-056)', () => {
     const v = toViewSpan(labSpan())
-    // Whole microseconds, as natstrace published them: a fraction here
+    // Whole microseconds, as the legacy tracer published them: a fraction here
     // showed as "30.670848000000003 ms" in the [messages] tab.
     expect(v.durationUs).toBe(20795)
     expect(Number.isInteger(v.durationUs)).toBe(true)
@@ -119,6 +119,12 @@ describe('toViewSpan (BR-076): a lab.trace.v1 span in the panels\' shape', () =>
       'Nats-Responder': ['shipping-service'],
     })
     expect(v.requester).toBe('admin-app')
+  })
+
+  it('BR-041: reads the requester from lab.requester when bodies are off', () => {
+    const v = toViewSpan(labSpan({ kind: 'SERVER', attributes: { 'lab.requester': 'admin-app/abc123' } }))
+    expect(v.headers).toEqual({})
+    expect(v.requester).toBe('admin-app/abc123')
   })
 
   it('names a REST span by its path, so the panels still tag it REST', () => {

@@ -9,8 +9,8 @@ import (
 
 // redactDenylist is the set of JSON object keys (case-insensitive, matched at
 // any nesting depth) removed from a body before it leaves the process
-// (BR-036, BR-046). Ported unchanged from shared/natstrace; the two lists are
-// one list until natstrace goes in 54d.
+// (BR-036, BR-046). Ported unchanged from the retired legacy tracer (Phase
+// 54d); this is now the only copy of the list.
 var redactDenylist = map[string]struct{}{
 	"password":      {},
 	"secret":        {},
@@ -104,7 +104,7 @@ func redactHeaders(h map[string][]string) (map[string][]string, []string) {
 }
 
 // preparePayload is the obs.pubsub.* envelope's redact-then-truncate step,
-// as natstrace had it. byteLen is the size after redaction and before
+// as the legacy tracer had it. byteLen is the size after redaction and before
 // truncation. A truncated payload becomes a quoted JSON string of the cut
 // bytes, because a JSON object cut mid-way is not valid JSON.
 func preparePayload(payload []byte) (out json.RawMessage, byteLen int, redacted []string, truncated bool) {

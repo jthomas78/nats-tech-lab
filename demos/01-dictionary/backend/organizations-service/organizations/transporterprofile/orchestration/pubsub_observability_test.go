@@ -22,7 +22,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 func newObservabilityTestNATS(t *testing.T) (*nats.Conn, jetstream.JetStream, func()) {
@@ -174,7 +173,8 @@ func TestTransporterProfilePayloadsPassTheRedactionReview(t *testing.T) {
 // BR-037 has required a traceparent on every evt.* publish since Phase 28.
 // This service's seam never attached one — the rule was in the book, nothing
 // enforced it here, and no consumer of these events read the header, so the
-// gap cost nothing and stayed invisible. These two specs are the enforcement.
+// gap cost nothing and stayed invisible. Since Phase 54d the enforcement is
+// OTel only (otel_54b3b_test.go); the spec below pins the untraced path.
 
 func appendedMsg(t *testing.T, ctx context.Context) *nats.Msg {
 	t.Helper()
@@ -202,26 +202,14 @@ func appendedMsg(t *testing.T, ctx context.Context) *nats.Msg {
 	}
 }
 
-func TestAppendCarriesTheCausingTraceparent(t *testing.T) {
-	tracer := natstrace.New(nil)
-	sp := tracer.StartOutbound(nil, "rpc.acme.organizations.transporter-profile.create.v1", nil,
-		"acme", "organizations", "transporter-profile", "create")
-	ctx := natstrace.ContextWithSpan(context.Background(), sp)
+// The causing-traceparent spec is on the OTel path since Phase 54d:
+// TestAppendWithOTelIsAProducerSpanUnderTheCtxSpan (otel_54b3b_test.go).
 
-	got := appendedMsg(t, ctx).Header.Get(natstrace.TraceparentHeader)
-	if got == "" {
-		t.Fatal("BR-037: an evt.* append must carry the traceparent of the span that caused it")
-	}
-	if want := sp.Traceparent(); got != want {
-		t.Fatalf("traceparent = %q, want the causing span's %q", got, want)
-	}
-}
-
-func TestAppendOmitsTraceparentWhenNoSpanIsReachable(t *testing.T) {
-	// Nil-safe, exactly as shared/jstream behaves: a hydration or a tool with
-	// no span on its ctx publishes an unheadered event rather than a
-	// malformed one.
-	if got := appendedMsg(t, context.Background()).Header.Get(natstrace.TraceparentHeader); got != "" {
-		t.Fatalf("expected no traceparent when ctx carries no span, got %q", got)
+func TestAppendOmitsTraceparentWithoutAProvider(t *testing.T) {
+	// Untraced, exactly as shared/jstream behaves: with no OTel Provider
+	// (Phase 54d retired the legacy tracer) the append publishes an unheadered event
+	// rather than a malformed one, and still lands.
+	if got := appendedMsg(t, context.Background()).Header.Get("traceparent"); got != "" {
+		t.Fatalf("expected no traceparent without a Provider, got %q", got)
 	}
 }

@@ -150,20 +150,15 @@ for account in ACME GLOBEX; do
     --remote-subject "evt.*.refdata.*.changed" \
     --local-subject "evt.*.refdata.*.changed" >/dev/null
 
-  # Phase 28f — the reverse leg of the contract above: this tenant exports
-  # its own obs.trace.> spans back to PLATFORM, so PLATFORM's cross-account
-  # trace store (dictionary/composition.go's TRACES consumer) can subscribe
-  # to them. No --allow-trace here — jwt.Export.Validate rejects that flag
-  # on anything but a service export, and this is a stream export; the flag
-  # that actually matters for this pipeline is on PLATFORM's stream
-  # *import* of it below.
-  nsc add export --account "$account" --subject "obs.trace.>" >/dev/null
-
-  # Phase 43a (BR-AC34) — the same reverse leg for obs.pubsub.>, so the Admin
-  # UI's Messages panel sees this tenant's evt.*/notify.* publish traffic.
-  # Day-0 equivalent of accounts-service's Provisioner.addPlatformPubsubImport
-  # path (pubsubExportSubject), which does this at runtime for accounts minted
-  # after boot. A Stream export, same shape as obs.trace.> above.
+  # Phase 43a (BR-AC34) — the reverse leg of the contract above for
+  # obs.pubsub.>, so the Admin UI's Messages panel sees this tenant's
+  # evt.*/notify.* publish traffic. Day-0 equivalent of accounts-service's
+  # Provisioner.addPlatformPubsubImport path (pubsubExportSubject), which does
+  # this at runtime for accounts minted after boot. A Stream export. No
+  # --allow-trace here — jwt.Export.Validate rejects that flag on anything but
+  # a service export; the flag is on PLATFORM's stream *import* below.
+  # (Phase 54d retired the Phase 28f obs.trace.> export beside it: spans leave
+  # over OTLP now, not NATS.)
   nsc add export --account "$account" --subject "obs.pubsub.>" >/dev/null
 
   # BR-AC31 (Phase 30a) — a second reverse leg: this tenant exports its own
@@ -208,46 +203,11 @@ for account in ACME GLOBEX; do
   nsc add export --account "$account" --service --subject '$JS.API.CONSUMER.DELETE.*.*' >/dev/null
 done
 
-echo "==> PLATFORM imports each tenant's obs.trace.> (Phase 28f cross-account trace store)"
-# This is the day-0 nsc equivalent of accounts-service's
-# Provisioner.addPlatformTraceImport, which does the same thing at runtime
-# for accounts minted after boot (see accounts/provisioner.go).
-#
-# The --local-subject remap is BR-AC36 (Phase 48a), and it is the reason this
-# block cannot be read as "just the identity mapping". Every tenant exports
-# the identical literal "obs.trace.>", so before the remap every tenant's
-# spans arrived on one indistinguishable local subject and the Traces panel
-# could only show a coarse PLATFORM/TENANT split. The token is trustworthy
-# because the NATS server inserts it here, at the account boundary — a tenant
-# cannot assert its own account name in a span payload and be believed.
-#
-# BR-AC34's general lesson applies to this pair as much as to obs.pubsub.>:
-# every export/import pair has two homes, this script and the provisioner,
-# and only the provisioner has tests. A change in one is not a change in the
-# other, and this half is only live after `./bootstrap-operator.sh --force`
-# plus `docker compose down -v && up --build`.
-#
-# ORDERING: PLATFORM's TRACES stream must filter monitor.*.trace.> as well as
-# obs.trace.> before this remap can be reseeded (BR-051, Phase 48b) — with
-# the remap live and the stream still filtering only obs.trace.>, tenant
-# spans are remapped away from the one subject the stream captures and the
-# Traces panel goes empty for every tenant. PLATFORM's own spans are
-# unaffected, which is exactly what makes the breakage easy to miss.
-for account in ACME GLOBEX; do
-  account_pub="$(nsc describe account "$account" --json | jq -r '.sub')"
-  account_name="$(echo "$account" | tr '[:upper:]' '[:lower:]')"
-  nsc add import --account PLATFORM --src-account "$account_pub" \
-    --remote-subject "obs.trace.>" \
-    --local-subject "monitor.${account_name}.trace.>" \
-    --allow-trace >/dev/null
-done
-
 echo "==> PLATFORM imports each tenant's obs.pubsub.> (Phase 43a cross-tenant Messages panel)"
 # Day-0 equivalent of accounts-service's Provisioner.addPlatformPubsubImport
-# (accounts/provisioner.go). Like the obs.trace.> import above, this one
-# carries a per-tenant --local-subject remap (ADR-047 amendment A1) — it just
-# got one a phase earlier, in 43a, because the Messages panel named the
-# publishing tenant while the Traces panel did not yet. Every tenant
+# (accounts/provisioner.go). It carries a per-tenant --local-subject remap
+# (ADR-047 amendment A1), because the Messages panel names the publishing
+# tenant. Every tenant
 # exports the identical literal "obs.pubsub.>", and the local subject is the
 # only thing on the wire that tells a PLATFORM subscriber which account a
 # message came from. Without it GLOBEX's stream lands on ACME's local subject
@@ -266,7 +226,7 @@ echo "==> PLATFORM imports each tenant's \$SRV.> (BR-AC31 cross-account service 
 # Day-0 nsc equivalent of accounts-service's Provisioner.addPlatformMonitorImport
 # (accounts/provisioner.go), which does the same thing at runtime for accounts
 # minted after boot. Every tenant exports the identical literal "$SRV.>"
-# subject, so — unlike the obs.trace.> import above — this needs a
+# subject, so — like the obs.pubsub.> import above — this needs a
 # tenant-scoped --local-subject remap: without it, GLOBEX's import would
 # collide with ACME's on the same local subject.
 for account in ACME GLOBEX; do
@@ -473,9 +433,13 @@ echo "==> restricted PLATFORM observability creds (Phase 30c)"
 # Phase 54b (BR-072) — the live service list. Subscribe on its one exact
 # subject. Publish on rpc._platform.health.*.ready.v1 to ask each PLATFORM
 # service's natsready responder (BR-AS62); without it readiness stays unknown.
+# Phase 54d — the trace store is retired, so its nine Phase 30g/30i grants
+# (TRACES, KV_trace-request-reply, its $KV/$JS.FC/DIRECT.GET/$JS.ACK subjects
+# and its notify subject) are gone. The comments above keep the trail of why
+# the pub/sub store's matching grants exist.
 nsc add user --account PLATFORM observability >/dev/null
 nsc edit user --account PLATFORM --name observability \
-  --allow-pub 'monitor.>,$SRV.>,$JS.API.INFO,$JS.API.STREAM.LIST,$JS.API.STREAM.INFO.*,$JS.API.CONSUMER.CREATE.*,$JS.API.CONSUMER.CREATE.*.*,$JS.API.CONSUMER.CREATE.*.*.>,$JS.API.CONSUMER.MSG.NEXT.*.*,$JS.API.CONSUMER.DELETE.*.*,$JS.API.STREAM.CREATE.TRACES,$JS.API.STREAM.UPDATE.TRACES,$JS.API.STREAM.CREATE.KV_trace-request-reply,$JS.API.STREAM.UPDATE.KV_trace-request-reply,$JS.API.DIRECT.GET.KV_trace-request-reply.>,$JS.ACK.TRACES.trace-store-projector.>,$JS.FC.KV_trace-request-reply.>,$KV.trace-request-reply.>,notify._platform.kv.trace-request-reply.>,$JS.API.STREAM.CREATE.PUBSUB,$JS.API.STREAM.UPDATE.PUBSUB,$JS.API.STREAM.CREATE.KV_pubsub-messages,$JS.API.STREAM.UPDATE.KV_pubsub-messages,$JS.API.DIRECT.GET.KV_pubsub-messages.>,$JS.ACK.PUBSUB.pubsub-store-projector.>,$JS.FC.KV_pubsub-messages.>,$KV.pubsub-messages.>,notify._platform.kv.pubsub-messages.>,rpc._platform.health.*.ready.v1,_INBOX.>' \
+  --allow-pub 'monitor.>,$SRV.>,$JS.API.INFO,$JS.API.STREAM.LIST,$JS.API.STREAM.INFO.*,$JS.API.CONSUMER.CREATE.*,$JS.API.CONSUMER.CREATE.*.*,$JS.API.CONSUMER.CREATE.*.*.>,$JS.API.CONSUMER.MSG.NEXT.*.*,$JS.API.CONSUMER.DELETE.*.*,$JS.API.STREAM.CREATE.PUBSUB,$JS.API.STREAM.UPDATE.PUBSUB,$JS.API.STREAM.CREATE.KV_pubsub-messages,$JS.API.STREAM.UPDATE.KV_pubsub-messages,$JS.API.DIRECT.GET.KV_pubsub-messages.>,$JS.ACK.PUBSUB.pubsub-store-projector.>,$JS.FC.KV_pubsub-messages.>,$KV.pubsub-messages.>,notify._platform.kv.pubsub-messages.>,rpc._platform.health.*.ready.v1,_INBOX.>' \
   --allow-sub 'monitor.>,$SRV.>,_INBOX.>,api._platform.observability.trace.search.v1,api._platform.observability.trace.get.v1,api._platform.observability.trace.services.v1,api._platform.observability.service.list.v1' >/dev/null
 nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/observability.creds"
 
@@ -488,15 +452,9 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # and _INBOX.> replies its api.* endpoints answer on; the JetStream calls that
 # provision and write the mfe-registry KV bucket (resource-scoped to that one
 # bucket, the same shape observability's grants above use); the one notify
-# subject it announces a catalog change on; and its natstrace spans.
-#
-# The trace grant is scoped to obs.trace._platform.mfe-registry.> rather than
-# obs.trace.>, because natstrace builds the subject from the service's own
-# context and service tokens and this service only ever has one of each. It
-# was missed on the first pass and the stack said so immediately: every
-# registry call logged a permissions violation publishing its span, which is
-# how a service goes invisible in the Admin UI's trace waterfall while
-# answering every request correctly. Subscribe is exactly the five api.*
+# subject it announces a catalog change on. Phase 54d retired its legacy-tracer
+# grant (obs.trace._platform.mfe-registry.>): spans now leave over OTLP, not
+# NATS, so no trace subject is granted. Subscribe is exactly the five api.*
 # subjects it serves — as a prefix here, because unlike a browser credential
 # this IS the service that owns them, and the endpoint table in
 # internal/browserrpc is what decides which exist.
@@ -529,7 +487,7 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # and the whole $SYS axis. The registry reads and writes one catalog.
 nsc add user --account PLATFORM mfe-registry-service >/dev/null
 nsc edit user --account PLATFORM --name mfe-registry-service \
-  --allow-pub '$SRV.>,_INBOX.>,notify._platform.mfe-registry.frontend-plugins.changed,notify._platform.mfe-registry.frontend-plugins.health,notify._platform.mfe-registry.entries.reset,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.mfe-registry.>' \
+  --allow-pub '$SRV.>,_INBOX.>,notify._platform.mfe-registry.frontend-plugins.changed,notify._platform.mfe-registry.frontend-plugins.health,notify._platform.mfe-registry.entries.reset,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>' \
   --allow-sub 'api._platform.mfe-registry.>,rpc._platform.mfe-registry.entries.announce.v1,rpc._platform.mfe-registry.entries.unregister.v1,notify._platform.health.frontend.*.v1,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name mfe-registry-service >"$NATS_DIR/creds/mfe-registry-service.creds"
 

@@ -77,7 +77,7 @@ type AccountsClientAccount struct {
 var reservedAccountNames = map[string]bool{"PLATFORM": true, "SYS": true}
 
 // list fetches every account from accounts-service. Best-effort and
-// nil-safe (works on a nil receiver, same convention natstrace.Span's
+// nil-safe (works on a nil receiver, same convention OTel spans'
 // methods use): an unreachable or erroring accounts-service, or an
 // unconfigured BaseURL, returns nil rather than an error — every caller
 // (Labels, TenantNames) must degrade to "nothing resolved", never fail the

@@ -1,9 +1,9 @@
 package refdata_test
 
 // Phase 54a-4: with an otelnats Provider in Deps, rpc.*.refdata.item.get is
-// traced with OTel instead of natstrace. Every other endpoint keeps
-// natstrace until 54b. Without a Provider nothing changes — the natstrace
-// specs in natsrpc_test.go cover that path.
+// traced with OTel (the other endpoints followed in 54b-3a). Since Phase 54d
+// OTel is the only tracer: without a Provider the call is untraced, which
+// natsrpc_test.go's BR-D39 spec covers.
 
 import (
 	"context"
@@ -131,7 +131,7 @@ var _ = Describe("rpc.*.refdata.item.get with an otelnats Provider (Phase 54a-4)
 		})
 	})
 
-	It("publishes no natstrace span for item.get (the path is OTel only)", func() {
+	It("publishes nothing on obs.trace.* for item.get (the path is OTel only)", func() {
 		legacy := make(chan *nats.Msg, 8)
 		sub, err := nc.Subscribe("obs.trace.*.refdata.item.get", func(m *nats.Msg) { legacy <- m })
 		Expect(err).NotTo(HaveOccurred())

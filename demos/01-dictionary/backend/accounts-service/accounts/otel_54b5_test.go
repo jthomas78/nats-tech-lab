@@ -3,9 +3,9 @@ package accounts_test
 // Phase 54b-5: accounts-service on OTel. The Users api.* endpoints are SERVER
 // spans on the PLATFORM account that start a new root (BR-069, BR-071).
 // TraceHTTP picks the REST tracing: the OTel SERVER span when a Provider is
-// set (BR-073), natstrace otherwise (decision 16: the default stack keeps
-// natstrace until the coordinated cutover). The REST-to-publish trace itself
-// is in handler_test.go, beside the BR-037 spec it replaces on the OTel stack.
+// set (BR-073), untraced otherwise (Phase 54d: the old tracer is gone, and
+// nothing is published on obs.trace.*). The REST-to-publish trace itself is
+// in handler_test.go, where it now carries BR-037's rule alone.
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -34,7 +33,7 @@ func otelProvider(exp *tracetest.InMemoryExporter) *otelnats.Provider {
 	return p
 }
 
-func legacySpans(nc *nats.Conn) chan *nats.Msg {
+func obsTraceMsgs(nc *nats.Conn) chan *nats.Msg {
 	GinkgoHelper()
 	ch := make(chan *nats.Msg, 8)
 	sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { ch <- m })
@@ -45,11 +44,11 @@ func legacySpans(nc *nats.Conn) chan *nats.Msg {
 }
 
 var _ = Describe("Phase 54b-5: the Users api.* adapter on OTel", func() {
-	It("BR-069 / BR-071 — .list.v1 is a new-root SERVER span on PLATFORM, and no natstrace span", func() {
+	It("BR-069 / BR-071 — .list.v1 is a new-root SERVER span on PLATFORM, and nothing on obs.trace.*", func() {
 		nc := startEmbeddedNATS("accounts-service-platform")
 		exp := tracetest.NewInMemoryExporter()
 		p := otelProvider(exp)
-		legacy := legacySpans(nc)
+		legacy := obsTraceMsgs(nc)
 
 		adapter, err := accounts.NewUsersAdapter(nc,
 			accounts.NewUserClaimsReader(&fakeUserReadStore{}, &fakeAccountLookup{}, nil),
@@ -85,9 +84,9 @@ var _ = Describe("Phase 54b-5: the Users api.* adapter on OTel", func() {
 		Consistently(legacy, 200*time.Millisecond).ShouldNot(Receive())
 	})
 
-	It("decision 16 — without WithUsersTracing it stays on natstrace", func() {
+	It("Phase 54d — without WithUsersTracing the request still works, and nothing on obs.trace.*", func() {
 		nc := startEmbeddedNATS("accounts-service-platform")
-		legacy := legacySpans(nc)
+		legacy := obsTraceMsgs(nc)
 
 		adapter, err := accounts.NewUsersAdapter(nc,
 			accounts.NewUserClaimsReader(&fakeUserReadStore{}, &fakeAccountLookup{}, nil),
@@ -98,20 +97,20 @@ var _ = Describe("Phase 54b-5: the Users api.* adapter on OTel", func() {
 
 		_, err = nc.Request(accounts.UserListSubject, nil, 2*time.Second)
 		Expect(err).NotTo(HaveOccurred())
-		Eventually(legacy, 2*time.Second).Should(Receive())
+		Consistently(legacy, 200*time.Millisecond).ShouldNot(Receive())
 	})
 })
 
 var _ = Describe("Phase 54b-5: TraceHTTP picks the REST tracing", func() {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
-	It("BR-073 — with a Provider, a SERVER span on PLATFORM and no natstrace span", func() {
+	It("BR-073 — with a Provider, a SERVER span on PLATFORM and nothing on obs.trace.*", func() {
 		nc := startEmbeddedNATS("accounts-service")
 		exp := tracetest.NewInMemoryExporter()
 		p := otelProvider(exp)
-		legacy := legacySpans(nc)
+		legacy := obsTraceMsgs(nc)
 
-		accounts.TraceHTTP(ok, p, natstrace.New(nc)).ServeHTTP(httptest.NewRecorder(),
+		accounts.TraceHTTP(ok, p).ServeHTTP(httptest.NewRecorder(),
 			httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
 
 		Expect(p.ForceFlush(context.Background())).To(Succeed())
@@ -129,13 +128,14 @@ var _ = Describe("Phase 54b-5: TraceHTTP picks the REST tracing", func() {
 		Consistently(legacy, 200*time.Millisecond).ShouldNot(Receive())
 	})
 
-	It("decision 16 — with no Provider, the natstrace HTTP span as before", func() {
+	It("Phase 54d — with no Provider, the request is served untraced and nothing on obs.trace.*", func() {
 		nc := startEmbeddedNATS("accounts-service")
-		legacy := legacySpans(nc)
+		legacy := obsTraceMsgs(nc)
 
-		accounts.TraceHTTP(ok, nil, natstrace.New(nc)).ServeHTTP(httptest.NewRecorder(),
-			httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+		rec := httptest.NewRecorder()
+		accounts.TraceHTTP(ok, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
 
-		Eventually(legacy, 2*time.Second).Should(Receive())
+		Expect(rec.Code).To(Equal(http.StatusOK))
+		Consistently(legacy, 200*time.Millisecond).ShouldNot(Receive())
 	})
 })

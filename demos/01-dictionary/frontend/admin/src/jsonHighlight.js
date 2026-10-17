@@ -17,10 +17,10 @@ export function escapeHtml(str) {
  */
 export function highlightJson(value) {
   if (value === null || value === undefined) return ''
-  // A truncated payload (natstrace's 4 KiB cap) arrives here already as JSON
+  // A truncated payload (the 4 KiB body cap) arrives here already as JSON
   // *text* — the server re-encodes the cut bytes as a JSON string rather
-  // than leaving invalid mid-object syntax inline (see natstrace.go's
-  // finish()) — so `value` is a plain JS string once the outer envelope is
+  // than leaving invalid mid-object syntax inline (see shared/otelnats redact.go's
+  // preparePayload) — so `value` is a plain JS string once the outer envelope is
   // parsed. Running it through JSON.stringify again would re-quote it and
   // backslash-escape every embedded ", producing visibly double-encoded
   // output. Only a non-string value needs stringifying; a string is shown

@@ -64,7 +64,7 @@ const ROOT = {
   action: 'arrive',
   subject: 'api.acme.shipping.ship.arrive.v1',
   statusCode: 'OK',
-  durationMs: 41,
+  durationUs: 41000,
   timestamp: new Date(BASE + 41).toISOString(),
   // Phase 28h — requestPayload closes the "Request body — not captured yet"
   // gap; payload (the reply body) already existed pre-28h.
@@ -85,7 +85,7 @@ const SYNC_CHILD = {
   action: 'get',
   subject: 'rpc._platform.refdata.item.get.v1',
   statusCode: 'OK',
-  durationMs: 24,
+  durationUs: 24000,
   timestamp: new Date(BASE + 30).toISOString(),
 }
 const ASYNC_TAIL = {
@@ -103,7 +103,7 @@ const ASYNC_TAIL = {
   // meta-projector both consume evt.*.shipping.container.>, so one published
   // .registered event yields two otherwise-identical rows.
   attributes: { entity_id: 'MV-AURELIA', 'consumer.durable': 'ship-projector' },
-  durationMs: 3,
+  durationUs: 3000,
   timestamp: new Date(BASE + 54).toISOString(),
 }
 
@@ -118,7 +118,7 @@ const FAILED_ROOT = {
   subject: 'api.acme.shipping.container.register.v1',
   statusCode: 'ERROR',
   error: 'container type not found: REEFER-45',
-  durationMs: 10,
+  durationUs: 10000,
   timestamp: new Date(BASE - 5000 + 10).toISOString(),
 }
 
@@ -138,7 +138,7 @@ const SUBMS_PARENT = {
   action: 'list',
   subject: 'refdata.locales.list.v1',
   statusCode: 'OK',
-  durationMs: 2,
+  durationUs: 2000,
   timestamp: '2026-01-01T00:00:00.266084722Z',
 }
 const SUBMS_CHILD = {
@@ -150,7 +150,7 @@ const SUBMS_CHILD = {
   action: 'list',
   subject: 'rpc.acme.refdata.locales.list.v1',
   statusCode: 'OK',
-  durationMs: 1,
+  durationUs: 1000,
   timestamp: '2026-01-01T00:00:00.265438763Z',
 }
 
@@ -172,7 +172,7 @@ const HTTP_ROOT = {
   action: 'get',
   subject: '/api/refdata/types/string',
   statusCode: 'OK',
-  durationMs: 66,
+  durationUs: 66000,
   timestamp: '2026-08-15T19:53:32.958219254Z',
 }
 const HTTP_OUTBOUND_CHILD = {
@@ -184,7 +184,7 @@ const HTTP_OUTBOUND_CHILD = {
   action: 'list',
   subject: 'refdata.type.list.v1',
   statusCode: 'OK',
-  durationMs: 66,
+  durationUs: 66000,
   timestamp: '2026-08-15T19:53:32.95761067Z',
 }
 const HTTP_INBOUND_GRANDCHILD = {
@@ -196,7 +196,7 @@ const HTTP_INBOUND_GRANDCHILD = {
   action: 'list',
   subject: 'rpc.acme.refdata.type.list.v1',
   statusCode: 'OK',
-  durationMs: 29,
+  durationUs: 29000,
   timestamp: '2026-08-15T19:53:32.956237462Z',
 }
 
@@ -212,7 +212,7 @@ const HTTP_ROOT_SIMPLE = {
   action: 'get',
   subject: '/api/refdata/types/ship-status',
   statusCode: 'OK',
-  durationMs: 12,
+  durationUs: 12000,
   timestamp: new Date(BASE + 100).toISOString(),
 }
 
@@ -321,8 +321,8 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
   })
 
   it('labels a missing responder by why it is missing, not as "not yet finished" (Phase 28r) — an evt.* consumer span never had one to record', async () => {
-    // Every span in the trace store already finished (natstrace.go's finish()
-    // is the only obs.trace.* publish point, called exclusively from End/Fail)
+    // Every span in the trace store already finished (an OTel span is
+    // exported only once it has ended, after a reply or a failure)
     // — a missing Nats-Responder header is never an in-flight state. ASYNC_TAIL
     // (a3, evt.acme.shipping.ship.MV-AURELIA.arrived) is a JetStream consumer
     // reacting to a message, not answering a request, so it carries no
@@ -567,7 +567,7 @@ describe('TraceWaterfall account attribution (Phase 48c, BR-054)', () => {
 // The defect this block exists for was visible only here: the middle hop of a
 // refused cross-account chain drew a BLUE bar while, three rows below, this
 // same panel rendered that span's own Nats-Service-Error in red. The status
-// fix landed in natstrace.End (the record is right at rest, not repaired at
+// fix landed in the legacy tracer's End (the record is right at rest, not repaired at
 // render time), but nothing pinned the panel's error vocabulary at all —
 // every fixture in the block above is statusCode OK except FAILED_ROOT, which
 // is only ever used to assert a responder label. These four cover the bar, the
@@ -582,7 +582,7 @@ const REFUSED_ROOT = {
   subject: 'api.acme.organizations.fleet-asset.add.v1',
   statusCode: 'ERROR',
   statusMessage: 'dictionary item not found',
-  durationMs: 15,
+  durationUs: 15000,
   timestamp: new Date(BASE + 5000 + 15).toISOString(),
 }
 
@@ -605,7 +605,7 @@ const REFUSED_HOP = {
     'Nats-Service-Error-Code': ['404'],
   },
   attributes: { 'rpc.retry_count': '0' },
-  durationMs: 6,
+  durationUs: 6000,
   timestamp: new Date(BASE + 5000 + 14).toISOString(),
 }
 
@@ -620,7 +620,7 @@ const REFUSED_HANDLER = {
   subject: 'rpc.acme.refdata.item.get.v1',
   statusCode: 'ERROR',
   statusMessage: 'dictionary item not found',
-  durationMs: 3,
+  durationUs: 3000,
   timestamp: new Date(BASE + 5000 + 12).toISOString(),
   _tenant: '_platform',
 }

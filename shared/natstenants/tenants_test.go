@@ -75,8 +75,8 @@ func writeTestCreds(t *testing.T, dir, name string) string {
 	return path
 }
 
-// newTestServer starts a plain, no-auth embedded NATS server — mirrors
-// shared/natstrace's own newTestConn helper. No auth configured means the
+// newTestServer starts a plain, no-auth embedded NATS server.
+// No auth configured means the
 // server accepts any syntactically valid connect attempt, so
 // writeTestCreds's throwaway (unregistered) creds are sufficient.
 func newTestServer(t *testing.T) *natsserver.Server {

@@ -25,7 +25,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -86,7 +85,7 @@ type Deps struct {
 	References *commands.ReferenceHandler
 	Log        *slog.Logger
 	// Tracing moves every endpoint onto OTel (item.get in Phase 54a-4, the
-	// rest in 54b-3a). nil keeps every endpoint on natstrace.
+	// rest in 54b-3a). nil leaves every endpoint untraced (Phase 54d).
 	Tracing *otelnats.Provider
 }
 
@@ -96,8 +95,8 @@ const platformAccount = "PLATFORM"
 
 // Adapter is the natsrpc/ dual-transport adapter — a second transport onto
 // the same commands/queries methods the rest/ adapter already calls
-// (BR-D25), with every endpoint wrapped in a natstrace.Tracer (BR-D39) that
-// publishes an obs.trace.* span per call.
+// (BR-D25). With an otelnats Provider every endpoint is wrapped in OTel
+// middleware (BR-D39); without one it runs untraced (Phase 54d).
 type Adapter struct {
 	nc            *nats.Conn
 	localizations *commands.LocalizationHandler
@@ -108,7 +107,6 @@ type Adapter struct {
 	references    *commands.ReferenceHandler
 	log           *slog.Logger
 	svc           micro.Service
-	tracer        *natstrace.Tracer
 	otel          *otelnats.Provider
 }
 
@@ -236,7 +234,6 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		contexts:      deps.Contexts,
 		references:    deps.References,
 		log:           deps.Log,
-		tracer:        natstrace.New(nc),
 		otel:          deps.Tracing,
 	}
 
@@ -267,11 +264,10 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"context-list", a.handleContextList, ContextListSubject},
 	}
 	for _, ep := range endpoints {
-		handler := a.tracer.Middleware(ep.handler)
+		handler := micro.HandlerFunc(ep.handler)
 		if a.otel != nil {
 			// A caller on rpc.* is a trusted service, so the trace continues
-			// (EdgeRPC). natstrace.SpanFrom is nil on this path, so the reply
-			// helpers publish no obs.trace.* span.
+			// (EdgeRPC). Without a Provider the endpoint runs untraced.
 			handler = a.otel.Middleware(otelnats.EdgeRPC, platformTrust, ep.handler)
 		}
 		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
@@ -293,7 +289,7 @@ func (a *Adapter) Stop() error {
 func (a *Adapter) handleItemGet(req micro.Request) {
 	subject := req.Subject()
 	// The reply-to inbox is unique per request, so it doubles as a
-	// correlation ID pairing this request's obs.trace.* span with its reply's
+	// correlation ID pairing this request with its reply
 	// (ARCHITECTURE-COMMUNICATIONS.md §6).
 	correlationID := req.Reply()
 
@@ -303,9 +299,9 @@ func (a *Adapter) handleItemGet(req micro.Request) {
 		return
 	}
 
-	// One of the two contexts is live: otelnats's on the OTel path, natstrace's
-	// otherwise. ContextFrom gives a background context when OTel is off.
-	out, err := a.resolveItemKVFirst(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context, in.TypeKey, in.Code, in.Locale)
+	// otelnats's context carries the span on the OTel path. ContextFrom gives
+	// a background context when OTel is off (untraced, Phase 54d).
+	out, err := a.resolveItemKVFirst(otelnats.ContextFrom(req), in.Context, in.TypeKey, in.Code, in.Locale)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -453,7 +449,7 @@ func (a *Adapter) handleTypeList(req micro.Request) {
 		return
 	}
 
-	out, err := a.resolveTypeKVFirst(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context, in.TypeKey, in.Locale)
+	out, err := a.resolveTypeKVFirst(otelnats.ContextFrom(req), in.Context, in.TypeKey, in.Locale)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -550,7 +546,7 @@ func (a *Adapter) handleItemGetVersioned(req micro.Request) {
 		return
 	}
 
-	entry, err := a.versionReader.Get(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context, in.Version, in.TypeKey, in.Code)
+	entry, err := a.versionReader.Get(otelnats.ContextFrom(req), in.Context, in.Version, in.TypeKey, in.Code)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -578,12 +574,12 @@ func (a *Adapter) handleLocalesList(req micro.Request) {
 		return
 	}
 
-	locales, err := a.localizations.ListLocales(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context)
+	locales, err := a.localizations.ListLocales(otelnats.ContextFrom(req), in.Context)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	defaultLocale, err := a.localizations.DefaultLocale(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Context)
+	defaultLocale, err := a.localizations.DefaultLocale(otelnats.ContextFrom(req), in.Context)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -633,9 +629,9 @@ func (a *Adapter) handleContextList(req micro.Request) {
 	var contexts []domain.Context
 	var err error
 	if in.Tenant != "" {
-		contexts, err = a.contexts.ListByTenant(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)), in.Tenant)
+		contexts, err = a.contexts.ListByTenant(otelnats.ContextFrom(req), in.Tenant)
 	} else {
-		contexts, err = a.contexts.List(natstrace.ContextWithSpan(otelnats.ContextFrom(req), natstrace.SpanFrom(req)))
+		contexts, err = a.contexts.List(otelnats.ContextFrom(req))
 	}
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
@@ -666,28 +662,20 @@ func (a *Adapter) responderIdentity() string {
 	return fmt.Sprintf("%s/%s", info.Name, info.ID)
 }
 
-// respondOK sends a successful reply and only then finishes the natstrace
-// span this request's Tracer.Middleware started (BR-D39), attaching
-// responderHeader to both. Reply-before-trace is deliberate: End does a
-// redact scan, a full JSON-marshal of the span, and a Publish, and none of
-// that may sit between the caller getting its answer and the caller
-// actually getting it — an rpc.* call's measured duration must not include
-// natstrace's own overhead (mirrors shared/browserrpc.Respond's identical
-// ordering for api.*). natstrace.SpanFrom is nil-safe, so a handler invoked
-// directly (not through the middleware, e.g. a unit test calling
-// a.handleX(req) with a bare micro.Request) still replies correctly, it
-// just publishes no span.
+// respondOK sends a successful reply with responderHeader attached. The
+// span, when there is one, belongs to the OTel middleware, which ends it
+// after the handler returns (Phase 54d). A handler
+// invoked directly (e.g. a unit test calling a.handleX(req) with a bare
+// micro.Request) still replies correctly.
 func (a *Adapter) respondOK(req micro.Request, subject, correlationID string, data []byte) {
 	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
 	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
 		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
 	}
-	natstrace.SpanFrom(req).End(data, headers)
 }
 
-// respondError sends the reply and only then finishes the natstrace span on
-// failure (BR-D39 — a failed call must still be visible in the traces
-// view) — same reply-before-trace ordering as respondOK. The reply carries
+// respondError sends the error reply (BR-D39 — on the OTel path the
+// middleware marks the span failed from the error headers). The reply carries
 // real Nats-Service-Error/Nats-Service-Error-Code headers (micro's own
 // error-header convention, BR-D36) via WithHeaders — additive to the
 // existing JSON error body, so no client that reads the body
@@ -706,7 +694,6 @@ func (a *Adapter) respondError(req micro.Request, subject, correlationID string,
 	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
 		a.log.Error("natsrpc: respond failed", "subject", subject, "err", respErr)
 	}
-	natstrace.SpanFrom(req).Fail(err, data, headers)
 }
 
 func contextFromSubject(subject string) string {

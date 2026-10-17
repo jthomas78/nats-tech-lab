@@ -130,7 +130,7 @@ func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, vetting *Vetting, log *s
 // disables that feature rather than degrading it — see tenants.Manager.
 // tracing moves every tenant's api.* adapter, refdata client, evt.*
 // appends, projector and lifecycle subscription onto OTel (Phase 54a-4,
-// 54b-3b). nil keeps every path on natstrace.
+// 54b-3b). nil leaves every path untraced (Phase 54d).
 func MountTenants(ctx context.Context, natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte, tracing *otelnats.Provider) (*tenants.Manager, error) {
 	mgr := tenants.NewManager(natsURL, credsDir, db, log, secretKey, tracing).
 		WithCertificateWriter(postgres.NewComplianceDocumentRepository(db))

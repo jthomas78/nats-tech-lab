@@ -25,12 +25,23 @@ import (
 //
 // A handler that publishes with r.Context() makes its PRODUCER span a child
 // of this SERVER span, so one REST operation is one trace. Error status
-// follows OTel's HTTP server convention: 5xx only, not natstrace's 400 and
-// up.
+// follows OTel's HTTP server convention: 5xx only.
 func (p *Provider) HTTPMiddleware(receivingAccount string, next http.Handler) http.Handler {
+	return p.HTTPMiddlewareFor(func(*http.Request) string { return receivingAccount }, next)
+}
+
+// HTTPMiddlewareFor is HTTPMiddleware with the receiving account read per
+// request, for a service whose active account can change between requests
+// (shipping-service's SwitchTenant, Phase 54d). receivingAccount is the
+// caller's own state, never a value from the request (BR-069). A
+// self-declared Nats-Requestor header becomes lab.requester (BR-041).
+func (p *Provider) HTTPMiddlewareFor(receivingAccount func(*http.Request) string, next http.Handler) http.Handler {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
-		span.SetAttributes(AttrReceivingAccount.String(receivingAccount))
+		span.SetAttributes(AttrReceivingAccount.String(receivingAccount(r)))
+		if requester := r.Header.Get(RequestorHeader); requester != "" {
+			span.SetAttributes(AttrRequester.String(requester))
+		}
 		if p.cfg.CaptureBodies && r.Body != nil && span.IsRecording() {
 			body, err := io.ReadAll(r.Body)
 			_ = r.Body.Close()

@@ -62,13 +62,8 @@ var subjectBuilders = map[string]string{
 	"accounts-service/accounts/handler.go": "" +
 		"accounts' one shape. Four tokens and no {context} at all — this " +
 		"service administers the tenant axis rather than operating inside " +
-		"one — which is below natstrace.ObservePublish's floor and the " +
+		"one — which was below the retired legacy tracer's ObservePublish floor and the " +
 		"clearest case for naming tokens rather than deriving them.",
-
-	"observability-service/observability/internal/tracestore/tracestore.go": "" +
-		"its own internal KV-change plumbing for the trace-request-reply " +
-		"bucket. Its Notifier is built without WithObservation: BR-045 names " +
-		"this excluded, and the gate is now what says so.",
 
 	"observability-service/observability/internal/pubsubstore/pubsubstore.go": "" +
 		"same internal-plumbing reasoning, and additionally unsafe to " +

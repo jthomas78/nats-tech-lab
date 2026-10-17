@@ -60,8 +60,8 @@ func run(log *slog.Logger) error {
 	// Phase 25f: one api.* adapter per known tenant, so a Sea Freight Flow
 	// browser authenticated into any tenant's account can reach
 	// pricing-service immediately — see shared/natstenants.
-	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set; nil keeps
-	// natstrace.
+	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set; nil runs
+	// untraced (Phase 54d).
 	tracing, err := otelnats.InitFromEnv(ctx, "pricing-service")
 	if err != nil {
 		return err

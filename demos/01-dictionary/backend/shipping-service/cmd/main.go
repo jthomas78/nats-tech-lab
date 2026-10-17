@@ -114,8 +114,8 @@ func run(log *slog.Logger) error {
 
 	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, credsDir: credsDir, mux: http.NewServeMux(), logger: log}
 
-	// Phase 54b-4: nil when OTEL_EXPORTER_OTLP_ENDPOINT is unset, which keeps
-	// every tenant's traffic on natstrace.
+	// Phase 54b-4: nil when OTEL_EXPORTER_OTLP_ENDPOINT is unset, which leaves
+	// every tenant's traffic untraced (Phase 54d retired the legacy tracer).
 	tracing, err := otelnats.InitFromEnv(ctx, "shipping-service")
 	if err != nil {
 		return err

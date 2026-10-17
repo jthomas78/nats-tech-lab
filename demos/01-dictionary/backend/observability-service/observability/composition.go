@@ -17,14 +17,12 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/servicelist"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/tracequery"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/tracestore"
 )
 
 // Handlers is the composition root Startup returns — cmd/main.go calls
 // Mount on it once the HTTP mux exists, and Stop before shutdown.
 type Handlers struct {
 	rest        *rest.Handlers
-	traceStore  jetstream.ConsumeContext
 	pubsubStore jetstream.ConsumeContext
 	// stopTraceQuery stops the Phase 54 trace query gateway. Nil when
 	// TempoURL is unset (the default stack has no Tempo).
@@ -54,29 +52,22 @@ type Config struct {
 // connection (BR-AC31/BR-AC32's per-tenant exports/imports resolve
 // cross-account reach through it — no per-tenant connection of this
 // service's own, unlike shipping-service's TenantResources fan-out Phase 30
-// exists specifically to avoid). Phase 30g: also provisions the TRACES
-// stream/KV bucket and starts the trace-store projector on the same
-// connection — see tracestore.Register's doc comment for why that's safe
-// without a second, broader connection the way shipping-service's original
-// needed.
+// exists specifically to avoid). It also starts the pubsub-store projector
+// on the same connection. The TRACES trace store that Phase 30g added here
+// was retired in Phase 54d; Tempo holds traces now (BR-068).
 func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (*Handlers, error) {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		return nil, err
 	}
-	traceStore, err := tracestore.Register(ctx, js, nc, log)
-	if err != nil {
-		return nil, err
-	}
-	// Phase 43b (BR-047): the publish-side sibling of the trace store, on its
-	// own PUBSUB stream and pubsub-messages bucket so an evt.* burst cannot
-	// evict RPC traces.
+	// Phase 43b (BR-047): the pub/sub store, on its own PUBSUB stream and
+	// pubsub-messages bucket.
 	pubsubStore, err := pubsubstore.Register(ctx, js, nc, log)
 	if err != nil {
 		return nil, err
 	}
 	// BR-043 — the Overview tab's trend charts need real history, not just
-	// /accstatz's live snapshot. Tied to ctx like traceStore's consumer:
+	// /accstatz's live snapshot. Tied to ctx:
 	// Run exits on its own once the process's shutdown signal cancels ctx,
 	// so there's nothing separate for Handlers.Stop to drain here.
 	history := rest.NewAccstatzHistory(cfg.NatsMonitorURL, log)
@@ -90,7 +81,6 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 		stopTraceQuery, err = tracequery.Mount(nc, backend)
 		if err != nil {
 			pubsubStore.Stop()
-			traceStore.Stop()
 			return nil, err
 		}
 		log.Info("trace query gateway mounted", "subjects", tracequery.Subjects())
@@ -109,7 +99,6 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 			_ = stopTraceQuery()
 		}
 		pubsubStore.Stop()
-		traceStore.Stop()
 		return nil, err
 	}
 	log.Info("service list mounted", "subject", servicelist.Subject)
@@ -123,7 +112,6 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 			Accounts:       accounts,
 			History:        history,
 		}),
-		traceStore:      traceStore,
 		pubsubStore:     pubsubStore,
 		stopTraceQuery:  stopTraceQuery,
 		stopServiceList: stopServiceList,
@@ -135,8 +123,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	h.rest.Mount(mux)
 }
 
-// Stop drains the trace-store and pubsub-store projectors' consumers.
-// Nil-safe (either Register returns a nil ConsumeContext if nc/js were nil).
+// Stop drains the pubsub-store projector's consumer and the NATS gateways.
+// Nil-safe (Register returns a nil ConsumeContext if nc/js were nil).
 func (h *Handlers) Stop() {
 	if h.stopServiceList != nil {
 		_ = h.stopServiceList()
@@ -146,8 +134,5 @@ func (h *Handlers) Stop() {
 	}
 	if h.pubsubStore != nil {
 		h.pubsubStore.Stop()
-	}
-	if h.traceStore != nil {
-		h.traceStore.Stop()
 	}
 }

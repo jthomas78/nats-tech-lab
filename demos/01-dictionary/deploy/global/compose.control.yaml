@@ -68,7 +68,7 @@ services:
   accounts-service:
     build:
       # Phase 35: context is the repo root so the build can copy
-      # shared/natstrace alongside the service source (same pattern the
+      # the shared/* modules alongside the service source (same pattern the
       # frontend build blocks already use for shared/unifi-theme).
       context: ../../../..
       dockerfile: demos/01-dictionary/backend/accounts-service/Dockerfile

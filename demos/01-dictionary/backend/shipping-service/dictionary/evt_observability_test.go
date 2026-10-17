@@ -27,7 +27,7 @@ func observedSubject(t *testing.T, evtSubject string, payload []byte) string {
 	obs := natstest.Observations(t, nc)
 
 	pub := jstream.NewPublisher(js, jstream.WithObservation(nc))
-	if err := pub.PublishWithTrace(context.Background(), nil, evtSubject, payload); err != nil {
+	if err := pub.Publish(context.Background(), evtSubject, payload); err != nil {
 		t.Fatal(err)
 	}
 	select {

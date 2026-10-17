@@ -177,7 +177,7 @@ func RegisterRefdataNotify(ctx context.Context, platformJS jetstream.JetStream, 
 // refdata-service's RPCTRACE stream (obs.rpc.*, BR-D29) onto
 // notify._platform.rpctrace.entry for the Admin UI's old [messages] tab.
 // Nothing had published to obs.rpc.* since Phase 28a-28e replaced every
-// adapter's publishObs call with a natstrace span — this bridge was a live
+// adapter's publishObs call with a legacy-tracer span — this bridge was a live
 // pipe carrying nothing. The [messages] tab now derives from obs.trace.*/
 // the trace-request-reply KV bucket instead (BR-026's Phase 28g amendment,
 // BUSINESS_RULES-SHIPPING.md). See platform_notify_test.go's removed

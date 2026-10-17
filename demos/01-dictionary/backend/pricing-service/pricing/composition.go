@@ -64,7 +64,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 // returned Manager on shutdown.
 //
 // tracing, when set, puts every tenant's api.* endpoints and its lifecycle
-// deliveries on OTel (Phase 54b-5). Nil keeps natstrace.
+// deliveries on OTel (Phase 54b-5). Nil runs untraced (Phase 54d).
 func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, log *slog.Logger, tracing *otelnats.Provider) (*natstenants.Manager[*browserrpc.Adapter], error) {
 	deps := browserrpc.Deps{
 		FeeScales:  h.FeeScales,

@@ -3,8 +3,10 @@ package organizations_test
 // Phase 54b-3b: every api.*.organizations.* endpoint on OTel, not just
 // fleet-asset add (54a-4). With a Provider in Deps each endpoint is a SERVER
 // span on the tenant's account (BR-069), started as a new root (BR-071), and
-// no natstrace span is published. Decision 6's audit: the ctx a handler hands
-// the command layer carries that SERVER span, not context.Background().
+// nothing is published on obs.trace.* (Phase 54d retired the legacy tracer; these
+// are now the module's api.* span specs). Decision 6's audit: the ctx a
+// handler hands the command layer carries that SERVER span, not
+// context.Background().
 
 import (
 	"context"
@@ -15,6 +17,7 @@ import (
 	"github.com/nats-io/nats.go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
@@ -169,7 +172,21 @@ var _ = Describe("Phase 54b-3b: every api.*.organizations.* endpoint on OTel", f
 		Expect(s.Links[0].SpanContext.TraceID().String()).To(Equal(sentTraceID))
 	})
 
-	It("publishes no natstrace span for any organizations endpoint (the path is OTel only)", func() {
+	// Moved from browserrpc_roundtrip_test.go's obs.trace.* side-channel
+	// context when Phase 54d retired the legacy tracer.
+	It("BR-037 — marks a failed call's SERVER span ERROR with the error message", func() {
+		m := nats.NewMsg("api.acme-north.organizations.organization.get.v1")
+		m.Data = []byte(`{"id":"does-not-exist"}`)
+		reply, err := nc.RequestMsg(m, 2*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("404"))
+
+		s := serverSpan("api.acme-north.organizations.organization.get.v1")
+		Expect(s.Status.Code).To(Equal(codes.Error))
+		Expect(s.Status.Description).NotTo(BeEmpty())
+	})
+
+	It("publishes nothing on obs.trace.> for any organizations endpoint (the path is OTel only)", func() {
 		legacy := make(chan *nats.Msg, 8)
 		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })
 		Expect(err).NotTo(HaveOccurred())

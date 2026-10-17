@@ -9,7 +9,7 @@ import { usePlatformConnection } from '../nats/usePlatformConnection.js'
 // every service registered via nats.go/micro, read from
 // observability-service's live service list over the Admin UI's PLATFORM
 // connection (api._platform.observability.service.list.v1). There is no
-// REST fallback: GET /api/nats/services stays only until 54d retires it.
+// REST fallback: Phase 54d retired GET /api/nats/services.
 //
 // The snapshot already did the discovery: PING/INFO/STATS in PLATFORM and in
 // each tenant account (BR-AC31's monitor.{tenant}.srv.> import) inside one

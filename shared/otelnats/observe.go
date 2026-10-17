@@ -16,11 +16,11 @@ import (
 
 // Observer publishes the obs.pubsub.* observation for an evt.* or notify.*
 // publish (BR-045). It is the Messages wire tap's publisher, moved here from
-// natstrace (decision 13). The trace and span IDs come from the OTel span in
+// the retired legacy tracer (decision 13). The trace and span IDs come from the OTel span in
 // ctx, so a Messages row still links to its trace in Tempo.
 //
-// The envelope keeps natstrace's field names, so the observability-service
-// ingest (BR-047) and the Admin UI read it unchanged.
+// The envelope keeps the legacy tracer's field names, so the
+// observability-service ingest (BR-047) and the Admin UI read it unchanged.
 type Observer struct {
 	nc *nats.Conn
 }
@@ -32,7 +32,7 @@ func NewObserver(nc *nats.Conn) *Observer {
 	return &Observer{nc: nc}
 }
 
-// envelope is the obs.pubsub.* wire shape: natstrace's traceSpan, cut to the
+// envelope is the obs.pubsub.* wire shape: the legacy tracer's span record, cut to the
 // fields a publish observation fills. The JSON names must not change (BR-047).
 type envelope struct {
 	Direction    string          `json:"direction"`

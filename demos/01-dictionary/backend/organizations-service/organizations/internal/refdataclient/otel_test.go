@@ -1,8 +1,8 @@
 package refdataclient_test
 
-// Phase 54a-4: with an otelnats Provider, the client makes OTel CLIENT spans
-// instead of natstrace ones. The natstrace specs in client_test.go cover the
-// path with no Provider, which is still the default stack's.
+// Phase 54a-4: with an otelnats Provider, the client makes OTel CLIENT spans.
+// Since Phase 54d these are the only span specs; client_test.go pins that
+// the call with no Provider is untraced.
 
 import (
 	"context"
@@ -94,6 +94,25 @@ var _ = Describe("refdataclient.Client with an otelnats Provider (Phase 54a-4)",
 			Expect(ok).To(BeTrue())
 			Expect(n).To(BeZero())
 		})
+
+		It("makes the CLIENT span a root when ctx carries no span", func() {
+			sub, err := nc.Subscribe("refdata.item.get.v1", func(m *nats.Msg) {
+				_ = m.Respond([]byte(`{"item":{"code":"TAUTLINER","status":"active"}}`))
+			})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			exp := tracetest.NewInMemoryExporter()
+			p := otelProvider(exp)
+			_, err = refdataclient.New(nc, refdataclient.WithTracing(p)).Exists(context.Background(), "acme-north", "TAUTLINER")
+			Expect(err).NotTo(HaveOccurred())
+
+			spans := clientSpans(p, exp)
+			Expect(spans).To(HaveLen(1))
+			Expect(spans[0].Parent.IsValid()).To(BeFalse(), "no span in ctx means this is a root span")
+			Expect(spans[0].Status.Code).NotTo(Equal(codes.Error))
+		})
 	})
 
 	Context("BR-065 — the CLIENT span belongs to the caller", func() {
@@ -172,7 +191,7 @@ var _ = Describe("refdataclient.Client with an otelnats Provider (Phase 54a-4)",
 		})
 	})
 
-	It("publishes no natstrace span on obs.trace.> when a Provider is set (the path is OTel only)", func() {
+	It("publishes nothing on obs.trace.> when a Provider is set (the path is OTel only)", func() {
 		legacy := make(chan *nats.Msg, 4)
 		spanSub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })
 		Expect(err).NotTo(HaveOccurred())

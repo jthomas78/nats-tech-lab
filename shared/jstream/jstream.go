@@ -10,7 +10,7 @@
 // a one-off tool stays silent.
 //
 // Unlike natsnotify, this seam derives its observability tokens positionally
-// from the subject (natstrace.Tracer.ObservePublish). That is sound here and
+// from the subject (otelnats.Observer.ObservePublish). That is sound here and
 // is not for evt.* what it was for notify.*: every evt.* subject in the tree
 // is evt.{context}.{service}.{entity}.{id}.{action}, which the deriver reads
 // correctly. notify.* had two shapes it could not.
@@ -25,7 +25,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel/codes"
 
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -66,17 +65,12 @@ func CreateStream(ctx context.Context, js jetstream.JetStream, name string, subj
 type Publisher struct {
 	js jetstream.JetStream
 
-	// observer, when set by WithObservation, emits an obs.pubsub.* copy of
-	// every publish that goes through PublishWithTrace (Phase 43a, BR-045 /
-	// BR-D45). Nil by default.
-	observer *natstrace.Tracer
-
-	// otelObserver is the same observation on the OTel path (decision 13).
-	// WithObservation sets both; WithOTel picks which one runs.
+	// otelObserver, when set by WithObservation, emits an obs.pubsub.* copy
+	// of every publish (Phase 43a, BR-045 / BR-D45). Nil by default.
 	otelObserver *otelnats.Observer
 
 	// otel, when set by WithOTel, puts Publish on the OTel path (Phase 54,
-	// decision 16). Nil keeps natstrace.
+	// decision 16). Nil publishes with no span.
 	otel *otelnats.Provider
 }
 
@@ -101,7 +95,6 @@ type Option func(*Publisher)
 // can attribute it to the right tenant (BR-D45, BR-AC34).
 func WithObservation(nc *nats.Conn) Option {
 	return func(p *Publisher) {
-		p.observer = natstrace.New(nc)
 		p.otelObserver = otelnats.NewObserver(nc)
 	}
 }
@@ -117,42 +110,26 @@ func NewPublisher(js jetstream.JetStream, opts ...Option) *Publisher {
 	return p
 }
 
-// PublishWithTrace publishes data to subject with a traceparent header
-// derived from sp (BR-037) — nil-safe: a nil sp (no span reachable at the
-// call site, e.g. ctx carried none) publishes with no traceparent header at
-// all.
-//
-// This is the only exported publish on the seam, and deliberately so: the
+// Publish is the only exported publish on the seam, and deliberately so: the
 // plain and header-carrying primitives beneath it are reachable only from
 // inside this package, which is what makes "every evt.* publish is traced and
 // observed" a property of the type rather than a convention callers keep.
+//
+// With WithOTel it starts a PRODUCER span from ctx, injects its traceparent
+// (BR-037), and observes with that span's IDs. Without it, the publish
+// carries no traceparent (Phase 54d retired the legacy tracer fallback).
 //
 // The observation is emitted only after the domain publish succeeds — an
 // event that never reached the stream did not happen, and must not appear on
 // an operator's wire tap — and is fire-and-forget: its own failure is
 // invisible here by design (BR-045, ADR-047 A7).
-func (p *Publisher) PublishWithTrace(ctx context.Context, sp *natstrace.Span, subject string, data []byte) error {
-	var err error
-	if sp == nil {
-		err = p.publish(ctx, subject, data)
-	} else {
-		err = p.publishMsg(ctx, subject, nats.Header{natstrace.TraceparentHeader: []string{sp.Traceparent()}}, data)
-	}
-	if err != nil {
-		return err
-	}
-	p.observer.ObservePublish(sp, subject, data)
-	return nil
-}
-
-// Publish is the ctx-only form of PublishWithTrace, and the one callers move
-// to in 54b. With WithOTel it starts a PRODUCER span from ctx, injects its
-// traceparent, and observes with that span's IDs; a failed publish marks the
-// span Error and is not observed. Without it, it takes the natstrace span
-// from ctx and behaves as PublishWithTrace. PublishWithTrace goes in 54d.
 func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) error {
 	if p.otel == nil {
-		return p.PublishWithTrace(ctx, natstrace.SpanFromContext(ctx), subject, data)
+		if err := p.publish(ctx, subject, data); err != nil {
+			return err
+		}
+		p.otelObserver.ObservePublish(ctx, subject, data)
+		return nil
 	}
 
 	ctx, span := p.otel.StartProducer(ctx, subject)

@@ -141,8 +141,9 @@ func TestNotifyObservationIsSkippedWhenTheTenantPublishFails(t *testing.T) {
 // TestEvtPublishIsObservedViaTheSeamNotTheCallSite is a checked convention in
 // the same spirit as BR-049's notify coverage test: kvcache is where this
 // service's evt.* publish is *called* (kvcache.go's NotifyItemChanged), and it
-// must stay free of natstrace wiring — the observation belongs to the
+// must stay free of observation wiring — the observation belongs to the
 // jstream.Publisher seam it delegates to, so the next evt.* caller inherits it.
+// Since Phase 54d the observer is otelnats.Observer.
 func TestEvtPublishIsObservedViaTheSeamNotTheCallSite(t *testing.T) {
 	dir := filepath.Join("internal", "kvcache")
 	entries, err := os.ReadDir(dir)
@@ -169,20 +170,16 @@ func TestEvtPublishIsObservedViaTheSeamNotTheCallSite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
 		}
-		// natstrace itself is expected here — kvcache carries the caller's
-		// span through to the publisher. What must not appear is an
-		// Observe* call: that is the seam's job.
+		// kvcache carries the caller's ctx (and any OTel span in it) through
+		// to the publisher. What must not appear is an observer — an
+		// otelnats.NewObserver or any Observe* call: that is the seam's job.
 		ast.Inspect(file, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)
 			if !ok {
 				return true
 			}
-			id, ok := sel.X.(*ast.Ident)
-			if !ok || id.Name != "natstrace" {
-				return true
-			}
-			if strings.HasPrefix(sel.Sel.Name, "Observe") {
-				t.Errorf("%s calls natstrace.%s at the call site: evt.* observation "+
+			if strings.HasPrefix(sel.Sel.Name, "Observe") || sel.Sel.Name == "NewObserver" {
+				t.Errorf("%s calls %s at the call site: evt.* observation "+
 					"belongs to the jstream.Publisher seam (ADR-047 A3), so the next "+
 					"evt.* caller inherits it", path, sel.Sel.Name)
 			}

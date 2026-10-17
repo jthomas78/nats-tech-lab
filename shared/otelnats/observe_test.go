@@ -15,7 +15,7 @@ import (
 )
 
 // pubsubEnvelope is the part of the obs.pubsub.* envelope these specs read.
-// The field names are natstrace's, unchanged (BR-045, BR-047).
+// The field names are the legacy tracer's, unchanged (BR-045, BR-047).
 type pubsubEnvelope struct {
 	Direction    string          `json:"direction"`
 	Subject      string          `json:"subject"`
@@ -144,7 +144,7 @@ var _ = Describe("BR-045: the obs.pubsub.* publisher takes its IDs from the OTel
 		Expect(env.Redacted).To(ConsistOf("actorName"))
 		Expect(env.Truncated).To(BeFalse())
 		// payloadBytes is the size after redaction, before truncation, as
-		// natstrace sent it (decision 13: behaviour unchanged).
+		// the retired legacy tracer sent it (decision 13: behaviour unchanged).
 		Expect(env.PayloadBytes).To(Equal(len(`{"pad":"` + strings.Repeat("x", 4070) + `"}`)))
 	})
 

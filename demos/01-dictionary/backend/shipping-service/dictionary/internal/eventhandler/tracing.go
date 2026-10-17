@@ -11,7 +11,6 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // Option configures a projector at registration.
@@ -55,21 +54,18 @@ func (c projectorConfig) notifier(nc *nats.Conn, log *slog.Logger) *natsnotify.N
 // its ctx and the function that ends it: nil for success, the projection
 // error otherwise.
 //
-// On the natstrace path (BR-037, Phase 28d) the span continues the evt.*
-// publish's traceparent, labelled from the subject fields the caller already
-// parsed — evt.*'s six-token shape isn't the rpc.*/api.* shape
-// StartFromHeaders would parse itself. On the OTel path the per-message ctx
-// starts from context.Background(), so the CONSUMER span's parent is the
-// message's traceparent and never a span left on the registration ctx.
+// The per-message ctx starts from context.Background(), so the CONSUMER
+// span's parent is the message's traceparent (BR-037) and never a span
+// left on the registration ctx. Without a Provider the message is untraced
+// (Phase 54d).
 //
-// Both paths record entity_id and consumer.durable: the container and meta
+// The span records entity_id and consumer.durable: the container and meta
 // projectors consume the same evt.* message, and the durable name is what
 // tells their two spans apart.
 func (c projectorConfig) startMessage(
-	tracer *natstrace.Tracer,
 	msgCtx context.Context,
 	msg jetstream.Msg,
-	eventContext, aggregate, eventType, id, durable string,
+	id, durable string,
 ) (context.Context, func(error)) {
 	if c.otel != nil {
 		ctx, span := c.otel.StartConsumer(context.Background(),
@@ -88,14 +84,5 @@ func (c projectorConfig) startMessage(
 		}
 	}
 
-	sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), eventContext, "shipping", aggregate, eventType)
-	sp.SetAttribute("entity_id", id)
-	sp.SetAttribute(consumerDurableAttr, durable)
-	return natstrace.ContextWithSpan(msgCtx, sp), func(err error) {
-		if err != nil {
-			sp.Fail(err, nil, nil)
-			return
-		}
-		sp.End(nil, nil)
-	}
+	return msgCtx, func(error) {}
 }

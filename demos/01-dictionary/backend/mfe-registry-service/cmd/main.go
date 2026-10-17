@@ -122,8 +122,8 @@ func run(log *slog.Logger) error {
 	for _, warning := range warnings {
 		log.Warn("registry: " + warning)
 	}
-	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set; nil keeps
-	// natstrace.
+	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set; nil serves
+	// untraced (Phase 54d).
 	tracing, err := otelnats.InitFromEnv(ctx, "mfe-registry-service")
 	if err != nil {
 		return err

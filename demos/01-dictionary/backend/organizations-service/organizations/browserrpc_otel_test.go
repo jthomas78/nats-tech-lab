@@ -1,10 +1,9 @@
 package organizations_test
 
 // Phase 54a-4: with an otelnats Provider in Deps, the fleet-asset add
-// endpoint is traced with OTel instead of natstrace. 54b-3b moved every other
-// endpoint too (browserrpc_otel_54b3b_test.go). Without a Provider nothing
-// changes — the
-// natstrace specs in browserrpc_roundtrip_test.go cover that path.
+// endpoint is traced with OTel. 54b-3b moved every other endpoint too
+// (browserrpc_otel_54b3b_test.go). Without a Provider the endpoint is
+// untraced (Phase 54d) — browserrpc_roundtrip_test.go pins that path.
 
 import (
 	"context"
@@ -157,7 +156,7 @@ var _ = Describe("fleet-asset add with an otelnats Provider (Phase 54a-4)", func
 		})
 	})
 
-	It("publishes no natstrace span for fleet-asset add (the path is OTel only)", func() {
+	It("publishes nothing on obs.trace.* for fleet-asset add (the path is OTel only)", func() {
 		legacy := make(chan *nats.Msg, 8)
 		sub, err := nc.Subscribe("obs.trace.*.organizations.fleet-asset.>", func(m *nats.Msg) { legacy <- m })
 		Expect(err).NotTo(HaveOccurred())

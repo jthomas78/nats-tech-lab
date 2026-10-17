@@ -16,8 +16,8 @@ import { useUiStore } from '../stores/ui.js'
 // the trace-request-reply KV bucket — flattened to one row per SPAN instead of one row
 // per trace. These specs cover that flattening, family/status filtering
 // carried over from the old view, and the single-pane (reply-only) detail
-// view: the old two-pane Request | Reply split is gone because a natstrace
-// span carries only the reply side (BR-037's one-span-per-call design).
+// view: the old two-pane Request | Reply split is gone because a legacy-tracer
+// span carried only the reply side (BR-037's one-span-per-call design).
 //
 // Phase 54c (BR-076) — the spans come from the trace query gateway. The
 // connection is mocked with a request() that answers trace.search.v1 and

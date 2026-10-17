@@ -8,7 +8,6 @@ require (
 	github.com/jthomas78/nats-tech-lab/shared/mferegistry v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsconn v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsnotify v0.0.0-00010101000000-000000000000
-	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/otelnats v0.0.0-00010101000000-000000000000
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats-server/v2 v2.14.5
@@ -77,7 +76,7 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-// Phase 35: shared/natstrace is a workspace member (see go.work at the repo
+// Phase 35: the shared/* modules are workspace members (see go.work at the repo
 // root) — this replace is a defensive belt-and-suspenders pin, not the
 // primary resolution mechanism, since plain `go mod` subcommands (tidy, in
 // particular) don't reliably honor go.work's implicit local override once
@@ -87,8 +86,6 @@ replace github.com/jthomas78/nats-tech-lab/shared/browserrpc => ../../../../shar
 replace github.com/jthomas78/nats-tech-lab/shared/mferegistry => ../../../../shared/mferegistry
 
 replace github.com/jthomas78/nats-tech-lab/shared/natsnotify => ../../../../shared/natsnotify
-
-replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../shared/natstrace
 
 replace github.com/jthomas78/nats-tech-lab/shared/natsconn => ../../../../shared/natsconn
 

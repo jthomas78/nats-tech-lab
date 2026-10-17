@@ -34,7 +34,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/domain"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -99,9 +98,8 @@ type Deps struct {
 	// Services panel to label same-named instances by tenant (mirrors
 	// shipping-service's browserrpc.Deps.Tenant, Phase 17c).
 	Tenant string
-	// Tracing, when set, traces every endpoint with OTel instead of natstrace
-	// (Phase 54b-5; set only on the OTel stack). Nil keeps natstrace on every
-	// endpoint.
+	// Tracing, when set, traces every endpoint with OTel (Phase 54b-5). Nil
+	// leaves every endpoint untraced (Phase 54d).
 	Tracing *otelnats.Provider
 }
 
@@ -114,7 +112,6 @@ type Adapter struct {
 	fixedRates *commands.FixedRateHandler
 	log        *slog.Logger
 	svc        micro.Service
-	tracer     *natstrace.Tracer
 	otel       *otelnats.Provider
 	tenant     string
 }
@@ -270,7 +267,6 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		rateSheets: deps.RateSheets,
 		fixedRates: deps.FixedRates,
 		log:        deps.Log,
-		tracer:     natstrace.New(nc),
 		otel:       deps.Tracing,
 		tenant:     deps.Tenant,
 	}
@@ -332,7 +328,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"rate-sheet-apply-overlay", a.handleRateSheetApplyOverlay, RateSheetApplyOverlaySubject},
 	}
 	for _, ep := range endpoints {
-		handler := a.tracer.Middleware(ep.handler)
+		handler := micro.HandlerFunc(ep.handler)
 		if a.otel != nil {
 			// A browser call: a new root, any sent traceparent only a link
 			// (BR-071). The receiving account is this adapter's tenant, and
@@ -719,8 +715,7 @@ func (a *Adapter) handleRateSheetApplyOverlay(req micro.Request) {
 // reply is the shared tail end of every handler above: nil error replies
 // with result, any error replies with the mapped error response. Delegates
 // to shared/browserrpc.Reply, which derives subject/correlationID from req
-// itself, marshals, finishes the natstrace span, and stamps
-// Nats-Responder.
+// itself, marshals, and stamps Nats-Responder.
 func (a *Adapter) reply(req micro.Request, result any, err error) {
 	sharedbrowserrpc.Reply(req, a.svc, a.log, isNotFoundErr, result, err)
 }

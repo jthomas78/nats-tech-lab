@@ -20,7 +20,6 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/shared/natstest"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 const subject = "evt.acme.shipping.ship.s1.arrived"
@@ -65,32 +64,18 @@ func decode(t *testing.T, m *nats.Msg) envelope {
 	return env
 }
 
-// --- BR-037: the traceparent -------------------------------------------
+// --- BR-037: the traceparent (the OTel path is in jstream_otel_test.go) ---
 
-func TestPublishWithTraceAttachesTraceparentWhenSpanPresent(t *testing.T) {
+func TestPublishWithoutOTelCarriesNoTraceparent(t *testing.T) {
 	nc, js := setup(t)
 	received := natstest.Subscribe(t, nc, subject)
 
-	sp := natstrace.New(nc).StartOutbound(nil, subject, nil, "acme", "shipping", "ship", "arrived")
-	if err := jstream.NewPublisher(js).PublishWithTrace(context.Background(), sp, subject, []byte(`{}`)); err != nil {
+	if err := jstream.NewPublisher(js).Publish(context.Background(), subject, []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 
-	if got := awaitMsg(t, received).Header.Get(natstrace.TraceparentHeader); got == "" {
-		t.Fatal("expected a traceparent header")
-	}
-}
-
-func TestPublishWithTraceOmitsTraceparentWhenSpanNil(t *testing.T) {
-	nc, js := setup(t)
-	received := natstest.Subscribe(t, nc, subject)
-
-	if err := jstream.NewPublisher(js).PublishWithTrace(context.Background(), nil, subject, []byte(`{}`)); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := awaitMsg(t, received).Header.Get(natstrace.TraceparentHeader); got != "" {
-		t.Fatalf("expected no traceparent header when sp is nil, got %q", got)
+	if got := awaitMsg(t, received).Header.Get("traceparent"); got != "" {
+		t.Fatalf("expected no traceparent header without OTel, got %q", got)
 	}
 }
 
@@ -102,7 +87,7 @@ func TestPublisherWithoutObservationStaysSilent(t *testing.T) {
 
 	// No WithObservation — a Publisher built for a test or a one-off tool
 	// must not emit onto a channel nobody wired.
-	if err := jstream.NewPublisher(js).PublishWithTrace(context.Background(), nil, subject, []byte(`{}`)); err != nil {
+	if err := jstream.NewPublisher(js).Publish(context.Background(), subject, []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := nc.Flush(); err != nil {
@@ -115,12 +100,12 @@ func TestPublisherWithoutObservationStaysSilent(t *testing.T) {
 	}
 }
 
-func TestPublishWithTraceObservesUnderTheDerivedTokens(t *testing.T) {
+func TestPublishObservesUnderTheDerivedTokens(t *testing.T) {
 	nc, js := setup(t)
 	obs := natstest.Observations(t, nc)
 	pub := jstream.NewPublisher(js, jstream.WithObservation(nc))
 
-	if err := pub.PublishWithTrace(context.Background(), nil, subject, []byte(`{"shipID":"s1"}`)); err != nil {
+	if err := pub.Publish(context.Background(), subject, []byte(`{"shipID":"s1"}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,35 +125,12 @@ func TestPublishWithTraceObservesUnderTheDerivedTokens(t *testing.T) {
 	}
 }
 
-func TestPublishWithTraceContinuesTheCausingTrace(t *testing.T) {
+func TestPublishRedactsBeforeObserving(t *testing.T) {
 	nc, js := setup(t)
 	obs := natstest.Observations(t, nc)
 	pub := jstream.NewPublisher(js, jstream.WithObservation(nc))
 
-	parent := natstrace.New(nc).StartOutbound(nil, "api.acme.shipping.ship.arrive.v1", []byte(`{}`), "acme", "shipping", "ship", "arrive")
-	if err := pub.PublishWithTrace(context.Background(), parent, subject, []byte(`{}`)); err != nil {
-		t.Fatal(err)
-	}
-
-	env := decode(t, awaitMsg(t, obs))
-	tp := strings.Split(parent.Traceparent(), "-")
-	if env.TraceID != tp[1] {
-		t.Fatalf("traceId = %q, want the causing span's %q", env.TraceID, tp[1])
-	}
-	if env.ParentSpanID != tp[2] {
-		t.Fatalf("parentSpanId = %q, want %q", env.ParentSpanID, tp[2])
-	}
-	if env.SpanID == tp[2] {
-		t.Fatal("the observation must be its own span, not a re-emission of the causing one")
-	}
-}
-
-func TestPublishWithTraceRedactsBeforeObserving(t *testing.T) {
-	nc, js := setup(t)
-	obs := natstest.Observations(t, nc)
-	pub := jstream.NewPublisher(js, jstream.WithObservation(nc))
-
-	if err := pub.PublishWithTrace(context.Background(), nil, subject, []byte(`{"password":"s3cr3t"}`)); err != nil {
+	if err := pub.Publish(context.Background(), subject, []byte(`{"password":"s3cr3t"}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,7 +149,7 @@ func TestFailedPublishIsNotObserved(t *testing.T) {
 	obs := natstest.Observations(t, nc)
 	pub := jstream.NewPublisher(js, jstream.WithObservation(nc))
 
-	err := pub.PublishWithTrace(context.Background(), nil, "nostream.acme.shipping.ship.s1.arrived", []byte(`{}`))
+	err := pub.Publish(context.Background(), "nostream.acme.shipping.ship.s1.arrived", []byte(`{}`))
 	if err == nil {
 		t.Fatal("expected a publish error for a subject outside every stream")
 	}

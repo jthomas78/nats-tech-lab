@@ -86,45 +86,22 @@ func TestNewAccountClaimsAddsTenantImportsAndPreservesPriorCrossAccountWiring(t 
 	}
 }
 
-// BR-AC30 (Phase 28f amendment) — a tenant account's own claims must export
-// obs.trace.> back to PLATFORM, or PLATFORM's cross-account trace store has
-// no way to ever see that tenant's spans (see addPlatformTraceImport, the
-// PLATFORM-side counterpart exercised by TestAddPlatformTraceImportIsIdempotent
-// in provisioner_test.go).
-func TestNewAccountClaimsAddsTenantTraceExport(t *testing.T) {
-	const tenant = "ATENANTPUBLICKEY"
-	const tenantName = "acme"
-	const platform = "APLATFORMPUBLICKEY"
-
-	fresh := newAccountClaims(tenant, "", JSLimits{}, nil, CrossAccountOpts{PlatformPublicKey: platform, TenantName: tenantName})
-	var traceExport *jwt.Export
+// BR-AC30 (Phase 54d) — the per-tenant obs.trace.> export is retired: spans
+// leave over OTLP, so a freshly-minted tenant exports no trace subject to
+// PLATFORM. The obs.pubsub.> export beside it stays (BR-AC34).
+func TestNewAccountClaimsAddsNoTenantTraceExport(t *testing.T) {
+	fresh := newAccountClaims("ATENANTPUBLICKEY", "", JSLimits{}, nil, CrossAccountOpts{PlatformPublicKey: "APLATFORMPUBLICKEY", TenantName: "acme"})
+	pubsub := false
 	for _, exp := range fresh.Exports {
-		if string(exp.Subject) == traceExportSubject {
-			traceExport = exp
+		if string(exp.Subject) == "obs.trace.>" {
+			t.Fatalf("a freshly-minted tenant must not export obs.trace.> (retired in Phase 54d), got %#v", fresh.Exports)
+		}
+		if string(exp.Subject) == pubsubExportSubject {
+			pubsub = true
 		}
 	}
-	if traceExport == nil {
-		t.Fatalf("expected an obs.trace.> export on a freshly-minted tenant's own claims, got %#v", fresh.Exports)
-	}
-	if traceExport.Type != jwt.Stream {
-		t.Fatalf("obs.trace.> export must be a Stream export (AllowTrace is only legal on a Service export), got type %v", traceExport.Type)
-	}
-	if traceExport.AllowTrace {
-		t.Fatal("AllowTrace must not be set on this Stream export — jwt.Export.Validate rejects it on anything but a Service export")
-	}
-
-	// The trace export must survive a plain re-sign (happy path, prior has
-	// imports already) exactly like every other export/import — it must not
-	// require crossAccount.PlatformPublicKey to be supplied again.
-	preserved := newAccountClaims(tenant, "", JSLimits{}, fresh, CrossAccountOpts{})
-	found := false
-	for _, exp := range preserved.Exports {
-		if string(exp.Subject) == traceExportSubject {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("obs.trace.> export was dropped on re-sign: %#v", preserved.Exports)
+	if !pubsub {
+		t.Fatalf("the obs.pubsub.> export must stay, got %#v", fresh.Exports)
 	}
 }
 
@@ -156,7 +133,7 @@ func TestNewAccountClaimsAddsTenantMonitorExport(t *testing.T) {
 		t.Fatalf("$SRV.> export must set ResponseType Stream — the default Singleton is documented for a service that sends exactly one reply, but $SRV.STATS is answered by every registered instance, got %q", srvExport.ResponseType)
 	}
 
-	// Must survive a plain re-sign exactly like the trace export does.
+	// Must survive a plain re-sign exactly like the pubsub export does.
 	preserved := newAccountClaims(tenant, "", JSLimits{}, fresh, CrossAccountOpts{})
 	found := false
 	for _, exp := range preserved.Exports {

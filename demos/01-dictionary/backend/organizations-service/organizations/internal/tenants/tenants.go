@@ -76,7 +76,7 @@ type Manager struct {
 
 	// tracing, when set, moves this service to OTel (Phase 54a-4, 54b-3b):
 	// every tenant's refdata client, api.* adapter, evt.* appends, projector
-	// and lifecycle subscription. Nil keeps natstrace (decision 16).
+	// and lifecycle subscription. Nil leaves them untraced (Phase 54d).
 	tracing *otelnats.Provider
 
 	mu      sync.RWMutex
@@ -92,7 +92,7 @@ func (m *Manager) WithCertificateWriter(w orchestration.CertificateWriter) *Mana
 
 // NewManager takes tracing here, not through a builder: the shared manager
 // below is built now, and its lifecycle subscriptions need the Provider at
-// that point (natstenants.WithTracing). A nil Provider keeps natstrace.
+// that point (natstenants.WithTracing). A nil Provider leaves them untraced.
 func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte, tracing *otelnats.Provider) *Manager {
 	m := &Manager{secretKey: secretKey, tracing: tracing}
 	m.mgr = natstenants.NewManager(natsURL, credsDir, "organizations-service", log,

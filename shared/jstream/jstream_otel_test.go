@@ -16,7 +16,6 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/shared/natstest"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -118,23 +117,6 @@ func TestOTelFailedPublishMarksTheProducerSpanErrorAndIsNotObserved(t *testing.T
 		t.Fatalf("producer status = %v, want Error", producer.Status.Code)
 	}
 	assertSilent(t, obs)
-}
-
-func TestPublishWithoutOTelFallsBackToTheNatstraceSpanOnCtx(t *testing.T) {
-	nc, js := setup(t)
-	msgs := natstest.Subscribe(t, nc, subject)
-	pub := jstream.NewPublisher(js)
-
-	parent := natstrace.New(nc).StartOutbound(nil, subject, nil, "acme", "shipping", "ship", "arrived")
-	ctx := natstrace.ContextWithSpan(context.Background(), parent)
-	if err := pub.Publish(ctx, subject, []byte(`{}`)); err != nil {
-		t.Fatal(err)
-	}
-
-	got := awaitMsg(t, msgs)
-	if got.Header.Get(natstrace.TraceparentHeader) != parent.Traceparent() {
-		t.Fatalf("Traceparent = %q, want the natstrace span's %q", got.Header.Get(natstrace.TraceparentHeader), parent.Traceparent())
-	}
 }
 
 func assertSilent(t *testing.T, obs chan *nats.Msg) {

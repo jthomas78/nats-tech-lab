@@ -4,7 +4,6 @@ go 1.27
 
 require (
 	github.com/jthomas78/nats-tech-lab/shared/natstest v0.0.0-00010101000000-000000000000
-	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/otelnats v0.0.0-00010101000000-000000000000
 	github.com/nats-io/nats.go v1.52.0
 	go.opentelemetry.io/otel v1.47.0
@@ -43,8 +42,6 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
-
-replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../natstrace
 
 replace github.com/jthomas78/nats-tech-lab/shared/natstest => ../natstest
 

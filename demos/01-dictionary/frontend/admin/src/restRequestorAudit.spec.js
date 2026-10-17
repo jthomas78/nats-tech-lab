@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest'
 const SRC = join(dirname(fileURLToPath(import.meta.url)))
 
 // Exempt call sites, by a substring of the fetched URL. Only for requests
-// that reach no natstrace-instrumented HTTP entry point at all — a static
+// that reach no trace-instrumented HTTP entry point at all — a static
 // asset served by nginx/vite, or a service with no HTTP trace middleware,
 // where the header would be carried and then dropped on the floor.
 const EXEMPT = []

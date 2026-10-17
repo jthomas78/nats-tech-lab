@@ -54,10 +54,9 @@ var _ = Describe("MintBrowserToken", func() {
 		Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(ContainSubstring("evt.")))
 		// obs.api.> (Phase 23) is retired (Phase 28g) — it was the RPC
 		// panel's old live-tail grant, dead since Phase 28a-28e replaced
-		// browserrpc's publishObs call with a natstrace span; the panel's
-		// [messages] tab now derives from obs.trace.*/the trace-request-reply KV bucket
-		// instead, which this credential is never granted (BR-036:
-		// obs.trace.* publishes to PLATFORM only). obs.rpc.> and bare
+		// browserrpc's publishObs call with a span; the panel's [messages]
+		// tab now reads the operator-only trace gateway (BR-076), which this
+		// credential is never granted. obs.rpc.> and bare
 		// rpc.> stay excluded too — this credential must never observe or
 		// reach service-to-service rpc.* traffic.
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.")))
@@ -196,12 +195,14 @@ var _ = Describe("MintAdminToken", func() {
 		// Messages panel's live feed. obs.pubsub.> itself is deliberately
 		// absent — a browser credential is never granted it (BR-AC34), it
 		// reads the projected bucket over HTTP and only *watches* for changes
-		// here.
+		// here. Phase 54d removes notify._platform.kv.trace-request-reply.>:
+		// the bucket is gone, and the trace panel reads the gateway (BR-076).
 		Expect(claims.Permissions.Sub.Allow).To(ConsistOf(
 			"notify.accounts.account.>", "notify._platform.refdata.>",
-			"notify._platform.kv.trace-request-reply.>", "notify._platform.kv.pubsub-messages.>",
+			"notify._platform.kv.pubsub-messages.>",
 			"_INBOX.>",
 		))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("trace-request-reply")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpctrace")))
 		// Phase 50b (BR-AC40) adds the user-registry subjects; Phase 51b

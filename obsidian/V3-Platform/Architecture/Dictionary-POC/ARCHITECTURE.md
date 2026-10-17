@@ -337,9 +337,12 @@ panel's KV rev card, `TelemetryStrip.vue`) expect.
 
 #### No raw tenant server-push path
 
-The store applies only snapshot rows. Central observability remains live, but
-through `useTraceFeed`/`usePubsubFeed` watching PLATFORM projection-bucket
-notifications; it is intentionally separate from this legacy fleet snapshot.
+The store applies only snapshot rows. Central observability remains live,
+but on its own paths: `usePubsubFeed` watches PLATFORM's `pubsub-messages`
+bucket notifications, and traces come from observability-service's trace
+gateway (`nats/traceGateway.js`, BR-076). Both are intentionally separate
+from this legacy fleet snapshot. (`useTraceFeed` was deleted in Phase 54d,
+2026-10-16.)
 `applyWatchEvent` is retained as the snapshot-row normalization helper.
 
 ```js

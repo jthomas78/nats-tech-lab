@@ -134,6 +134,11 @@ may legitimately be absent rather than as an error.
 > Phase 30 amendment in `ARCHITECTURE-COMMUNICATIONS.md` for the full
 > before/after.
 
+> **Phase 54d (2026-10-16).** The `TRACES` stream and its consumer are
+> retired. observability-service no longer stores traces. It reads them from
+> Tempo through its trace gateway (BR-076). `GET /api/nats/services` is also
+> retired; the Services panel reads the NATS service list (BR-072).
+
 Account JWT updates replace the entire claim, so `accounts/provisioner.go`
 preserves existing exports/imports whenever it re-signs a claim; freshly
 minted runtime accounts receive the same imports as ACME/GLOBEX.
@@ -200,6 +205,8 @@ provisioning local as planned. `shared/browserrpc` (the `Reply`/`Respond`/
 adapters) and `shared/natstrace` (the BR-036/BR-037 tracer, consumed by all
 five services including `accounts-service`) were extracted alongside it in
 the same phase — see `ARCHITECTURE-COMMUNICATIONS.md` § 6 for the latter.
+`shared/natstrace` was deleted in Phase 54d (2026-10-16). `shared/otelnats`
+(OpenTelemetry) replaces it.
 
 **What made this possible.** Nothing in this repo shared Go code across
 services before this phase: seven independent modules (one `go.mod` per
@@ -351,6 +358,14 @@ Organizations screens moved to Tech Lab Operator. Keeping an unconditional
 `acme` account in `/connz` without serving an observability purpose, so it was
 removed.
 
+> **Phase 54d (2026-10-16).** The `obs.trace.>` projection is retired. The
+> connection now subscribes to one central projection bucket,
+> `pubsub-messages`. It reads traces by request/reply on the trace gateway,
+> `api._platform.observability.trace.{search|get|services}.v1` (BR-076).
+> `MintAdminToken` grants those three subjects and
+> `api._platform.observability.service.list.v1` (BR-072). It no longer grants
+> `notify._platform.kv.trace-request-reply.>`.
+
 ```mermaid
 
 flowchart TB
@@ -359,13 +374,15 @@ flowchart TB
     end
     Platform -- "GET /api/auth/adminConnectInfo" --> MintAdmin["MintAdminToken<br/>(PLATFORM signing key)"]
     MintAdmin -.->|"central notify.* subscriptions<br/>three exact read-only refdata api.* subjects"| Platform
-    TenantExports["tenant obs.trace.&gt; / obs.pubsub.&gt; exports"] --> PlatformStores["PLATFORM trace/pubsub projections"]
-    PlatformStores -->|"notify._platform.kv.*"| Platform
+    TenantExports["tenant obs.pubsub.&gt; exports"] --> PlatformStores["PLATFORM pubsub projection"]
+    PlatformStores -->|"notify._platform.kv.pubsub-messages.*"| Platform
+    Platform -- "api._platform.observability.trace.*.v1" --> Gateway["observability-service<br/>trace gateway (Tempo)"]
 ```
 
-The connection subscribes to account/refdata notifications and the two
-central observability projection buckets. It may publish only the exact
-read-only refdata queries needed for locale/UI copy and context bootstrap;
+The connection subscribes to account/refdata notifications and the one
+central observability projection bucket, `pubsub-messages`. It may publish
+only the exact read-only refdata queries needed for locale/UI copy and
+context bootstrap, plus the trace gateway and service list subjects above;
 there is no broad `api.>` grant and no tenant business surface. The topbar
 connection indicator therefore reports the only browser NATS connection the
 Admin UI owns.
@@ -598,7 +615,9 @@ four services share it because it *is* "all of ACME", and the name says so.
 Note that Rule 3 justifies the *name*, not the sharing: `platform`, shared
 by `refdata-service`, `accounts-service` and `otlp-bridge`, is accurately
 named, but three unrelated processes sharing one unrestricted credential is
-its own problem (see the split below).
+its own problem (see the split below). Phase 54d (2026-10-16) deleted
+`otlp-bridge`, so two holders remain: `refdata-service` and
+`accounts-service`.
 
 **Form:** lowercase-kebab, matching the KV/Object-Store convention in
 CLAUDE.md's storage-naming section. These names double as `.creds`
@@ -640,7 +659,7 @@ Rule 1 cannot name one JWT after three holders.
 | `sys` | `accounts-service-sys` | 2 |
 | `platform` (accounts-service) | `accounts-service-platform` | 2 |
 | `platform` (refdata-service) | `refdata-service` | 1 — needs the split |
-| `platform` (otlp-bridge) | `otlp-bridge` | 1 — needs the split |
+| ~~`platform` (otlp-bridge)~~ | — | retired (Phase 54d): `otlp-bridge` is deleted |
 | `acme` / `globex` / `<tenant>` | unchanged | 3 |
 | `browser-<tenant>` | `seafreight-app` | 1 |
 | `admin-app`, `operator-app` | unchanged | 1 — already match their apps |

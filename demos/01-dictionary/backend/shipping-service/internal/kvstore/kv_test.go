@@ -17,7 +17,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
+	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func newJSForKV() (jetstream.JetStream, *nats.Conn) {
@@ -258,14 +260,15 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 		// Phase 28d (BR-037): a NATS KV entry itself can never carry a
 		// traceparent (jetstream.KeyValue.Put takes no headers), so the
 		// derived notify is what lets a trace waterfall show the write's
-		// async tail. ctx carries the span the same way commands.go's
-		// publish and eventhandler's projectors do, via
-		// natstrace.ContextWithSpan.
+		// async tail. On the OTel path (Phase 54d) the notify is a PRODUCER
+		// span under the span on ctx, so its traceparent keeps ctx's trace.
 		It("attaches a Traceparent header to the notify publish when ctx carries a span", func() {
-			store.EnableNotify(nc, nil)
-			tracer := natstrace.New(nc)
-			sp := tracer.StartFromHeaders(nil, "evt.acme-pacific-fleet.shipping.ship.SHIP1.arrived", nil, "acme-pacific-fleet", "shipping", "ship", "arrived")
-			spanCtx := natstrace.ContextWithSpan(ctx, sp)
+			prov, err := otelnats.Init(context.Background(), otelnats.Config{ServiceName: "shipping-service", Exporter: tracetest.NewInMemoryExporter()})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = prov.Shutdown(context.Background()) })
+			store.EnableNotify(nc, nil, natsnotify.WithOTel(prov))
+			spanCtx, parent := prov.StartProducer(ctx, "evt.acme-pacific-fleet.shipping.ship.SHIP1.arrived")
+			DeferCleanup(func() { parent.End() })
 
 			sub, err := nc.SubscribeSync("notify.>")
 			Expect(err).NotTo(HaveOccurred())
@@ -276,7 +279,7 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 
 			msg, err := sub.NextMsg(2 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(msg.Header.Get(natstrace.TraceparentHeader)).To(Equal(sp.Traceparent()))
+			Expect(msg.Header.Get("traceparent")).To(ContainSubstring(parent.SpanContext().TraceID().String()))
 		})
 
 		// Phase 43a (BR-045): the KV-change notify is one of the five
@@ -311,7 +314,7 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 
 			msg, err := sub.NextMsg(2 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(msg.Header.Get(natstrace.TraceparentHeader)).To(BeEmpty())
+			Expect(msg.Header.Get("traceparent")).To(BeEmpty())
 		})
 	})
 })

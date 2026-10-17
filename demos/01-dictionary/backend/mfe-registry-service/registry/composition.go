@@ -131,7 +131,7 @@ func WithFetchOrigins(o domain.FetchOrigins) Option {
 
 // WithTracing puts the module on OTel (Phase 54b-5): api.* and rpc.* SERVER
 // spans, and a PRODUCER span per notify.* publish. A nil provider is the same
-// as not passing the option, which keeps natstrace (decision 16).
+// as not passing the option, which serves the module untraced (Phase 54d).
 func WithTracing(p *otelnats.Provider) Option {
 	return func(s *startupOptions) { s.tracing = p }
 }

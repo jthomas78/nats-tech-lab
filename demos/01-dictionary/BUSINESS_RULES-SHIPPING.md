@@ -308,6 +308,14 @@ Mirrors refdata-service's `BUSINESS_RULES-REFDATA.md` BR-D37. NATS doesn't propa
 > the span only, never as a response header — see
 > `BUSINESS_RULES-ACCOUNTS.md`'s BR-AC35 for the full rule.
 
+> **Phase 54d (2026-10-16).** The wire headers are unchanged. Their names
+> now come from `shared/otelnats` (`RequestorHeader`, `ResponderHeader`);
+> `shared/browserrpc.ResponderHeader` is the same constant. natstrace and
+> `natstrace.ResponderHeaders` are gone. On the REST path, the span names
+> its service by `service.name`, and the requestor half is the
+> `lab.requester` attribute (BR-041). `trace_middleware.go` is now
+> `otelnats.HTTPMiddlewareFor`.
+
 - **Enforced in:** `dictionary/internal/browserrpc/adapter.go`'s `respond()`/`respondError()` (set `Nats-Responder`) and `micro.AddService`'s `Config.Name`; `internal/refdataconsumer/consumer.go`'s `New()`/`requestRPC` (sets `Nats-Requestor`); `frontend/seafreight-app/src/nats/useNatsConnection.js`'s `request()` (sets `Nats-Requestor`); `dictionary/internal/rest/trace_middleware.go` (REST, BR-AC35)
 - **Test:** `Browser API Adapter (Phase 15a/16b) / BR-027` (`dictionary/browserrpc_test.go`) — a successful reply carries `Nats-Responder` (prefixed `shipping-service/`) on the real wire reply; a failed reply carries it too. `TestLookupCarriesInstanceQualifiedRequestorHeader` (`internal/refdataconsumer/consumer_test.go`) asserts the requestor format directly: `"<nats.Name>/<instance>"`, stable across calls from one `Consumer`
 
@@ -329,6 +337,20 @@ Both frontend panels prefer the resolved label over the raw NKey when present (r
 
 - **Enforced in:** `observability-service/observability/internal/rest/nats_connections.go`'s `listNatsConnections`/`listNatsAccountActivity` and `accounts_client.go`'s `AccountsClient.Labels`; `observability-service/observability/internal/rest/nats_services.go`'s `listNatsServices`' `Metadata` pass-through; `dictionary/internal/browserrpc/adapter.go`'s `micro.Config.Metadata` (shipping-service, unchanged); `dictionary/internal/rest/tenant.go`'s `ensureTenantResources` (threads the tenant name into `browserrpc.Deps.Tenant`, unchanged); `frontend/admin/src/components/ConnectionsPanel.vue`'s Account column; `frontend/admin/src/components/ServicesPanel.vue`'s tenant tag
 - **Test:** `TestListNatsConnectionsResolvesTenantLabelFromAccountsService`, `TestAccountsClientLabelsIsNilSafeAndDegradesOnFailure` (`observability-service/observability/internal/rest/nats_connections_test.go`) — the new HTTP-based label resolution, and its degrade-to-unlabeled behavior when accounts-service is unreachable. `TestListNatsServicesPassesThroughInstanceMetadata` (`nats_services_test.go`, same package) — the REST handler passes `$SRV.STATS`'s metadata through untouched. `Browser API Adapter (Phase 15a/16b) / BR-028` (`dictionary/browserrpc_test.go`, shipping-service) — the production wiring that tags the metadata in the first place (`tenant.go` → `browserrpc.Deps.Tenant` → `micro.Config.Metadata`) actually produces the tag, verified over a real `$SRV.PING`, not just the REST handler's pass-through logic in isolation. `ConnectionsPanel.spec.js` and `ServicesPanel.spec.js` (`frontend/admin/src/components/`) — the resolved label actually renders as a tag and the raw-NKey fallback actually renders too, not just that the API response carries the field. For the 2026-08-26 amendment, `ConnectionsPanel.spec.js`'s "splits Account and Account NKey into their own rows…" and "shows an em-dash for an account whose label could not be resolved…" assert both pane rows in both the resolved and unresolved cases — the second is the one that would fail if the old raw-NKey fallback were restored to the pane
+
+> **Phase 54d (2026-10-16).** `GET /api/nats/services` and
+> `nats_services.go` are retired (decision 17). The Services panel reads
+> `api._platform.observability.service.list.v1` (BR-072). Each instance is
+> labelled with the account it was queried in, and `micro` metadata still
+> passes through. The Connections half of this rule is unchanged.
+>
+> - **Enforced in (Services, now):**
+>   `observability-service/observability/internal/servicelist/servicelist.go`'s
+>   `Discover`.
+> - **Test (Services, now):** `servicelist_test.go`'s "finds a PLATFORM
+>   service and a tenant service, each labelled with the account it was
+>   queried in"; `ServicesPanel.spec.js`. `TestListNatsServicesPassesThroughInstanceMetadata`
+>   is deleted with its handler.
 
 ---
 
@@ -436,6 +458,11 @@ This obeys the exceptional-state rendering rule BR-034 established (ARCHITECTURE
 > span's `lab.tenant.originating` attribute (BR-069), not from the service
 > name. `PLATFORM` shows for `_platform`. A span with no tenant shows
 > `unattributed`. The `spanKind` can now come from the OTel span.
+
+> **Phase 54d (2026-10-16).** The `traces` KV bucket, the TRACES stream and
+> the `[messages]` read of them are gone. The 28g note about `accountOf` and
+> the coarse PLATFORM/TENANT split is history only. The rule now holds on
+> the gateway alone (BR-076).
 
 ### BR-036 (Phase 28) — The `obs.trace.*` envelope is a strict superset of `obs.rpc.*`/`obs.api.*`, publishes to the PLATFORM account only, and redacts before it truncates
 
@@ -601,6 +628,18 @@ Every `obs.trace.{context}.{service}.{entity}.{action}` publish happens on the *
 > REST infra routes. On au-1, TRACES got 2 spans in the hour after the
 > switch. This rule is retired in 54d, together with `shared/natstrace`.
 
+> **Phase 54d — retired (2026-10-16).** `shared/natstrace`, the
+> `obs.trace.*` envelope and the PLATFORM TRACES stream are deleted. No
+> service publishes this envelope. Shipping's REST infra routes moved to
+> `otelnats.HTTPMiddlewareFor`. Span bodies, redaction and truncation are
+> now the 54b-2 span-event rules above, enforced in `shared/otelnats`.
+>
+> - **Enforced now:** N/A — retired. Its successor is the OTel span shape
+>   in `shared/otelnats` (BR-073).
+> - **Test:** none for this rule. The `obs.trace.*` specs that once pinned
+>   it are deleted. Each service keeps a spec that nothing is published on
+>   `obs.trace.>`.
+
 ### BR-037 (Phase 28) — Trace context propagates on every outbound NATS message, one span per logical RPC call, never one per retry attempt
 
 Every outbound `rpc.*` request, `evt.*` publish, and `notify.*` publish carries a W3C `traceparent` header derived from the span that caused it — the same way `Nats-Requestor` (BR-027) already rides outbound requests today. A retried `rpc.*` call (e.g. `refdataconsumer.requestRPC`'s retry loop) mints its child span id **once, before the retry loop starts** — a 3-attempt failure produces one span with a `rpc.retry_count` attribute of 2, not three parentless sibling spans with no relationship to each other; the latter would make a single logical call look like three unrelated ones in the waterfall (BR-035).
@@ -658,6 +697,16 @@ A NATS KV entry **cannot** carry trace context — `jetstream.KeyValue.Put` take
 > `refdataconsumer/otel_54b4_test.go` and `refdataclient/otel_test.go` (one
 > ERROR CLIENT span with `rpc.retry_count=2`). The natstrace "Enforced in"
 > list is for the legacy path only, and it goes in 54d.
+
+> **Phase 54d (2026-10-16).** The legacy path is gone. The natstrace
+> "Enforced in" and "Test" lists above are history only. The rule is now
+> enforced only by the OTel seams in the 54b-2 and 54b-3a bullets.
+> `jstream.PublishWithTrace` is deleted; without `WithOTel`, `Publish`
+> sends no `traceparent`. A projector with no Provider is untraced. Tests
+> now: `dictionary/trace_async_test.go` (one CONSUMER span per message,
+> with `entity_id` and `consumer.durable`), `refdataconsumer/otel_54b4_test.go`,
+> `refdataclient/otel_test.go`, `internal/kvstore/kv_test.go` (the derived
+> notify carries the PRODUCER span's `traceparent`).
 
 ---
 
@@ -724,7 +773,7 @@ allowlists (post–Phase 33, one per service):
   /api/nats/account-activity`,
   `GET /api/nats/log`, `GET /api/kv/buckets`, `GET
   /api/kv/buckets/{account}/{bucket}/entries`, `GET /api/jetstream/streams`,
-  `GET /api/jetstream/replay`, `GET /api/nats/services`, `/swagger/` — the
+  `GET /api/jetstream/replay`, `/swagger/` — the
   admin/infra diagnostics were never touched by Phase 33 (moved from
   shipping-service in Phase 30h, not business REST); `/swagger/` was added
   later, mirroring shipping-service/refdata-service's existing swaggo setup
@@ -741,6 +790,11 @@ allowlists (post–Phase 33, one per service):
 - **Test:** one allowlist test per service/sub-mux — see BR-040's mirror
   entry in each service's own `BUSINESS_RULES-*.md` file for the exact test
   name.
+
+> **Phase 54d (2026-10-16).** `GET /api/nats/services` is retired
+> (decision 17). The Services panel reads the live list over NATS
+> (BR-072). The route is gone from observability-service's `Mount`, its
+> Swagger docs and the allowlist above.
 
 ### BR-041 (Phase 34, canonical — mirrored per service below) — A client-supplied requester identity is carried for observability only; it is never read for authorization by any handler
 
@@ -780,6 +834,18 @@ change to its wire contract's redaction/truncation ordering.
   produces a `traceSpan.Requester` equal to that header's value, and a span
   with no such header produces an empty `Requester` (never a placeholder
   that could be mistaken for a real identity).
+
+> **Phase 54d (2026-10-16).** natstrace and its `Requester` field are gone.
+> The self-declared `Nats-Requestor` value is now the span attribute
+> `lab.requester` (`otelnats.AttrRequester`). It is for display only, the
+> same as before. No handler reads it, and it never sets a tenant attribute
+> (BR-069).
+>
+> - **Enforced in:** `shared/otelnats/span.go` (`StartServer`) and
+>   `shared/otelnats/http.go` (`HTTPMiddleware`/`HTTPMiddlewareFor`).
+> - **Test:** `shared/otelnats/requester_test.go` (a request with the header
+>   gets `lab.requester`; one without gets no attribute, never a
+>   placeholder); `shared/otelnats/http_account_test.go`.
 
 ### BR-042 (Phase 63, revised post-spike 2026-08-18) — "Trace this subject" targets only the existing `tenantImports()` cross-account contract, fired by the service that owns the connection, defaults to dry-run, and merges as a distinct `kind: "hop"` span alongside BR-036's application spans
 
@@ -928,6 +994,20 @@ Each envelope derives its `traceId`/`parentSpanId` from the span the call site a
   `WithObservation`. Test: `shared/otelnats/observe_test.go`, plus the seam
   specs listed under BR-037.
 
+> **Phase 54d (2026-10-16).** `shared/natstrace` is deleted, so the OTel
+> path is the only path. The behaviour of this rule is unchanged.
+> `obs.trace.*` is gone, so this channel has no sibling now. With no
+> Provider, a seam built `WithObservation` still observes. The envelope then
+> has no trace IDs. The `tracestore` publisher is deleted, so `pubsubstore`
+> is the only excluded publisher.
+>
+> - **Enforced now:** `shared/otelnats/observe.go` (`Observer.ObservePublish`),
+>   `shared/jstream`'s `Publisher.PublishWithTrace`, `shared/natsnotify`'s
+>   `Notifier.Publish`, and organizations' `JetStreamEventStore.append`.
+> - **Test now:** `shared/otelnats/observe_test.go`, `shared/jstream/jstream_test.go`,
+>   `shared/natsnotify/natsnotify_test.go`, and the per-service specs above.
+>   The `natstrace_test.go` specs are deleted with the module.
+
 ### BR-046 (Phase 43a, IMPLEMENTED 2026-08-25) — `obs.pubsub.*` payload redaction reuses the existing shared denylist, after a named payload review
 
 The redaction step is identical to BR-036's — same ordering (redact before the 4 KiB truncation cap), same shared denylist (`password`, `secret`, `token`, `apikey`/`api_key`, `ssn`, `creditcard`/`credit_card`, `authorization`, `privatekey`/`private_key`), matched case-insensitively at any JSON nesting depth. If the review below surfaces a field the RPC-shaped denylist doesn't cover, the **shared denylist itself is extended**, never forked into a second list for this channel alone.
@@ -957,6 +1037,12 @@ The redaction step is identical to BR-036's — same ordering (redact before the
   goes in 54d. Test: `shared/otelnats/body_test.go` (every denylist entry,
   any case) and `observe_test.go` (redact before truncate, `payloadBytes` is
   the size after redaction).
+
+> **Phase 54d (2026-10-16).** The natstrace copy of the denylist is deleted.
+> `shared/otelnats/redact.go` holds the one list now. The list is unchanged.
+>
+> - **Enforced now:** `shared/otelnats/redact.go`.
+> - **Test now:** `shared/otelnats/body_test.go` and `observe_test.go`.
 
 ### BR-047 (Phase 43b, IMPLEMENTED 2026-08-25) — Published `obs.pubsub.*` envelopes are ingested best-effort into their own bounded stream, deduplicated by `Nats-Msg-Id`
 
@@ -995,6 +1081,12 @@ Envelope overhead is a flat **~303 B**; everything else is the payload. Two thin
 
 - **Enforced in:** `observability-service/observability/internal/pubsubstore/pubsubstore.go` — `Register` (stream with both subject sets, `LimitsPolicy`, `StreamMaxAge`/`StreamMaxBytes`/`StreamDuplicates`, the `pubsub-messages` bucket, the durable `pubsub-store-projector` consumer), `tenantFromSubject`, `storeEnvelope`, `publishNotify`; wired in `observability/composition.go`'s `Startup`/`Stop`. Grants: `nats/bootstrap-operator.sh`'s `observability` user (the `PUBSUB`/`KV_pubsub-messages` analogues of every grant the trace store needed, `$JS.FC` and `$JS.API.DIRECT.GET` included up front rather than rediscovered live the way Phase 30i found them) and `accounts-service/auth/token.go`'s `MintAdminToken` (`notify._platform.kv.pubsub-messages.>` only — never `obs.pubsub.>`).
 - **Test:** `observability-service/observability/internal/pubsubstore/pubsubstore_test.go` — own stream carrying both subject sets, bounded retention with an explicit `Duplicates` window, tenant derived from the remap subject (tenant *and* PLATFORM-local cases), redelivery deduplicated at both the stream and the KV write, a malformed envelope dropped without blocking the one behind it, the KV-change notify 43c subscribes to, and `Register`'s nil-safety. `accounts-service/auth/token_test.go` — the admin token's exhaustive `ConsistOf` grant list.
+
+> **Phase 54d (2026-10-16).** The behaviour of this rule is unchanged. The
+> `TRACES` stream and `tracestore` are deleted, so the comparisons to them
+> above are history only. `PUBSUB` and `pubsub-messages` keep their caps.
+> The Admin UI reads this bucket with `usePubsubFeed.js`. `useTraceFeed.js`
+> is deleted.
 
 ### BR-048 (Phase 43c, IMPLEMENTED 2026-08-25) — The Admin UI's Messages panel is a dedicated panel, names the originating tenant, and defaults to the `evt` family
 
@@ -1073,6 +1165,16 @@ The exact rule BR-047 already states for `obs.pubsub.*`, applied to `obs.trace.*
 > The principle is the same: never take the tenant from anything the
 > publisher wrote. TRACES still captures both subject sets until 54d.
 
+> **Phase 54d — retired (2026-10-16).** The `TRACES` stream, `tracestore`,
+> the `monitor.{tenant}.trace.>` remap (BR-AC36) and `useTraceFeed.js` are
+> deleted. No span arrives on a NATS subject now, so there is no arrival
+> subject to read. The principle lives on in BR-069: the receiving service
+> sets `lab.tenant.originating` from trusted context only.
+>
+> - **Enforced now:** N/A — retired. Successor: BR-069, in `shared/otelnats`.
+> - **Test:** none for this rule. `tracestore_test.go` and
+>   `useTraceFeed.spec.js` are deleted.
+
 ### BR-052 (Phase 48b, RETIRED 2026-08-26 in Phase 48c) — ~~Within one `traceId`, the first tenant attributed wins~~
 
 **Retired the day it landed, because it fires on legitimate traffic.** The rule read two tenants under one `traceId` as "never normal traffic" — either a `traceId` collision or an attempt to attach spans to another tenant's trace — and so froze the trace's tenant at the first writer, logging any later disagreement at warn level.
@@ -1136,6 +1238,16 @@ Two things about that read path came out differently from the design, and are wo
 > now. The bucket, the projector and `useTraceFeed.js` are deleted in 54d.
 > Tempo holds the traces now (BR-068).
 
+> **Phase 54d — retired (2026-10-16).** `tracestore`, the `TRACES` stream,
+> the `trace-request-reply` bucket, `natstrace`'s `Nats-Msg-Id` span publish,
+> `useTraceFeed.js` and `cmd/seed-traces` are deleted. Tempo bounds and
+> stores the traces now (BR-068). The live buckets on a running cell are
+> removed by hand, not by code.
+>
+> - **Enforced now:** N/A — retired. Successor: BR-068 (Tempo retention).
+> - **Test:** none for this rule. `tracestore_test.go`, `natstrace_test.go`
+>   and `useTraceFeed.spec.js` are deleted.
+
 ### BR-054 (Phase 48h/48c/48i, PARTLY IMPLEMENTED 2026-08-26 — harness 48h, traces panel 48c, Messages panel 48i outstanding) — The Admin UI names the originating account on both observability paths, and a multi-span cross-account trace is what proves it
 
 The presentation half of BR-051, plus the harness that verifies it. BR-048 already requires the Messages panel to name the originating tenant; this extends the same requirement to the Request/Reply & Traces panel and closes the gap BR-035's panel has carried since Phase 28.
@@ -1158,6 +1270,20 @@ Two details of that chain were written into this rule from the design and correc
 - **Enforced in:** `frontend/admin/src/components/TraceWaterfall.vue` (the gutter) and the Messages panel (a tenant column from the existing record field).
 - **Test:** `observability-service/cmd/seed-traces` against the running compose stack, asserting on the stored trace: exactly one span parented to its own injected `traceparent`, every other span's parent present in the trace, spans from both services, and — on the error run — the root closed in ERROR, every ERROR span carrying a `statusMessage`, an ERROR span from `refdata` (so the failure is attributable *across* the boundary), and at least one OK span (so a transport failure cannot satisfy the check). Tenant attribution is asserted under an opt-in `-expect-tenant` flag (absent from pre-48b records): the named tenant must appear, `_platform` is the only other permitted value, and no span may be unattributed — deliberately *not* "every span carries the same tenant", which this chain correctly violates. Gutter: `TraceWaterfall.spec.js` — `TraceWaterfall account attribution`, three specs (the tenant is named rather than reading `TENANT`; a two-account trace counts as `2 accounts`; a pre-48c span renders `unattributed`), verified red against the old service-name heuristic.
 
+> **Phase 54d (2026-10-16).** The gutter half of this rule stays. The
+> harness half is retired: `cmd/seed-traces` is deleted, with the
+> `trace-request-reply` bucket it read. The gutter now reads
+> `attributedTenant` from the span attribute `lab.tenant.originating`, which
+> the trace gateway view carries (BR-069, BR-076). A span without it still
+> renders `unattributed`.
+>
+> - **Enforced now:** `frontend/admin/src/components/TraceWaterfall.vue`
+>   (the gutter) and `frontend/admin/src/nats/traceGateway.js`
+>   (`attributedTenant`).
+> - **Test now:** `TraceWaterfall.spec.js` — `TraceWaterfall account
+>   attribution`, and `traceGateway.spec.js`. The live multi-span check is
+>   the gateway check run against a cell, not a Go harness.
+
 ---
 
 ### BR-055 (Phase 48j, IMPLEMENTED 2026-08-26) — A reply carrying `Nats-Service-Error` finishes its span as ERROR, whichever method the caller reached for
@@ -1177,6 +1303,22 @@ Two details of that chain were written into this rule from the design and correc
 
 - **Enforced in:** `shared/natstrace/natstrace.go` — `Span.End`, with `ServiceErrorHeader`/`ServiceErrorCodeHeader` now named constants beside `RequestorHeader`/`ResponderHeader`.
 - **Test:** `shared/natstrace/natstrace_test.go` — `BR-055 — a reply carrying Nats-Service-Error finishes the span as ERROR`, four specs: the ERROR case (verified red against the old `End`), a clean reply staying OK, an inbound-header request not turning its own span red, and `Fail`'s message surviving. Call-site net: `organizations-service/.../refdataclient/client_test.go` — `BR-055 — a refused reply is an ERROR span, not an OK one`, driving a real micro-shaped refusal through the client's own `End` path and asserting `rpc.retry_count` is `0`, which is what made the old behaviour look defensible (also verified red). Panel side: `TraceWaterfall.spec.js` — `TraceWaterfall error rendering`, four specs over the same refused three-span chain (every bar draws as an error including the caller-side hop; the trace tile and header read failed; the `errors` filter keeps it and drops a clean trace; the response pane styles `Nats-Service-Error` and only that header as an error) — all four verified red against a component mutated back to the pre-48j vocabulary, under which the sixteen pre-existing specs stayed green, which is the measure of how little the render side was pinned. Live chain: `seed-traces`' error run, whose recorded shape and transport-failure discriminator changed with this rule — see BR-054. Verified against the running compose stack 2026-08-26: the ERROR run reads ERROR/ERROR/ERROR across `api.acme.organizations.fleet-asset.add.v1` → `refdata.item.get.v1` → `rpc.acme.refdata.item.get.v1`, the OK run stays all-OK, and `-expect-tenant acme` passes.
+
+> **Phase 54d (2026-10-16).** The behaviour of this rule is unchanged.
+> `natstrace.End` is deleted with its module. The same two boundaries hold
+> on the OTel spans: only the reply's header is read, and an explicit
+> transport failure outranks it. `cmd/seed-traces` is deleted, so the live
+> chain is checked through the trace gateway.
+>
+> - **Enforced now:** `shared/otelnats/micro.go` (`Middleware`, SERVER
+>   side); the CLIENT spans in `organizations-service/.../refdataclient/client.go`
+>   and `shipping-service/internal/refdataconsumer/consumer.go`.
+> - **Test now:** `shared/otelnats/micro_test.go` — "marks the span ERROR when
+>   the reply is a micro service error (BR-055 carried over)";
+>   `refdata-service/refdata/natsrpc_otel_test.go` — "BR-055 carried over";
+>   `organizations-service/.../refdataclient/otel_test.go` — "BR-055 — a
+>   micro service-error reply marks the CLIENT span ERROR";
+>   `TraceWaterfall.spec.js` — `TraceWaterfall error rendering`.
 
 ---
 
@@ -1202,6 +1344,17 @@ Two details of that chain were written into this rule from the design and correc
 > the same. The "derive the start" contract and the `durationMs` fallback in
 > `spanTiming.js` remain only for legacy spans. They go in 54d.
 
+> **Phase 54d (2026-10-16).** The legacy half is gone. `natstrace` and
+> `otlp-bridge`'s `otlpmap` are deleted. `spanTiming.js` has no `durationMs`
+> fallback now. The rule keeps one part: the UI reads `durationUs` and
+> derives a start from it in one place only.
+>
+> - **Enforced now:** `frontend/admin/src/nats/traceGateway.js` (sets
+>   `durationUs` from end − start) and `frontend/admin/src/nats/spanTiming.js`
+>   (the one place a start time is derived).
+> - **Test now:** `spanTiming.spec.js` and `traceGateway.spec.js`. The
+>   `natstrace_test.go` and `otlpmap/map_test.go` specs are deleted.
+
 ---
 
 ### BR-057 (Phase 49b, IMPLEMENTED 2026-08-26) — The waterfall never draws a span starting before its own parent
@@ -1218,6 +1371,10 @@ Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree
 
 - **Enforced in:** `frontend/admin/src/components/TraceWaterfall.vue` (`waterfallRows`).
 - **Test:** `TraceWaterfall.spec.js` — a three-span trace whose derived starts are inverted by a skewed clock (spans whose durations are correct to the microsecond, so BR-056 alone cannot save it) renders with monotonically non-decreasing bar offsets down the chain, the root bar starting at 0, while each row's printed duration still equals what its span reported. Verified red by removing the clamp.
+
+> **Phase 54d (2026-10-16).** The behaviour of this rule is unchanged. The
+> spans now come only from the trace gateway (BR-076). Clock skew between
+> services is still possible, so the clamp stays.
 
 ### BR-058 (IMPLEMENTED 2026-08-26) — The Connections panel names the *credential* a connection authenticated with, decoded from a JWT that is never forwarded to the browser
 

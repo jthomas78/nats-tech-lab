@@ -36,7 +36,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -145,8 +144,8 @@ type Deps struct {
 	// Services panel to label same-named instances by tenant (mirrors
 	// pricing-service's/shipping-service's browserrpc.Deps.Tenant).
 	Tenant string
-	// Tracing moves every endpoint onto OTel (Phase 54b-3a). nil keeps them
-	// all on natstrace.
+	// Tracing moves every endpoint onto OTel (Phase 54b-3a). nil leaves them
+	// all untraced (Phase 54d).
 	Tracing *otelnats.Provider
 }
 
@@ -166,7 +165,6 @@ type Adapter struct {
 	translations  *commands.TranslationHandler
 	log           *slog.Logger
 	svc           micro.Service
-	tracer        *natstrace.Tracer
 	otel          *otelnats.Provider
 	// account is the NATS account this connection lives in: the tenant, or
 	// PLATFORM on the _platform mount. It is the receiving account on every
@@ -206,7 +204,6 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		versions:      deps.Versions,
 		translations:  deps.Translations,
 		log:           deps.Log,
-		tracer:        natstrace.New(nc),
 		otel:          deps.Tracing,
 		account:       receivingAccount(deps.Tenant),
 	}
@@ -225,12 +222,11 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	a.svc = svc
 
 	for _, ep := range a.endpoints() {
-		handler := a.tracer.Middleware(ep.handler)
+		handler := micro.HandlerFunc(ep.handler)
 		if a.otel != nil {
 			// A browser call is untrusted, so the span starts a new root and
-			// only links a sent traceparent (EdgeAPI, BR-071). natstrace.SpanFrom
-			// is nil on this path, so the reply helpers publish no obs.trace.*
-			// span.
+			// only links a sent traceparent (EdgeAPI, BR-071). Without a
+			// Provider the endpoint runs untraced.
 			handler = a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
 		}
 		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {

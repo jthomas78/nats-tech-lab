@@ -15,9 +15,10 @@ var propagator = propagation.TraceContext{}
 // HeaderCarrier adapts nats.Header to OTel's propagation.TextMapCarrier, so
 // the standard W3C propagator works on NATS messages as it does on HTTP.
 //
-// nats.Header keys are case-sensitive, but shared/natstrace writes
-// "Traceparent" and the W3C propagator asks for "traceparent". So Get matches
-// a key in any case, and Set replaces every case variant of its key.
+// nats.Header keys are case-sensitive, but a caller may write "Traceparent"
+// (the retired legacy tracer did) while the W3C propagator asks for
+// "traceparent". So Get matches a key in any case, and Set replaces every
+// case variant of its key.
 type HeaderCarrier nats.Header
 
 // Get returns the first value for key, matched without regard to case.

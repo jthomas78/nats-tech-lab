@@ -18,8 +18,9 @@ import (
 // Publisher is the outbound port to the event backbone. Publish takes the
 // trace from ctx, the ctx a browserrpc handler hands the command: with
 // jstream.WithOTel it is a PRODUCER span under the api.* SERVER span; without
-// it, the natstrace span's traceparent (Phase 28d, BR-037). Phase 54b-4 moved
-// this from PublishWithTrace; jstream.Publisher satisfies it unchanged.
+// it, the publish carries no traceparent (BR-037; Phase 54d retired the
+// legacy tracer). Phase 54b-4 moved this from PublishWithTrace;
+// jstream.Publisher satisfies it unchanged.
 //
 // One method, because that is all this package uses: Phase 43e unexported
 // the seam's plain and header-carrying primitives, so Publish is the whole

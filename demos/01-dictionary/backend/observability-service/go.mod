@@ -43,7 +43,6 @@ require (
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
-	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/nats-io/jwt/v2 v2.8.2 // indirect
@@ -77,10 +76,6 @@ require (
 // repo root); the replace keeps a non-workspace `go build` in this directory
 // resolving it too.
 replace github.com/jthomas78/nats-tech-lab/shared/natsnotify => ../../../../shared/natsnotify
-
-// natstrace is a transitive dependency of natsnotify. A replace directive in
-// a dependency's go.mod is ignored, so this module needs its own.
-replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../shared/natstrace
 
 replace github.com/jthomas78/nats-tech-lab/shared/natstest => ../../../../shared/natstest
 

@@ -35,7 +35,8 @@ type startConfig struct {
 
 // WithTracing puts this tenant's evt.* appends and its projector on OTel
 // (Phase 54b-3b). tenant is the account the runtime's connection lives in:
-// the projector's receiving account (BR-069). A nil Provider keeps natstrace.
+// the projector's receiving account (BR-069). A nil Provider leaves both
+// untraced (Phase 54d).
 func WithTracing(p *otelnats.Provider, tenant string) Option {
 	return func(c *startConfig) { c.tracing = p; c.tenant = tenant }
 }

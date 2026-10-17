@@ -9,46 +9,22 @@ import { useUiStore } from '../stores/ui.js'
 import SubjectPath from './SubjectPath.vue'
 
 // Phase 28g / BR-035 — one row per TRACE, not per message: every hop one
-// originating request caused, assembled server-side by shipping-service's
-// TRACES stream consumer (dictionary/internal/eventhandler/trace_store.go)
-// into the trace-request-reply KV bucket, keyed _platform.trace.{traceId}. This panel
-// reads that bucket exactly the way every other KV panel in this app does —
-// GET /api/kv/buckets/platform/trace-request-reply/entries for bootstrap, then
-// notify._platform.kv.trace-request-reply.> on the PLATFORM connection for live updates
-// (internal/kvstore.Store.EnableNotify, reused unchanged rather than a
-// bespoke trace-notify bridge — see BUSINESS_RULES-SHIPPING.md's BR-036
-// Phase 28g amendment). Bootstrap/subscribe/trace-grouping itself lives in
-// useTraceFeed.js, shared with PulsePanel.vue and RpcPanel.vue's Messages
-// tab — an architecture review replaced three drifted copies of the same
-// adapter with this one seam (see useTraceFeed.js's doc comment); this
-// component layers its own toolbar filtering (displayedSummaries below) on
-// top of the composable's unfiltered `traces` Map, unchanged.
+// originating request caused. The store is Tempo, read through the trace
+// query gateway (useTraceGateway, BR-076). The old trace-request-reply KV
+// feed and the legacy tracer's envelope were retired in Phase 54d. This component
+// layers its own toolbar filtering (displayedSummaries below) on top of the
+// gateway's unfiltered `traces` Map.
 //
-// Two known simplifications versus the approved mockup
-// (diagrams/admin-traces-panel.html), both because the wire span
-// (natstrace.go's traceSpan) doesn't carry the fields the mockup's fixture
-// data assumed:
-//  - (Closed in Phase 48c.) The account gutter used to show a coarse
-//    PLATFORM/TENANT split derived from a hardcoded set of service names,
-//    because no per-span tenant was serialized anywhere. It now shows the
-//    real account, read from `attributedTenant` — which useTraceFeed
-//    flattens off the KV record's per-span wrapper, and which the NATS
-//    server put there by remapping the tenant's export subject (BR-051 /
-//    BR-AC36). The distinction matters on this panel more than most: the
-//    old value was inferred by the UI, the new one cannot be forged by the
-//    account being observed.
-//  - No OTel spanKind (client/server/producer/consumer/internal) exists on
-//    the wire either — direction is always "reply" (BR-037's one-span-per-
-//    call design), so the mockup's detail-pane "kind" tag is omitted rather
-//    than shown with a fabricated value.
-//
+// The account gutter shows the real account, read from `attributedTenant`.
+// traceGateway.js takes it from the span's `lab.tenant.originating`
+// attribute (BR-069), which the receiving service sets from trusted context
+// only. `PLATFORM` shows for `_platform`; no tenant shows `unattributed`.
+
 // Phase 44 moved the request/error/latency pulse strip (Phase 28p) that used
 // to sit above the toolbar here out to its own Pulse tab (PulsePanel.vue) —
 // see this file's git history for the removed `pulse` computed and markup.
 //
-// Phase 54c (BR-076): the store is Tempo now, read through the trace query
-// gateway (useTraceGateway), and the KV text above is history. Three things
-// change for a person using the panel:
+// Phase 54c (BR-076): the store// Phase 54c (BR-076): three things a person using the panel sees:
 //  - It polls. Tempo has no push, so the toolbar shows when it last looked
 //    and a refresh button, and says a new trace shows up late (measured p50
 //    9.9 s on a local cell). Pause stops the polling.
@@ -272,10 +248,15 @@ function setKindFilter(kind) {
 // displayedSummaries), so the list doesn't shrink out from under itself as
 // other filters narrow the currently visible set.
 const requesterFilter = ref('')
+// Phase 54d: the gateway view carries `requester` (lab.requester, or the
+// captured header when bodies are on), so the filter works with bodies off.
+function rootRequester(t) {
+  return t.root?.requester || headerValue(t.root?.headers, 'Nats-Requestor')
+}
 const requesterOptions = computed(() => {
   const seen = new Set()
   for (const t of traceSummaries.value) {
-    const requester = headerValue(t.root?.headers, 'Nats-Requestor')
+    const requester = rootRequester(t)
     if (requester) seen.add(requester)
   }
   return Array.from(seen).sort()
@@ -295,7 +276,7 @@ const displayedSummaries = computed(() => {
     if (filters.slowOnly && t.total <= 100) return false
     if (kindFilter.value !== 'all' && t.kind !== kindFilter.value) return false
     if (searchText.value && !(t.root?.subject || '').toLowerCase().includes(searchText.value.toLowerCase())) return false
-    if (requesterFilter.value && headerValue(t.root?.headers, 'Nats-Requestor') !== requesterFilter.value) return false
+    if (requesterFilter.value && rootRequester(t) !== requesterFilter.value) return false
     return true
   })
 })
@@ -481,8 +462,8 @@ function formatTimeMs(ms) {
   const msPart = String(d.getMilliseconds()).padStart(3, '0')
   return `${hh}:${mm}:${ss}.${msPart}`
 }
-// Splits one span's already-merged headers/attributes (mergeHeaders in
-// natstrace.go puts both the caller's and the handler's onto the same span)
+// Splits one span's already-merged headers/attributes (toViewSpan in
+// nats/traceGateway.js puts both the caller's and the handler's onto one span)
 // into a Request side and a Response side by key name — no new wire field,
 // just classifying what's already there so "who called this" and "who
 // answered" stop reading as one undifferentiated list.
@@ -508,8 +489,8 @@ const headerSplit = computed(() => splitRows(selectedSpan.value?.headers, REQUES
 const attributeSplit = computed(() => splitRows(selectedSpan.value?.attributes, REQUEST_ATTRIBUTE_KEYS))
 const requestedBy = computed(() => headerValue(selectedSpan.value?.headers, 'Nats-Requestor'))
 const respondedBy = computed(() => headerValue(selectedSpan.value?.headers, 'Nats-Responder'))
-// accounts-service's HTTPMiddleware mints its span from r.URL.Path (natstrace.go's
-// StartFromHeaders), so an HTTP-transport span's subject always starts with "/" —
+// An HTTP SERVER span is named "METHOD /path" (otelnats HTTPMiddleware), and
+// toViewSpan keeps the path as its subject, so its subject always starts with "/" —
 // the same signal that distinguishes it from every rpc.*/api.*/evt.* NATS subject.
 // Phase 28i closed the bug where a real NATS span could show no requestor at all
 // (StartFromHeaders discarding inbound headers, StartOutbound never capturing its
@@ -520,9 +501,9 @@ const requestedByEmptyLabel = computed(() =>
     ? 'HTTP entry point — no NATS requestor'
     : '— (no Nats-Requestor on this span)',
 )
-// A span only ever reaches the trace store already finished — natstrace.go's
-// finish() is the sole obs.trace.* publish point, called exclusively from
-// End/Fail, so there is no "in-flight" representation on the wire at all. A
+// A span only ever reaches the trace store already finished — an OTel span
+// is exported only once it has ended (End, after a reply or a failure), so
+// there is no "in-flight" representation on the wire at all. A
 // missing Nats-Responder is therefore never "not yet finished"; it's one of
 // two real cases: an evt.* span is a JetStream consumer reacting to a
 // message, not answering a request, so it never had a responder to record

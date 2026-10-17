@@ -11,7 +11,27 @@ here ships, its panel/data-flow detail moves into
 the same way every other panel in that document is described, and this file
 keeps only the ADR as a historical record.
 
+> **Phase 54d (2026-10-16).** The legacy tracing pipeline is retired.
+> `shared/natstrace`, the `obs.trace.*` subjects, the PLATFORM `TRACES`
+> stream, the `trace-request-reply` bucket, the `tracestore` projector,
+> `otlp-bridge`, Jaeger and `useTraceFeed.js` are deleted. Tracing is now
+> OpenTelemetry: `shared/otelnats` → OTel Collector → Tempo
+> (`deploy/cell/compose.telemetry.yaml`). The Admin UI reads traces through
+> observability-service's trace gateway,
+> `api._platform.observability.trace.{search|get|services}.v1`
+> (`frontend/admin/src/nats/traceGateway.js`, BR-076). A path without an
+> otelnats Provider is untraced. The pub/sub half below is still live:
+> `obs.pubsub.*`, the `PUBSUB` stream and the `pubsub-messages` bucket
+> (BR-045..BR-048). `otelnats.Observer` now publishes `obs.pubsub.*`. Text
+> below that names the trace half is history.
+
 ## The message path, end to end
+
+> **Phase 54d (2026-10-16).** Only the pub/sub path in this figure is live.
+> The trace path (`obs.trace.>`, the `monitor.{tenant}.trace.>` remap,
+> `TRACES`, `trace-request-reply`) is retired. Spans now leave each service
+> over OTLP to the OTel Collector and Tempo. No span crosses an account on
+> NATS. The figure is not redrawn.
 
 ![Two parallel ingest paths: a tenant service publishes obs.trace.> and obs.pubsub.> inside its own NATS account; JWT stream exports carry both into the PLATFORM account, each with a per-tenant LocalSubject remap onto monitor.{tenant}.trace.> and monitor.{tenant}.pubsub.>; each lands on its own LimitsPolicy stream (TRACES 1h/64 MiB, PUBSUB 1h/32 MiB) that captures both the remapped tenant form and the bare obs.* form PLATFORM publishes itself, is read by one durable AckExplicit consumer, and is projected into a KV bucket — trace-request-reply merged by spanId with the tenant stored per span, pubsub-messages plain-Put, both bounded at 15 min / 8 MiB. Both buckets emit a best-effort notify subject that observability-service bridges to the Admin UI over WebSocket, alongside the REST snapshot each feed bootstraps from.](images/observability-message-path.png)
 
@@ -29,6 +49,10 @@ reviewed at; changing it changes the layout. The `--clip=".wrap"` is
 load-bearing, not optional.
 
 ## Phase 48 — what changed, before and after
+
+> **Phase 54d (2026-10-16).** This section is history. The bucket, the
+> projector and `useTraceFeed.js` it shows are deleted. Tempo stores and
+> bounds the traces now (BR-068), and the trace gateway reads them (BR-076).
 
 ![Before and after Phase 48: on the left, three arriving spans each read-modify-write the single KV key _platform.trace.{traceId} holding the whole trace, which costs O(n squared) bytes per trace, silently loses spans (16 concurrent writers stored 1 span), and is safe only while exactly one projector runs; on the right, each span is Put idempotently under its own key trace.{traceId}.{spanId}, and useTraceFeed.js joins the trace at read time from a prefix scan, so dedup is a property of the key, a stale re-read is a no-op, and scaling the projector is safe. Below, a seven-row table contrasts before and after for who says which tenant, where the tenant is read, bucket size, write shape, dedup, error status, and how each is verified.](images/phase48-before-after.png)
 
@@ -255,6 +279,12 @@ the body is left intact as the record of what was decided on 2026-08-20.
 
 ### A1 — Tenant provenance is not recoverable, and the goal depends on it
 
+> **Phase 54d (2026-10-16).** The `obs.trace.>` half of this item is
+> retired. The per-tenant `obs.trace.>` export, PLATFORM's import and its
+> `monitor.{tenant}.trace.>` remap (BR-AC36) are deleted, with BR-051. On the
+> OTel path the receiving service sets the tenant from trusted context
+> (BR-069). The `obs.pubsub.>` remap (BR-AC34) is unchanged.
+
 The goal is a view of traffic across *every tenant account*, but nothing in
 the design as approved recovers **which** account an entry came from:
 
@@ -432,6 +462,10 @@ correct. The remaining call sites and the `notify.*` family follow once the
 slice holds.
 
 ### Revised action items
+
+> **Phase 54d (2026-10-16).** `natstrace.ObservePublish`/`ObservePublishAs`
+> named below now live as `otelnats.Observer` (`shared/otelnats/observe.go`).
+> Item 5's `trace-request-reply` bucket and BR-053 are retired.
 
 1. [x] Business-rules-first pass — BR-045–049 (shipping), BR-D45 (refdata),
        BR-AC34 (accounts), BR-TP75 (organizations) drafted and amended per

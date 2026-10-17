@@ -33,7 +33,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/docs"
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -207,9 +206,9 @@ func run(log *slog.Logger) error {
 	}
 	go accounts.NewSessionReaper(store, reaperCfg, log).Run(ctx)
 
-	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set; nil keeps
-	// natstrace on the Users adapter, the notify.* publishes and the REST
-	// API.
+	// Phase 54b-5: OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set. Nil serves
+	// the Users adapter, the notify.* publishes and the REST API untraced
+	// (Phase 54d).
 	tracing, err := otelnats.InitFromEnv(ctx, "accounts-service")
 	if err != nil {
 		return err
@@ -241,14 +240,6 @@ func run(log *slog.Logger) error {
 	}
 
 	auditLog := accounts.NewAuditLog(db)
-	// Phase 28e: the same PLATFORM connection notify.accounts.* already
-	// publishes on (BR-036 requires obs.trace.* publish to the PLATFORM
-	// account only) — natstrace.New(nil) is safe if platformNC is unset
-	// (NATS_PLATFORM_CREDS_PATH not configured): Span.finish() is
-	// panic-recover-wrapped, so a nil connection just means spans silently
-	// don't publish, the same "optional, degrades gracefully" contract
-	// platformNC already has for notify.accounts.*.
-	tracer := natstrace.New(platformNC)
 	handlers := accounts.NewHandlers(store, provisioner, credsWriteDir, log, platformNC, auditLog)
 	if natsMonitorURL != "" {
 		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
@@ -281,7 +272,8 @@ func run(log *slog.Logger) error {
 	// Phase 28e — one http.Handler decorator wrapping the whole mux covers
 	// every accounts/auth REST endpoint, symmetric to the other four
 	// services' micro.Handler Middleware wrapping every svc.AddEndpoint call.
-	server := &http.Server{Addr: httpAddr, Handler: accounts.TraceHTTP(mux, tracing, tracer)}
+	// OTel only since Phase 54d; with no Provider the mux is served as is.
+	server := &http.Server{Addr: httpAddr, Handler: accounts.TraceHTTP(mux, tracing)}
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("accounts-service: http server listening", "addr", httpAddr)

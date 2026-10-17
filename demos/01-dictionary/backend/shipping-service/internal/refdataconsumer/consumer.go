@@ -34,7 +34,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -44,7 +43,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -126,8 +124,6 @@ type Consumer struct {
 	// process carries the same instance identity (see requestorHeader).
 	requestorID string
 
-	tracer *natstrace.Tracer
-
 	// otel, when set by WithTracing, puts requestRPC on the OTel path.
 	otel *otelnats.Provider
 
@@ -153,8 +149,7 @@ func WithRPCRetries(n int) Option { return func(c *Consumer) { c.rpcRetries = n 
 // (default 150ms, scaled linearly by attempt number).
 func WithRPCBackoff(d time.Duration) Option { return func(c *Consumer) { c.rpcBackoff = d } }
 
-// WithTracing makes each logical call one OTel CLIENT span instead of a
-// natstrace span (Phase 54b-4, BR-064, BR-065). A nil provider is the same
+// WithTracing makes each logical call one OTel CLIENT span (Phase 54b-4, BR-064, BR-065). A nil provider is the same
 // as not passing the option.
 func WithTracing(p *otelnats.Provider) Option { return func(c *Consumer) { c.otel = p } }
 
@@ -162,7 +157,6 @@ func New(nc *nats.Conn, opts ...Option) *Consumer {
 	c := &Consumer{
 		nc:                nc,
 		requestorID:       fmt.Sprintf("%s/%s", nc.Opts.Name, nuid.Next()),
-		tracer:            natstrace.New(nc),
 		rpcRequestTimeout: defaultRPCRequestTimeout,
 		rpcRetries:        defaultRPCRetries,
 		rpcBackoff:        defaultRPCBackoff,
@@ -216,7 +210,7 @@ func (c *Consumer) fetchVersionedViaRPC(ctx context.Context, itemContext string,
 		return Result{}, err
 	}
 	subject := "refdata.item.get-versioned.v1"
-	data, err := c.requestRPC(ctx, subject, itemContext, "item", "get-versioned", reqBody)
+	data, err := c.requestRPC(ctx, subject, reqBody)
 	if err != nil {
 		return Result{}, err
 	}
@@ -267,7 +261,7 @@ func (c *Consumer) Locales(ctx context.Context, itemContext string) (LocalesResu
 	if err != nil {
 		return LocalesResult{}, err
 	}
-	data, err := c.requestRPC(ctx, subject, itemContext, "locales", "list", reqBody)
+	data, err := c.requestRPC(ctx, subject, reqBody)
 	if err != nil {
 		return LocalesResult{}, err
 	}
@@ -314,7 +308,7 @@ func (c *Consumer) ListContexts(ctx context.Context, tenant string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	data, err := c.requestRPC(ctx, contextListSubject, "_platform", "context", "list", reqBody)
+	data, err := c.requestRPC(ctx, contextListSubject, reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +394,7 @@ func (c *Consumer) fetchViaRPC(ctx context.Context, itemContext string, typeKey,
 		return Result{}, err
 	}
 	subject := "refdata.item.get.v1"
-	data, err := c.requestRPC(ctx, subject, itemContext, "item", "get", reqBody)
+	data, err := c.requestRPC(ctx, subject, reqBody)
 	if err != nil {
 		return Result{}, err
 	}
@@ -451,7 +445,7 @@ func (c *Consumer) fetchTypeViaRPC(ctx context.Context, itemContext string, type
 		return nil, err
 	}
 	subject := "refdata.type.list.v1"
-	data, err := c.requestRPC(ctx, subject, itemContext, "type", "list", reqBody)
+	data, err := c.requestRPC(ctx, subject, reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -524,27 +518,19 @@ const requestorHeader = "Nats-Requestor"
 // fails. There is no REST fallback to fall through to (BR-D28) — this is
 // the only transport this consumer has.
 //
-// BR-037: exactly one span (OTel with WithTracing, else natstrace) covers the whole call — minted before
-// the retry loop starts, not one per attempt. The span continues whatever
-// parent natstrace.ContextWithSpan attached to ctx, or mints a root span if
-// ctx carries none (true of every caller today: no browserrpc handler in
-// this service invokes refdataconsumer yet — only REST handlers do, via
-// r.Context(), which carries no span until a later phase instruments REST
-// too). contextValue/entity/action label the span explicitly rather than
-// being parsed from subject: most of this consumer's subjects
-// (item.get.v1, item.get-versioned.v1, locales.list.v1, type.list.v1) are
-// this tenant account's *local* aliases, remapped to the real
-// rpc.{tenant}.refdata.*.v1 subject entirely inside the NATS server
-// (accounts-service's provisioner.go) — the local alias itself doesn't
-// carry {context} at all, and parsing it positionally would silently
-// mislabel the span.
-func (c *Consumer) requestRPC(ctx context.Context, subject, contextValue, entity, action string, body []byte) ([]byte, error) {
+// BR-037: with WithTracing, exactly one CLIENT span covers the whole call —
+// started before the retry loop, not one per attempt. It is the child of the
+// span on ctx (a REST handler's SERVER span, BR-073), and records the
+// attempts as rpc.retry_count. Most of this consumer's subjects are this
+// tenant account's local aliases, remapped to rpc.{tenant}.refdata.*.v1
+// inside the NATS server (accounts-service's provisioner.go).
+func (c *Consumer) requestRPC(ctx context.Context, subject string, body []byte) ([]byte, error) {
 	msg := &nats.Msg{
 		Subject: subject,
 		Data:    body,
 		Header:  nats.Header{requestorHeader: []string{c.requestorID}},
 	}
-	finish := c.startCall(ctx, msg, contextValue, entity, action)
+	finish := c.startCall(ctx, msg)
 	var lastErr error
 	attempt := 0
 	for ; attempt <= c.rpcRetries; attempt++ {
@@ -573,8 +559,9 @@ func (c *Consumer) requestRPC(ctx context.Context, subject, contextValue, entity
 // startCall starts the call's one span, writes its traceparent into msg, and
 // returns the function that ends it. With WithTracing the span is an OTel
 // CLIENT span (Phase 54b-4, BR-064, BR-065), the same shape as
-// organizations-service's refdataclient; without it, natstrace's.
-func (c *Consumer) startCall(ctx context.Context, msg *nats.Msg, contextValue, entity, action string) func(retries int, reply *nats.Msg, err error) {
+// organizations-service's refdataclient; without it, the call is untraced
+// (Phase 54d).
+func (c *Consumer) startCall(ctx context.Context, msg *nats.Msg) func(retries int, reply *nats.Msg, err error) {
 	if c.otel != nil {
 		ctx, span := c.otel.StartClient(ctx, msg.Subject, "refdata")
 		otelnats.Inject(ctx, msg)
@@ -591,19 +578,5 @@ func (c *Consumer) startCall(ctx context.Context, msg *nats.Msg, contextValue, e
 		}
 	}
 
-	sp := c.tracer.StartOutbound(natstrace.SpanFromContext(ctx), msg.Subject, msg.Data, contextValue, "refdata", entity, action)
-	msg.Header[natstrace.TraceparentHeader] = []string{sp.Traceparent()}
-	// The outbound span has to be told its own headers: it exists before they
-	// do (Traceparent() above is one of the values in them). Without this the
-	// client-side span shows "no Nats-Requestor" while publishing exactly that
-	// identity on the wire for the callee's span to record.
-	sp.SetRequestHeaders(map[string][]string(msg.Header))
-	return func(retries int, reply *nats.Msg, err error) {
-		sp.SetAttribute("rpc.retry_count", strconv.Itoa(retries))
-		if err != nil {
-			sp.Fail(err, nil, nil)
-			return
-		}
-		sp.End(reply.Data, map[string][]string(reply.Header))
-	}
+	return func(int, *nats.Msg, error) {}
 }

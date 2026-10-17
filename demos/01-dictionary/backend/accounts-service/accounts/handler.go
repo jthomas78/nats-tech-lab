@@ -30,7 +30,6 @@ import (
 	"github.com/nats-io/nkeys"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -115,19 +114,18 @@ type Handlers struct {
 	RefdataURL string
 	// Tracing, when set, puts the notify.* lifecycle publishes on OTel: a
 	// PRODUCER span that is the child of the REST SERVER span (Phase 54b-5,
-	// BR-073). Nil keeps natstrace (decision 16).
+	// BR-073). Nil publishes them untraced (Phase 54d).
 	Tracing *otelnats.Provider
 }
 
 // TraceHTTP wraps the REST API in its tracing. With a Provider each request
-// is one OTel SERVER span on the PLATFORM account (BR-073). With none it is
-// the natstrace HTTP span, as before, until the coordinated cutover
-// (decision 16).
-func TraceHTTP(next http.Handler, tracing *otelnats.Provider, legacy *natstrace.Tracer) http.Handler {
+// is one OTel SERVER span on the PLATFORM account (BR-073). With none the API
+// is served untraced and next is returned unchanged (Phase 54d).
+func TraceHTTP(next http.Handler, tracing *otelnats.Provider) http.Handler {
 	if tracing != nil {
 		return tracing.HTTPMiddleware("PLATFORM", next)
 	}
-	return legacy.HTTPMiddleware("_platform", "accounts", next)
+	return next
 }
 
 func NewHandlers(store *Store, provisioner *Provisioner, credsWriteDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
@@ -221,9 +219,9 @@ func (h *Handlers) publishAccountCreated(ctx context.Context, name string) {
 // This is the notify.* family's irregular member: four tokens where its
 // siblings have five to seven, and no {context} at all, because this service
 // administers the tenant axis itself rather than operating inside one. That
-// puts it below natstrace.ObservePublish's five-token floor, so a subject-
-// derived attribution would not merely be wrong here — it would skip these
-// four events silently. The tokens are named instead, with the context this
+// puts it below the five-token floor a subject-derived parse needs, so a
+// subject-derived attribution would not merely be wrong here — it would skip
+// these four events silently. The tokens are named instead, with the context this
 // service does belong to.
 //
 // The shape is deliberately not regularised: the subject is pinned in JWT

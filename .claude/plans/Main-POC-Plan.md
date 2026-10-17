@@ -2148,6 +2148,25 @@ Neither is fixed in place: this phase removes the code that has them.
   link to its trace. Old trace history goes with it (decision 16).
   Retire `GET /api/nats/services` after its NATS replacement is validated
   (decision 17); update route docs and BR-040 together.
+  - **54d BUILT (2026-10-16).** Two choices by the user: shipping's REST
+    infra routes use `otelnats.HTTPMiddlewareFor`; the `Nats-Requestor`
+    value is the span attribute `lab.requester` (BR-041).
+  - **Deleted.** `shared/natstrace` (and its `go.work`, `go.mod` and
+    Dockerfile lines), `obs.trace.*`, `tracestore` (TRACES stream and
+    `trace-request-reply` bucket), `otlp-bridge`, Jaeger and the `otlp`
+    profile, `useTraceFeed.js`, `cmd/seed-traces`, `GET /api/nats/services`
+    (`nats_services.go`), the tenant `obs.trace.>` export and PLATFORM's
+    import (provisioner and `bootstrap-operator.sh`).
+  - **Kept.** BR-AC31 `monitor.{tenant}.srv.>`, the `obs.pubsub.*` channel
+    and its imports, `allow_trace` on PLATFORM's pubsub import, BR-027
+    identity and BR-028 labels. Without a Provider a path is untraced.
+  - **Rules.** Retired: BR-036, BR-051, BR-053, BR-D39, BR-P25, BR-TP15,
+    BR-AC36. Amended: BR-027, BR-028, BR-035, BR-037, BR-040, BR-041,
+    BR-045, BR-046, BR-047, BR-054 (harness half retired, gutter kept),
+    BR-055, BR-056, BR-057, BR-AC30, BR-AC35, BR-AC37.
+  - **Not removed by code.** An `obs.trace.>` import an older stack already
+    minted, and the live TRACES and `KV_trace-request-reply` streams on a
+    running cell. Those are removed by hand, with the user's go-ahead.
 
 #### Business rules this phase adds or changes
 
@@ -2270,15 +2289,16 @@ metrics appear beside the services' own.
    links between them are provisioned, not clicked: Tempo → Loki (trace to
    logs by `trace_id`), Tempo → Prometheus, Loki derived field → Tempo,
    Prometheus exemplars → Tempo. Dashboards are JSON files in the repo.
-10. **The Pulse tab moves to metrics.** Phase 54 decision 12 keeps Pulse
-    trace-derived only while sampling is 100%. Here Pulse reads request
-    rate, error rate and latency from Prometheus through
+10. **Pulse becomes Request Metrics and moves to metrics.** Phase 54 decision 12
+    keeps the existing Pulse trace-derived only while sampling is 100%. Here
+    Request Metrics reads request rate, error rate and latency from Prometheus through
     `observability-service`, over NATS `api._platform.observability.*.v1`
     request/reply like Phase 54 decision 9, which frees sampling to change
-    later. **This is now the only path back for Pulse:** Phase 54 decision
+    later. **This is now the only path back for the tab:** Phase 54 decision
     15 (c) marks the tab unavailable from 54's cutover until this ships,
-    and restoring it (and `ui.rpcTab`'s `'pulse'` default) is part of this
-    phase.
+    and restoring it under the **Request Metrics** label (and restoring
+    `ui.rpcTab`'s `'pulse'` default) is part of this phase. The internal tab
+    key can remain `'pulse'`; the visible label changes.
 11. **Grafana is an operator tool, not a tenant one.** It sits on the
     platform side, with its login on and anonymous access off (Phase 54
     decision 2). Access follows Phase 54 decision 4: operators read all
@@ -2302,7 +2322,7 @@ metrics appear beside the services' own.
   first, then the rest; exemplar → Tempo link working.
 - **55c — logs.** `otelslog` bridge, Loki, trace ID on request-path logs;
   span → logs and log → trace links working.
-- **55d — Pulse tab on metrics** through `observability-service`.
+- **55d — Request Metrics tab on metrics** through `observability-service`.
 
 #### Business rules this phase adds or changes
 
@@ -2311,7 +2331,8 @@ low-cardinality (decisions 3, 7); log lines never carry bodies
 (decision 4); every request-path log line carries `trace_id`
 (decision 2); Grafana links are provisioned from the repo (decision 9).
 Changed: the Pulse rule in BUSINESS_RULES-SHIPPING.md (Phase 28p entry,
-amended by Phase 44) moves Pulse to metrics (decision 10). ARCHITECTURE-OBSERVABILITY.md gains a logs-and-metrics
+amended by Phase 44) moves to Prometheus metrics and the visible tab is renamed
+Request Metrics (decision 10). ARCHITECTURE-OBSERVABILITY.md gains a logs-and-metrics
 section.
 
 ---

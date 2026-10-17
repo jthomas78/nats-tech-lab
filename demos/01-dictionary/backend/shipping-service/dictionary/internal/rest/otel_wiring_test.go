@@ -120,7 +120,9 @@ func TestBuildTenantResourcesPutsTheTenantsTrafficOnOTel(t *testing.T) {
 	}
 }
 
-func TestBuildTenantResourcesWithoutTracingStaysOnNatstrace(t *testing.T) {
+// Phase 54d: with no Provider the tenant is served untraced. The request
+// still works, and nothing goes out on the retired obs.trace.* subjects.
+func TestBuildTenantResourcesWithoutTracingIsUntraced(t *testing.T) {
 	nc, _, cleanup := newTestNATSJS(t)
 	defer cleanup()
 
@@ -148,8 +150,8 @@ func TestBuildTenantResourcesWithoutTracingStaysOnNatstrace(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-spans:
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected a natstrace obs.trace.* span with no Provider")
+	case m := <-spans:
+		t.Fatalf("expected no obs.trace.* message with no Provider, got %s", m.Subject)
+	case <-time.After(300 * time.Millisecond):
 	}
 }

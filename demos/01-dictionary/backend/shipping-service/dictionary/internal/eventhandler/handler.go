@@ -15,7 +15,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // The three durable consumer names this package registers on the SHIPPING
@@ -36,7 +35,7 @@ const (
 )
 
 // consumerDurableAttr is the span attribute key carrying the durable name of
-// the projector that produced the span. Dotted, like natstrace's other
+// the projector that produced the span. Dotted, like the lab's other
 // namespaced attribute keys (http.method, http.path, rpc.retry_count) rather
 // than a bare "consumer" — it names one specific thing about the consumer,
 // and TraceWaterfall.vue's REQUEST_ATTRIBUTE_KEYS set (which it is
@@ -137,12 +136,6 @@ func register(
 	// leave every future event failing with "context canceled" and stuck
 	// redelivering forever.
 	msgCtx := context.WithoutCancel(ctx)
-	// tracer is constructed once per registration (nc may be nil, same
-	// nil-safe convention as publishNotify — natstrace.New(nil) is safe to
-	// build; only a Span's finish() ever dereferences nc, and that call is
-	// itself panic-recovered) rather than per message, mirroring how
-	// browserrpc.Adapter builds one Tracer per connection (Phase 28b).
-	tracer := natstrace.New(nc)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable: durable,
 		// Ship projectors only consume ship movement events; container.*
@@ -154,7 +147,7 @@ func register(
 		return nil, err
 	}
 	return cons.Consume(func(msg jetstream.Msg) {
-		aggregate, id, eventType, subjectOK := domain.SubjectDetails(msg.Subject())
+		aggregate, id, _, subjectOK := domain.SubjectDetails(msg.Subject())
 		var event domain.ShipEvent
 		if err := json.Unmarshal(msg.Data(), &event); err != nil {
 			log.Error("drop malformed event", "consumer", durable, "subject", msg.Subject(), "err", err)
@@ -173,7 +166,7 @@ func register(
 
 		// One span per message, continuing the traceparent the evt.* publish
 		// carried if present, else a fresh root — see startMessage.
-		spanCtx, end := cfg.startMessage(tracer, msgCtx, msg, event.Context, aggregate, eventType, id, durable)
+		spanCtx, end := cfg.startMessage(msgCtx, msg, id, durable)
 
 		if err := project(spanCtx, msg.Subject(), event); err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
@@ -191,7 +184,7 @@ func register(
 //
 // Phase 43d: publishNotify and publishRawNotify used to live here — two
 // helpers that concatenated a subject, published it, log-and-swallowed the
-// error, and then asked natstrace to parse the subject back into
+// error, and then asked the legacy tracer to parse the subject back into
 // observability tokens. shared/natsnotify owns that sequence now, and
 // internal/notify owns the subjects; what is left is the choice this service
 // makes, which is that its projectors observe.

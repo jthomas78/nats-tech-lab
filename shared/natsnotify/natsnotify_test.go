@@ -15,7 +15,6 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstest"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 func recv(t *testing.T, ch chan *nats.Msg, what string) *nats.Msg {
@@ -93,7 +92,7 @@ func TestPublishObservesUnderTheTokensItWasGivenNotTheOnesInTheSubject(t *testin
 
 func TestPublishObservesAFourTokenSubjectThePositionalDeriverWouldSkip(t *testing.T) {
 	// notify.accounts.account.created carries no {context} and is one token
-	// below natstrace.ObservePublish's floor, so deriving would drop it
+	// below otelnats.Observer.ObservePublish's floor, so deriving would drop it
 	// silently. Explicit tokens make the family's irregular member ordinary.
 	nc := natstest.Start(t, "natsnotify-test")
 	obs := natstest.Observations(t, nc)
@@ -126,32 +125,6 @@ func TestNotifierWithoutObservationStaysSilent(t *testing.T) {
 	silence(t, obs, "observation")
 }
 
-func TestObservationContinuesTheSpanOnTheContext(t *testing.T) {
-	nc := natstest.Start(t, "natsnotify-test")
-	obs := natstest.Observations(t, nc)
-
-	parent := natstrace.New(nc).StartOutbound(nil, "rpc.acme.shipping.ship.get", nil, "acme", "shipping", "ship", "get")
-	ctx := natstrace.ContextWithSpan(context.Background(), parent)
-
-	n := natsnotify.New(nc, nil, natsnotify.WithObservation(nc))
-	n.Publish(ctx, natsnotify.Subject{Name: "notify.acme.shipping.ship.changed", Tokens: natsnotify.Tokens{Context: "acme", Service: "shipping", Entity: "ship", Action: "changed"}}, []byte(`{}`))
-
-	m := recv(t, obs, "the observation")
-	var env struct {
-		TraceID      string `json:"traceId"`
-		ParentSpanID string `json:"parentSpanId"`
-	}
-	if err := json.Unmarshal(m.Data, &env); err != nil {
-		t.Fatal(err)
-	}
-	if env.TraceID == "" {
-		t.Fatal("observation has no trace id")
-	}
-	if env.ParentSpanID == "" {
-		t.Fatal("observation did not continue the span on the context — it would appear as an orphan, not in the caller's waterfall")
-	}
-}
-
 func TestPublishToleratesNilConnLoggerAndContext(t *testing.T) {
 	// Every call site this replaces already tolerated an unconfigured notify
 	// connection as a supported deployment, and several are reached from a KV
@@ -165,28 +138,7 @@ func TestPublishToleratesNilConnLoggerAndContext(t *testing.T) {
 	recv(t, got, "the notify message")
 }
 
-func TestPublishAttachesTraceparentWhenASpanIsOnTheContext(t *testing.T) {
-	// BR-037: the notify carries the trace forward the same way the evt.*
-	// seam does, so the waterfall shows the async tail past the KV write the
-	// caller already made. A NATS KV entry can never carry a traceparent of
-	// its own — jetstream.KeyValue.Put takes no headers — so this notify is
-	// the only place the trace can continue.
-	nc := natstest.Start(t, "natsnotify-test")
-	got := natstest.Subscribe(t, nc, "notify.>")
-
-	parent := natstrace.New(nc).StartOutbound(nil, "rpc.acme.shipping.ship.get", nil, "acme", "shipping", "ship", "get")
-	ctx := natstrace.ContextWithSpan(context.Background(), parent)
-
-	natsnotify.New(nc, nil).Publish(ctx,
-		natsnotify.Subject{Name: "notify.acme.shipping.ship.changed"}, []byte(`{}`))
-
-	m := recv(t, got, "the notify message")
-	if m.Header.Get(natstrace.TraceparentHeader) == "" {
-		t.Fatal("no traceparent — the trace stops at the KV write")
-	}
-}
-
-func TestPublishOmitsTraceparentWhenThereIsNoSpan(t *testing.T) {
+func TestPublishWithoutOTelCarriesNoTraceparent(t *testing.T) {
 	nc := natstest.Start(t, "natsnotify-test")
 	got := natstest.Subscribe(t, nc, "notify.>")
 
@@ -194,7 +146,7 @@ func TestPublishOmitsTraceparentWhenThereIsNoSpan(t *testing.T) {
 		natsnotify.Subject{Name: "notify.acme.shipping.ship.changed"}, []byte(`{}`))
 
 	m := recv(t, got, "the notify message")
-	if m.Header.Get(natstrace.TraceparentHeader) != "" {
+	if m.Header.Get("traceparent") != "" {
 		t.Fatal("traceparent on a message with no span behind it")
 	}
 }

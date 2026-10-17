@@ -105,7 +105,7 @@ type Deps struct {
 	CredsDir string
 	// Tracing, when set, puts every tenant's api.* adapter, evt.* publisher,
 	// projectors, KV notify and lifecycle subscriptions on OTel (Phase
-	// 54b-4). Nil keeps natstrace. Read once, at NewHandlers, like NatsURL.
+	// 54b-4). Nil leaves them untraced. Read once, at NewHandlers, like NatsURL.
 	Tracing *otelnats.Provider
 }
 

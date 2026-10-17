@@ -8,7 +8,7 @@
 //
 // Phase 54c (decision 15, BR-077): Pulse is MARKED UNAVAILABLE until
 // Phase 55. Its request/error/latency histograms counted the whole live
-// trace set from the KV feed (useTraceFeed.js). The trace store now is
+// trace set from the old KV feed (retired in 54d). The trace store now is
 // Tempo, read through a search with a result limit, and a capped search is
 // never shown as a total. So the tab keeps its explanation card and flow
 // diagram, says why the numbers are gone, and points to Phase 55, which

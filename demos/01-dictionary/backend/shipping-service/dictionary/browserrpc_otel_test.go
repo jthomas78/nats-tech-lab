@@ -6,7 +6,7 @@ package dictionary
 // it; each projector consumes under a CONSUMER span that continues that
 // trace; and the notify.* publishes (projector, KV, port register) are
 // PRODUCER spans under whichever span caused them. Without a Provider the
-// natstrace specs (browserrpc_test.go, trace_async_test.go) hold.
+// path is untraced (Phase 54d retired the legacy tracer).
 
 import (
 	"context"
@@ -246,7 +246,7 @@ var _ = Describe("shipping-service on otelnats (Phase 54b-4)", func() {
 		})
 	})
 
-	It("publishes no natstrace span (the path is OTel only)", func() {
+	It("publishes nothing on the retired obs.trace.* subjects", func() {
 		legacy := make(chan *nats.Msg, 16)
 		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { legacy <- m })
 		Expect(err).NotTo(HaveOccurred())

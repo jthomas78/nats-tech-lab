@@ -11,7 +11,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // RegisterContainers starts the container projector: container events update
@@ -42,7 +41,6 @@ func RegisterContainers(
 	msgCtx := context.WithoutCancel(ctx)
 	// See handler.go's register() for the same nil-safe-nc construction
 	// rationale.
-	tracer := natstrace.New(nc)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       ContainerProjectorDurable,
 		FilterSubject: domain.SubjectContainerWildcard,
@@ -67,7 +65,7 @@ func RegisterContainers(
 		event.ID = id
 
 		// One span per message — see startMessage.
-		spanCtx, end := cfg.startMessage(tracer, msgCtx, msg, event.Context, aggregate, eventType, id, ContainerProjectorDurable)
+		spanCtx, end := cfg.startMessage(msgCtx, msg, id, ContainerProjectorDurable)
 
 		agg := currentContainerAgg(spanCtx, kv, event)
 		agg.Apply(msg.Subject(), event)

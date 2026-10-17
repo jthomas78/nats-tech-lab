@@ -13,7 +13,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // metaEvent carries the fields the meta projector needs from a
@@ -48,7 +47,6 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 	msgCtx := context.WithoutCancel(ctx)
 	// See handler.go's register() for the same nil-safe-nc construction
 	// rationale.
-	tracer := natstrace.New(nc)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       MetaProjectorDurable,
 		FilterSubject: domain.SubjectContainerWildcard,
@@ -73,7 +71,7 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 		}
 
 		// One span per message — see startMessage.
-		spanCtx, end := cfg.startMessage(tracer, msgCtx, msg, event.Context, aggregate, eventType, id, MetaProjectorDurable)
+		spanCtx, end := cfg.startMessage(msgCtx, msg, id, MetaProjectorDurable)
 
 		data, err := mergeSet(spanCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
 		if err != nil {

@@ -327,26 +327,6 @@ const docTemplate = `{
                     }
                 }
             }
-        },
-        "/api/nats/services": {
-            "get": {
-                "description": "Every service registered via nats.go/micro, discovered by broadcasting $SRV.STATS and collecting replies for a short window — the same protocol ` + "`" + `nats micro stats` + "`" + ` uses. Queried on PLATFORM's own $SRV.STATS plus, for every tenant accounts-service currently knows about, that tenant's $SRV.STATS via BR-AC31's monitor.{tenant}.srv.\u003e import — every known tenant at once, not just one active session.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "nats"
-                ],
-                "summary": "List NATS micro services",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.natsServicesResponse"
-                        }
-                    }
-                }
-            }
         }
     },
     "definitions": {
@@ -769,32 +749,6 @@ const docTemplate = `{
                 }
             }
         },
-        "rest.natsEndpoint": {
-            "type": "object",
-            "properties": {
-                "averageProcessingTimeMs": {
-                    "type": "integer"
-                },
-                "lastError": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "numErrors": {
-                    "type": "integer"
-                },
-                "numRequests": {
-                    "type": "integer"
-                },
-                "queueGroup": {
-                    "type": "string"
-                },
-                "subject": {
-                    "type": "string"
-                }
-            }
-        },
         "rest.natsLogResponse": {
             "type": "object",
             "properties": {
@@ -815,57 +769,6 @@ const docTemplate = `{
             "properties": {
                 "maxConnections": {
                     "type": "integer"
-                }
-            }
-        },
-        "rest.natsService": {
-            "type": "object",
-            "properties": {
-                "instances": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/rest.natsServiceInstance"
-                    }
-                },
-                "name": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "rest.natsServiceInstance": {
-            "type": "object",
-            "properties": {
-                "endpoints": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/rest.natsEndpoint"
-                    }
-                },
-                "id": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "started": {
-                    "type": "string"
-                }
-            }
-        },
-        "rest.natsServicesResponse": {
-            "type": "object",
-            "properties": {
-                "services": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/rest.natsService"
-                    }
                 }
             }
         }

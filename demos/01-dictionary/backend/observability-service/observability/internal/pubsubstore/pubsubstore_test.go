@@ -48,8 +48,8 @@ func newTestNATS(t *testing.T) (*nats.Conn, jetstream.JetStream, func()) {
 	return nc, js, func() { nc.Close(); srv.Shutdown() }
 }
 
-// publishEnvelope publishes one obs.pubsub.* envelope the way natstrace's
-// ObservePublish does — core NATS, with Nats-Msg-Id set to the spanId.
+// publishEnvelope publishes one obs.pubsub.* envelope the way otelnats'
+// Observer does — core NATS, with Nats-Msg-Id set to the spanId.
 func publishEnvelope(t *testing.T, nc *nats.Conn, arrivalSubject, spanID, observedSubject string) {
 	t.Helper()
 	data, err := json.Marshal(map[string]any{

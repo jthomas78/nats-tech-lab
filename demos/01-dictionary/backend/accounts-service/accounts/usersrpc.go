@@ -36,7 +36,6 @@ import (
 	"github.com/nats-io/nats.go/micro"
 
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
 
@@ -62,7 +61,6 @@ type UsersAdapter struct {
 	reader  *UserClaimsReader
 	revoker *UserRevoker
 	log     *slog.Logger
-	tracer  *natstrace.Tracer
 	otel    *otelnats.Provider
 }
 
@@ -71,8 +69,8 @@ type UsersOption func(*UsersAdapter)
 
 // WithUsersTracing makes each endpoint an OTel SERVER span on the PLATFORM
 // account that starts a new root (Phase 54b-5, BR-069, BR-071 EdgeAPI). A
-// nil provider is the same as not passing the option, which keeps natstrace
-// (decision 16).
+// nil provider is the same as not passing the option: the endpoints are
+// served untraced (Phase 54d).
 func WithUsersTracing(p *otelnats.Provider) UsersOption {
 	return func(a *UsersAdapter) { a.otel = p }
 }
@@ -104,7 +102,7 @@ type UserListResponse struct {
 // absent looks to a browser exactly like a NATS timeout, whereas one that
 // refuses can say why.
 func NewUsersAdapter(nc *nats.Conn, reader *UserClaimsReader, revoker *UserRevoker, log *slog.Logger, opts ...UsersOption) (*UsersAdapter, error) {
-	a := &UsersAdapter{reader: reader, revoker: revoker, log: log, tracer: natstrace.New(nc)}
+	a := &UsersAdapter{reader: reader, revoker: revoker, log: log}
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -123,7 +121,7 @@ func NewUsersAdapter(nc *nats.Conn, reader *UserClaimsReader, revoker *UserRevok
 	a.svc = svc
 
 	for _, ep := range a.endpoints() {
-		h := a.tracer.Middleware(ep.handler)
+		h := micro.HandlerFunc(ep.handler)
 		if a.otel != nil {
 			h = a.otel.Middleware(otelnats.EdgeAPI, platformTrust, ep.handler)
 		}
