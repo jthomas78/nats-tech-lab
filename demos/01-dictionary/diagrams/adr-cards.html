@@ -410,7 +410,7 @@
         <span class="file">ADR-058-v3-observability-opentelemetry-tracing.md</span>
       </div>
     </div>
-    <div class="decision"><div class="lbl">Decision</div><p>Every V3 service traces with the standard OpenTelemetry SDK through one shared module per programming language, and spans leave over OTLP to a disk-buffered agent, never over NATS accounts. An outside call always starts a new trace, and every span carries its tenant from trusted context and its location (region, cluster, server).</p></div>
+    <div class="decision"><div class="lbl">Decision</div><p>Every V3 service traces with the standard OpenTelemetry SDK through one shared module per programming language, and spans leave over OTLP to a disk-buffered agent and the Grafana stack, never over NATS accounts. An outside call always starts a new trace, every span carries its tenant and location, and the whole pipeline runs in a local mode with no external dependencies and in a production mode.</p></div>
     <div class="decision why"><div class="lbl">Why</div><p>A private tracer is code the platform must own, and that code can introduce defects. The standard SDK already does creation, propagation, sampling and export, so only the NATS, tenant and location rules need platform code.</p></div>
     <div class="grid2">
       <div class="panel"><div class="lbl">Relationships</div>

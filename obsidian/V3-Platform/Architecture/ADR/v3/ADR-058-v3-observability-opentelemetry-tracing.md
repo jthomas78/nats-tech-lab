@@ -5,7 +5,7 @@ status: Proposed
 date: 2026-10-18
 scope: v3
 context: observability
-decision: Every V3 service traces with the standard OpenTelemetry SDK through one shared module per programming language, and spans leave over OTLP to a disk-buffered agent, never over NATS accounts. An outside call always starts a new trace, and every span carries its tenant from trusted context and its location (region, cluster, server).
+decision: Every V3 service traces with the standard OpenTelemetry SDK through one shared module per programming language, and spans leave over OTLP to a disk-buffered agent and the Grafana stack, never over NATS accounts. An outside call always starts a new trace, every span carries its tenant and location, and the whole pipeline runs in a local mode with no external dependencies and in a production mode.
 why: A private tracer is code the platform must own, and that code can introduce defects. The standard SDK already does creation, propagation, sampling and export, so only the NATS, tenant and location rules need platform code.
 related: []
 ---
@@ -25,9 +25,10 @@ V3 services talk over NATS (`api.*`, `rpc.*`, `evt.*`, `notify.*`) and HTTP. A t
 
 ### Terms used in this ADR
 
-- **Span** — one timed step of work, such as "handle this request" or "call that service". A **trace** is the tree of spans for one request.
+- **Trace** — the whole of one outside call, from start to finish. It starts when a client's call reaches the platform: an HTTP request, or a NATS request-reply on an `api.*` subject. It then follows every service, message and reply that call causes, including work done later by consumers of the events it published. One outside call is one trace (rule 5).
+- **Span** — one timed step of work inside a trace, such as "handle this request" or "call that service". A trace is a tree of spans.
 - **Agent** — a separate program that runs near the services. Each service sends its telemetry to the agent. The agent queues it, batches it, adds labels, and forwards it to the stores. Grafana Alloy and the OpenTelemetry Collector are two agent products. The services never talk to a store directly.
-- **Trace store** — the database that keeps traces and answers searches, for example Tempo or Jaeger. People read it through a UI such as Grafana.
+- **Trace store** — the database that keeps traces and answers searches, In V3 this is Grafana Tempo (rule 11). People read it through Grafana.
 - **Body** — the payload of a message or an HTTP request or reply: the data a caller sends and the data it gets back, for example the JSON of a load booking. A body can hold personal and commercial data.
 - **OTLP** — the OpenTelemetry wire protocol that services, agents and stores use to send telemetry to each other.
 
@@ -65,23 +66,28 @@ Chronicle, the V3 codebase, already uses the OpenTelemetry SDK. One `Setup()` in
    - When the queue is full, new spans are dropped and counted. The service never waits for space.
    - Each send to the agent has a time limit. At shutdown the service waits a fixed, short time to send what is left, then exits.
 10. **Tenants read no traces by default.** Trace data is an operator tool. Any tenant-facing trace view is a separate decision.
+11. **Grafana is the observability stack.** Traces, logs and metrics go to the Grafana stack: Tempo for traces, Loki for logs, Mimir or Prometheus for metrics, and Grafana as the one UI. This is the current choice and can change later. Because services send only to the agent, a later change stays out of service code. The rules for logs and metrics are defined in a separate ADR.
+12. **Two deployment modes, one code path.** The pipeline has a **local (development) mode** and a **live (production) mode**. Both are requirements.
+    - **Local mode.** A developer runs the services, the agent and the Grafana stack on one machine, in containers. It needs no cloud account, no internet service and no external credentials. Telemetry is on in local mode, so a developer sees real traces, logs and metrics while building.
+    - **Live mode.** The production agent and Grafana deployment, with the disk queue and its tests (rule 4) and sender authentication.
+    - **Same code in both.** The services and the shared module are identical in both modes. Only configuration changes, such as the agent endpoint. In live mode a missing endpoint is a startup error, never a silent fallback to a local address.
 
 ### Not decided here
 
 Each of these is a separate V3 decision:
 
-- **The trace store.** Chronicle uses Grafana Cloud (hosted Tempo) today. Other options are self-hosted Tempo or Jaeger v2 + OpenSearch. Self-hosted Tempo 3.x in microservices mode, the production layout, is documented to need object storage and a Kafka-compatible queue; check this against the chosen version and mode. Tempo is AGPLv3. Every store has ingest limits, and a full agent queue drains faster than normal traffic, so the limits must be sized with the queue (rule 4).
-- **The agent product.** Grafana Alloy is already in Chronicle and already carries logs and metrics; the OpenTelemetry Collector is the other option. Rule 4 applies to either. Before Alloy is confirmed, check that the pinned Alloy version supports a disk-backed queue.
-- **Logs and metrics.** This ADR decides traces only. Chronicle's `Setup()` already builds the log and metric providers too. Open question: should one shared module per language (rule 2) own setup for all three signals, and should one agent carry all three? Alignment looks likely, but it needs its own decision with its own rules for logs and metrics.
+- **How live mode hosts Grafana.** Chronicle uses Grafana Cloud today. The other option is self-hosting. Self-hosted Tempo 3.x in microservices mode, the production layout, is documented to need object storage and a Kafka-compatible queue; check this against the chosen version and mode. Tempo is AGPLv3. Every store has ingest limits, and a full agent queue drains faster than normal traffic, so the limits must be sized with the queue (rule 4).
+- **The agent product.** Grafana Alloy is already in Chronicle and already carries logs and metrics, and it is Grafana's own agent; the OpenTelemetry Collector is the other option. Rule 4 applies to either. Before Alloy is confirmed, check that the pinned Alloy version supports a disk-backed queue.
+- **Rules for logs and metrics.** A separate ADR defines them. This ADR fixes only their destination (rule 11). That ADR also decides whether one shared module per language (rule 2) sets up all three signals, and whether one agent carries all three. Chronicle's `Setup()` already builds the log and metric providers, so alignment looks likely.
 - **A trace query API for applications.** V3 needs one only when an application needs it. If one is built, its contract is a platform schema, so the trace store can change behind it.
 - **Production sampling rate.**
 - **Sender authentication at the agent,** and publish limits on platform credentials.
 
-#### The agent and the trace store are independent
+#### The agent and the stores are independent
 
-Services send OTLP to the agent only. The agent sends OTLP to the store. So:
+Services send OTLP to the agent only. The agent sends to the Grafana stores. So:
 
-- Changing the store is a change to the agent's configuration. No service changes.
+- Changing a store, or moving from Grafana to another stack later, is a change to the agent's configuration. No service changes.
 - Changing the agent is a change to the endpoint the services send to. No store changes.
 - Both choices can be made separately, with no change to service instrumentation.
 
@@ -116,12 +122,16 @@ The disk queue at the agent replaces JetStream as the durability point. It prote
 - A trace shows the region, cluster and server of every hop, including after a failover.
 - Client-supplied trace context cannot override the platform's sampling policy.
 - Tenant attribution ignores untrusted client input.
+- A developer runs the full pipeline locally and sees real telemetry, with no cloud account.
+- One UI, Grafana, for traces, logs and metrics.
 
 ### Negative
 
 - Replay of past spans to a new backend is given up.
 - Telemetry needs its own network path and its own agent to run and secure.
 - Browser and server ancestry are separate traces, joined only by a link.
+- Dashboards, alerts and saved queries are written for Grafana. Leaving Grafana later means rewriting them, even though service code does not change.
+- Two deployment modes must both be kept working.
 
 ### Chronicle
 
@@ -131,15 +141,17 @@ This ADR is the rule Chronicle is measured against. Adopting it in Chronicle is 
 - Rule 4: Chronicle's Alloy queue is in memory only.
 - Rule 5: Chronicle has no edge rule.
 - Rule 7: Chronicle's spans carry no broker location attributes.
+- Rule 12: in Chronicle a missing agent endpoint falls back to a local address.
 - Its tenant is set per deployment, which is trusted context under rule 6.
 
 Which code becomes the shared module (rule 2) is a separate choice, made by comparing candidate modules, Chronicle's `services/lib/logger` among them.
 
 ## Action Items
 
-- [ ] Chronicle: adopt rules 1–10, starting with the NATS header carrier.
+- [ ] Chronicle: adopt rules 1–12, starting with the NATS header carrier.
 - [ ] Choose the shared module (rule 2).
-- [ ] Decide whether the shared module and the agent also cover logs and metrics.
-- [ ] Decide the V3 trace store.
+- [ ] Write the logs and metrics ADR.
+- [ ] Build the local-mode stack: services, agent and Grafana in containers, no external dependencies.
+- [ ] Decide how live mode hosts Grafana (Grafana Cloud or self-hosted).
 - [ ] Decide the V3 agent (Alloy or Collector), including its disk queue.
 - [ ] Write LB-V3-L3-10 Observability, citing this ADR.
