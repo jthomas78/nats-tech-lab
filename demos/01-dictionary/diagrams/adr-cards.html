@@ -69,7 +69,7 @@
 </head>
 <body>
   <section class="page">
-    <div class="eyebrow-pill"><span class="dot"></span>Architecture Decision Records · 12 decisions</div>
+    <div class="eyebrow-pill"><span class="dot"></span>Architecture Decision Records · 14 decisions</div>
     <h1 class="cover">ADR <span class="hl">Cards</span></h1>
     <p class="cover-sub">One card per decision. Each card shows the number, scope, context, status, the decision in one breath, and why it was taken. Generated from the ADR front matter; the full record is the linked file under <code>obsidian/V3-Platform/Architecture/ADR/</code>.</p>
     <table class="toc">
@@ -85,7 +85,9 @@
 <tr><td class="n" style="color:var(--purple)">ADR-054</td><td><span class="tag">v3</span><span class="tag">platform</span></td><td>Portability Rules for Multi-Region Deployment and Integration</td><td style="color:var(--green)">Accepted</td><td class="d">2026-09-07</td></tr>
 <tr><td class="n" style="color:var(--cyan)">ADR-055</td><td><span class="tag">lab</span><span class="tag">platform</span></td><td>Split the Lab Compose File into Cell Tiers, and Make Every Host Port a Variable</td><td style="color:var(--green)">Accepted</td><td class="d">2026-09-08</td></tr>
 <tr><td class="n" style="color:var(--purple)">ADR-056</td><td><span class="tag">v3</span><span class="tag">platform</span></td><td>Five Independent Axes — Region, Tenant, Account, Cell, JetStream Domain</td><td style="color:var(--green)">Accepted</td><td class="d">2026-09-18</td></tr>
-<tr><td class="n" style="color:var(--cyan)">ADR-057</td><td><span class="tag">lab</span><span class="tag">nats</span></td><td>An Auth Callout in Operator Mode Turns a WorkOS Identity into NATS Access</td><td style="color:var(--amber)">Proposed</td><td class="d">2026-10-09</td></tr></tbody>
+<tr><td class="n" style="color:var(--cyan)">ADR-057</td><td><span class="tag">lab</span><span class="tag">nats</span></td><td>An Auth Callout in Operator Mode Turns a WorkOS Identity into NATS Access</td><td style="color:var(--amber)">Proposed</td><td class="d">2026-10-09</td></tr>
+<tr><td class="n" style="color:var(--purple)">ADR-058</td><td><span class="tag">v3</span><span class="tag">observability</span></td><td>Trace Every Service with the OpenTelemetry SDK, Not Over NATS</td><td style="color:var(--amber)">Proposed</td><td class="d">2026-10-18</td></tr>
+<tr><td class="n" style="color:var(--cyan)">ADR-059</td><td><span class="tag">lab</span><span class="tag">observability</span></td><td>OpenTelemetry Replaces natstrace; Spans Go to a Collector and Tempo, Not Over NATS</td><td style="color:var(--green)">Accepted</td><td class="d">2026-10-16</td></tr></tbody>
     </table>
     <div class="legend">
       <div><span class="sw" style="background:var(--cyan)"></span>lab — Tech Lab / Dictionary POC decision, implemented in this repo</div>
@@ -93,7 +95,7 @@
       <div><span class="sw" style="background:var(--green)"></span>Accepted</div>
       <div><span class="sw" style="background:var(--amber)"></span>Proposed</div>
     </div>
-    <div class="cover-meta"><span>LINEBOOKER · ARCHITECTURE DECISION RECORDS</span><span>GENERATED 2026-10-09</span></div>
+    <div class="cover-meta"><span>LINEBOOKER · ARCHITECTURE DECISION RECORDS</span><span>GENERATED 2026-10-18</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -118,7 +120,7 @@
         <ul><li><b>ADR-047</b> Temporal Saga Design for TransporterProfile Vetting</li><li><b>ADR-048</b> Document Blob Storage: NATS Object Store</li><li><b>ADR-049</b> Cross-Aggregate Concurrency: Two Mechanisms, One Guard</li><li><b>ADR-050</b> GIT Certificate Change Log Needs a Provenance Source</li><li><b>ADR-051</b> Entity Identity Is a ULID, Not a UUID</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-046 · card 2 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-046 · card 2 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -143,7 +145,7 @@
         <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-048</b> Document Blob Storage: NATS Object Store</li><li><b>ADR-049</b> Cross-Aggregate Concurrency: Two Mechanisms, One Guard</li><li><b>ADR-050</b> GIT Certificate Change Log Needs a Provenance Source</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-047 · card 3 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-047 · card 3 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -168,7 +170,7 @@
         <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-047</b> Temporal Saga Design for TransporterProfile Vetting</li><li><b>ADR-050</b> GIT Certificate Change Log Needs a Provenance Source</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-048 · card 4 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-048 · card 4 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -193,7 +195,7 @@
         <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-047</b> Temporal Saga Design for TransporterProfile Vetting</li><li><b>ADR-051</b> Entity Identity Is a ULID, Not a UUID</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-049 · card 5 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-049 · card 5 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -218,7 +220,7 @@
         <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-047</b> Temporal Saga Design for TransporterProfile Vetting</li><li><b>ADR-048</b> Document Blob Storage: NATS Object Store</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-050 · card 6 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-050 · card 6 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -243,7 +245,7 @@
         <ul><li><b>ADR-046</b> Transporter Aggregate Boundary: Shared Identity, Separate Vetting</li><li><b>ADR-049</b> Cross-Aggregate Concurrency: Two Mechanisms, One Guard</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-051 · card 7 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-051 · card 7 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -268,7 +270,7 @@
         <ul><li><b>ADR-053</b> Use Shared PostgreSQL Instances by Default</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-052 · card 8 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-052 · card 8 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--purple)">
@@ -293,7 +295,7 @@
         <ul><li><b>ADR-052</b> One Postgres Instance, One Database and One Role per Service</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-053 · card 9 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-053 · card 9 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--purple)">
@@ -318,7 +320,7 @@
         <ul><li><b>ADR-048</b> Document Blob Storage: NATS Object Store</li><li><b>ADR-053</b> Use Shared PostgreSQL Instances by Default</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-054 · card 10 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-054 · card 10 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -343,7 +345,7 @@
         <ul><li><b>ADR-052</b> One Postgres Instance, One Database and One Role per Service</li><li><b>ADR-054</b> Portability Rules for Multi-Region Deployment and Integration</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-055 · card 11 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-055 · card 11 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--purple)">
@@ -368,7 +370,7 @@
         <ul><li><b>ADR-054</b> Portability Rules for Multi-Region Deployment and Integration</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-056 · card 12 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-056 · card 12 of 15</span></div>
   </section>
 
   <section class="page card" style="--fam:var(--cyan)">
@@ -393,7 +395,57 @@
         <ul><li class="dim">none</li></ul>
       </div>
     </div>
-    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-057 · card 13 of 13</span></div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-057 · card 13 of 15</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--purple)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Proposed Linebooker V3</span></div>
+    <div class="titleblock">
+      <div class="num">058</div>
+      <div class="fam-lbl">v3 · observability</div>
+      <h2>Trace Every Service with the OpenTelemetry SDK, Not Over NATS</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--amber)">Proposed</span>
+        <span class="date">2026-10-18</span>
+        <span class="file">ADR-058-v3-observability-opentelemetry-tracing.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>Every V3 service traces with the standard OpenTelemetry SDK through one shared module per language, and spans leave over OTLP to a disk-buffered agent, never over NATS accounts. An outside call always starts a new trace, and a span's tenant comes only from trusted context.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>The lab's private tracer had two defects in code the platform would have to own. The standard SDK already does creation, propagation, sampling and export, so only the NATS and tenant rules need platform code.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>applied by ADR-059</li><li>related ADR-055</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-059</b> OpenTelemetry Replaces natstrace; Spans Go to a Collector and Tempo, Not Over NATS</li><li><b>ADR-055</b> Split the Lab Compose File into Cell Tiers, and Make Every Host Port a Variable</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-058 · card 14 of 15</span></div>
+  </section>
+
+  <section class="page card" style="--fam:var(--cyan)">
+    <div class="chead"><span>Architecture Decision Record</span><span class="r">Tech Lab · Dictionary POC</span></div>
+    <div class="titleblock">
+      <div class="num">059</div>
+      <div class="fam-lbl">lab · observability</div>
+      <h2>OpenTelemetry Replaces natstrace; Spans Go to a Collector and Tempo, Not Over NATS</h2>
+      <div class="meta">
+        <span class="badge" style="--c:var(--green)">Accepted</span>
+        <span class="date">2026-10-16</span>
+        <span class="file">ADR-059-lab-observability-opentelemetry-replaces-natstrace.md</span>
+      </div>
+    </div>
+    <div class="decision"><div class="lbl">Decision</div><p>The lab deletes natstrace and the NATS trace path; six services trace through shared/otelnats and export OTLP/HTTP to an OTel Collector with a disk queue, which writes to Tempo. Operators read traces through observability-service over NATS api.* or in Grafana; tenants read nothing.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>The Phase 28 bridge had two defects (tenant spans never exported; outbound spans named the callee), and fixing them meant keeping a private tracer. The SDK made the lab's own code small enough to fit one package.</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">Relationships</div>
+        <ul><li>applies ADR-058</li><li>related ADR-055</li></ul>
+      </div>
+      <div class="panel flat"><div class="lbl">Linked decisions</div>
+        <ul><li><b>ADR-058</b> Trace Every Service with the OpenTelemetry SDK, Not Over NATS</li><li><b>ADR-055</b> Split the Lab Compose File into Cell Tiers, and Make Every Host Port a Variable</li></ul>
+      </div>
+    </div>
+    <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-059 · card 15 of 15</span></div>
   </section>
 </body>
 </html>
