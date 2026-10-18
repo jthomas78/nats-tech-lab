@@ -46,13 +46,13 @@ The one question, from `README.md`:
 
 | | |
 |---|---|
-| **The variable** | the **topology** — T1 to T6. How many clusters, what links them, where the JetStream meta vote lives. |
+| **The variable** | the **topology** — T1 to T7. How many clusters, what links them, where the JetStream meta vote lives. |
 | Held still | the domain slice (`ODOMETER`, KV `t7-vehicles`), the two regions (ZA, AU), the three accounts, `nats-server 2.14.6`, the host `nats` CLI, plain password auth, `127.0.0.1` only. |
 
 **This is the opposite of demo 02.** Demo 02 holds the topology still (one
 gateway, always six servers) and varies the *account model*. Demo 03 varies the
-topology itself. That is why this demo needs 6, 7 or 9 servers depending on the
-run, and why its configs are hand-written per topology instead of one Compose
+topology itself. That is why this demo needs 6, 7, 9 or 11 servers depending on
+the run, and why its configs are hand-written per topology instead of one Compose
 file.
 
 ## The rig
@@ -80,6 +80,7 @@ Every other topology is a variation of these six files:
 | **T4** | **F** | T2 + a **3-instance** arbiter cluster | 9 | 9, majority 5 |
 | **T5** | **D** | 3-instance **hub** + a **leaf** cluster per region | 9 | 3 + 3 + 3, quorum 2 each |
 | **T6** | **G** | a **gateway** AND a hub **leaf** link, both at once | 9 | 3 (hub) + 6 (both regions) |
+| **T7** | **J** | T4 + a **tenant leaf** per region (no JetStream on the leaf) | 9 + 2 leaves | 9, majority 5 — the leaves add no vote |
 
 T1 is the same six files with the `gateway {}` block deleted. **T4 is built
 and measured** — `lab/06-arbiter3.sh`, 25 checks, both directions of region
@@ -97,7 +98,7 @@ playbook's own exit test for a validation demo.
 
 ```bash
 cd demos/03-multi-cluster-and-accounts/lab
-./run-all.sh              # all nine shapes, then write ../REPORT.md + ../REPORT.html
+./run-all.sh              # all ten shapes, then write ../REPORT.md + ../REPORT.html
 ./run-all.sh report       # re-render both reports from the last run
 ./01-gateway.sh           # or run one topology on its own
 ```
@@ -114,6 +115,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 | `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |
 | `08-hub-leaf-per-region.sh` | T5 / H — hub + two leaf clusters, an account per region | 9 |
 | `09-switch-t4-t5.sh` | T4 / S, T5 / S — switch in place, T4 → T5 and T5 → T4, same stores | 9 |
+| `11-tenant-leaves.sh` | T7 / J — T4 + a tenant leaf per region, accounts `TENANT_ZA` / `TENANT_AU`; phase 1 no domain (`J1`–`J28`), phase 2 domain `core` on all nine (`J29`–`J45`) | 9 + 2 leaves |
 | `10-hub-meta-leader.sh` | T4 / ML — hub meta-leader, steps 1–6, `ML1`–`ML158`. Full run via `exercises/ex10-check.sh`; keeps `lab/run/evidence/10-<stamp>/` | 9 |
 | `classify-10.py` | `10`'s three outcomes per return — experiment, recovery, stability — from `/raftz` readings. Pure function plus a small CLI; `REVISION` names its rules. `elections` lists the `_meta_` Raft log lines around each thaw (diagnostic mode) | — |
 | `test-classify-10.py` | fixture tests for `classify-10.py` — no servers, about 1 s. Run after any change to it, before a live run | — |
@@ -121,7 +123,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 | `test-verdict.sh` | fixture tests for `09`'s verdict, evidence and exit-status rules — no servers, about 5 s |
 | `_common.sh` | the shared harness — config builders, freeze/thaw, the checks |
 | `render-report.py` | turns `run/results.tsv` into `REPORT.md`, and with `--html` into `REPORT.html` |
-| `figures.html` | the nine topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
+| `figures.html` | the ten topology diagrams, hand-drawn SVG, spliced into `REPORT.html` |
 | `render-report-10.py` | turns kept `10-<stamp>` evidence folders into `../REPORT-10.md` and `../REPORT-10.html`. First folder = the cited run. Draws figures 2 and 3 from the rows |
 | `figures-10.html` | exercise 10's figure 1 (the T4 rig, design only), hand-drawn, spliced into `REPORT-10.html` |
 
@@ -170,8 +172,8 @@ Rules for anything added here:
 `REPORT.md` and `REPORT.html` are generated. Do not hand-edit either — change
 the scripts, or the prose in `render-report.py`, and re-run.
 
-`figures.html` is the one hand-drawn file in the lab. It holds eight SVG
-fragments, keyed `t1` / `a` / `b` / `c` / `d` / `e` / `f` / `g` by
+`figures.html` is the one hand-drawn file in the lab. It holds ten SVG
+fragments, keyed `t1` / `a` / `b` / `c` / `d` / `e` / `f` / `h` / `g` / `j` by
 `<!--FIG key-->` markers, in
 the visual language of `diagrams/combination-matrix.html`. Each figure carries
 the IDs of the checks measured on that topology, so the picture and its proof
@@ -208,6 +210,12 @@ Used by the extra topologies:
 | hub monitor (T5, T6) | 8551, 8552, 8553 |
 | hub route (T5, T6) | 6551, 6552, 6553 |
 | hub leaf-node listeners (T5, T6) | 7560, 7561, 7562 |
+| arbiter client (T4, T7) | 4541, 4542, 4543 |
+| arbiter monitor (T4, T7) | 8541, 8542, 8543 |
+| za leaf-node listeners (T7) | 7571, 7572, 7573 |
+| au leaf-node listeners (T7) | 7581, 7582, 7583 |
+| `t-za-leaf-1` client / monitor (T7) | 4571 / 8571 |
+| `t-au-leaf-1` client / monitor (T7) | 4581 / 8581 |
 
 Keep a new port inside these families. Do not borrow demo 02's 46xx / 47xx or
 demo 04's 20402.
@@ -230,6 +238,8 @@ every config file.
 | `LB_ZA` | `za` / `za` | ZA owns its own streams |
 | `LB_AU` | `au` / `au` | AU owns its own streams |
 | `$SYS` | `admin` / `admin` | server and JetStream administration |
+| `TENANT_ZA` | `tenant_za` / `tenant_za` | **T7 only.** The ZA tenant: backend and `ORDERS` in `za`, frontend on `t-za-leaf-1`. On the leaf the local user is `fe` / `fe` |
+| `TENANT_AU` | `tenant_au` / `tenant_au` | **T7 only.** The AU tenant, the same shape in `au`, frontend on `t-au-leaf-1` |
 
 `LB` and `LB_ZA` are **different accounts**, and that difference is the demo.
 These passwords are lab-only and worthless outside `127.0.0.1`.
@@ -299,14 +309,14 @@ Everything about demo 03 lives under `demos/03-multi-cluster-and-accounts/`.
 
 | Path | Holds |
 |---|---|
-| `README.md` | stage 01 — the question, the role, the five topologies, requirements `D03-R1`…`D03-R32` (`R19`…`R32` are the playground) |
+| `README.md` | stage 01 — the question, the role, the seven topologies, requirements `D03-R1`…`D03-R36` (`R19`…`R32` are the playground; `R33`…`R36` are T7) |
 | `CLAUDE.md` | stage 02 — this file, the rig |
 | `diagrams/combination-matrix.html` | every combination wired, one row each; figures T1–T5; placement findings C1–C6 |
 | `diagrams/meta-quorum-options.html` | *"Who is still alive to take a write?"* — figures A–D, the scoreboard, five config traps |
 | `lab/*.sh` | stage 03 — the runnable rig, one script per topology |
 | `exercises/` | stage 03 — terminal-first walkthroughs for new experiments, beside `lab/`, not instead of it. "Demos 01–04 keep their shape" means do not restructure; adding exercises is allowed (user, 2026-10-05). Flat, like demo 05. One exercise per experiment, numbered after its lab script — `EXERCISE-10-TERMINAL-STEPS.md` belongs to `lab/10-hub-meta-leader.sh` (`HUB-META-LEADER-PLAN.md`). An exercise has numbered steps with sub-steps (`Step 1`, `Step 1.1`, …). `00` is invalid. `exNN-check.sh [stepN]` is a wrapper that calls `lab/<script> [stepN]`; checks live only in the lab script. `EXERCISE_OBSERVATIONS.md` holds the hand-run results. `exercises/config/` holds the exercise's NATS configs as static, hand-editable files (user, 2026-10-05) — never generate an exercise's configs with a script; `lab/rig-t4.sh up` copies them into `lab/run/` and starts them there |
 | `REPORT.md` | stage 03 — the findings, generated by `lab/run-all.sh` |
-| `REPORT.html` | the same findings with the nine topology diagrams — generated |
+| `REPORT.html` | the same findings with the ten topology diagrams — generated |
 | `REPORT-10.md`, `REPORT-10.html` | exercise 10's findings, `D03-R13`–`D03-R18`, with run provenance and three figures — generated by `lab/render-report-10.py`. Do not hand-edit. Audit the HTML like `REPORT.html` |
 | `docs/03-multi-cluster-and-accounts-pattern-cards-v0.6.html` | stage 04 — the pattern cards deck, 14 cards, one page each, one drawing per card. Editable source |
 | `docs/03-multi-cluster-and-accounts-pattern-cards-v0.6.pdf` | the same deck, exported. This is what gets handed to somebody |
@@ -613,6 +623,42 @@ All measured 2026-09-11 on `nats-server 2.14.6` unless stated.
   (`H9`), the mirror still needs `external.api` (`H10` / `H11`), and killing
   the whole hub still leaves the region working (`H12`-`H14`). **A stream name
   resolves in a DOMAIN; an account only moves subjects.**
+
+- **A tenant leaf carries a JetStream ack, but not the JetStream API**
+  (measured 2026-10-18, `lab/11-tenant-leaves.sh`, T7 / J, `D03-R33`–`D03-R36`).
+  Each region has its own tenant account, `TENANT_ZA` and `TENANT_AU`,
+  defined on all nine servers. Each leaf server has no JetStream and binds
+  its region's account; the cluster's account of the same name holds that
+  region's backend and streams. No export or import.
+  - **Each leaf binds only its own region's account** (`J3`, `J4`).
+  - **Publish and request work through the leaf.** An acked JetStream publish
+    lands and counts (`J7`–`J9`): the stream sends the ack itself. Each
+    frontend is answered by its own region's backend (`J12`, `J13`, `J15`).
+  - **The JetStream API does not.** `stream ls` from the leaf gets `no
+    responders` (`J11`, `J11a`). The server denies `$JS.API.>` on every leaf
+    link of a non-system account (`server/leafnode.go`, 2.14.6). Fix: set
+    **one** `jetstream.domain` on all nine cluster servers, and the client
+    passes `--js-domain` (`J32`, `J35`, `J36`). Without the flag it still
+    fails (`J31`).
+  - **One domain on every gateway-joined server does not split the group**
+    (`J29`, `J30`). Only a domain **per cluster** over a gateway breaks
+    (Figure B). The domain does not open another account (`J34`).
+  - **The leaves add no vote** (`J1`, `J5`). T4's arithmetic holds both ways
+    (`J16`, `J23`).
+  - **A dark region cuts off its own frontend** (`J20`, `J26`, `J40`). Its
+    leaf lists only that region's leaf ports, and a frozen region keeps the
+    link open and silent. The other region's tenant keeps working (`J17`,
+    `J18`, `J24`, `J25`).
+  - **An account per region buys a wall and costs failover.** Both accounts
+    create a stream named `ORDERS`, with no `10058` (`J6`), and they count
+    apart (`J9`). A name resolves in the asking account: a `TENANT_AU` user
+    on a ZA server gets AU's `ORDERS` (`J10`, `J33`). A queue group lives
+    inside one account, so when the ZA backend stops the AU backend does not
+    answer for it (`J14`, `J14a`). Failover between regions would need an
+    explicit export / import, which T7 does not configure (`J45`).
+  - **Config traps.** A server with leaf nodes **and** a gateway refuses to
+    start without `system_account`. Write it quoted, `system_account: "$SYS"`
+    — unquoted, the parser reads `$SYS` as a variable and fails.
 
 - **Stop–reconfigure–restart between T4 and T5 has not shown safe,
   repeatable operation** (`lab/09-switch-t4-t5.sh`, two runs, 2026-09-28 and

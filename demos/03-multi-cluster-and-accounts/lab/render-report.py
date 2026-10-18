@@ -128,7 +128,7 @@ REQS = {
    "sit inside one cluster. Reading the dark region's stream is a third "
    "question again, and its answer is **no** even when the vote survives: "
    "on T4 the meta group lives through a dark ZA, and AU still cannot read "
-   "a stream whose copies are all in za (`F28`). Split that way: **T1**, **T3**, **T4** and **T5** let "
+   "a stream whose copies are all in za (`F28`). Split that way: **T1**, **T3**, **T4**, **T5** and **T7** let "
    "the surviving region create a stream; **T2** and **T6** do not, because "
    "in both the six servers are one meta group and a 3/3 split leaves nobody "
    "with a majority. But **every** topology measured kept accepting "
@@ -162,8 +162,11 @@ REQS = {
    "AU each become a separate JetStream system with its own vote, and the "
    "same stream name can live in all three at once. A domain is a leaf-link "
    "tool. A gateway is not a leaf link. **Where this was measured:** a "
-   "domain is configured in four shapes only -- T2 / B, T5 / D, T5 / H and "
-   "T6 / G. T1, T3 and T4 carry no `jetstream.domain` at all, so any "
+   "domain is configured in five shapes only -- T2 / B, T5 / D, T5 / H, "
+   "T6 / G and T7 / J. T7 is the one shape that sets **one** domain on every "
+   "gateway-joined server: there it does not split the meta group (`J29`, "
+   "`J30`), and its one job is to let a leaf client reach the JetStream API "
+   "(`J32`). T1, T3 and T4 carry no `jetstream.domain` at all, so any "
    "statement about a domain in those three is inferred from the gateway "
    "result, not measured on that rig."),
  "D03-R4": (
@@ -309,6 +312,54 @@ REQS = {
    "goes there, and a client that dials the arbiter's port directly creates "
    "its stream there. So the arbiter is safe by habit, not by rule. If you "
    "want it fenced, fence it yourself."),
+ "D03-R33": (
+   "Can a tenant's **frontend on a leaf node** use its backend in the regional "
+   "cluster through **its region's own tenant account** -- no export, no "
+   "import?",
+   "**Yes, for publish and request. Not for the JetStream API, unless the "
+   "regions carry a domain.** The ZA leaf binds `TENANT_ZA` to the cluster's "
+   "`TENANT_ZA`, and the AU leaf does the same with `TENANT_AU` -- never "
+   "crossed over (`J3`, `J4`). The frontend reaches its backend's service "
+   "and writes into its stream with an ack (`J7`, `J8`). But with no domain, "
+   "every JetStream API call from the leaf is refused with no responders "
+   "(`J11`) -- the stream sends a publish ack itself, the API is a different "
+   "path, and nats-server denies it on every leaf link. Give all nine cluster "
+   "servers **one** domain and have the frontend name it with "
+   "`--js-domain`: it then lists its streams, makes a consumer and reads its "
+   "own write back (`J32`, `J35`, `J36`). Without the flag it is still "
+   "refused (`J31`). The platform's own accounts stay invisible to it "
+   "(`J34`)."),
+ "D03-R34": (
+   "Which region's backend answers a tenant frontend, and what happens to "
+   "the frontend when a region goes dark?",
+   "**Its own region's, always** (`J12`, `J13`, `J15`). The other region's "
+   "backend is in another account, so it never answers (`D03-R36`). A dark "
+   "region: the surviving region's frontend keeps working (`J17`, `J24`), "
+   "but the dark region's frontend gets **no answer at all** (`J20`, `J26`), "
+   "and with a domain it cannot list its streams either (`J40`). Its leaf "
+   "lists only its own region's servers, and a frozen region keeps the link "
+   "open and silent, so the leaf never moves. A tenant leaf goes down with "
+   "the region it dials."),
+ "D03-R35": (
+   "Do tenant **leaf nodes** change the meta vote of a three-site cluster?",
+   "**No.** A leaf with no JetStream adds no voter and holds no store "
+   "(`J1`, `J5`): the nine-peer group and its arithmetic are T4's, and a "
+   "region loss still leaves a leader among the survivors in both "
+   "directions (`J16`, `J23`). One shared domain on all nine servers -- the "
+   "price of `D03-R33` -- does not split the group either (`J29`, `J30`). "
+   "That is the opposite of a domain **per cluster** over a gateway, which "
+   "half-blinds the link (`D03-R3`)."),
+ "D03-R36": (
+   "What does **one tenant account per region** buy, and what does it cost?",
+   "**It buys a wall; it costs failover.** Each region's tenant has its own "
+   "stream namespace, so both create a stream named `ORDERS` (`J6`) -- the "
+   "shared LB account refuses that with `10058` (`A4`). The two count apart "
+   "(`J9`), and a name resolves in the asking account, not in the cluster "
+   "the client is on: a `TENANT_AU` user on a ZA server still gets AU's "
+   "`ORDERS` (`J10`, `J33`). The cost: a queue group lives inside one "
+   "account, so when the ZA backend stops, the AU backend does not answer "
+   "for it (`J14`). Failover between regions would need an explicit export "
+   "/ import, which T7 does not configure (`J45`)."),
 }
 
 # D03-R1 is three questions, not one. This says which cell each topology was
@@ -331,6 +382,9 @@ R1_MATRIX = [
   "hub loss only `H13`", "hub loss only `H16`", "not measured"),
  ("T6 / G -- gateway AND leaf",
   "**no**, `10008` `G11`", "yes `G12`", "not measured"),
+ ("T7 / J -- T4 + tenant leaves",
+  "yes, AU dark `J19`", "yes, from a leaf, both ways `J18` `J25`",
+  "not measured -- each tenant account holds one region's streams only"),
 ]
 
 # Findings this run produced that are NOT in the demo's existing evidence pages.
@@ -368,6 +422,17 @@ NEW = [
   "system of its own, and it can be killed outright with no effect on either "
   "region. This is the first shape in the lab that costs real money and buys "
   "the two regions no quorum they did not already have."),
+ ("A leaf link carries a JetStream ack but not the JetStream API",
+  "J7, J11, J11a, J32",
+  "A frontend on a leaf node wrote into its region's stream and got its ack, "
+  "and then could not list that same stream: no responders. The two are "
+  "different paths. The stream answers a publish itself; every other "
+  "JetStream call goes to the API, and nats-server denies the plain API on "
+  "a leaf link for any account but the system account. The way through is a "
+  "domain on the regional side -- one name on every server, so the meta "
+  "group stays whole -- and the frontend naming it. A shape that only "
+  "publishes and requests will never notice. The first frontend that needs a "
+  "consumer or a KV watch will."),
  ("A name-only mirror can silently copy the WRONG stream",
   "D9, D9a",
   "A mirror with no `external.api` does not fail when the name it wants only "
@@ -453,6 +518,7 @@ FIGKEY = {
     "T4 / F -- gateway + 3-node arbiter":   "f",
     "T6 / G -- gateway AND hub leaf":       "g",
     "T5 / H -- hub and leaf, account per region": "h",
+    "T7 / J -- T4 + a tenant leaf per region": "j",
 }
 
 # One prose caption per figure. Claims only, no numbers.
@@ -518,6 +584,18 @@ FIGCAP = {
         "losing a whole region still leaves a spare node — the slack the "
         "one-node shape does not have. One node further and it freezes, in "
         "exactly the way the plain gateway does."),
+ "j":  ("The three-node arbiter shape, with a tenant leaf in each region.",
+        "The core is the shape above, unchanged: nine voters, and a region "
+        "loss leaves a leader. Each region adds a leaf node with no "
+        "JetStream, bound to that region's own tenant account — TENANT_ZA "
+        "or TENANT_AU — which also holds the region's backend. A frontend "
+        "reaches its own region's services and streams with no export or "
+        "import, and nothing in the other region: no backend answers across, "
+        "and both regions keep a stream named ORDERS. The leaf adds no vote. "
+        "It also goes dark with the "
+        "region it dials. And it passes a publish ack but not the JetStream "
+        "API — that needs one domain on every cluster server, named by "
+        "the frontend."),
 }
 
 
@@ -676,7 +754,7 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     o('<div class="eyebrow">Demo 03 &middot; stage 03 Validate &middot; '
       'generated by lab/run-all.sh</div>')
     o("<h1>Multi-cluster and accounts &mdash; validation report</h1>")
-    o('<p class="sub">Six topologies in nine runnable shapes, built from '
+    o('<p class="sub">Seven topologies in ten runnable shapes, built from '
       'nothing and measured by '
       'script. Every number on this page comes from one run of '
       '<code>lab/run-all.sh</code>. The words never state a number &mdash; '
@@ -817,7 +895,7 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
 
     # --- one section per topology: the picture, then its checks ------------
     o('<section class="sec">')
-    o("<h2>The nine shapes</h2>")
+    o("<h2>The ten shapes</h2>")
     o("<p>Each diagram carries the IDs of the checks measured on it. Look at "
       "the picture, find the claim, then find the same ID in the table under "
       "it.</p>")
@@ -916,8 +994,8 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
     # --- findings ----------------------------------------------------------
     o('<section class="sec">')
     o("<h2>Findings this rig added</h2>")
-    o("<p>Six things came out of building the scripts that are <strong>not"
-      "</strong> in the demo&rsquo;s existing evidence pages. Five are NATS "
+    o("<p>Seven things came out of building the scripts that are <strong>not"
+      "</strong> in the demo&rsquo;s existing evidence pages. Six are NATS "
       "behaviour. One is about measuring.</p>")
     for title, ids, body in NEW:
         o('<div class="card">')
@@ -969,7 +1047,10 @@ def render_html(env, rows, topos, by_topo, by_req, npass, nfail, nnote, figpath)
                      9),
                     ("09-switch-t4-t5.sh",
                      "T4 / S, T5 / S &mdash; switch in place, T4 to T5 and "
-                     "back, on the same stores", 9)):
+                     "back, on the same stores", 9),
+                    ("11-tenant-leaves.sh",
+                     "T7 / J &mdash; T4 plus a tenant leaf per region, "
+                     "with and without one shared domain", "9 + 2 leaves")):
         o(f"<tr><td><code>{s}</code></td><td>{t}</td>"
           f"<td class='num'>{n}</td></tr>")
     o("</tbody></table></div>")
@@ -1188,8 +1269,8 @@ def main():
 
     o("## Findings this rig added")
     o("")
-    o("Six things came out of building the scripts that are **not** in the "
-      "demo's existing evidence pages. Four are NATS behaviour. One is about "
+    o("Seven things came out of building the scripts that are **not** in the "
+      "demo's existing evidence pages. Six are NATS behaviour. One is about "
       "measuring.")
     o("")
     for title, ids, body in NEW:
@@ -1262,6 +1343,7 @@ def main():
     o("| `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |")
     o("| `08-hub-leaf-per-region.sh` | T5 / H — hub and leaf, an account per region | 9 |")
     o("| `09-switch-t4-t5.sh` | T4 / S, T5 / S — switch in place, T4 to T5 and back, on the same stores | 9 |")
+    o("| `11-tenant-leaves.sh` | T7 / J — T4 plus a tenant leaf per region, with and without one shared domain | 9 + 2 leaves |")
     o("")
     o("Run one on its own the same way: `./01-gateway.sh`.")
 

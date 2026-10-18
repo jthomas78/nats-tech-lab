@@ -62,7 +62,7 @@ Four things, one at a time. Everything else held still.
 A "cluster" here means **3 NATS instances**, which is what RAFT needs to elect
 a leader and survive one loss.
 
-## The six topologies
+## The seven topologies
 
 | ID | Shape | Meta group | Majority |
 |---|---|---|---|
@@ -72,10 +72,20 @@ a leader and survive one loss.
 | **T4** | T2 + a **3-instance** arbiter cluster | 9, shared | 5 |
 | **T5** | 3-instance **hub** + a **leaf** cluster per region | 3 + 3 + 3, separate | 2, 2 and 2 |
 | **T6** | T2 **and** T5 at once — a gateway **and** a hub leaf link | 3 + 6 | 2 for the hub, 4 for the regions |
+| **T7** | T4 + a **tenant leaf** per region — the leaf has no JetStream | 9, shared | 5 |
 
 T6 was added on **2026-09-21**, after the other five. It asks the one question
 the first five leave open: if a system has **both** links, which one decides?
 Its figure is **G**, and it appears only in [`REPORT.html`](REPORT.html).
+
+T7 was added on **2026-10-18**. It is T4 with one leaf server under each
+region. The leaf is where a tenant's **frontend** connects. The regional
+cluster holds the tenant's **backend** and streams. Each region has its **own**
+tenant account: `TENANT_ZA` and `TENANT_AU`. Each leaf binds its region's
+account, and the cluster side uses the same name, so no export or import is
+needed. The two tenants share nothing, so there is no failover between
+regions. The leaf only relays: it runs no JetStream and adds no vote.
+Script `lab/11-tenant-leaves.sh`, figure **J**, in [`REPORT.html`](REPORT.html) only.
 
 T2 is the real rig in this folder. T1 is the same six files with the
 `gateway {}` block removed.
@@ -90,6 +100,7 @@ The two evidence pages use **different names for the same shapes**. The map:
 | T5 | **D** | hub and leaf |
 | T1, T4 | — | matrix only |
 | T6 | — | neither page — [`REPORT.html`](REPORT.html) only, as figure **G** |
+| T7 | — | neither page — [`REPORT.html`](REPORT.html) only, as figure **J** |
 
 T4 also has a figure **F**, but only in [`REPORT.html`](REPORT.html). It was
 built and measured on 2026-09-17, after both evidence pages were written.
@@ -107,7 +118,7 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
 |---|---|---|
 | **D03-R1** | Which topology lets **both** regions accept a JetStream write while the other is dark? | answered |
 | **D03-R2** | Is it the **account**, the **cluster**, or the **domain** that lets a region own its own stream? | answered |
-| **D03-R3** | What does `jetstream.domain` actually change, in each of the six topologies? | answered |
+| **D03-R3** | What does `jetstream.domain` actually change, in each of the seven topologies? | answered |
 | **D03-R4** | Where do a stream, its **consumer** and its **KV bucket** physically land, and what does a read from the other region cost? | answered |
 | **D03-R5** | What does losing a **region**, a **cluster** or a **single instance** do to quorum, and what error code does the client see? | answered |
 | **D03-R6** | **Gateway or leaf node** for two regions — what does each one buy, and what does each one cost? | answered |
@@ -123,6 +134,13 @@ Ranked by *uncertain and expensive to change*. The cheap ones are not here.
 | **D03-R16** | When the region returns: does the leader stay, does the term stay, is the region current? Recovery and stability reported apart | **recovery met** in every valid round; **stability not met** in some. During some regional recoveries, the metadata group entered a new election term and sometimes elected a different leader. In one diagnostic run, logs showed returning servers requesting votes with higher terms, causing the incumbent leader to step down. Why those servers initiated elections remains unproved, and this sequence has not been confirmed in normal runs. Measured with SIGSTOP/SIGCONT, not a partition or a restart — 2026-10-05 |
 | **D03-R17** | Both regions dark: does the hub lose the meta quorum even though it is healthy? | answered — yes; the hub's own stream still writes — 2026-10-05 |
 | **D03-R18** | One region dark: does only that region's stream lose writes? | answered — yes; a timeout is an unknown outcome — 2026-10-05 |
+| **D03-R33** | Can a tenant's **frontend on a leaf node** use its backend in the regional cluster through **its region's own tenant account** — no export, no import? | answered — yes for publish and request; the JetStream API needs one domain and `--js-domain` — 2026-10-18 |
+| **D03-R34** | Which region's backend answers a tenant frontend, and what happens to the frontend when a region goes dark? | answered — its own region's, always; a dark region cuts off its own frontend — 2026-10-18 |
+| **D03-R35** | Do tenant **leaf nodes** change the meta vote of a three-site cluster? | answered — no; one shared domain does not split the group either — 2026-10-18 |
+| **D03-R36** | What does one tenant account **per region** buy, and what does it cost? | answered — each region has its own `ORDERS` (no `10058`); no backend failover between regions without an export / import — 2026-10-18 |
+
+D03-R33 to D03-R36 are T7, `lab/11-tenant-leaves.sh`. Their evidence is in
+[`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html), checks `J1`–`J45`.
 
 D03-R13 to D03-R18 are exercise 10
 ([`exercises/EXERCISE-10-TERMINAL-STEPS.md`](exercises/EXERCISE-10-TERMINAL-STEPS.md),
@@ -295,7 +313,7 @@ Measured on **`nats-server 2.14.6`**, September 2026.
 | 01 Define | this page |
 | 02 Design | done — [`CLAUDE.md`](CLAUDE.md), the rig |
 | 03 Validate | done — measured by hand 2026-09-11, made re-runnable 2026-09-17: [`lab/`](lab/), [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) |
-| 04 Learn | written — pattern cards deck v0.6, 14 cards; card 14 is exercise 10 (2026-10-05) |
+| 04 Learn | written — pattern cards deck v0.6, 14 cards; card 14 is exercise 10 (2026-10-05). T7 (2026-10-18) has no card yet |
 
 See [`demo-playbook.pdf`](../../demo-playbook.pdf) for what those stages mean.
 
@@ -306,7 +324,7 @@ cd demos/03-multi-cluster-and-accounts/lab
 ./run-all.sh
 ```
 
-That builds all eight topologies from nothing, measures them, tears them down,
+That builds all ten runnable shapes from nothing, measures them, tears them down,
 and writes [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) — the
 same findings, but the HTML edition draws each topology. It needs
 `nats-server`, `nats`, `jq`, `curl` and `python3`, and nothing else — no

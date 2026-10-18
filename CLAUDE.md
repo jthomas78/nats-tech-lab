@@ -354,9 +354,10 @@ lab-shell page (`frontend/`, port 20301). The rig is still host processes.
 Its role is **validation + showcase**: `lab/` is the validation and the
 playground is the showcase, and a playground session is never evidence. The
 **topology itself is the variable** —
-five numbered shapes (T1–T5), plus two variants that answer their own question
-(**B** a domain per cluster, **E** export / import between accounts) — seven
-runnable shapes in all, needing 6, 7 or 9 servers depending on the run. That is
+seven numbered shapes (T1–T7), plus variants that each answer one question of
+their own (for example **B** a domain per cluster, **E** export / import between
+accounts) — the demo's `CLAUDE.md` has the full list. They need 6, 7, 9 or 11
+servers depending on the run; T7 is T4 plus a tenant leaf per region. That is
 the mirror image of demo 02, which holds one topology still and varies the
 account model.
 

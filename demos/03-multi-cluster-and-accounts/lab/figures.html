@@ -658,3 +658,115 @@
   <text class="ro r" x="30" y="676">G24  the gateway decides &mdash; a leaf link added to a gateway buys nothing</text>
 </svg>
 <!--/FIG-->
+<!--FIG j-->
+<svg viewBox="0 0 960 892" role="img" aria-label="T7 / J &mdash; T4 plus a tenant leaf per region, with one tenant account per region. Nine bare nats-server processes on 127.0.0.1 form clusters za, au and arb, joined by gateways into one JetStream meta group of nine peers with a majority of five, exactly as in T4. Accounts LB, LB_ZA, LB_AU, TENANT_ZA and TENANT_AU are defined on all nine servers. TENANT_ZA holds the ZA backend and a stream named ORDERS in za; TENANT_AU holds the AU backend and its own stream named ORDERS in au. Each regional cluster listens for leaf nodes, za on 7571 to 7573 and au on 7581 to 7583. Below each region sits one tenant leaf server with no JetStream: t-za-leaf-1 on 4571 binds TENANT_ZA, and t-au-leaf-1 on 4581 binds TENANT_AU. The leaves add no vote. The two tenants share no account, so there is no path between them: the same stream name lives in both, and when the ZA backend stops the AU backend does not answer for it. An acked JetStream publish crosses a leaf link, but the JetStream API does not: without a domain, a stream list from the leaf gets no responders. With the domain core on all nine servers the group stays one group of nine, and a frontend that names the domain sees only its own account's stream and can make a pull consumer, which lives in its region. When a region goes dark the other region keeps working, but that region's frontend is cut off. All nine cluster servers form one JetStream system, drawn as one orange dashed box; each leaf sits outside it, in its own yellow dashed account box.">
+  <defs>
+    <marker id="fj-gw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+    <marker id="fj-lf" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+  </defs>
+  <text class="grp g" x="22" y="26">T7 / J &mdash; ONE META GROUP &mdash; 9 PEERS &mdash; MAJORITY 5 &mdash; THE LEAVES ADD NO VOTE</text>
+  <rect class="nb dom" x="18" y="38" width="924" height="362" rx="4"/>
+  <text class="grp d" x="30" y="58">JETSTREAM DOMAIN &mdash; NONE, THEN core ON ALL NINE (J29+) &mdash; ONE SYSTEM</text>
+
+  <rect class="nb acct" x="24" y="66" width="912" height="328" rx="4"/>
+  <text class="grp a" x="36" y="86">ACCOUNTS LB / LB_ZA / LB_AU / TENANT_ZA / TENANT_AU &mdash; DEFINED ON ALL NINE SERVERS</text>
+
+  <rect class="nb clu" x="280" y="100" width="400" height="88" rx="4"/>
+  <text class="grp" x="294" y="118">CLUSTER arb &mdash; A THIRD SITE &mdash; NO LEAF</text>
+  <rect class="n" x="294" y="128" width="104" height="34" rx="3"/>
+  <text class="lbl" x="346" y="145" text-anchor="middle">t-arb-1</text>
+  <text class="lbl2" x="346" y="158" text-anchor="middle">127.0.0.1:4541</text>
+  <rect class="n" x="408" y="128" width="104" height="34" rx="3"/>
+  <text class="lbl" x="460" y="145" text-anchor="middle">t-arb-2</text>
+  <text class="lbl2" x="460" y="158" text-anchor="middle">127.0.0.1:4542</text>
+  <rect class="n" x="522" y="128" width="104" height="34" rx="3"/>
+  <text class="lbl" x="574" y="145" text-anchor="middle">t-arb-3</text>
+  <text class="lbl2" x="574" y="158" text-anchor="middle">127.0.0.1:4543</text>
+
+  <rect class="nb clu" x="30" y="232" width="400" height="150" rx="4"/>
+  <text class="grp" x="44" y="250">CLUSTER za &mdash; REGION za</text>
+  <text class="grp" x="416" y="250" text-anchor="end">LEAF PORTS 7571-7573</text>
+  <rect class="n" x="44" y="262" width="104" height="34" rx="3"/>
+  <text class="lbl" x="96" y="279" text-anchor="middle">t-za-1</text>
+  <text class="lbl2" x="96" y="292" text-anchor="middle">127.0.0.1:4231</text>
+  <rect class="n" x="158" y="262" width="104" height="34" rx="3"/>
+  <text class="lbl" x="210" y="279" text-anchor="middle">t-za-2</text>
+  <text class="lbl2" x="210" y="292" text-anchor="middle">127.0.0.1:4232</text>
+  <rect class="n" x="272" y="262" width="104" height="34" rx="3"/>
+  <text class="lbl" x="324" y="279" text-anchor="middle">t-za-3</text>
+  <text class="lbl2" x="324" y="292" text-anchor="middle">127.0.0.1:4233</text>
+  <rect class="nb acct" x="40" y="306" width="380" height="68" rx="4"/>
+  <text class="grp a" x="52" y="322">ACCOUNT TENANT_ZA &mdash; USED IN za ONLY</text>
+  <text class="ro h" x="52" y="342">backend &mdash; reply tenant.svc.quote za</text>
+  <text class="ro h" x="52" y="362">stream ORDERS &mdash; placement za</text>
+
+  <rect class="nb clu" x="530" y="232" width="400" height="150" rx="4"/>
+  <text class="grp" x="544" y="250">CLUSTER au &mdash; REGION au</text>
+  <text class="grp" x="916" y="250" text-anchor="end">LEAF PORTS 7581-7583</text>
+  <rect class="n" x="544" y="262" width="104" height="34" rx="3"/>
+  <text class="lbl" x="596" y="279" text-anchor="middle">t-au-1</text>
+  <text class="lbl2" x="596" y="292" text-anchor="middle">127.0.0.1:4241</text>
+  <rect class="n" x="658" y="262" width="104" height="34" rx="3"/>
+  <text class="lbl" x="710" y="279" text-anchor="middle">t-au-2</text>
+  <text class="lbl2" x="710" y="292" text-anchor="middle">127.0.0.1:4242</text>
+  <rect class="n" x="772" y="262" width="104" height="34" rx="3"/>
+  <text class="lbl" x="824" y="279" text-anchor="middle">t-au-3</text>
+  <text class="lbl2" x="824" y="292" text-anchor="middle">127.0.0.1:4243</text>
+  <rect class="nb acct" x="540" y="306" width="380" height="68" rx="4"/>
+  <text class="grp a" x="552" y="322">ACCOUNT TENANT_AU &mdash; USED IN au ONLY</text>
+  <text class="ro h" x="552" y="342">backend &mdash; reply tenant.svc.quote au</text>
+  <text class="ro h" x="552" y="362">stream ORDERS &mdash; placement au</text>
+
+  <line class="gw" x1="436" y1="279" x2="524" y2="279" marker-start="url(#fj-gw)" marker-end="url(#fj-gw)"/>
+  <text class="edge" x="480" y="273" text-anchor="middle">gateway</text>
+  <path class="gw" d="M274 145 H230 V226" marker-start="url(#fj-gw)" marker-end="url(#fj-gw)"/>
+  <text class="edge" x="222" y="196" text-anchor="end">gateway</text>
+  <path class="gw" d="M686 145 H730 V226" marker-start="url(#fj-gw)" marker-end="url(#fj-gw)"/>
+  <text class="edge" x="738" y="196">gateway</text>
+
+  <!-- The leaf links cross the account and domain edges on purpose: a leaf
+       has no JetStream, so it sits outside the domain box, and it binds its
+       region's tenant account, so it gets that account's box on the far side. -->
+  <path class="lf" d="M230 388 V434" marker-start="url(#fj-lf)" marker-end="url(#fj-lf)"/>
+  <text class="edge" x="238" y="420">leafnode &mdash; binds TENANT_ZA</text>
+  <path class="lf" d="M730 388 V434" marker-start="url(#fj-lf)" marker-end="url(#fj-lf)"/>
+  <text class="edge" x="738" y="420">leafnode &mdash; binds TENANT_AU</text>
+
+  <rect class="nb acct" x="30" y="440" width="400" height="84" rx="4"/>
+  <text class="grp a" x="44" y="458">ACCOUNT TENANT_ZA &mdash; LEAF, NO JETSTREAM</text>
+  <rect class="n" x="44" y="472" width="130" height="34" rx="3"/>
+  <text class="lbl" x="109" y="489" text-anchor="middle">t-za-leaf-1</text>
+  <text class="lbl2" x="109" y="502" text-anchor="middle">127.0.0.1:4571</text>
+  <text class="ro" x="190" y="486">ZA frontend &mdash; user fe</text>
+  <text class="ro" x="190" y="504">remote user tenant_za</text>
+
+  <rect class="nb acct" x="530" y="440" width="400" height="84" rx="4"/>
+  <text class="grp a" x="544" y="458">ACCOUNT TENANT_AU &mdash; LEAF, NO JETSTREAM</text>
+  <rect class="n" x="544" y="472" width="130" height="34" rx="3"/>
+  <text class="lbl" x="609" y="489" text-anchor="middle">t-au-leaf-1</text>
+  <text class="lbl2" x="609" y="502" text-anchor="middle">127.0.0.1:4581</text>
+  <text class="ro" x="690" y="486">AU frontend &mdash; user fe</text>
+  <text class="ro" x="690" y="504">remote user tenant_au</text>
+
+  <line class="dead" x1="436" y1="489" x2="524" y2="489"/>
+  <text class="grp r" x="480" y="481" text-anchor="middle">NO PATH</text>
+
+  <text class="ro g" x="30" y="556">J1/J2  one meta group, size 9, majority 5 &mdash; J42: the leaves add no vote</text>
+  <text class="ro" x="30" y="576">J3/J4/J5  each leaf binds its own region's tenant account, never the other &mdash; no JetStream on a leaf</text>
+  <text class="ro g" x="30" y="596">J6  ORDERS exists in both tenant accounts &mdash; no 10058, unlike the shared LB account (A4)</text>
+  <text class="ro g" x="30" y="616">J7-J9  an acked JetStream publish crosses the leaf &mdash; the two ORDERS count apart, 2 / 1</text>
+  <text class="ro h" x="30" y="636">J10  a TENANT_AU user on a ZA server still gets AU's ORDERS &mdash; a name resolves in the account</text>
+  <text class="ro r" x="30" y="656">J11/J11a/J11b  no domain: the JetStream API is denied on the leaf link &mdash; no responders</text>
+  <text class="ro g" x="30" y="676">J12/J13/J15  each frontend is answered by its own region's backend</text>
+  <text class="ro r" x="30" y="696">J14/J14a  ZA backend stopped: no answer &mdash; the AU backend is in another account</text>
+  <text class="ro g" x="30" y="716">J16-J19  AU dark (6 of 9): a leader, ZA answers and writes, and creates a new stream</text>
+  <text class="ro r" x="30" y="736">J20/J20a  AU dark: the AU frontend gets no answer</text>
+  <text class="ro g" x="30" y="756">J21-J28  both recoveries go back to 9 &mdash; ZA dark is AU dark, the other way round</text>
+  <text class="ro h" x="30" y="776">J29/J30  domain core on all nine: still one group of 9 &mdash; it did not split</text>
+  <text class="ro g" x="30" y="796">J32/J33  with --js-domain core each frontend sees only its own ORDERS &mdash; J31: without it, no</text>
+  <text class="ro r" x="30" y="816">J34  the domain does not open an account: LB_ZA's ODOMETER stays hidden</text>
+  <text class="ro g" x="30" y="836">J35-J39  a pull consumer made from the leaf reads back, lives in za, and reads with AU dark</text>
+  <text class="ro r" x="30" y="856">J40  domain set, AU dark: the AU frontend cannot list its streams &mdash; J41: back to 9</text>
+  <text class="ro h" x="30" y="876">J43-J45  a leaf is cut off with its region; failover between regions needs an export / import</text>
+</svg>
+<!--/FIG-->

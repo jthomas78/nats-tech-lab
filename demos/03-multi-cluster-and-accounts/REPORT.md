@@ -19,10 +19,10 @@ cd demos/03-multi-cluster-and-accounts/lab
 | Server | `nats-server v2.14.6` |
 | Client | `0.4.0` |
 | Machine | Darwin 25.4.0 arm64 |
-| Rig checks | **196 passed, 0 failed** |
+| Rig checks | **237 passed, 0 failed** |
 | Procedure checks | 83 met, **18 not met** |
 | Procedure verdicts | 3 — see the next section |
-| Recorded observations | 71 |
+| Recorded observations | 79 |
 
 A **check** has an expected answer and passes only on an exact match. A **note** has no expected answer — it records what the machine did so the number is on the record. Notes cannot pass or fail.
 
@@ -69,6 +69,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 | T5 / S -- switch in place, T5 to T4, LB name collision | 6 | 6 | 0 | 9 | 28 | 15 | failed |
 | T5 / S -- switch in place, T5 to T4, clean names | 6 | 6 | 0 | 5 | 28 | 1 | failed |
 | T6 / G -- gateway AND hub leaf | 23 | 23 | 0 | 6 | — | — | — |
+| T7 / J -- T4 + a tenant leaf per region | 41 | 41 | 0 | 8 | — | — | — |
 
 ## The answers, requirement by requirement
 
@@ -76,7 +77,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** Which topology lets **both** regions accept a JetStream write while the other is dark?
 
-**This run says:** **'A write' is three different questions, and they do not have the same answer.** Creating a stream needs the meta group. Publishing into a stream that already exists does not, because that stream's replicas all sit inside one cluster. Reading the dark region's stream is a third question again, and its answer is **no** even when the vote survives: on T4 the meta group lives through a dark ZA, and AU still cannot read a stream whose copies are all in za (`F28`). Split that way: **T1**, **T3**, **T4** and **T5** let the surviving region create a stream; **T2** and **T6** do not, because in both the six servers are one meta group and a 3/3 split leaves nobody with a majority. But **every** topology measured kept accepting publishes into an existing local stream, including T2 and T6. T3 and T4 buy the create back with votes that sit outside both regions; T5 buys it back by giving each region its own JetStream system, so there is no shared vote to lose. The matrix below says which cells were measured, and on which check.
+**This run says:** **'A write' is three different questions, and they do not have the same answer.** Creating a stream needs the meta group. Publishing into a stream that already exists does not, because that stream's replicas all sit inside one cluster. Reading the dark region's stream is a third question again, and its answer is **no** even when the vote survives: on T4 the meta group lives through a dark ZA, and AU still cannot read a stream whose copies are all in za (`F28`). Split that way: **T1**, **T3**, **T4**, **T5** and **T7** let the surviving region create a stream; **T2** and **T6** do not, because in both the six servers are one meta group and a 3/3 split leaves nobody with a majority. But **every** topology measured kept accepting publishes into an existing local stream, including T2 and T6. T3 and T4 buy the create back with votes that sit outside both regions; T5 buys it back by giving each region its own JetStream system, so there is no shared vote to lose. The matrix below says which cells were measured, and on which check.
 
 | Topology | Create a stream | Publish into an existing local stream | Read the dark region's stream |
 |---|---|---|---|
@@ -87,10 +88,11 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 | T5 / D -- hub and leaf | yes, AU dark `D25` | yes, AU dark `D26` | not measured |
 | T5 / H -- + an account per region | hub loss only `H13` | hub loss only `H16` | not measured |
 | T6 / G -- gateway AND leaf | **no**, `10008` `G11` | yes `G12` | not measured |
+| T7 / J -- T4 + tenant leaves | yes, AU dark `J19` | yes, from a leaf, both ways `J18` `J25` | not measured -- each tenant account holds one region's streams only |
 
 *A cell with no check ID was not run on that rig. It is not a claim.*
 
-*Evidence:* `T1g`, `T1h`, `A11`, `A11a`, `A12`, `A20`, `A21`, `A21a`, `C3`, `C3a`, `C4`, `C5`, `C5a`, `C6`, `D24`, `D25`, `D26`, `D27`, `D10`, `D11`, `D12`, `D13`, `D14`, `D23`, `F3`, `F4`, `F6`, `F8`, `F9`, `F21`, `F22`, `F23`, `F24`, `F26`, `F27`, `F28`, `F28a`, `F12`, `G11`, `G11a`, `G12`, `H12`, `H13`, `H14`, `H16`, `H14a`
+*Evidence:* `T1g`, `T1h`, `A11`, `A11a`, `A12`, `A20`, `A21`, `A21a`, `C3`, `C3a`, `C4`, `C5`, `C5a`, `C6`, `D24`, `D25`, `D26`, `D27`, `D10`, `D11`, `D12`, `D13`, `D14`, `D23`, `F3`, `F4`, `F6`, `F8`, `F9`, `F21`, `F22`, `F23`, `F24`, `F26`, `F27`, `F28`, `F28a`, `F12`, `G11`, `G11a`, `G12`, `H12`, `H13`, `H14`, `H16`, `H14a`, `J16`, `J18`, `J19`, `J23`, `J25`, `J38`, `J39`
 
 ### D03-R2
 
@@ -104,7 +106,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **Asks:** What does `jetstream.domain` actually change, and where was that measured?
 
-**This run says:** Over a **gateway** it changes nothing useful and quietly makes things worse -- the supercluster stays one meta group and one of the two regions stops electing a leader. Over a **leaf link** it is real: the hub, ZA and AU each become a separate JetStream system with its own vote, and the same stream name can live in all three at once. A domain is a leaf-link tool. A gateway is not a leaf link. **Where this was measured:** a domain is configured in four shapes only -- T2 / B, T5 / D, T5 / H and T6 / G. T1, T3 and T4 carry no `jetstream.domain` at all, so any statement about a domain in those three is inferred from the gateway result, not measured on that rig.
+**This run says:** Over a **gateway** it changes nothing useful and quietly makes things worse -- the supercluster stays one meta group and one of the two regions stops electing a leader. Over a **leaf link** it is real: the hub, ZA and AU each become a separate JetStream system with its own vote, and the same stream name can live in all three at once. A domain is a leaf-link tool. A gateway is not a leaf link. **Where this was measured:** a domain is configured in five shapes only -- T2 / B, T5 / D, T5 / H, T6 / G and T7 / J. T7 is the one shape that sets **one** domain on every gateway-joined server: there it does not split the meta group (`J29`, `J30`), and its one job is to let a leaf client reach the JetStream API (`J32`). T1, T3 and T4 carry no `jetstream.domain` at all, so any statement about a domain in those three is inferred from the gateway result, not measured on that rig.
 
 *Evidence:* `B1`, `B1a`, `B2`, `B3`, `B4`, `B5`, `B7`, `B7a`, `B8`, `B8b`, `B8a`, `B6`, `D1`, `D3`, `D4`, `D6`, `D21`, `D22`, `D22a`, `E10`, `E11`, `E12`, `E13`, `E14`, `G19`, `G19a`, `G20`, `G21`, `G22`, `G23`, `H1`, `H7`, `H7a`, `H15`
 
@@ -122,7 +124,7 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 **This run says:** It is plain majority arithmetic over the meta group, and the group size is what the topology decides. When the majority is gone the client sees `10008 JetStream system temporarily unavailable` on any *change* -- but only once the old leader has aged out. Before that the client just hangs and times out. Writes into a stream that already exists keep working throughout, on **one condition**: that stream's own replicas must still hold their own majority. Every measurement here darkens a whole region, so the surviving region's streams keep all three replicas inside one live cluster (`F9`/`F21`). Losing the **meta** group is a **change** freeze, not a **write** freeze -- that is the same fact `D03-R1` splits three ways. Losing **all** of one stream's own replicas while the meta group lives is measured once: on T4 the healthy region cannot read that stream (`F28`). Losing only **some** of a stream's replicas is a different question, and it is **not measured here**.
 
-*Evidence:* `T1a`, `T1b`, `T1c`, `T1i`, `T1j`, `T1k`, `T1l`, `T1m`, `A1`, `A2`, `A10a`, `A10`, `A13`, `A14`, `A22`, `A23`, `A24`, `A24a`, `A25`, `B9`, `B10`, `B10a`, `C1`, `C2`, `C15`, `C16`, `C16a`, `C20`, `C12`, `D2`, `D19`, `D20`, `E15`, `E16`, `F1`, `F2`, `F5`, `F5a`, `F6a`, `F7a`, `F7`, `F10`, `F25`, `F15`, `F16`, `F16a`, `F20`, `F11`, `G10a`, `G15`, `H2`, `H4`, `H5`
+*Evidence:* `T1a`, `T1b`, `T1c`, `T1i`, `T1j`, `T1k`, `T1l`, `T1m`, `A1`, `A2`, `A10a`, `A10`, `A13`, `A14`, `A22`, `A23`, `A24`, `A24a`, `A25`, `B9`, `B10`, `B10a`, `C1`, `C2`, `C15`, `C16`, `C16a`, `C20`, `C12`, `D2`, `D19`, `D20`, `E15`, `E16`, `F1`, `F2`, `F5`, `F5a`, `F6a`, `F7a`, `F7`, `F10`, `F25`, `F15`, `F16`, `F16a`, `F20`, `F11`, `G10a`, `G15`, `H2`, `H4`, `H5`, `J21`, `J27`, `J41`
 
 ### D03-R6
 
@@ -180,9 +182,41 @@ A **JetStream domain** is a different wall, drawn in `REPORT.html` as an **orang
 
 *Evidence:* `SB1`, `SB2`, `SB3`, `SB4`, `SB5`, `SB6`, `SB7`, `SB8`, `SB9`, `SB10`, `SB11`, `SB12`, `SB13`, `SB14`, `SB15`, `SB16`, `SB17`, `SB18`, `SB19`, `SB20`, `SB21`, `SB22`, `SB23`, `SB24`, `SB25`, `SB26`, `SB27`, `SB28`, `SB29`, `SB30`, `SB31`, `SB32`, `SB33`, `SB34`, `SB35`, `SB36`, `SB37`, `SB38`, `SB39`, `SB40`, `SB41`, `SC1`, `SC2`, `SC3`, `SC4`, `SC5`, `SC6`, `SC7`, `SC8`, `SC9`, `SC10`, `SC11`, `SC12`, `SC13`, `SC14`, `SC15`, `SC16`, `SC17`, `SC18`, `SC19`, `SC20`, `SC21`, `SC22`, `SC23`, `SC24`, `SC25`, `SC26`, `SC27`, `SC28`, `SC29`, `SC30`, `SC31`, `SC32`, `SC33`, `SC34`, `SC35`, `SC36`, `SC37`, `SC38`, `SC39`, `SC40`, `SC41`, `SC42`, `SC43`, `SC44`, `SC45`, `SC46`, `SC47`, `SC48`, `SC49`, `SC50`, `SC51`, `SC52`, `SC53`, `SC54`, `SC55`, `SC56`, `SC57`, `SC58`, `SC59`
 
+### D03-R33
+
+**Asks:** Can a tenant's **frontend on a leaf node** use its backend in the regional cluster through **its region's own tenant account** -- no export, no import?
+
+**This run says:** **Yes, for publish and request. Not for the JetStream API, unless the regions carry a domain.** The ZA leaf binds `TENANT_ZA` to the cluster's `TENANT_ZA`, and the AU leaf does the same with `TENANT_AU` -- never crossed over (`J3`, `J4`). The frontend reaches its backend's service and writes into its stream with an ack (`J7`, `J8`). But with no domain, every JetStream API call from the leaf is refused with no responders (`J11`) -- the stream sends a publish ack itself, the API is a different path, and nats-server denies it on every leaf link. Give all nine cluster servers **one** domain and have the frontend name it with `--js-domain`: it then lists its streams, makes a consumer and reads its own write back (`J32`, `J35`, `J36`). Without the flag it is still refused (`J31`). The platform's own accounts stay invisible to it (`J34`).
+
+*Evidence:* `J3`, `J4`, `J7`, `J8`, `J11`, `J11a`, `J11b`, `J28`, `J31`, `J32`, `J34`, `J35`, `J36`, `J37`, `J44`
+
+### D03-R34
+
+**Asks:** Which region's backend answers a tenant frontend, and what happens to the frontend when a region goes dark?
+
+**This run says:** **Its own region's, always** (`J12`, `J13`, `J15`). The other region's backend is in another account, so it never answers (`D03-R36`). A dark region: the surviving region's frontend keeps working (`J17`, `J24`), but the dark region's frontend gets **no answer at all** (`J20`, `J26`), and with a domain it cannot list its streams either (`J40`). Its leaf lists only its own region's servers, and a frozen region keeps the link open and silent, so the leaf never moves. A tenant leaf goes down with the region it dials.
+
+*Evidence:* `J12`, `J13`, `J15`, `J17`, `J20`, `J20a`, `J22`, `J24`, `J26`, `J40`, `J43`
+
+### D03-R35
+
+**Asks:** Do tenant **leaf nodes** change the meta vote of a three-site cluster?
+
+**This run says:** **No.** A leaf with no JetStream adds no voter and holds no store (`J1`, `J5`): the nine-peer group and its arithmetic are T4's, and a region loss still leaves a leader among the survivors in both directions (`J16`, `J23`). One shared domain on all nine servers -- the price of `D03-R33` -- does not split the group either (`J29`, `J30`). That is the opposite of a domain **per cluster** over a gateway, which half-blinds the link (`D03-R3`).
+
+*Evidence:* `J1`, `J2`, `J5`, `J29`, `J30`, `J42`
+
+### D03-R36
+
+**Asks:** What does **one tenant account per region** buy, and what does it cost?
+
+**This run says:** **It buys a wall; it costs failover.** Each region's tenant has its own stream namespace, so both create a stream named `ORDERS` (`J6`) -- the shared LB account refuses that with `10058` (`A4`). The two count apart (`J9`), and a name resolves in the asking account, not in the cluster the client is on: a `TENANT_AU` user on a ZA server still gets AU's `ORDERS` (`J10`, `J33`). The cost: a queue group lives inside one account, so when the ZA backend stops, the AU backend does not answer for it (`J14`). Failover between regions would need an explicit export / import, which T7 does not configure (`J45`).
+
+*Evidence:* `J6`, `J9`, `J10`, `J14`, `J14a`, `J33`, `J45`
+
 ## Findings this rig added
 
-Six things came out of building the scripts that are **not** in the demo's existing evidence pages. Four are NATS behaviour. One is about measuring.
+Seven things came out of building the scripts that are **not** in the demo's existing evidence pages. Six are NATS behaviour. One is about measuring.
 
 ### The `/jsz` leader field goes stale, and it lies while it does
 
@@ -201,6 +235,12 @@ The stale-leader trap has a twin, and it points the other way. After an election
 A gateway and a hub leaf link were wired onto the same nine servers, to see whether a system could keep the gateway's single namespace and still get the leaf link's independent vote. It cannot. The result is two JetStream systems, not three: the hub in its own group, and both regions still fused into one by the gateway. Every property the leaf link gave the two regions on its own is gone -- the duplicate stream name is refused again, the double capture collapses to a single stored copy, and a dark region freezes every create while the hub sits alongside it perfectly healthy and unable to lend a vote. The hub does keep a working JetStream system of its own, and it can be killed outright with no effect on either region. This is the first shape in the lab that costs real money and buys the two regions no quorum they did not already have.
 
 *Evidence:* `G1`, `G4`, `G6`, `G13`
+
+### A leaf link carries a JetStream ack but not the JetStream API
+
+A frontend on a leaf node wrote into its region's stream and got its ack, and then could not list that same stream: no responders. The two are different paths. The stream answers a publish itself; every other JetStream call goes to the API, and nats-server denies the plain API on a leaf link for any account but the system account. The way through is a domain on the regional side -- one name on every server, so the meta group stays whole -- and the frontend naming it. A shape that only publishes and requests will never notice. The first frontend that needs a consumer or a KV watch will.
+
+*Evidence:* `J7`, `J11`, `J11a`, `J32`
 
 ### A name-only mirror can silently copy the WRONG stream
 
@@ -676,6 +716,60 @@ Three error codes carry almost every finding. Each table has an **Extra info** c
 | ✅ `G23` | the hub, which IS across a leaf link, still elects its own leader | D03-R3 | — | yes | **yes** | — |
 | 📋 `G24` | verdict | D03-R10 | — | — | **the gateway decides -- adding a hub leaf link changes nothing it does** | — |
 
+### T7 / J -- T4 + a tenant leaf per region
+
+| | Check | Req | From | Expected | Measured | Extra info |
+|---|---|---|---|---|---|---|
+| ✅ `J1` | meta group size with both tenant leaves connected (majority is 5) | D03-R35 | `F1` | 9 | **9** | — |
+| ✅ `J2` | distinct JetStream meta groups across za, au and arb | D03-R35 | `F2` | 1 | **1** | — |
+| ✅ `J3` | leaf links: TENANT_ZA on za / TENANT_AU on au / any tenant on arb | D03-R33 | — | 1 / 1 / 0 | **1 / 1 / 0** | — |
+| ✅ `J4` | leaf links crossed over: TENANT_AU on za / TENANT_ZA on au | D03-R33 | — | 0 / 0 | **0 / 0** | — |
+| ✅ `J5` | the tenant leaves run JetStream: za-leaf / au-leaf | D03-R35 | — | no / no | **no / no** | — |
+| ✅ `J6` | stream ORDERS in TENANT_ZA / in TENANT_AU lands in | D03-R36 | `A4` | za / au | **za / au** | — |
+| ✅ `J7` | ZA frontend, through its leaf: acked JetStream write into ORDERS | D03-R33 | — | ok | **ok** | — |
+| ✅ `J8` | AU frontend, through its leaf: acked JetStream write into ORDERS | D03-R33 | — | ok | **ok** | — |
+| ✅ `J9` | two ZA writes, one AU write: messages in ORDERS, TENANT_ZA / TENANT_AU | D03-R36 | — | 2 / 1 | **2 / 1** | — |
+| ✅ `J10` | a TENANT_AU user on a ZA server: its ORDERS lives in | D03-R36 | — | au | **au** | — |
+| ✅ `J11` | no domain: streams the ZA frontend lists through its leaf | D03-R33 | — | fails | **fails** | — |
+| 📋 `J11a` | how that refusal arrived | D03-R33 | — | — | **nats: error: nats: no responders available for request** | — |
+| 📋 `J11b` | why J7 works and J11 does not | D03-R33 | — | — | **the stream sends the publish ack itself; the API ($JS.API.>) is denied on every leaf link without a domain** | — |
+| ✅ `J12` | ZA frontend's requests (5): regions that answered | D03-R34 | — | za | **za** | — |
+| ✅ `J13` | AU frontend's requests (5): regions that answered | D03-R34 | — | au | **au** | — |
+| ✅ `J14` | ZA backend stopped, AU backend running: ZA frontend's requests answered by | D03-R36 | — | fails | **fails** | — |
+| 📋 `J14a` | why AU does not answer for ZA | D03-R36 | — | — | **a queue group lives inside one account; the AU backend is in TENANT_AU, so it never hears TENANT_ZA's request** | — |
+| ✅ `J15` | ZA backend back: ZA frontend's requests answered by | D03-R34 | — | za | **za** | — |
+| ✅ `J16` | AU dark (6 of 9 left): a leader is elected among the survivors | D03-R1 | `F3` | yes | **yes** | — |
+| ✅ `J17` | AU dark: ZA frontend's requests answered by | D03-R34 | — | za | **za** | — |
+| ✅ `J18` | AU dark: ZA frontend's acked write into ORDERS | D03-R1 | — | ok | **ok** | — |
+| ✅ `J19` | AU dark: ZA backend creates a NEW 3-replica tenant stream | D03-R1 | `F4` | ok | **ok** | — |
+| ✅ `J20` | AU dark: AU frontend's requests answered by | D03-R34 | — | fails | **fails** | — |
+| 📋 `J20a` | why the AU frontend does not fail over to ZA | D03-R34 | — | — | **its leaf lists only AU's leaf ports, and its account has no backend in ZA; a frozen region keeps the link open and silent** | — |
+| ✅ `J21` | after recovery: meta group size | D03-R5 | `F10` | 9 | **9** | — |
+| ✅ `J22` | after recovery: AU frontend's requests answered by | D03-R34 | `J13` | au | **au** | — |
+| ✅ `J23` | ZA dark (6 of 9 left): a leader is elected among the survivors | D03-R1 | `F22` | yes | **yes** | — |
+| ✅ `J24` | ZA dark: AU frontend's requests answered by | D03-R34 | `J17` | au | **au** | — |
+| ✅ `J25` | ZA dark: AU frontend's acked write into ORDERS | D03-R1 | `J18` | ok | **ok** | — |
+| ✅ `J26` | ZA dark: ZA frontend's requests answered by | D03-R34 | `J20` | fails | **fails** | — |
+| ✅ `J27` | after the second recovery: meta group size | D03-R5 | `F25` | 9 | **9** | — |
+| ✅ `J28` | after both recoveries: messages in ORDERS, TENANT_ZA (J7 + 1 + J18) / TENANT_AU (J8 + J25) | D03-R33 | — | 3 / 2 | **3 / 2** | — |
+| ✅ `J29` | one domain on all nine: meta group size (it did NOT split) | D03-R35 | `J1` | 9 | **9** | — |
+| ✅ `J30` | one domain on all nine: distinct meta groups across za, au and arb | D03-R35 | `J2` | 1 | **1** | — |
+| ✅ `J31` | domain set, frontend does NOT name it: streams it lists through its leaf | D03-R33 | `J11` | fails | **fails** | — |
+| ✅ `J32` | domain set, frontend names it (--js-domain core): streams it lists | D03-R33 | `J11` | ORDERS | **ORDERS** | — |
+| ✅ `J33` | with the domain: the ORDERS each frontend sees lives in, ZA / AU | D03-R36 | — | za / au | **za / au** | — |
+| ✅ `J34` | with the domain: ZA frontend asks for LB_ZA's ODOMETER | D03-R33 | — | fails | **fails** | — |
+| ✅ `J35` | with the domain: ZA frontend makes a pull consumer on ORDERS | D03-R33 | — | ok | **ok** | — |
+| ✅ `J36` | with the domain: ZA frontend reads its own write back through it | D03-R33 | — | ok | **ok** | — |
+| ✅ `J37` | with the domain: FE_ZA lives in cluster | D03-R33 | `F19` | za | **za** | — |
+| ✅ `J38` | domain set, AU dark: a leader is elected among the survivors | D03-R1 | `J16` | yes | **yes** | — |
+| ✅ `J39` | domain set, AU dark: ZA frontend reads ORDERS through its consumer | D03-R1 | — | ok | **ok** | — |
+| ✅ `J40` | domain set, AU dark: streams the AU frontend lists | D03-R34 | — | fails | **fails** | — |
+| ✅ `J41` | domain set, after recovery: meta group size | D03-R5 | `J21` | 9 | **9** | — |
+| 📋 `J42` | what a tenant leaf costs the meta vote | D03-R35 | — | — | **nothing -- no JetStream on the leaf, so T4's arithmetic (6 of 9 against 5) is unchanged** | — |
+| 📋 `J43` | what a tenant leaf does when its own region goes dark | D03-R34 | — | — | **its frontend is cut off with that region; the other region's tenant keeps working** | — |
+| 📋 `J44` | what the frontend needs for more than publish and request | D03-R33 | — | — | **a domain on the regional side and --js-domain in the client; one name on all nine is enough** | — |
+| 📋 `J45` | what an account per region costs | D03-R36 | — | — | **no backend failover between regions; that would need an explicit export / import, which T7 does not configure** | — |
+
 ## What each script builds
 
 Every script starts its own servers from nothing, measures, and stops them. Nothing is left running. All servers are bare `nats-server` processes on `127.0.0.1` — no Docker, no `nsc`, no `nats` contexts.
@@ -692,5 +786,6 @@ Every script starts its own servers from nothing, measures, and stops them. Noth
 | `07-gateway-and-hub.sh` | T6 / G — a gateway AND a hub leaf link | 9 |
 | `08-hub-leaf-per-region.sh` | T5 / H — hub and leaf, an account per region | 9 |
 | `09-switch-t4-t5.sh` | T4 / S, T5 / S — switch in place, T4 to T5 and back, on the same stores | 9 |
+| `11-tenant-leaves.sh` | T7 / J — T4 plus a tenant leaf per region, with and without one shared domain | 9 + 2 leaves |
 
 Run one on its own the same way: `./01-gateway.sh`.
