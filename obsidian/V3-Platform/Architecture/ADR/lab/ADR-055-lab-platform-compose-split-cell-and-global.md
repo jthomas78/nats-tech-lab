@@ -57,6 +57,14 @@ no way to say any of that.
   `compose.dedicated.yaml` and the global control file are both deliberately
   left out of it.
 
+  > **Phase 54 (2026-10-16).** `jaeger` and `otlp-bridge` are deleted from
+  > `cell/compose.runtime.yaml` (54d). A fifth tier file,
+  > `cell/compose.telemetry.yaml`, holds `otel-collector`, `tempo`,
+  > `grafana` and `otel-volume-init`. It owns data (the Collector's disk
+  > queue, Tempo's traces, Grafana's state). `cell/compose.yaml` now
+  > includes three files: infra, runtime and telemetry. The decision of this
+  > ADR is unchanged.
+
 - **Projects = where it runs.** `-p lb-za-1` and `-p lb-au-1`. Both run the
   **same files**; only `--env-file` differs.
 
@@ -99,6 +107,10 @@ bands `CLAUDE.md` pins (`7100-7199` frontends, `7200-7299` backends), so za-1
 takes the low half of each band and au-1 the high half and neither leaves its
 band, and by **+100** for the conventional ports (NATS, Postgres, Temporal UI,
 Jaeger) which sit in no band.
+
+> **Phase 54 (2026-10-16).** The Jaeger ports are gone. Grafana is the only
+> telemetry port on the host, offset by **+50** (`3000` za-1, `3050` au-1),
+> per Phase 54 decision 2.
 
 The same variables substitute into the origin strings that carry a port —
 `REGISTRY_ALLOWED_ORIGINS`, `REGISTRY_FETCH_ORIGINS`, `ASSET_ALLOWED_ORIGIN`,

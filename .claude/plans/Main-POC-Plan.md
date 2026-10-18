@@ -1208,7 +1208,7 @@ rationale, the design decisions, or the verification log).
 ---
 
 
-### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 written into BUSINESS_RULES-SHIPPING.md 2026-10-15, specs red; 54a–54c BUILT, 54c validated on au-1 2026-10-16, decision 16 switch MADE 2026-10-16 on au-1; 54d next) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
+### Phase 54 — DESIGN APPROVED 2026-10-15, REVISED same day after a Claude/Codex review; decisions 15 (c) and 16 (a) chosen by the user 2026-10-15 (business rules BR-064–BR-071 written into BUSINESS_RULES-SHIPPING.md 2026-10-15, specs red; 54a–54c BUILT, 54c validated on au-1 2026-10-16, decision 16 switch MADE 2026-10-16 on au-1; 54d code BUILT 2026-10-16 (04d73e27), au-1 trace stores removed 2026-10-17, za-1 not checked; docs close-out OPEN: ADR pair, as-built diagram, LB-V3-L3-10) — Replace `natstrace` with OpenTelemetry: SDK → Collector → Tempo, Clients Query Through `observability-service`
 
 > Reverses the deferred decision recorded in ARCHITECTURE-COMMUNICATIONS.md
 > § 6 ("Revisit the real SDK if this POC graduates"). Agreed direction
@@ -1476,6 +1476,15 @@ Neither is fixed in place: this phase removes the code that has them.
     - **No promise that service code stays unchanged.** A helper cannot
       repair a dropped context or choose a span's boundaries. Decision 6's
       adapter context audit still runs, service by service.
+    - **Demo 03 builds its own module for now** (user, 2026-10-17).
+      `demos/03-multi-cluster-and-accounts/OTEL-SIGNALS-PLAN.md` proposes a
+      separate module, because demo 03 is sealed and `otelnats` carries
+      demo 01 rules (tenant `Trust`, the `api.*` root policy,
+      `obs.pubsub.*`). That is accepted as a temporary split, not a second
+      direction. **The target is one shared module for Chronicle.** Demo
+      03's three-way comparison (`shared/otelnats`, demo 03's module,
+      Chronicle's `services/lib/logger`) picks which code that module
+      starts from. Until then, neither lab module is the Chronicle module.
 15. **Pulse waits for Phase 55's metrics** (chosen by the user
     2026-10-15, option (c)). Today `PulsePanel.vue` counts the whole live
     trace set from `useTraceFeed.js`. Decision 9's search has a result
@@ -1563,6 +1572,70 @@ Neither is fixed in place: this phase removes the code that has them.
       topology, credentials and discovery timing supplied by deployment
       configuration. AWS deployment and the Chronicle merge are later
       work, not Phase 54 completion claims.
+
+#### Decision ledger (reconciled 2026-10-17)
+
+One line per decision, so the ADR pair can quote it. Four kinds of entry,
+kept apart: **Built** (in the code, checked on au-1), **Accepted limit**
+(a known gap the user chose to keep), **Deferred** (decided to decide
+later, with a place named), **Proposed** (said in chat, never confirmed by
+the user). Remaining validation is listed after the table.
+
+| # | Decision | Status | Evidence |
+|---|---|---|---|
+| 1 | OTel Go SDK in every traced service | Built | 54a–54b; six services export (shipping, refdata, mfe-registry, pricing, organizations, accounts) |
+| 2 | SDK → Collector → Tempo; only Grafana on the host | Built | `cell/compose.telemetry.yaml`; ADR-055 Phase 54 note |
+| 2 | Tempo monolithic on local disk | Built, lab only | The V3 trace store is **Deferred** to a V3 decision (alternative: Jaeger v2 + OpenSearch) |
+| 3 | Telemetry leaves the NATS account model | Built | 54d removed the tenant `obs.trace.>` export/import |
+| 4 | Operators read all tenants; tenants read nothing | Built | BR-067, BR-069 |
+| 4 | Ungated `adminConnectInfo` | Accepted limit | Operator login is candidate Phase 109 |
+| 5 | Span kinds; new root at the `api.*` edge | Built | BR-071, `otelnats.go` sampler |
+| 6 | Context through the adapters, domain free of `otel` | Built | 54b context audits, per service |
+| 6 | Temporal hop not traced | Accepted limit | BR-064 |
+| 7 | Bodies as span events, opt-in | Built | `OTEL_CAPTURE_BODIES`, off by default |
+| 8 | Traces panel polls | Built | 54c; push hint is **Deferred** to Phase 56 |
+| 9 | Trace queries are NATS `api.*` only, lab schema | Built | BR-076, `traceGateway.js` |
+| 10 | Export never blocks a business call | Built | Measured in 54a (stopped and hung Collector) |
+| 11 | Disk queue in the Collector; replay given up | Built | Durability 54a, capacity and overflow 54b-7b (BR-068) |
+| 12 | 100% sampling in the lab | Built | BR-071 |
+| 13 | Retire `natstrace` and the NATS trace path | Built | 54d (`04d73e27`); au-1 stores removed by hand 2026-10-17 |
+| 14 | One thin shared package, `shared/otelnats` | Built | Demo 03 keeps its own module for now; one Chronicle module is the target (decision 14) |
+| 15 | Pulse unavailable until Phase 55 | Built | BR-077 |
+| 16 | One cutover; history not migrated | Built | Switch made on au-1 2026-10-16 |
+| 17 | Micro discovery over `service.list.v1` | Built | BR-072; `GET /api/nats/services` removed in 54d |
+| — | Lab Tempo setup: no second dev config file, no grouping spans by trace in the Collector | Proposed | Chat only; the reasons were not written down |
+| — | The trace query API stays in the lab; Chronicle gets none until an app needs one | Proposed | Chat only |
+| — | Liveness vs readiness for PLATFORM services (`natsready`) | Proposed | Chat only; decision 17 records reuse where a check exists, nothing more |
+| — | Alloy or the OTel Collector as the agent | Proposed, open | Suggested for Phase 55. Phase 55 still assumes the Collector; demo 03's plan chose Alloy; Chronicle runs Alloy |
+
+**Remaining validation (not done):**
+
+- **za-1 is not checked.** Its Grafana port 3000 is taken by the Chronicle
+  `lgtm` container. 54c, the switch and 54d were checked on au-1 only.
+- **A full queue does not reach Tempo intact.** 54b-7b: Tempo's default
+  limits dropped most spans on drain (`live_traces_exceeded`,
+  `rate_limited`). The defaults stay; delivery of a full queue is not
+  proved.
+- **No two-hour elapsed outage was run.** Capacity was proved by volume
+  only. V3 capacity is not measured.
+- **Open from 54b:** one process with two same-name micro services lists
+  as two instances; `type.list` throughput looks serial (not proved).
+- **Docs:** the ADR pair is held; LB-V3-L3-10 is PLANNED; no L4 exists.
+
+**Chronicle — not proved by Phase 54.** Phase 54 proves the design in the
+lab only. The transfer verdicts below came from one code comparison
+(2026-10-16) and are **Proposed**. None is a Phase 54 claim.
+
+- *Move as is:* the span helpers and the NATS header carrier (Chronicle
+  never calls `logger.Inject`, so its traces do not join); the `api.*`
+  edge rule (BR-071); the standard span kinds and attributes; the
+  joined-trace and outage tests.
+- *Move with changes:* the disk queue (Chronicle's Alloy has an in-memory
+  queue; check Alloy's disk queue, then size it for Chronicle's load); the
+  tenant rule (never read the tenant from a header; Chronicle sets the
+  tenant per deployment); body capture (keep it off by default).
+- *Do not move:* the NATS trace query gateway (Grafana Cloud already reads
+  traces); the lab's no-global-provider design.
 
 #### Slicing
 
@@ -2229,6 +2302,11 @@ well as the three trace subjects. BR-041's requester identity
 stays observability-only, recorded as a span attribute. ARCHITECTURE-COMMUNICATIONS.md § 6 and
 ARCHITECTURE-OBSERVABILITY.md are revised with it (including an "after"
 edition of `observability-message-path`), and an ADR records the reversal.
+**Status 2026-10-17:** both docs carry 54d notes and link the as-built
+figure `otel-migration-before-after` (it replaces the planned "after"
+edition; `observability-message-path` stays as history). ADR-055 has a
+Phase 54 note. The ADR is held until this reconcile is reviewed; the
+proposal is a V3 + lab pair (058 + 059). LB-V3-L3-10 is still PLANNED.
 
 ---
 

@@ -716,7 +716,9 @@ a JetStream concern — it's a separate, best-effort side-channel off the
 > notes below is live. The `obs.trace.*` path, the
 > `monitor.{tenant}.trace.>` remap (BR-AC36), `TRACES`,
 > `trace-request-reply`, BR-036's trace half, BR-051 and BR-053 are retired.
-> The figure is not redrawn.
+> This figure is not redrawn. The as-built trace path is
+> [otel-migration-before-after](images/otel-migration-before-after.png)
+> (source: `demos/01-dictionary/diagrams/otel-migration-before-after.html`).
 
 Both supportive subject families — `obs.trace.*` and `obs.pubsub.*` — travel
 the same five hops from a tenant service to an Admin UI panel, and the
@@ -1059,6 +1061,17 @@ shows otherwise.
 > auto-instrumentation is the genuine loss, and because the wire format is
 > already OTLP-shaped, adopting it later is additive rather than a rewrite.
 > Recorded as an explicit deferred decision, not a silent one.
+>
+> **Resolved (Phase 54, 2026-10-16).** This deferral was taken up and
+> reversed. Phase 54 decision 1 adopts the real OpenTelemetry SDK in every
+> traced service (`shared/otelnats`), exporting OTLP/HTTP to an OTel
+> Collector with a disk queue. The bridge had two defects (verified
+> 2026-10-14). Tenant spans never reached Jaeger, because the bridge read
+> only `obs.trace.>` and tenant spans land on `monitor.*.trace.>`. Outbound
+> spans carried the callee's service name, so a caller's client span showed
+> under the callee. Phase 54 removed the code instead of fixing it in place.
+> The bridge and Jaeger were deleted in 54d. As-built figure:
+> [otel-migration-before-after](images/otel-migration-before-after.png).
 >
 > **Implemented (Phase 28g).** `backend/otlp-bridge/` landed as designed
 > above — a standalone `~230`-line module (not hexagonal; a translation

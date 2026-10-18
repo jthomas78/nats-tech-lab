@@ -31,7 +31,9 @@ keeps only the ADR as a historical record.
 > The trace path (`obs.trace.>`, the `monitor.{tenant}.trace.>` remap,
 > `TRACES`, `trace-request-reply`) is retired. Spans now leave each service
 > over OTLP to the OTel Collector and Tempo. No span crosses an account on
-> NATS. The figure is not redrawn.
+> NATS. This figure is not redrawn. The as-built trace path is
+> [otel-migration-before-after](images/otel-migration-before-after.png)
+> (source: `demos/01-dictionary/diagrams/otel-migration-before-after.html`).
 
 ![Two parallel ingest paths: a tenant service publishes obs.trace.> and obs.pubsub.> inside its own NATS account; JWT stream exports carry both into the PLATFORM account, each with a per-tenant LocalSubject remap onto monitor.{tenant}.trace.> and monitor.{tenant}.pubsub.>; each lands on its own LimitsPolicy stream (TRACES 1h/64 MiB, PUBSUB 1h/32 MiB) that captures both the remapped tenant form and the bare obs.* form PLATFORM publishes itself, is read by one durable AckExplicit consumer, and is projected into a KV bucket — trace-request-reply merged by spanId with the tenant stored per span, pubsub-messages plain-Put, both bounded at 15 min / 8 MiB. Both buckets emit a best-effort notify subject that observability-service bridges to the Admin UI over WebSocket, alongside the REST snapshot each feed bootstraps from.](images/observability-message-path.png)
 
