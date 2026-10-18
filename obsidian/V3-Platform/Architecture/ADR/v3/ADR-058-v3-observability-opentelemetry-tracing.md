@@ -25,10 +25,10 @@ V3 services talk over NATS (`api.*`, `rpc.*`, `evt.*`, `notify.*`) and HTTP. A t
 
 ### Terms used in this ADR
 
-- **Trace** — the whole of one outside call, from start to finish. It starts when a client's call reaches the platform: an HTTP request, or a NATS request-reply on an `api.*` subject. It then follows every service, message and reply that call causes, including work done later by consumers of the events it published. One outside call is one trace (rule 5).
+- **Trace** — the whole of one outside call, from start to finish. It starts when a client's call reaches the platform: an HTTP request, or a NATS request-reply on an `api.*` subject. It then follows every service, message and reply that call causes, including work done later by consumers of the events it published. One outside call is one trace (rule 5). Spans the client makes on its own side, such as in a browser, are a separate trace, joined only by a link.
 - **Span** — one timed step of work inside a trace, such as "handle this request" or "call that service". A trace is a tree of spans.
 - **Agent** — a separate program that runs near the services. Each service sends its telemetry to the agent. The agent queues it, batches it, adds labels, and forwards it to the stores. Grafana Alloy and the OpenTelemetry Collector are two agent products. The services never talk to a store directly.
-- **Trace store** — the database that keeps traces and answers searches, In V3 this is Grafana Tempo (rule 11). People read it through Grafana.
+- **Trace store** — the database that keeps traces and answers searches. In V3 this is Grafana Tempo (rule 11). People read it through Grafana.
 - **Body** — the payload of a message or an HTTP request or reply: the data a caller sends and the data it gets back, for example the JSON of a load booking. A body can hold personal and commercial data.
 - **OTLP** — the OpenTelemetry wire protocol that services, agents and stores use to send telemetry to each other.
 
@@ -53,12 +53,12 @@ Chronicle, the V3 codebase, already uses the OpenTelemetry SDK. One `Setup()` in
 4. **The agent buffers on disk, and tests prove it.** Its queue survives an agent restart and is sized for a stated outage of the trace store. An in-memory queue alone is not enough. Configuration is not evidence. On the chosen deployment, tests must show that the queue survives a restart and a hard kill, holds the stated volume, and counts its loss when full, and that a full queue drains into the trace store with every span stored.
 5. **A call from outside the platform starts a new trace.** On an inbound browser, public HTTP or `api.*` call, the server span is a new root and is sampled by the platform. An incoming `traceparent` is kept only as a span link. A client cannot join a platform trace or switch sampling off. Between platform services, normal parent/child propagation applies.
 6. **The tenant on a span comes from trusted context only.** The receiving service sets two separate attributes. The receiving account comes from the connection the message arrived on. The originating tenant comes only from server-written routing data, else it stays empty and shows as unattributed. A shared platform connection serves many tenants, so it never names the originating tenant. Neither attribute comes from a client header, the body or a requester field. Both are metadata and a query filter. Neither is a security boundary.
-7. **Every span says where it ran.** Two kinds of location, set by the shared module:
-   - **Where the service runs** — on the resource, so on every span, log and metric: `service.name`, `service.instance.id`, `deployment.environment.name`, `cloud.region`.
+7. **Every span says where it ran.** Three kinds of location, set by the shared module:
+   - **Where the service runs** — on the resource, so on every span: `service.name`, `service.instance.id`, `deployment.environment.name`, `cloud.region`.
    - **Which NATS server the call used** — on every messaging span: `nats.server.name`, `nats.cluster.name` and `server.address`. The module reads these from the live connection when the span starts, not once at startup, because a client can reconnect to another cluster. After such a reconnect, `cloud.region` stays the same and `nats.cluster.name` changes.
    - **Which JetStream domain the call targets** — on JetStream spans only: `nats.jetstream.domain`. This is the domain the call is addressed to, taken from the JetStream options the service set for that call. It is not the domain of the server the client is connected to, because over a leaf link the two can differ. When the call names no domain, the attribute is left off.
 
-   Location values come from the deployment and the live connection, never from a client. A value with no bound, such as a request ID, is never a metric label.
+   Location values come from the deployment and the live connection, never from a client.
 8. **Bodies are off by default.** A service records no message or request bodies on its spans unless it is turned on for that service. When it is on, the module redacts personal and secret fields, then truncates to a size limit, in the service, before export.
 9. **Export never blocks a business call.** Sending telemetry must never slow down or stop the request it describes. In practice:
    - A finished span goes into a small, fixed-size queue in the service's memory. The request continues at once.
@@ -78,7 +78,7 @@ Each of these is a separate V3 decision:
 
 - **How live mode hosts Grafana.** Chronicle uses Grafana Cloud today. The other option is self-hosting. Self-hosted Tempo 3.x in microservices mode, the production layout, is documented to need object storage and a Kafka-compatible queue; check this against the chosen version and mode. Tempo is AGPLv3. Every store has ingest limits, and a full agent queue drains faster than normal traffic, so the limits must be sized with the queue (rule 4).
 - **The agent product.** Grafana Alloy is already in Chronicle and already carries logs and metrics, and it is Grafana's own agent; the OpenTelemetry Collector is the other option. Rule 4 applies to either. Before Alloy is confirmed, check that the pinned Alloy version supports a disk-backed queue.
-- **Rules for logs and metrics.** A separate ADR defines them. This ADR fixes only their destination (rule 11). That ADR also decides whether one shared module per language (rule 2) sets up all three signals, and whether one agent carries all three. Chronicle's `Setup()` already builds the log and metric providers, so alignment looks likely.
+- **Rules for logs and metrics.** A separate ADR defines them. This ADR fixes only their destination (rule 11). That ADR decides whether the rule 7 resource attributes also go on every log and metric, and must keep values with no bound, such as a request ID, out of metric labels. That ADR also decides whether one shared module per language (rule 2) sets up all three signals, and whether one agent carries all three. Chronicle's `Setup()` already builds the log and metric providers, so alignment looks likely.
 - **A trace query API for applications.** V3 needs one only when an application needs it. If one is built, its contract is a platform schema, so the trace store can change behind it.
 - **Production sampling rate.**
 - **Sender authentication at the agent,** and publish limits on platform credentials.
@@ -137,9 +137,9 @@ The disk queue at the agent replaces JetStream as the durability point. It prote
 
 This ADR is the rule Chronicle is measured against. Adopting it in Chronicle is separate work, and nothing here claims Chronicle meets it. The code review (2026-10-16) found these gaps, recorded as observations, not results:
 
-- Rule 2: Chronicle has no NATS header carrier in use, so its traces do not join.
+- Rule 2: Chronicle never injects trace context into outbound messages, so its traces do not join across services.
 - Rule 4: Chronicle's Alloy queue is in memory only.
-- Rule 5: Chronicle has no edge rule.
+- Rule 5: Chronicle has no edge rule. Where its entry points extract incoming context, that context becomes the parent, not a link.
 - Rule 7: Chronicle's spans carry no broker location attributes.
 - Rule 12: in Chronicle a missing agent endpoint falls back to a local address.
 - Its tenant is set per deployment, which is trusted context under rule 6.
