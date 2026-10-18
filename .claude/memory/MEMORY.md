@@ -66,6 +66,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [aws_console_as_shell_app](aws_console_as_shell_app.md) — AWS Console as app-shell mental model; documented MFE discovery pattern + where our contribution points go further
 
 ## Linebooker / V3 domain modelling
+- [v3_adrs_never_cite_the_lab](v3_adrs_never_cite_the_lab.md) — V3 ADRs never name the lab (team has no access); lab findings shape content as general reasoning; lab ADR may still point up to V3
 - [proposed_linebooker_v3_architecture_levels](proposed_linebooker_v3_architecture_levels.md) — current L0-L2 inventory and proposed topology context; canonical hierarchy/catalogue lives in the architecture authority file
 - [refdata_v3_ladder_placement](refdata_v3_ladder_placement.md) — refdata's agreed V3 home: data jobs + theme storage in L3-07, shell theme consumption in L3-03, whole story as an L4
 - [linebooker_platform_vs_tenant_service_split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth platform; Marketplace/Payments tenant-scoped

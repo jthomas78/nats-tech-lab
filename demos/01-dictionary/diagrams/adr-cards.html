@@ -411,13 +411,13 @@
       </div>
     </div>
     <div class="decision"><div class="lbl">Decision</div><p>Every V3 service traces with the standard OpenTelemetry SDK through one shared module per language, and spans leave over OTLP to a disk-buffered agent, never over NATS accounts. An outside call always starts a new trace, and a span's tenant comes only from trusted context.</p></div>
-    <div class="decision why"><div class="lbl">Why</div><p>The lab's private tracer had two defects in code the platform would have to own. The standard SDK already does creation, propagation, sampling and export, so only the NATS and tenant rules need platform code.</p></div>
+    <div class="decision why"><div class="lbl">Why</div><p>A private tracer is code the platform must own, and that code can introduce defects. The standard SDK already does creation, propagation, sampling and export, so only the NATS and tenant rules need platform code.</p></div>
     <div class="grid2">
       <div class="panel"><div class="lbl">Relationships</div>
-        <ul><li>applied by ADR-059</li><li>related ADR-055</li></ul>
+        <ul><li class="dim">none recorded</li></ul>
       </div>
       <div class="panel flat"><div class="lbl">Linked decisions</div>
-        <ul><li><b>ADR-059</b> OpenTelemetry Replaces natstrace; Spans Go to a Collector and Tempo, Not Over NATS</li><li><b>ADR-055</b> Split the Lab Compose File into Cell Tiers, and Make Every Host Port a Variable</li></ul>
+        <ul><li class="dim">none</li></ul>
       </div>
     </div>
     <div class="cfoot"><span class="brand">Linebooker · Architecture Decision Records</span><span>ADR-058 · card 14 of 15</span></div>
