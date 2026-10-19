@@ -17,8 +17,8 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.6.html"
-PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.6.pdf"
+HTML="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.7.html"
+PDF="$HERE/03-multi-cluster-and-accounts-pattern-cards-v0.7.pdf"
 
 fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -54,7 +54,7 @@ nrules=$(grep -cE '@page p[0-9]+ \{ size: 210mm [0-9]+mm; \}' "$HTML")
 # One card per pattern. A pattern that stops being a card is either a finding
 # the demo lost or a card somebody deleted, and both are worth a red run.
 TITLES=(
- "Five shapes, four variants, one letter each"
+ "Five shapes, five variants, one letter each"
  "A vote needs more than half, and servers vote, not sites"
  "is three questions"
  "Placement decides where bytes sit, not who survives"
@@ -68,6 +68,7 @@ TITLES=(
  "Both links at once is not both shapes at once"
  "procedure did not establish safe conversion"
  "Hub placement is a request; regional recovery can change leadership"
+ "A tenant account per region buys a wall and costs failover"
 )
 for t in "${TITLES[@]}"; do has "carries the card: $t" "$t"; done
 

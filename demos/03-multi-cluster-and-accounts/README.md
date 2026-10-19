@@ -313,7 +313,7 @@ Measured on **`nats-server 2.14.6`**, September 2026.
 | 01 Define | this page |
 | 02 Design | done — [`CLAUDE.md`](CLAUDE.md), the rig |
 | 03 Validate | done — measured by hand 2026-09-11, made re-runnable 2026-09-17: [`lab/`](lab/), [`REPORT.md`](REPORT.md) and [`REPORT.html`](REPORT.html) |
-| 04 Learn | written — pattern cards deck v0.6, 14 cards; card 14 is exercise 10 (2026-10-05). T7 (2026-10-18) has no card yet |
+| 04 Learn | written — pattern cards deck v0.7, 15 cards: [`docs/03-multi-cluster-and-accounts-pattern-cards-v0.7.pdf`](docs/03-multi-cluster-and-accounts-pattern-cards-v0.7.pdf). Card 14 is exercise 10 (2026-10-05); card 15 is T7, a tenant leaf per region (2026-10-18) |
 
 See [`demo-playbook.pdf`](../../demo-playbook.pdf) for what those stages mean.
 
