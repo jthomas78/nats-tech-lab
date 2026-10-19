@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V3 tracing with the OpenTelemetry SDK</title>
+<style>
+:root { color-scheme: dark; --text:#dee0e3; --muted:#b7bcc2; --dim:#8b929b; --bg:#14171b; --panel:#1a1e23; --border:#2c3138; --sync:#4d94ff; --store:#2dd4bf; --otlp:#f0b429; --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace; --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); font-size:13px; line-height:20px; -webkit-font-smoothing:antialiased; }
+.wrap { max-width:1080px; margin:0 auto; padding:24px 18px 24px; display:flex; flex-direction:column; gap:26px; }
+.head { display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; }
+.head-txt { flex:1; min-width:260px; display:flex; flex-direction:column; gap:3px; }
+.eyebrow { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
+h1 { margin:0; font-size:20px; line-height:26px; font-weight:600; letter-spacing:-.01em; text-wrap:balance; }
+h2 { margin:0; font-size:15px; line-height:21px; font-weight:600; text-wrap:balance; }
+.sub { margin:0; color:var(--muted); max-width:86ch; }
+figure { margin:0; background:var(--panel); border:1px solid var(--border); border-radius:4px; overflow:hidden; }
+.fig-body { padding:14px 14px 4px; overflow-x:auto; }
+.fig-body h2 { margin-bottom:12px; }
+figure svg { display:block; width:100%; min-width:0; max-width:100%; height:auto; }
+figcaption { padding:9px 14px 11px; border-top:1px solid var(--border); color:var(--muted); font-size:12px; line-height:18px; }
+b { color:var(--text); font-weight:600; }
+code { font-family:var(--mono); font-size:11px; background:#ffffff0d; border-radius:3px; padding:0 4px; }
+.sec { display:flex; flex-direction:column; gap:11px; }
+ul { margin:0; padding-left:18px; color:var(--muted); display:flex; flex-direction:column; gap:5px; max-width:90ch; }
+.boundary { fill:none; stroke-width:1.1; }
+.tile { fill:var(--panel); stroke:#3a424c; stroke-width:1.1; }
+.nested { fill:#15181c; }
+.group { font:11px var(--sans); letter-spacing:.13em; }
+.boundary-title { paint-order:stroke; stroke:var(--panel); stroke-width:5px; stroke-linejoin:round; }
+.primary { font:600 12px var(--sans); fill:var(--text); }
+.secondary { font:11px var(--sans); fill:var(--muted); }
+.detail { font:9.5px var(--mono); fill:var(--dim); }
+.glyph { font:700 12px var(--sans); fill:#0d0f11; text-anchor:middle; }
+.edge { font:9.5px var(--sans); fill:var(--muted); }
+.legend { font:10px var(--sans); fill:var(--muted); }
+.call,.export,.write { fill:none; stroke-width:1.4; }
+.call { stroke:var(--sync); }
+.export { stroke:var(--otlp); stroke-dasharray:5 4; }
+.write { stroke:var(--store); stroke-dasharray:5 4; }
+</style>
+</head>
+<body>
+<main class="wrap">
+<header class="head"><div class="head-txt">
+<span class="eyebrow">ADR-058 · Proposed Linebooker V3 · Observability</span>
+<h1>V3 tracing with the OpenTelemetry SDK</h1>
+<p class="sub">Every service traces through one shared module, sends OTLP to a disk-buffered agent, never over NATS, and the Grafana stack stores and shows it.</p>
+</div></header>
+
+<figure><div class="fig-body"><h2>Proposed solution</h2><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 510" role="img" aria-label="An outside client calls an edge service, which starts a new trace and keeps incoming traceparent only as a link. Edge services, services and consumers use a shared OpenTelemetry module to carry W3C context in NATS message headers. The module exports telemetry independently over OTLP to an agent with a disk queue, never over NATS. The agent writes traces to Tempo, logs to Loki and metrics to Mimir. Grafana queries these stores, and platform operators use Grafana; tenants cannot read traces."><defs>
+<marker id="a-call" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 1 L8 4 L0 7 Z" fill="#4d94ff"/></marker>
+<marker id="a-export" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 1 L8 4 L0 7 Z" fill="#f0b429"/></marker>
+<marker id="a-write" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 1 L8 4 L0 7 Z" fill="#2dd4bf"/></marker>
+</defs>
+<rect class="boundary" x="12" y="48" width="150" height="108" rx="12" stroke="#3b8bff"/>
+<text class="group" x="12" y="39" fill="#3b8bff">OUTSIDE CALLERS</text>
+<rect class="boundary" x="196" y="48" width="488" height="178" rx="12" stroke="#34d399"/>
+<text class="group" x="196" y="39" fill="#34d399">V3 SERVICES</text>
+<rect class="boundary" x="196" y="284" width="488" height="88" rx="12" stroke="#2fd4e8"/>
+<!-- This boundary heading intentionally crosses the context ports; a panel halo keeps it readable. -->
+<rect class="boundary" x="720" y="140" width="304" height="86" rx="12" stroke="#4A515B"/>
+<text class="group" x="720" y="131" fill="#8b929b">AGENT — OTLP, NOT NATS</text>
+<rect class="boundary" x="720" y="266" width="308" height="194" rx="12" stroke="#a78bfa"/>
+<text class="group" x="720" y="257" fill="#a78bfa">GRAFANA STACK — RULE 11</text>
+<rect class="boundary" x="12" y="376" width="150" height="84" rx="12" stroke="#3b8bff"/>
+<text class="group" x="12" y="367" fill="#3b8bff">OPERATORS</text>
+<rect class="tile" x="24" y="64" width="126" height="76" rx="8" />
+<rect x="34" y="74" width="22" height="22" rx="7" fill="#3b8bff"/>
+<text class="glyph" x="45" y="89" >C</text>
+<text class="primary" x="64" y="89" >Client</text>
+<text class="secondary" x="34" y="108" >browser or app</text>
+<text class="detail" x="34" y="125" >HTTP · api.*</text>
+<rect class="tile" x="208" y="64" width="140" height="76" rx="8" />
+<rect x="218" y="74" width="22" height="22" rx="7" fill="#34d399"/>
+<text class="glyph" x="229" y="89" >E</text>
+<text class="primary" x="248" y="89" >Edge service</text>
+<text class="secondary" x="218" y="108" >new trace per call</text>
+<text class="detail" x="218" y="125" >traceparent → link</text>
+<rect class="tile" x="372" y="64" width="132" height="76" rx="8" />
+<rect x="382" y="74" width="22" height="22" rx="7" fill="#34d399"/>
+<text class="glyph" x="393" y="89" >S</text>
+<text class="primary" x="412" y="89" >Service</text>
+<text class="secondary" x="382" y="108" >child spans</text>
+<text class="detail" x="382" y="125" >rpc.* request-reply</text>
+<rect class="tile" x="528" y="64" width="140" height="76" rx="8" />
+<rect x="538" y="74" width="22" height="22" rx="7" fill="#34d399"/>
+<text class="glyph" x="549" y="89" >K</text>
+<text class="primary" x="568" y="89" >Consumer</text>
+<text class="secondary" x="538" y="108" >same trace</text>
+<text class="detail" x="538" y="125" >evt.* · notify.*</text>
+<rect class="tile nested" x="212" y="156" width="456" height="54" rx="8" />
+<rect x="222" y="166" width="22" height="22" rx="7" fill="#34d399"/>
+<text class="glyph" x="233" y="181" >M</text>
+<text class="primary" x="252" y="173" >Shared OTel module</text>
+<text class="secondary" x="252" y="187" >— linked into every service (rule 2)</text>
+<text class="detail" x="222" y="202" >NATS header carrier · edge rule · tenant · location · bodies off</text>
+<rect class="tile" x="212" y="300" width="456" height="56" rx="8" />
+<rect x="222" y="310" width="22" height="22" rx="7" fill="#2fd4e8"/>
+<text class="glyph" x="233" y="325" >N</text>
+<text class="primary" x="252" y="325" >NATS</text>
+<text class="detail" x="300" y="320" >api.* · rpc.* · evt.* · notify.*</text>
+<text class="detail" x="300" y="341" >W3C trace context in message headers</text>
+<rect class="tile" x="736" y="156" width="272" height="54" rx="8" />
+<rect x="746" y="166" width="22" height="22" rx="7" fill="#8b929b"/>
+<text class="glyph" x="757" y="181" >A</text>
+<text class="primary" x="776" y="173" >Agent</text>
+<text class="secondary" x="776" y="187" >Alloy or Collector</text>
+<text class="detail" x="776" y="202" >disk queue · rule 4</text>
+<rect class="tile" x="736" y="290" width="76" height="70" rx="8" />
+<rect x="763" y="298" width="22" height="22" rx="7" fill="#a78bfa"/>
+<text class="glyph" x="774" y="313" >T</text>
+<text class="primary" x="774" y="335" text-anchor="middle">Tempo</text>
+<text class="secondary" x="774" y="350" text-anchor="middle">traces</text>
+<rect class="tile" x="836" y="290" width="76" height="70" rx="8" />
+<rect x="863" y="298" width="22" height="22" rx="7" fill="#a78bfa"/>
+<text class="glyph" x="874" y="313" >L</text>
+<text class="primary" x="874" y="335" text-anchor="middle">Loki</text>
+<text class="secondary" x="874" y="350" text-anchor="middle">logs</text>
+<rect class="tile" x="936" y="290" width="76" height="70" rx="8" />
+<rect x="963" y="298" width="22" height="22" rx="7" fill="#a78bfa"/>
+<text class="glyph" x="974" y="313" >M</text>
+<text class="primary" x="974" y="335" text-anchor="middle">Mimir</text>
+<text class="secondary" x="974" y="350" text-anchor="middle">metrics</text>
+<rect class="tile" x="736" y="392" width="272" height="52" rx="8" />
+<rect x="746" y="404" width="22" height="22" rx="7" fill="#a78bfa"/>
+<text class="glyph" x="757" y="419" >G</text>
+<text class="primary" x="776" y="407" >Grafana</text>
+<text class="secondary" x="776" y="422" >one UI for all three</text>
+<text class="detail" x="776" y="436" >operators only · rule 10</text>
+<rect class="tile" x="24" y="392" width="126" height="52" rx="8" />
+<rect x="34" y="402" width="22" height="22" rx="7" fill="#3b8bff"/>
+<text class="glyph" x="45" y="417" >O</text>
+<text class="primary" x="64" y="417" >Operator</text>
+<text class="secondary" x="34" y="435" >platform team</text>
+<path class="call" d="M150 102 H200" marker-end="url(#a-call)"/>
+<text class="edge" x="179" y="96" text-anchor="middle">HTTP</text>
+<text class="detail" x="179" y="117" text-anchor="middle">api.*</text>
+<path class="call" d="M286 218 V292" marker-end="url(#a-call)" marker-start="url(#a-call)"/>
+<path class="call" d="M440 218 V292" marker-end="url(#a-call)" marker-start="url(#a-call)"/>
+<path class="call" d="M594 218 V292" marker-end="url(#a-call)" marker-start="url(#a-call)"/>
+<text class="edge" x="298" y="247" >trace context</text>
+<text class="edge" x="298" y="261" >in headers</text>
+<path class="export" d="M668 183 H728" marker-end="url(#a-export)"/>
+<text class="edge" x="700" y="177" text-anchor="middle">OTLP</text>
+<path class="write" d="M872 210 V236 H1020"/><path class="write" d="M1020 236 V278"/><path class="write" d="M1020 278 H774"/>
+<path class="write" d="M774 278 V282" marker-end="url(#a-write)"/>
+<path class="write" d="M874 278 V282" marker-end="url(#a-write)"/>
+<path class="write" d="M974 278 V282" marker-end="url(#a-write)"/>
+<path class="call" d="M774 392 V368" marker-end="url(#a-call)"/>
+<path class="call" d="M874 392 V368" marker-end="url(#a-call)"/>
+<path class="call" d="M974 392 V368" marker-end="url(#a-call)"/>
+<text class="edge" x="784" y="383" >query</text>
+<path class="call" d="M150 418 H728" marker-end="url(#a-call)"/>
+<text class="edge" x="440" y="412" text-anchor="middle">reads traces, logs, metrics</text>
+<path d="M12 478 H1028" stroke="#2a3038"/>
+<text class="legend" x="12" y="498" >solid = request/reply or read · dashed = pushed telemetry · blue = calls · amber = OTLP export · teal = store write</text>
+<text class="group boundary-title" x="196" y="275" fill="#2fd4e8">MESSAGING BACKBONE — NATS</text>
+</svg></div><figcaption><b>One outside call, one trace.</b> The edge service starts a new trace and keeps an incoming <code>traceparent</code> only as a link (rule 5); services propagate context in NATS headers through the shared module; spans leave over OTLP to the agent on their own path, never on NATS accounts (rule 3); the agent buffers on disk (rule 4) and writes to Tempo, Loki and Mimir; operators read everything in Grafana; tenants read no traces (rule 10).</figcaption></figure>
+<figure><div class="fig-body"><h2>Two deployment modes, one code path (rule 12)</h2><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 210" role="img" aria-label="Local and live deployment use the same service code and configuration shape. Local mode runs services, an agent and Grafana containers on one developer machine without external dependencies, with telemetry enabled. Live mode requires an agent endpoint, a disk queue and sender authentication; Grafana may be cloud hosted or self hosted. In both modes services export OTLP to the agent, which writes to the Grafana stack. A missing live endpoint is a startup error, never a local fallback."><defs>
+<marker id="b-call" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 1 L8 4 L0 7 Z" fill="#4d94ff"/></marker>
+<marker id="b-export" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 1 L8 4 L0 7 Z" fill="#f0b429"/></marker>
+<marker id="b-write" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 1 L8 4 L0 7 Z" fill="#2dd4bf"/></marker>
+</defs>
+<rect class="boundary" x="12" y="40" width="496" height="116" rx="12" stroke="#34d399"/>
+<text class="group" x="12" y="31" fill="#34d399">LOCAL MODE — ONE MACHINE, NO EXTERNAL DEPENDENCIES</text>
+<rect class="boundary" x="532" y="40" width="496" height="116" rx="12" stroke="#3b8bff"/>
+<text class="group" x="532" y="31" fill="#3b8bff">LIVE MODE — PRODUCTION</text>
+<rect class="tile" x="28" y="64" width="134" height="76" rx="8" />
+<rect x="38" y="74" width="22" height="22" rx="7" fill="#34d399"/>
+<text class="glyph" x="49" y="89" >S</text>
+<text class="primary" x="68" y="89" >Services</text>
+<text class="secondary" x="38" y="108" >same code</text>
+<text class="detail" x="38" y="125" >config: local</text>
+<rect class="tile" x="195" y="64" width="134" height="76" rx="8" />
+<rect x="205" y="74" width="22" height="22" rx="7" fill="#34d399"/>
+<text class="glyph" x="216" y="89" >A</text>
+<text class="primary" x="235" y="89" >Agent</text>
+<text class="secondary" x="205" y="108" >container</text>
+<text class="detail" x="205" y="125" >same config shape</text>
+<rect class="tile" x="362" y="64" width="134" height="76" rx="8" />
+<rect x="372" y="74" width="22" height="22" rx="7" fill="#34d399"/>
+<text class="glyph" x="383" y="89" >G</text>
+<text class="primary" x="402" y="89" >Grafana</text>
+<text class="secondary" x="372" y="108" >containers</text>
+<text class="detail" x="372" y="125" >no cloud account</text>
+<rect class="tile" x="548" y="64" width="134" height="76" rx="8" />
+<rect x="558" y="74" width="22" height="22" rx="7" fill="#3b8bff"/>
+<text class="glyph" x="569" y="89" >S</text>
+<text class="primary" x="588" y="89" >Services</text>
+<text class="secondary" x="558" y="108" >same code</text>
+<text class="detail" x="558" y="125" >endpoint required</text>
+<rect class="tile" x="715" y="64" width="134" height="76" rx="8" />
+<rect x="725" y="74" width="22" height="22" rx="7" fill="#3b8bff"/>
+<text class="glyph" x="736" y="89" >A</text>
+<text class="primary" x="755" y="89" >Agent</text>
+<text class="secondary" x="725" y="108" >disk queue</text>
+<text class="detail" x="725" y="125" >sender auth</text>
+<rect class="tile" x="882" y="64" width="134" height="76" rx="8" />
+<rect x="892" y="74" width="22" height="22" rx="7" fill="#3b8bff"/>
+<text class="glyph" x="903" y="89" >G</text>
+<text class="primary" x="922" y="89" >Grafana</text>
+<text class="secondary" x="892" y="108" >Cloud or self-host</text>
+<text class="detail" x="892" y="125" >hosting: open</text>
+<path class="export" d="M162 102 H187" marker-end="url(#b-export)"/>
+<path class="write" d="M329 102 H354" marker-end="url(#b-write)"/>
+<path class="export" d="M682 102 H707" marker-end="url(#b-export)"/>
+<path class="write" d="M849 102 H874" marker-end="url(#b-write)"/>
+<text class="edge" x="176" y="96" text-anchor="middle">OTLP</text>
+<text class="edge" x="343" y="96" text-anchor="middle">write</text>
+<path d="M12 174 H1028" stroke="#2a3038"/>
+<text class="legend" x="12" y="194" >solid = request/reply or read · dashed = pushed telemetry · blue = calls · amber = OTLP export · teal = store write</text>
+</svg></div><figcaption><b>Same code, two configurations.</b> Local mode runs services, agent and Grafana in containers on one developer machine with no cloud account or internet service, and telemetry is on; live mode adds the disk queue and sender authentication; only configuration changes, and in live mode a missing agent endpoint is a startup error, never a silent local fallback.</figcaption></figure>
+<section class="sec"><h2>What every span carries</h2><ul>
+<li><b>Tenant:</b> from trusted context only (rule 6).</li>
+<li><b>Location:</b> service resource + <code>cloud.region</code>, NATS server/cluster/address on messaging spans, target JetStream domain on JetStream spans (rule 7).</li>
+<li><b>Bodies:</b> off by default, redacted then truncated when on (rule 8).</li>
+</ul></section>
+</main>
+</body>
+</html>

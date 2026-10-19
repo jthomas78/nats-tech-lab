@@ -41,7 +41,7 @@ element, not the document.
 | L3-05-003 | Included | Show that a NATS server holds no list of accounts, and that account claims are served from a resolver. | Sheet 1, `Account resolver` tile and its `no account list in the server config file` line. |
 | L3-05-004 | Included | Show that an account can be added or revoked while the platform runs, with no server restart. | Sheet 1, `Claim push` tile and `Tenant account, next` tile. |
 | L3-05-005 | Included | State that the account, not the subject, is the tenant isolation boundary. | Sheet 1, account plane group title, `ACCOUNT` note and the closing policy statement. |
-| L3-05-006 | Included | Distinguish the three standing account roles from the per-tenant account. | Sheet 1, four account tiles: system, platform, tenant, tenant-next. |
+| L3-05-006 | Included | Distinguish the three standing accounts - system, control and platform - from the per-tenant account. | Sheet 1, five account tiles: system, control, platform, tenant, tenant-next. |
 | L3-05-007 | Included | Show the system account as administrative only, carrying no business traffic. | Sheet 1, `System account` tile. |
 | L3-05-008 | Included | Name every subject family the platform speaks in, and say for each whether it may cross an account boundary. | Sheet 1, subject families group, five tiles. |
 | L3-05-009 | Included | State that `{context}` is a company or business unit, and that it is neither the tenant nor the region. | Sheet 1, `CONTEXT` note and the closing policy statement. |
@@ -70,6 +70,8 @@ element, not the document.
 | L3-05-032 | Derived | Where each service process runs and how it is packaged. | `LB-V3-L3-12 Deployment and Services`. |
 | L3-05-033 | Derived | The exact subject list, stream and consumer settings, bucket settings and per-account grant text. | L4 detailed design. |
 | L3-05-034 | Derived | Server sizing, storage sizing and version pinning. | L4 detailed design. |
+| L3-05-035 | Included | Show the control account as a standing account for control-plane services: NATS provisioning, identity and membership, and observability, which is the telemetry collector and, when self-hosted, Grafana. Show it beside the platform account, not in place of it. | Sheet 1, `Control account` tile, dashed because it is proposed. |
+| L3-05-036 | Included | Show the platform account as the home of shared data services that tenants import - reference data and the registry - and no longer as the home of traces or other control-plane services. | Sheet 1, `Platform account` tile. |
 
 ## Open confirmations
 
@@ -81,6 +83,7 @@ element, not the document.
 | L3-05-O04 | Whether leaf nodes are adopted at depots, warehouses, ports and fleet gateways, and what subject scope a site credential carries. |
 | L3-05-O05 | The JetStream replica count per cell. Three is drawn as the proposal; one is what the lab runs. |
 | L3-05-O06 | A V3-scoped ADR for NATS, JetStream and NATS KV. Only lab-scoped ADRs exist today, so no selection here is `Chosen` for V3. |
+| L3-05-O07 | Whether telemetry travels on NATS at all. `ADR-058` says spans leave each service over OTLP to an agent and never travel on the NATS account model. This document still draws telemetry on NATS: the tenant export up in `L3-05-012`, the observability state in `L3-05-021`, and the `obs.` subjects in `L3-05-023`. Those requirements stay as they are until the clash is settled. The clash is recorded as an open item in `LB-V3-L4-02`. |
 
 ## Notes on evidence
 
@@ -100,3 +103,11 @@ element, not the document.
 - 2026-09-03 - Register created alongside the drawn and print editions of
   `LB-V3-L3-05`, tracing to `LB-V3-L2-01` requirement `L2-D04` and to L2
   requirements L2-006, L2-016, L2-017, L2-018, L2-023 and L2-026.
+- 2026-10-19 - Added the standing control account beside the platform account,
+  on the user's decision. The control account holds the control-plane
+  services: NATS provisioning, identity and membership, and observability (the
+  telemetry collector and, when self-hosted, Grafana). The platform account
+  keeps reference data and the registry, and no longer lists traces. Adds
+  `L3-05-035`, `L3-05-036` and open item `L3-05-O07`. Changes `L3-05-006`.
+  Sheet 1 account plane now has five tiles. `L3-05-012`, `L3-05-021` and
+  `L3-05-023` are not changed; `L3-05-O07` records why.

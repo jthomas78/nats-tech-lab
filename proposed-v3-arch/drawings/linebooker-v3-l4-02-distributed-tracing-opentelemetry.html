@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposed Linebooker V3 Architecture - L4-02 Distributed Tracing with OpenTelemetry</title>
+<style>
+  :root {
+    --text:#dee0e3; --muted:#b7bcc2; --dim:#737c87;
+    --bg:#0d0f11; --panel:#1a1e23; --panel2:#15181c; --border:#2c3138; --stroke:#4a515b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --purple:#a78bfa; --amber:#f5b13d;
+    --store:#27c07f; --bad:#f87171;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  @page { size:A3 landscape; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .sheet { width:420mm; height:297mm; padding:8mm; overflow:hidden; background:var(--bg); display:grid; grid-template-rows:30mm minmax(0,1fr) auto 8mm; gap:3mm; page-break-after:always; }
+  .sheet:last-child { page-break-after:auto; }
+  .head { border-bottom:1px solid var(--stroke); padding-bottom:3mm; }
+  .eyebrow { color:var(--cyan); font:650 9px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; margin-bottom:2mm; }
+  .eyebrow .doc-title { text-transform:none; letter-spacing:.04em; }
+  h1 { margin:0; font-size:27px; line-height:1.1; letter-spacing:-.025em; font-weight:680; }
+  .head p { margin:2mm 0 0; max-width:1220px; color:var(--muted); font-size:11.5px; line-height:1.42; }
+  .head p b { color:var(--text); font-weight:650; }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; min-height:0; }
+  figure { margin:0; min-width:0; min-height:0; background:#0a0c0e; border:1px solid var(--border); display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+  .fig-body { min-height:0; padding:3mm 3mm 1mm; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  figure svg { display:block; width:100%; height:auto; max-height:100%; }
+  figcaption { border-top:1px solid var(--border); padding:2.2mm 3mm; color:var(--muted); font-size:8.8px; line-height:1.34; }
+  figcaption b { color:var(--text); font-weight:650; }
+  figcaption code, .note code { font:8px var(--mono); background:rgba(255,255,255,.06); border-radius:3px; padding:0 3px; }
+  .notes { min-height:0; padding:2mm 2mm 0 3mm; border-left:1px solid var(--stroke); background:var(--panel2); display:flex; flex-direction:column; gap:1.8mm; }
+  .note { display:grid; grid-template-columns:19mm 1fr; gap:2mm; align-items:start; }
+  .tag { border:1px solid #46505b; color:var(--muted); border-radius:3px; padding:1.1mm 1.3mm; font:650 7px/1 var(--mono); letter-spacing:.07em; text-align:center; }
+  .note p { margin:0; color:var(--muted); font-size:8.35px; line-height:1.29; }
+  .note b { color:var(--text); font-weight:650; }
+
+  
+  .legend { display:grid; grid-template-columns:minmax(0,1fr) 94mm; gap:3mm; border-top:1px solid var(--stroke); padding-top:2.2mm; }
+  .legend h2 { margin:0 0 1.4mm; color:var(--cyan); font:650 8px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .key-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.9mm 3mm; }
+  .key-item { display:grid; grid-template-columns:9mm 1fr; gap:1.6mm; align-items:center; color:var(--muted); font-size:7.6px; line-height:1.22; }
+  .key-item b { color:var(--text); font-weight:650; }
+  .sw { display:block; height:3.1mm; border-radius:1px; background:rgba(255,255,255,.012); border:1.1px solid var(--stroke); }
+  .sw-blue { border-color:var(--blue); } .sw-purple { border-color:var(--purple); }
+  .sw-green { border-color:var(--green); } .sw-cyan { border-color:var(--cyan); }
+  .sw-amber { border-color:var(--amber); } .sw-grey { border-color:var(--stroke); }
+  .sw-tile { background:var(--panel); border:1.1px solid #3a424c; }
+  .sw-prop { background:var(--panel); border:1.1px dashed #5b646f; }
+  .sw-openq { background:var(--panel); border:1.1px dashed var(--amber); }
+  .sw-policy { background:#201b12; border:1.1px solid var(--amber); }
+  .sw-block { background:#22110f; border:1.1px solid var(--bad); }
+  .sw-svg { display:block; width:9mm; height:3.4mm; }
+  .abbr { margin:0; padding:0; list-style:none; columns:2; column-gap:3mm; color:var(--muted); font-size:7.4px; line-height:1.28; }
+  .abbr li { break-inside:avoid; }
+  .abbr b { color:var(--text); font:650 7.4px var(--mono); }
+  .foot { border-top:1px solid var(--border); padding-top:2mm; display:flex; justify-content:space-between; gap:8mm; color:var(--dim); font-size:7.8px; line-height:1.25; }
+  .brand { color:var(--amber); text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; font-weight:700; }
+
+  svg .group { fill:rgba(255,255,255,.012); stroke:var(--stroke); stroke-width:1.1; }
+  svg .group.blue { stroke:var(--blue); } svg .group.purple { stroke:var(--purple); }
+  svg .group.green { stroke:var(--green); } svg .group.cyan { stroke:var(--cyan); }
+  svg .group.amber { stroke:var(--amber); }
+  svg .tile { fill:var(--panel); stroke:#3a424c; stroke-width:1.1; }
+  
+  svg .tile.prop { stroke:#5b646f; stroke-width:1.1; stroke-dasharray:5 4; }
+  
+  svg .tile.openq { stroke:var(--amber); stroke-width:1.1; stroke-dasharray:5 4; }
+  svg .policy { fill:#201b12; stroke:var(--amber); stroke-width:1.1; }
+  svg .block { fill:#22110f; stroke:var(--bad); stroke-width:1.1; }
+  svg .title { fill:var(--text); font:650 10.8px var(--sans); }
+  svg .sub { fill:var(--muted); font:8.9px var(--sans); }
+  svg .mini { fill:var(--dim); font:8.4px var(--mono); }
+  svg .glyph { fill:#0d0f11; font:800 10.5px var(--sans); text-anchor:middle; }
+  
+  svg .edge-label { fill:var(--muted); font:8px var(--mono); paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .group-title { font:650 10px var(--sans); letter-spacing:.105em; text-transform:uppercase; paint-order:stroke; stroke:#0a0c0e; stroke-width:2.6px; stroke-linejoin:round; }
+  svg .sync { fill:none; stroke:var(--blue); stroke-width:1.35; }
+  svg .event { fill:none; stroke:var(--amber); stroke-width:1.35; stroke-dasharray:5 4; }
+  svg .place { fill:none; stroke:var(--green); stroke-width:1.35; }
+  svg .rep { fill:none; stroke:var(--cyan); stroke-width:1.3; stroke-dasharray:2 4; }
+  svg .blocked { fill:none; stroke:var(--bad); stroke-width:1.6; stroke-dasharray:6 5; }
+
+  
+  svg .runtime { fill:none; stroke:var(--muted); stroke-width:1.35; }
+  svg .open-marker { fill:none; stroke:var(--amber); stroke-width:1; stroke-dasharray:4 3; }
+  svg .rule { stroke:var(--stroke); stroke-width:.8; }
+  svg .table-head { fill:var(--text); font:650 8.2px var(--mono); }
+  svg .table-text { fill:var(--muted); font:7.5px var(--mono); }
+  svg .body-copy { fill:var(--muted); font:8.7px var(--sans); }
+  svg .headline { fill:var(--text); font:650 12px var(--sans); }
+
+  svg .async { fill:none; stroke:var(--blue); stroke-width:1.35; stroke-dasharray:5 4; }
+  svg .write { fill:none; stroke:var(--green); stroke-width:1.35; stroke-dasharray:5 4; }
+  svg .life { fill:none; stroke:var(--stroke); stroke-width:.8; stroke-dasharray:2 4; }
+  svg .table-copy { fill:var(--muted); font:8.9px var(--sans); }
+  svg .table-code { fill:var(--text); font:8.4px var(--mono); }
+  svg .badge { fill:var(--panel2); stroke:var(--cyan); stroke-width:1; }
+  svg .badge-text { fill:var(--cyan); font:650 9px var(--mono); text-anchor:middle; }
+  .sw-async { height:0; border:0; border-top:1.4px dashed var(--blue); }
+  .sw-sync { height:0; border:0; border-top:1.4px solid var(--blue); }
+  .sw-write { height:0; border:0; border-top:1.4px dashed var(--green); }
+  .sw-life { height:0; border:0; border-top:1px dotted var(--stroke); }
+  @media print { html, body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } }
+</style>
+</head>
+<body>
+
+<section class="sheet" aria-labelledby="s1-title">
+<header class="head"><div class="eyebrow">Proposed Linebooker V3 Architecture · LB-V3-L4-02 · <span class="doc-title">Distributed Tracing with OpenTelemetry</span> · Sheet 1 of 5 · as at 19 October 2026</div>
+<h1 id="s1-title">Proposed Solution</h1><p>Which parts make up the tracing pipeline, and which path do spans take? Defers: logs and metrics rules; retention and sizing (LB-V3-L3-12); wider observability (LB-V3-L3-10). <b>This is a directional document:</b> nothing here is built; decision of record ADR-058.</p></header>
+<div class="body-grid"><figure><div class="fig-body"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 780" role="img" aria-label="Proposed tracing topology. Public clients call edge services. Every service and consumer contains a shared OpenTelemetry module. NATS carries business messages and W3C headers only. Services send OTLP to their own cell agent with a disk queue. The agent forwards to Tempo, Loki and Mimir. Operators read through Grafana. The telemetry path over NATS is refused.">
+<defs><marker id="s1-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--blue)"/></marker><marker id="s1-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker><marker id="s1-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker><marker id="s1-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--purple)"/></marker></defs>
+<rect class="group blue" x="20" y="50" width="186" height="130" rx="12"/>
+<text class="group-title" x="32" y="41" style="fill:var(--blue)">OUTSIDE CALLERS</text>
+<rect class="tile prop" x="32" y="70" width="162" height="92" rx="8"/>
+<rect x="44" y="82" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="55" y="97">C</text>
+<text class="title" x="76" y="96">Public client</text>
+<text class="sub" x="44" y="116">Browser / public app</text>
+<text class="sub" x="44" y="130">HTTP or NATS api.*</text>
+<rect class="group blue" x="246" y="50" width="538" height="256" rx="12"/>
+<text class="group-title" x="258" y="41" style="fill:var(--blue)">V3 SERVICES</text>
+<rect class="tile prop" x="260" y="70" width="156" height="100" rx="8"/>
+<rect x="272" y="82" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="283" y="97">E</text>
+<text class="title" x="304" y="96">Edge service</text>
+<text class="sub" x="272" y="116">OTel SDK · new root</text>
+<text class="sub" x="272" y="130">Client context → link</text>
+<rect class="tile prop" x="438" y="70" width="160" height="100" rx="8"/>
+<rect x="450" y="82" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="461" y="97">P</text>
+<text class="title" x="482" y="96">Platform service</text>
+<text class="sub" x="450" y="116">OTel SDK · child spans</text>
+<text class="sub" x="450" y="130">NATS rpc.* requests</text>
+<rect class="tile prop" x="620" y="70" width="150" height="100" rx="8"/>
+<rect x="632" y="82" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="643" y="97">C</text>
+<text class="title" x="664" y="96">Consumer</text>
+<text class="sub" x="632" y="116">OTel SDK · child spans</text>
+<text class="sub" x="632" y="130">evt.* / notify.*</text>
+<rect class="tile prop" x="260" y="218" width="510" height="72" rx="8"/>
+<rect x="272" y="230" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="283" y="245">M</text>
+<text class="title" x="304" y="244">Shared OTel module (one per language)</text>
+<text class="sub" x="272" y="264">One Go module today · linked into each service, never copied</text>
+<text class="sub" x="272" y="278">W3C traceparent + tracestate · standard SDK, no in-house tracer</text>
+<path class="sync" d="M194 116 H252" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="222" y="102" text-anchor="middle">HTTP call</text>
+<rect class="group cyan" x="246" y="376" width="538" height="134" rx="12"/>
+<text class="group-title" x="258" y="367" style="fill:var(--cyan)">MESSAGING BACKBONE — NATS</text>
+<rect class="tile prop" x="260" y="398" width="510" height="94" rx="8"/>
+<rect x="272" y="410" width="22" height="22" rx="7" fill="var(--cyan)"/><text class="glyph" x="283" y="425">N</text>
+<text class="title" x="304" y="424">NATS · business message transport</text>
+<text class="sub" x="272" y="444">api.* · rpc.* · evt.* · notify.* · JetStream messages</text>
+<text class="sub" x="272" y="458">Only W3C context in headers; no span envelopes</text>
+<path class="sync" d="M300 170 V208" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="312" y="194" text-anchor="start">NATS adapter · in-process</text>
+<path class="sync" d="M518 170 V208" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="530" y="194" text-anchor="start">NATS adapter · in-process</text>
+<path class="sync" d="M696 170 V208" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="708" y="194" text-anchor="start">NATS adapter</text>
+<path class="sync" d="M360 290 V390" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="372" y="342" text-anchor="start">NATS send · traceparent + tracestate headers</text>
+<path class="sync" d="M670 398 V314 H710 V298" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="660" y="368" text-anchor="end">NATS receive · extract headers</text>
+<rect class="group purple" x="820" y="50" width="320" height="664" rx="12"/>
+<text class="group-title" x="832" y="41" style="fill:var(--purple)">CONTROL PLANE — CONTROL ACCOUNT</text>
+<rect class="tile prop" x="836" y="218" width="288" height="100" rx="8"/>
+<rect x="848" y="230" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="859" y="245">A</text>
+<text class="title" x="880" y="244">Agent / collector</text>
+<text class="sub" x="848" y="264">One deployment per cell · receives OTLP</text>
+<text class="sub" x="848" y="278">Disk queue · survives restart / hard kill</text>
+<text class="sub" x="848" y="292">Batch and forward; no NATS credential</text>
+<path class="async" d="M770 254 H828" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="799" y="244" text-anchor="middle">OTLP 4317</text>
+<text class="edge-label" x="799" y="272" text-anchor="middle">or 4318</text>
+<rect class="tile prop" x="836" y="402" width="88" height="80" rx="8"/>
+<text class="title" x="848" y="428">Tempo</text>
+<text class="sub" x="848" y="448">Trace store</text>
+<rect class="tile prop" x="936" y="402" width="88" height="80" rx="8"/>
+<text class="title" x="948" y="428">Loki</text>
+<text class="sub" x="948" y="448">Log store</text>
+<rect class="tile prop" x="1036" y="402" width="88" height="80" rx="8"/>
+<text class="title" x="1048" y="428">Mimir</text>
+<text class="sub" x="1048" y="448">Metrics</text>
+<path class="write" d="M864 318 V394" marker-end="url(#s1-green)"/>
+<text class="edge-label" x="848" y="352" text-anchor="start">OTLP/gRPC 4317 · traces</text>
+<path class="write" d="M980 318 V394" marker-end="url(#s1-green)"/>
+<text class="edge-label" x="990" y="368" text-anchor="start">HTTP · logs</text>
+<path class="write" d="M1096 318 V394" marker-end="url(#s1-green)"/>
+<text class="edge-label" x="1084" y="388" text-anchor="end">HTTP · metrics</text>
+<rect class="tile prop" x="836" y="592" width="288" height="88" rx="8"/>
+<rect x="848" y="604" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="859" y="619">G</text>
+<text class="title" x="880" y="618">Grafana UI</text>
+<text class="sub" x="848" y="638">Self-hosted case · reads all three stores</text>
+<text class="sub" x="848" y="652">Operator access; tenants read no traces</text>
+<path class="sync" d="M860 592 V490" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="872" y="526" text-anchor="start">TraceQL query / HTTP</text>
+<path class="sync" d="M980 592 V490" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="990" y="550" text-anchor="start">LogQL query / HTTP</text>
+<path class="sync" d="M1100 592 V490" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="1088" y="574" text-anchor="end">PromQL query / HTTP</text>
+<rect class="group blue" x="20" y="576" width="186" height="138" rx="12"/>
+<text class="group-title" x="32" y="567" style="fill:var(--blue)">OPERATORS</text>
+<rect class="tile prop" x="32" y="596" width="162" height="90" rx="8"/>
+<rect x="44" y="608" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="55" y="623">O</text>
+<text class="title" x="76" y="622">Operator</text>
+<text class="sub" x="44" y="642">Platform operations</text>
+<text class="sub" x="44" y="656">Browser · Grafana UI</text>
+<path class="sync" d="M194 640 H828" marker-end="url(#s1-blue)"/>
+<text class="edge-label" x="432" y="626" text-anchor="start">HTTP · read traces, logs and metrics in Grafana</text>
+<rect class="block" x="246" y="548" width="538" height="58" rx="8"/>
+<text class="title" x="260" y="570" style="fill:var(--bad)">REFUSED · spans on NATS subjects / export-import / JetStream</text>
+<text class="sub" x="260" y="589" style="fill:var(--bad)">Rule 3 · spans; logs and metrics proposed, pending their ADR</text>
+<path class="blocked" d="M518 548 V500" marker-end="url(#s1-bad)"/>
+<text class="edge-label" x="530" y="534" text-anchor="start">NATS telemetry — refused</text>
+<text class="sub" x="260" y="746">Separate business and telemetry paths. The CONTROL account states ownership, not transport.</text>
+<rect class="tile openq" x="246" y="668" width="538" height="46" rx="8"/>
+<text class="title" x="258" y="694">L4-02-O01 · Architecture: revise the conflicting L3-05 telemetry path</text>
+</svg></div><figcaption><b>Telemetry has its own path.</b> This sheet shows the self-hosted Grafana case; hosting remains open on sheet 5. Account names denote roles, not account identifier values.</figcaption></figure>
+<aside class="notes" aria-label="Sheet 1 notes"><div class="note"><span class="tag">SCOPE</span><p><b>One outside call, one trace.</b> A span is one timed step. Every V3 service uses its language’s standard OTel SDK and W3C Trace Context. <code>L4-02-001</code> <code>L4-02-037</code></p></div><div class="note"><span class="tag">MODULE</span><p><b>One module per language.</b> Today one Go module supplies the platform glue. Services call it; they do not copy it. <code>L4-02-002</code></p></div><div class="note"><span class="tag">TRANSPORT</span><p><b>Service → own-cell agent.</b> OTLP/gRPC 4317 is the default; OTLP/HTTP 4318 is allowed. The network path is independent of NATS. <code>L4-02-018</code> <code>L4-02-019</code></p></div><div class="note"><span class="tag">DURABILITY</span><p><b>Disk buffering is required.</b> Size for a stated store outage; prove restart and hard-kill survival, full-queue loss counting and complete drain into the store. <code>L4-02-021</code></p></div><div class="note"><span class="tag">STORES</span><p><b>One operator UI.</b> Tempo keeps traces, Loki logs, Mimir or Prometheus metrics. Tenants read no traces by default. Signal rules beyond tracing are deferred. <code>L4-02-022</code> <code>L4-02-025</code></p></div><div class="note"><span class="tag">OPEN</span><p><b>Architecture · L4-02-O01.</b> Revise LB-V3-L3-05 to remove its telemetry-over-NATS path. ADR-058 rule 3 governs this drawing. <code>L4-02-019</code> <code>L4-02-O01</code></p></div></aside></div><section class="legend"><div><h2>Legend · notation and status</h2><div class="key-grid"><div class="key-item"><span class="sw sw-prop"></span><span><b>Proposed</b> — dashed grey tile; nothing built</span></div><div class="key-item"><span class="sw sw-openq"></span><span><b>Open</b> — dashed amber; owner + item ID</span></div><div class="key-item"><span class="sw sw-blue"></span><span><b>Blue</b> — services, callers and synchronous calls</span></div><div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan</b> — cell, account and messaging boundaries</span></div><div class="key-item"><span class="sw sw-purple"></span><span><b>Purple</b> — control-plane ownership</span></div><div class="key-item"><span class="sw sw-sync"></span><span><b>Solid arrow</b> — synchronous request or query</span></div><div class="key-item"><span class="sw sw-async"></span><span><b>Dashed blue arrow</b> — asynchronous service export</span></div><div class="key-item"><span class="sw sw-write"></span><span><b>Dashed green arrow</b> — store ingest</span></div><div class="key-item"><span class="sw sw-block"></span><span><b>Red</b> — refused telemetry path</span></div></div></div><div><h2>Words on this sheet</h2><ul class="abbr"><li><b>ADR</b> Architecture Decision Record</li><li><b>OTel</b> OpenTelemetry</li><li><b>OTLP</b> OpenTelemetry Protocol</li><li><b>gRPC</b> Remote Procedure Call framework</li><li><b>HTTP</b> Hypertext Transfer Protocol</li><li><b>NATS</b> messaging system</li><li><b>V3</b> Version 3</li><li><b>LB</b> Linebooker</li><li><b>L3 / L4</b> architecture levels 3 / 4</li><li><b>SDK</b> Software Development Kit</li><li><b>W3C</b> World Wide Web Consortium</li><li><b>UI</b> User Interface</li><li><b>TraceQL</b> Tempo trace query language</li><li><b>LogQL</b> Loki log query language</li><li><b>PromQL</b> Prometheus query language</li><li><b>ID</b> identifier</li><li><b>api / rpc / evt</b> application interface / remote procedure call / event subject prefixes</li></ul></div></section><footer class="foot"><span>Traceability: Parent LB-V3-L3-10 Observability · Decision ADR-058 · Register Proposed-Linebooker-V3-L4-02-Requirements.md</span><span class="brand">LB-V3-L4-02 · 1/5 · DIRECTIONAL</span></footer></section>
+
+<section class="sheet" aria-labelledby="s2-title">
+<header class="head"><div class="eyebrow">Proposed Linebooker V3 Architecture · LB-V3-L4-02 · <span class="doc-title">Distributed Tracing with OpenTelemetry</span> · Sheet 2 of 5 · as at 19 October 2026</div>
+<h1 id="s2-title">Tracing in the NATS Topology</h1><p>Where does tracing sit among cells, clusters and accounts, and what does each hop record? Defers: cluster sizing; sovereign connectivity policy; central versus per-cell stores (L4-02-O02). <b>This is a directional document:</b> nothing here is built; decision of record ADR-058.</p></header>
+<div class="body-grid"><figure><div class="fig-body"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 780" role="img" aria-label="Three proposed cells: shared South Africa za and Australia au have a NATS gateway; sovereign Botswana bw has no gateway. Each cluster has three servers and account overlays. A depot leaf attaches to za. Each cell sends OTLP only to its own control-plane agent, which reads server health over HTTP 8222. H1 through H7 map the marked locations to the hop table. Cross-jurisdiction telemetry remains open.">
+<defs><marker id="s2-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--blue)"/></marker><marker id="s2-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker><marker id="s2-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker><marker id="s2-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--purple)"/></marker></defs>
+<rect class="group cyan" x="20" y="80" width="340" height="330" rx="12"/>
+<text class="group-title" x="32" y="71" style="fill:var(--cyan)">za · SOUTH AFRICA · SHARED</text>
+<rect class="tile prop" x="32" y="94" width="316" height="58" rx="8"/>
+<rect x="44" y="106" width="22" height="22" rx="7" fill="var(--cyan)"/><text class="glyph" x="55" y="121">N</text>
+<text class="title" x="76" y="120">NATS cluster · 3 nats-server instances</text>
+<text class="sub" x="44" y="140">JetStream domain · by shape, L4-01-O01</text>
+<rect class="tile prop" x="32" y="168" width="316" height="76" rx="8"/>
+<rect x="44" y="180" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="55" y="195">S</text>
+<text class="title" x="76" y="194">Services · OTel SDK</text>
+<text class="sub" x="44" y="214">PLATFORM · reference data / registry</text>
+<text class="sub" x="44" y="228">TENANT · one account per tenant</text>
+<rect class="tile prop" x="32" y="310" width="316" height="86" rx="8"/>
+<rect x="44" y="322" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="55" y="337">A</text>
+<text class="title" x="76" y="336">CONTROL · control plane</text>
+<text class="sub" x="44" y="356">Provisioning · identity · self-hosted Grafana</text>
+<text class="sub" x="44" y="370">One agent / collector · disk queue</text>
+<text class="sub" x="44" y="384">No NATS credential for telemetry</text>
+<path class="async" d="M190 244 V302" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="202" y="274" text-anchor="start">OTLP/gRPC 4317 · own cell only</text>
+<path class="sync" d="M336 310 H354 V122 H350" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="325" y="296" text-anchor="end">HTTP monitoring 8222</text>
+<text class="mini" x="44" y="162">$SYS · admin only (account overlay)</text>
+<rect class="group cyan" x="410" y="80" width="340" height="330" rx="12"/>
+<text class="group-title" x="422" y="71" style="fill:var(--cyan)">au · AUSTRALIA · SHARED</text>
+<rect class="tile prop" x="422" y="94" width="316" height="58" rx="8"/>
+<rect x="434" y="106" width="22" height="22" rx="7" fill="var(--cyan)"/><text class="glyph" x="445" y="121">N</text>
+<text class="title" x="466" y="120">NATS cluster · 3 nats-server instances</text>
+<text class="sub" x="434" y="140">JetStream domain · by shape, L4-01-O01</text>
+<rect class="tile prop" x="422" y="168" width="316" height="76" rx="8"/>
+<rect x="434" y="180" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="445" y="195">S</text>
+<text class="title" x="466" y="194">Services · OTel SDK</text>
+<text class="sub" x="434" y="214">PLATFORM · reference data / registry</text>
+<text class="sub" x="434" y="228">TENANT · one account per tenant</text>
+<rect class="tile prop" x="422" y="310" width="316" height="86" rx="8"/>
+<rect x="434" y="322" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="445" y="337">A</text>
+<text class="title" x="466" y="336">CONTROL · control plane</text>
+<text class="sub" x="434" y="356">Provisioning · identity · self-hosted Grafana</text>
+<text class="sub" x="434" y="370">One agent / collector · disk queue</text>
+<text class="sub" x="434" y="384">No NATS credential for telemetry</text>
+<path class="async" d="M580 244 V302" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="592" y="274" text-anchor="start">OTLP/gRPC 4317 · own cell only</text>
+<path class="sync" d="M726 310 H744 V122 H740" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="715" y="296" text-anchor="end">HTTP monitoring 8222</text>
+<text class="mini" x="434" y="162">$SYS · admin only (account overlay)</text>
+<rect class="tile openq" x="800" y="12" width="340" height="48" rx="8"/>
+<text class="title" x="812" y="31">L4-02-O07 · Architecture</text>
+<text class="sub" x="812" y="48">Confirm request-info header and import setting</text>
+<rect class="group cyan" x="800" y="80" width="340" height="330" rx="12"/>
+<text class="group-title" x="812" y="71" style="fill:var(--cyan)">bw · BOTSWANA · SOVEREIGN</text>
+<rect class="tile prop" x="812" y="94" width="316" height="58" rx="8"/>
+<rect x="824" y="106" width="22" height="22" rx="7" fill="var(--cyan)"/><text class="glyph" x="835" y="121">N</text>
+<text class="title" x="856" y="120">NATS cluster · 3 nats-server instances</text>
+<text class="sub" x="824" y="140">Own JetStream domain · no gateway</text>
+<rect class="tile prop" x="812" y="168" width="316" height="76" rx="8"/>
+<rect x="824" y="180" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="835" y="195">S</text>
+<text class="title" x="856" y="194">Services · OTel SDK</text>
+<text class="sub" x="824" y="214">PLATFORM · reference data / registry</text>
+<text class="sub" x="824" y="228">TENANT · one account per tenant</text>
+<rect class="tile prop" x="812" y="310" width="316" height="86" rx="8"/>
+<rect x="824" y="322" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="835" y="337">A</text>
+<text class="title" x="856" y="336">CONTROL · control plane</text>
+<text class="sub" x="824" y="356">Provisioning · identity · self-hosted Grafana</text>
+<text class="sub" x="824" y="370">One agent / collector · disk queue</text>
+<text class="sub" x="824" y="384">No NATS credential for telemetry</text>
+<path class="async" d="M970 244 V302" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="982" y="274" text-anchor="start">OTLP/gRPC 4317 · own cell only</text>
+<path class="sync" d="M1116 310 H1134 V122 H1130" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="1105" y="296" text-anchor="end">HTTP monitoring 8222</text>
+<text class="mini" x="824" y="162">$SYS · admin only (account overlay)</text>
+<path class="sync" d="M240 94 V40 H580 V86" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="390" y="28" text-anchor="middle">NATS gateway · za → au · business context</text>
+<rect class="badge" x="376" y="40" width="28" height="22" rx="4"/>
+<text class="badge-text" x="390" y="54">H6</text>
+<rect class="tile prop" x="20" y="424" width="156" height="62" rx="8"/>
+<text class="title" x="32" y="450">Outside client</text>
+<text class="sub" x="32" y="470">Browser / public app</text>
+<path class="sync" d="M26 424 V206 H30" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="36" y="282" text-anchor="start">HTTP / NATS api.*</text>
+<rect class="badge" x="174" y="463" width="28" height="22" rx="4"/>
+<text class="badge-text" x="188" y="477">H1</text>
+<rect class="tile prop" x="230" y="424" width="216" height="62" rx="8"/>
+<text class="title" x="242" y="450">Depot · leaf node</text>
+<text class="sub" x="242" y="470">Site service · NATS leaf server</text>
+<text class="sub" x="242" y="502" style="fill:var(--amber)">OTLP agent: open · L4-02-O10</text>
+<path class="sync" d="M396 424 V140 H350" marker-end="url(#s2-blue)"/>
+<text class="edge-label" x="392" y="416" text-anchor="end">NATS leaf → za</text>
+<rect class="badge" x="198" y="428" width="28" height="22" rx="4"/>
+<text class="badge-text" x="212" y="443">H4</text>
+<rect class="badge" x="276" y="183" width="28" height="22" rx="4"/>
+<text class="badge-text" x="290" y="197">H2</text>
+<rect class="badge" x="308" y="215" width="28" height="22" rx="4"/>
+<text class="badge-text" x="322" y="229">H3</text>
+<rect class="badge" x="308" y="117" width="28" height="22" rx="4"/>
+<text class="badge-text" x="322" y="131">H5</text>
+<rect class="badge" x="1086" y="215" width="28" height="22" rx="4"/>
+<text class="badge-text" x="1100" y="229">H7</text>
+<rect class="tile openq" x="476" y="424" width="664" height="62" rx="8"/>
+<text class="title" x="488" y="450">L4-02-O02 · Legal and architecture</text>
+<text class="sub" x="488" y="470">Can masked telemetry leave a jurisdiction? Central vs per-cell Grafana / stores remains open.</text>
+<rect class="tile prop" x="20" y="514" width="1120" height="238" rx="4"/>
+<text class="table-head" x="32" y="532">Hop</text>
+<text class="table-head" x="86" y="532">Crosses</text>
+<text class="table-head" x="262" y="532">Context carried how</text>
+<text class="table-head" x="566" y="532">What the span records (attributes that change)</text>
+<path class="rule" d="M21 542 H1139"/><text class="table-code" x="32" y="558">H1</text>
+<text class="table-copy" x="86" y="558">Outside → edge</text>
+<text class="table-copy" x="262" y="558">HTTP / NATS api.* · link only</text>
+<text class="table-copy" x="566" y="558">New platform-sampled root; client cannot join a trace or turn sampling off.</text>
+<path class="rule" d="M21 572 H1139"/><text class="table-code" x="32" y="588">H2</text>
+<text class="table-copy" x="86" y="588">TENANT → PLATFORM</text>
+<text class="table-copy" x="262" y="588">NATS service import · W3C headers</text>
+<text class="table-copy" x="566" y="588">Receiving account from connection; tenant origin from server-written request-info.</text>
+<path class="rule" d="M21 602 H1139"/><text class="table-code" x="32" y="618">H3</text>
+<text class="table-copy" x="86" y="618">One cluster / account</text>
+<text class="table-copy" x="262" y="618">NATS rpc.* / notify.* · W3C headers</text>
+<text class="table-copy" x="566" y="618">Caller and callee may differ in nats.server.name; normal parent / child.</text>
+<path class="rule" d="M21 632 H1139"/><text class="table-code" x="32" y="648">H4</text>
+<text class="table-copy" x="86" y="648">Depot leaf → cell</text>
+<text class="table-copy" x="262" y="648">NATS leaf link · W3C headers</text>
+<text class="table-copy" x="566" y="648">Site nats.server.name = leaf; nats.jetstream.domain = addressed call domain.</text>
+<path class="rule" d="M21 662 H1139"/><text class="table-code" x="32" y="678">H5</text>
+<text class="table-copy" x="86" y="678">Publish → later consume</text>
+<text class="table-copy" x="262" y="678">NATS JetStream · stored headers</text>
+<text class="table-copy" x="566" y="678">Consumer extracts stored context; child span remains in the same trace.</text>
+<path class="rule" d="M21 692 H1139"/><text class="table-code" x="32" y="708">H6</text>
+<text class="table-copy" x="86" y="708">za → au gateway</text>
+<text class="table-copy" x="262" y="708">NATS gateway · W3C headers</text>
+<text class="table-copy" x="566" y="708">cloud.region and nats.cluster.name differ; each side exports to its own agent.</text>
+<path class="rule" d="M21 722 H1139"/><text class="table-code" x="32" y="738">H7</text>
+<text class="table-copy" x="86" y="738">Within sovereign bw</text>
+<text class="table-copy" x="262" y="738">NATS local only · W3C headers</text>
+<text class="table-copy" x="566" y="738">No NATS gateway path out; spans go to the bw agent. Egress: L4-02-O02.</text>
+</svg></div><figcaption><b>H1–H7 are scenario markers, not a packet itinerary.</b> H2 is the account crossing, H3 an intra-account service call, and H5 a stream within the marked cluster. Gateway direction shown is the H6 scenario.</figcaption></figure>
+<aside class="notes" aria-label="Sheet 2 notes"><div class="note"><span class="tag">PLACEMENT</span><p><b>Account overlays are not regions.</b> Each cell has $SYS, CONTROL, PLATFORM and tenant accounts. Agent and self-hosted Grafana belong to CONTROL; telemetry needs no NATS credential. <code>L4-02-020</code> <code>L4-02-023</code> <code>L4-02-037</code></p></div><div class="note"><span class="tag">EDGE</span><p><b>H1 breaks client parentage.</b> The platform samples a new root; client context is only a link. H2–H6 retain normal parent/child propagation. <code>L4-02-006</code> <code>L4-02-007</code> <code>L4-02-026</code></p></div><div class="note"><span class="tag">TRUST</span><p><b>H2 is a service import.</b> The server writes <code>Nats-Request-Info</code> on the import; <code>share</code> adds requester detail. Tenant comes from the platform’s account-to-tenant record. Receiving account and tenant origin stay separate; missing origin is unattributed. <code>L4-02-013</code> <code>L4-02-015</code> <code>L4-02-027</code> <b>Architecture · L4-02-O07:</b> confirm header name and import setting against the chosen NATS version.</p></div><div class="note"><span class="tag">LOCATION</span><p><b>Read the live connection at span start.</b> A reconnect can change nats.cluster.name while cloud.region stays fixed. H3 may change server; H4 records the addressed JetStream domain, omitted if none. <code>L4-02-010</code> <code>L4-02-011</code> <code>L4-02-028</code> <code>L4-02-029</code></p></div><div class="note"><span class="tag">HOPS</span><p><b>H5 retains stored context.</b> H6 changes region and cluster across the gateway. H7 has no NATS gateway path out of Botswana. <code>L4-02-008</code> <code>L4-02-030</code> <code>L4-02-031</code> <code>L4-02-032</code></p></div><div class="note"><span class="tag">RULE</span><p><b>Monitoring is HTTP, not NATS.</b> Each agent reads each server’s health on 8222. Spans never use subjects, account export/import or JetStream (rule 3). Logs and metrics: proposed the same, pending their ADR. <code>L4-02-019</code> <code>L4-02-024</code> Jurisdiction remains open: <code>L4-02-O02</code></p></div></aside></div><section class="legend"><div><h2>Legend · notation and status</h2><div class="key-grid"><div class="key-item"><span class="sw sw-prop"></span><span><b>Proposed</b> — dashed grey tile; nothing built</span></div><div class="key-item"><span class="sw sw-openq"></span><span><b>Open</b> — dashed amber; owner + item ID</span></div><div class="key-item"><span class="sw sw-blue"></span><span><b>Blue</b> — services, callers and synchronous calls</span></div><div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan</b> — cell, account and messaging boundaries</span></div><div class="key-item"><span class="sw sw-purple"></span><span><b>Purple</b> — control-plane agent</span></div><div class="key-item"><span class="sw sw-sync"></span><span><b>Solid blue arrow</b> — business call / health read</span></div><div class="key-item"><span class="sw sw-async"></span><span><b>Dashed blue arrow</b> — asynchronous OTLP export</span></div><div class="key-item"><span class="sw sw-grey"></span><span><b>Grey rules</b> — table structure</span></div><div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan badges</b> — hop scenario locations</span></div></div></div><div><h2>Words on this sheet</h2><ul class="abbr"><li><b>ADR</b> Architecture Decision Record</li><li><b>OTel</b> OpenTelemetry</li><li><b>OTLP</b> OpenTelemetry Protocol</li><li><b>gRPC</b> Remote Procedure Call framework</li><li><b>HTTP</b> Hypertext Transfer Protocol</li><li><b>NATS</b> messaging system</li><li><b>V3</b> Version 3</li><li><b>LB</b> Linebooker</li><li><b>L3 / L4</b> architecture levels 3 / 4</li><li><b>SDK</b> Software Development Kit</li><li><b>W3C</b> World Wide Web Consortium</li><li><b>$SYS</b> NATS system account</li><li><b>H1–H7</b> numbered hop scenarios</li><li><b>ID</b> identifier</li><li><b>api / rpc / evt</b> application interface / remote procedure call / event subject prefixes</li></ul></div></section><footer class="foot"><span>Traceability: Parent LB-V3-L3-10 Observability · Decision ADR-058 · Register Proposed-Linebooker-V3-L4-02-Requirements.md</span><span class="brand">LB-V3-L4-02 · 2/5 · DIRECTIONAL</span></footer></section>
+
+<section class="sheet" aria-labelledby="s3-title">
+<header class="head"><div class="eyebrow">Proposed Linebooker V3 Architecture · LB-V3-L4-02 · <span class="doc-title">Distributed Tracing with OpenTelemetry</span> · Sheet 3 of 5 · as at 19 October 2026</div>
+<h1 id="s3-title">Shared Module and Span Contract</h1><p>What does the shared module own, and which attributes does every span carry? Defers: package source selection (L4-02-O09), final tenant attribute names (L4-02-O08), and logs / metrics contracts. <b>This is a directional document:</b> nothing here is built; decision of record ADR-058.</p></header>
+<div class="body-grid"><figure><div class="fig-body"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 780" role="img" aria-label="UML-style compartmented class view of SharedModule and six owned types: NatsCarrier, EdgeRule, TenantAttributes, LocationAttributes, BodyCapture and Exporter. Adapters configure the module and pass only the language context type into domain code. The attribute table distinguishes deployment resource attributes, live NATS connection attributes, addressed JetStream domain and trusted tenant metadata. Names remain proposed.">
+<defs><marker id="s3-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--blue)"/></marker><marker id="s3-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker><marker id="s3-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker><marker id="s3-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker></defs>
+<rect class="group blue" x="20" y="46" width="1120" height="392" rx="12"/>
+<text class="group-title" x="32" y="37" style="fill:var(--blue)">SHARED MODULE · PROPOSED TYPES · ONE GO MODULE TODAY</text>
+<rect class="tile prop" x="36" y="60" width="320" height="108" rx="4"/>
+<text class="title" x="48" y="80">SharedModule</text>
+<path class="rule" d="M36 89 H356"/><text class="sub" x="48" y="104">SDK providers · W3C propagation</text>
+<text class="sub" x="48" y="117">Owns the six types below</text>
+<path class="rule" d="M36 122 H356"/><text class="mini" x="48" y="138">Setup(config)</text>
+<rect class="tile prop" x="412" y="60" width="286" height="66" rx="8"/>
+<text class="title" x="424" y="86">Adapters · Go</text>
+<text class="sub" x="424" y="106">Tracing library + SharedModule</text>
+<rect class="tile prop" x="758" y="60" width="366" height="66" rx="8"/>
+<text class="title" x="770" y="86">Domain code · Go</text>
+<text class="sub" x="770" y="106">Language context type only; no tracing imports</text>
+<path class="runtime" d="M412 96 H364" marker-end="url(#s3-grey)"/>
+<text class="edge-label" x="484" y="154" text-anchor="middle">Configure · in-process Go call</text>
+<path class="runtime" d="M698 92 H750" marker-end="url(#s3-grey)"/>
+<text class="edge-label" x="830" y="144" text-anchor="middle">Pass context · in-process Go call</text>
+<rect class="tile prop" x="36" y="190" width="346" height="108" rx="4"/>
+<text class="title" x="48" y="210">NatsCarrier</text>
+<path class="rule" d="M36 219 H382"/><text class="sub" x="48" y="234">traceparent + tracestate in all headers</text>
+<text class="sub" x="48" y="247">Publish / Request / Subscribe; replies too</text>
+<path class="rule" d="M36 252 H382"/><text class="mini" x="48" y="268">Inject() · Extract()</text>
+<text class="mini" x="48" y="281">Wrap JS Publish() / JS Consume()</text>
+<rect class="tile prop" x="408" y="190" width="346" height="108" rx="4"/>
+<text class="title" x="420" y="210">EdgeRule</text>
+<path class="rule" d="M408 219 H754"/><text class="sub" x="420" y="234">Public HTTP / NATS api.*</text>
+<text class="sub" x="420" y="247">New root; platform controls sampling</text>
+<path class="rule" d="M408 252 H754"/><text class="mini" x="420" y="268">StartRootWithLink()</text>
+<rect class="tile prop" x="780" y="190" width="344" height="108" rx="4"/>
+<text class="title" x="792" y="210">TenantAttributes</text>
+<path class="rule" d="M780 219 H1124"/><text class="sub" x="792" y="234">Receiving account ≠ originating tenant</text>
+<text class="sub" x="792" y="247">Origin missing → empty / unattributed</text>
+<path class="rule" d="M780 252 H1124"/><text class="mini" x="792" y="268">FromConnection(account)</text>
+<text class="mini" x="792" y="281">FromRequestInfo(origin)</text>
+<rect class="tile prop" x="36" y="314" width="346" height="108" rx="4"/>
+<text class="title" x="48" y="334">LocationAttributes</text>
+<path class="rule" d="M36 343 H382"/><text class="sub" x="48" y="358">Resource once; connection read per span</text>
+<text class="sub" x="48" y="371">JS domain from addressed call options</text>
+<path class="rule" d="M36 376 H382"/><text class="mini" x="48" y="392">Resource() · LiveConnection()</text>
+<rect class="tile prop" x="408" y="314" width="346" height="108" rx="4"/>
+<text class="title" x="420" y="334">BodyCapture</text>
+<path class="rule" d="M408 343 H754"/><text class="sub" x="420" y="358">Off by default · opt in per service</text>
+<text class="sub" x="420" y="371">Personal / secret fields removed locally</text>
+<path class="rule" d="M408 376 H754"/><text class="mini" x="420" y="392">Redact() then Truncate(sizeLimit)</text>
+<rect class="tile prop" x="780" y="314" width="344" height="108" rx="4"/>
+<text class="title" x="792" y="334">Exporter</text>
+<path class="rule" d="M780 343 H1124"/><text class="sub" x="792" y="358">Bounded queue · background batch worker</text>
+<text class="sub" x="792" y="371">Full → drop + count; never block caller</text>
+<path class="rule" d="M780 376 H1124"/><text class="mini" x="792" y="392">Setup() · Send(timeout)</text>
+<text class="mini" x="792" y="405">Shutdown(short fixed wait)</text>
+<rect class="tile prop" x="20" y="466" width="1120" height="280" rx="4"/>
+<text class="table-head" x="32" y="484">Attribute</text>
+<text class="table-head" x="342" y="484">Set on</text>
+<text class="table-head" x="492" y="484">Source</text>
+<text class="table-head" x="918" y="484">Trusted?</text>
+<path class="rule" d="M21 494 H1139"/><text class="table-code" x="32" y="510">service.name · service.version</text>
+<text class="table-copy" x="342" y="510">Resource / every span</text>
+<text class="table-copy" x="492" y="510">Deployment configuration; once per process</text>
+<text class="table-copy" x="918" y="510">Yes · deployment</text>
+<path class="rule" d="M21 522 H1139"/><text class="table-code" x="32" y="538">service.instance.id</text>
+<text class="table-copy" x="342" y="538">Resource / every span</text>
+<text class="table-copy" x="492" y="538">Process instance metadata; once per process</text>
+<text class="table-copy" x="918" y="538">Yes · deployment</text>
+<path class="rule" d="M21 550 H1139"/><text class="table-code" x="32" y="562">deployment.environment.name</text>
+<text class="table-code" x="32" y="573">cloud.region</text>
+<text class="table-copy" x="342" y="562">Resource / every span</text>
+<text class="table-copy" x="492" y="562">Deployment configuration; reconnect leaves region fixed</text>
+<text class="table-copy" x="918" y="562">Yes · deployment</text>
+<path class="rule" d="M21 578 H1139"/><text class="table-code" x="32" y="590">messaging.system</text>
+<text class="table-code" x="32" y="601">messaging.destination.name</text>
+<text class="table-copy" x="342" y="590">Every NATS span</text>
+<text class="table-copy" x="492" y="590">nats; actual message subject</text>
+<text class="table-copy" x="918" y="590">Transport fact; not identity</text>
+<path class="rule" d="M21 606 H1139"/><text class="table-code" x="32" y="622">messaging.operation.type</text>
+<text class="table-copy" x="342" y="622">Every NATS span</text>
+<text class="table-copy" x="492" y="622">send / receive / process; kind producer / consumer / client / server</text>
+<text class="table-copy" x="918" y="622">Adapter operation</text>
+<path class="rule" d="M21 634 H1139"/><text class="table-code" x="32" y="646">nats.server.name · nats.cluster.name</text>
+<text class="table-code" x="32" y="657">server.address</text>
+<text class="table-copy" x="342" y="646">Every NATS span</text>
+<text class="table-copy" x="492" y="646">Live connection at span start, never cached at startup</text>
+<text class="table-copy" x="918" y="646">Yes · live connection</text>
+<path class="rule" d="M21 662 H1139"/><text class="table-code" x="32" y="678">nats.jetstream.domain</text>
+<text class="table-copy" x="342" y="678">JetStream spans only</text>
+<text class="table-copy" x="492" y="678">Addressed domain in call options; omit when none named</text>
+<text class="table-copy" x="918" y="678">Yes · service call options</text>
+<path class="rule" d="M21 690 H1139"/><text class="table-code" x="32" y="706" style="fill:var(--amber)">linebooker.account.receiving</text>
+<text class="table-copy" x="342" y="706">Receiving service span</text>
+<text class="table-copy" x="492" y="706">Account of the connection on which message arrived</text>
+<text class="table-copy" x="918" y="706">Yes · not tenant identity</text>
+<path class="rule" d="M21 718 H1139"/><text class="table-code" x="32" y="734" style="fill:var(--amber)">linebooker.tenant.origin</text>
+<text class="table-copy" x="342" y="734">Receiving service span</text>
+<text class="table-copy" x="492" y="734">Server-written routing / request-info, else empty</text>
+<text class="table-copy" x="918" y="734">Yes if server-written</text>
+<rect class="tile openq" x="20" y="748" width="1120" height="26" rx="4"/>
+<text class="sub" x="32" y="766" style="fill:var(--amber)">L4-02-O08 · Architecture: confirm both linebooker.* names. L4-02-O09 · Architecture: confirm shared Go module source.</text>
+</svg></div><figcaption><b>Class compartments:</b> name, fields / responsibilities, methods. Containment expresses module ownership; grey arrows are in-process Go dependencies, not network traffic. Attribute keys appear without credential, endpoint or account identifier values.</figcaption></figure>
+<aside class="notes" aria-label="Sheet 3 notes"><div class="note"><span class="tag">CONTRACT</span><p><b>Standard SDK and W3C context.</b> The shared module owns these six types. Reuse one module per language. <code>L4-02-001</code> <code>L4-02-002</code> <code>L4-02-003</code> <code>L4-02-037</code></p></div><div class="note"><span class="tag">CARRIER</span><p><b>Every inbound and outbound message.</b> Inject and extract on publish, request, reply, subscribe, JetStream publish and consume. Only adapters and the module import tracing libraries. <code>L4-02-004</code> <code>L4-02-005</code></p></div><div class="note"><span class="tag">LOCATION</span><p><b>Resource versus live connection.</b> Resource attributes are present on every span. Re-read server, cluster and address at span start. JetStream domain means the call target, not the connected server’s domain. <code>L4-02-009</code> <code>L4-02-010</code> <code>L4-02-011</code></p></div><div class="note"><span class="tag">MESSAGING</span><p><b>Record the actual operation.</b> messaging.system is nats; destination is the subject; operation is send, receive or process. Select the corresponding producer, consumer, client or server span kind. <code>L4-02-012</code></p></div><div class="note"><span class="tag">TRUST</span><p><b>Metadata, never a security boundary.</b> Receiving account and tenant origin never come from a client header, body or requester field. A PLATFORM or CONTROL connection alone cannot name the tenant. <code>L4-02-013</code> <code>L4-02-014</code> <code>L4-02-015</code> <code>L4-02-O08</code></p></div><div class="note"><span class="tag">PRIVACY</span><p><b>Body capture is off.</b> If enabled for a service, redact personal and secret fields, then truncate before export. <code>L4-02-016</code></p></div><div class="note"><span class="tag">EXPORT</span><p><b>Bounded and asynchronous.</b> Queue full means drop and count, never wait. Batch sends have time limits; shutdown waits a short fixed time. <code>L4-02-017</code> Module origin remains <code>L4-02-O09</code>.</p></div></aside></div><section class="legend"><div><h2>Legend · notation and status</h2><div class="key-grid"><div class="key-item"><span class="sw sw-prop"></span><span><b>Proposed</b> — dashed grey tile; nothing built</span></div><div class="key-item"><span class="sw sw-openq"></span><span><b>Open</b> — dashed amber; owner + item ID</span></div><div class="key-item"><span class="sw sw-blue"></span><span><b>Blue</b> — services, callers and synchronous calls</span></div><div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan</b> — cell, account and messaging boundaries</span></div><div class="key-item"><span class="sw sw-blue"></span><span><b>Blue boundary</b> — shared module ownership</span></div><div class="key-item"><span class="sw sw-grey"></span><span><b>Grey arrow</b> — in-process dependency</span></div><div class="key-item"><span class="sw sw-grey"></span><span><b>Grey rules</b> — class compartments and table rows</span></div><div class="key-item"><span class="sw sw-openq"></span><span><b>Amber text</b> — proposed names awaiting confirmation</span></div></div></div><div><h2>Words on this sheet</h2><ul class="abbr"><li><b>ADR</b> Architecture Decision Record</li><li><b>OTel</b> OpenTelemetry</li><li><b>OTLP</b> OpenTelemetry Protocol</li><li><b>gRPC</b> Remote Procedure Call framework</li><li><b>HTTP</b> Hypertext Transfer Protocol</li><li><b>NATS</b> messaging system</li><li><b>V3</b> Version 3</li><li><b>LB</b> Linebooker</li><li><b>L3 / L4</b> architecture levels 3 / 4</li><li><b>SDK</b> Software Development Kit</li><li><b>W3C</b> World Wide Web Consortium</li><li><b>JS</b> JetStream</li><li><b>UML</b> Unified Modeling Language</li><li><b>ID</b> identifier</li><li><b>api / rpc / evt</b> application interface / remote procedure call / event subject prefixes</li></ul></div></section><footer class="foot"><span>Traceability: Parent LB-V3-L3-10 Observability · Decision ADR-058 · Register Proposed-Linebooker-V3-L4-02-Requirements.md</span><span class="brand">LB-V3-L4-02 · 3/5 · DIRECTIONAL</span></footer></section>
+
+<section class="sheet" aria-labelledby="s4-title">
+<header class="head"><div class="eyebrow">Proposed Linebooker V3 Architecture · LB-V3-L4-02 · <span class="doc-title">Distributed Tracing with OpenTelemetry</span> · Sheet 4 of 5 · as at 19 October 2026</div>
+<h1 id="s4-title">One Call, End to End</h1><p>In what order do the client, services, NATS, agent and Grafana act for one outside call? Defers: business payloads, retry policy and exact timing; sampling rate (L4-02-O05). <b>This is a directional document:</b> nothing here is built; decision of record ADR-058.</p></header>
+<div class="body-grid"><figure><div class="fig-body"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 780" role="img" aria-label="Sequence with eleven proposed participants and thirteen numbered interactions. The edge starts a new root linked to client context. W3C context crosses NATS requests, imports and replies. An event stores context in JetStream and a later consumer continues the same trace. Edge, platform and consumer asynchronously export batches to the agent, whose disk queue forwards to Tempo. The operator queries Grafana, which reads Tempo.">
+<defs><marker id="s4-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--blue)"/></marker><marker id="s4-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker><marker id="s4-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker><marker id="s4-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--purple)"/></marker></defs>
+<text class="group-title" x="20" y="22" style="fill:var(--cyan)">ONE OUTSIDE CALL · EXECUTION ORDER DOWNWARD · ALL PARTICIPANTS PROPOSED</text>
+<rect class="tile prop" x="12" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="60" y="57" text-anchor="middle">Client</text>
+<text class="sub" x="60" y="91" text-anchor="middle">HTTP / NATS</text>
+<path class="life" d="M60 102 V750"/><rect class="tile prop" x="116" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="164" y="57" text-anchor="middle">Edge service</text>
+<text class="sub" x="164" y="91" text-anchor="middle">Go + OTel</text>
+<path class="life" d="M164 102 V113 M164 127 V750"/><rect class="tile prop" x="220" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="268" y="57" text-anchor="middle">Shared</text>
+<text class="title" x="268" y="70" text-anchor="middle">module</text>
+<text class="sub" x="268" y="91" text-anchor="middle">Go + OTel</text>
+<path class="life" d="M268 102 V113 M268 127 V157 M268 171 V345 M268 359 V555 M268 569 V750"/><rect class="tile prop" x="324" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="372" y="57" text-anchor="middle">NATS</text>
+<text class="sub" x="372" y="91" text-anchor="middle">nats-server</text>
+<path class="life" d="M372 102 V201 M372 215 V345 M372 359 V555 M372 569 V750"/><rect class="tile prop" x="428" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="476" y="57" text-anchor="middle">Platform</text>
+<text class="title" x="476" y="70" text-anchor="middle">service</text>
+<text class="sub" x="476" y="91" text-anchor="middle">Go + OTel</text>
+<path class="life" d="M476 102 V245 M476 259 V750"/><rect class="tile prop" x="532" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="580" y="57" text-anchor="middle">JetStream</text>
+<text class="sub" x="580" y="91" text-anchor="middle">NATS storage</text>
+<path class="life" d="M580 102 V245 M580 259 V303 M580 317 V389 M580 403 V585 M580 599 V750"/><rect class="tile prop" x="636" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="684" y="57" text-anchor="middle">Consumer</text>
+<text class="sub" x="684" y="91" text-anchor="middle">Go + OTel</text>
+<path class="life" d="M684 102 V303 M684 317 V441 M684 455 V473 M684 487 V750"/><rect class="tile prop" x="740" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="788" y="57" text-anchor="middle">Agent</text>
+<text class="sub" x="788" y="91" text-anchor="middle">OTLP collector</text>
+<path class="life" d="M788 102 V303 M788 317 V441 M788 455 V473 M788 487 V523 M788 537 V615 M788 629 V750"/><rect class="tile prop" x="844" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="892" y="57" text-anchor="middle">Tempo</text>
+<text class="sub" x="892" y="91" text-anchor="middle">Trace store</text>
+<path class="life" d="M892 102 V523 M892 537 V655 M892 669 V750"/><rect class="tile prop" x="948" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="996" y="57" text-anchor="middle">Grafana</text>
+<text class="sub" x="996" y="91" text-anchor="middle">Query UI</text>
+<path class="life" d="M996 102 V695 M996 709 V729 M996 743 V750"/><rect class="tile prop" x="1052" y="38" width="96" height="64" rx="4"/>
+<text class="title" x="1100" y="57" text-anchor="middle">Operator</text>
+<text class="sub" x="1100" y="91" text-anchor="middle">Browser</text>
+<path class="life" d="M1100 102 V695 M1100 709 V729 M1100 743 V750"/><path class="sync" d="M60 132 H164" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="69" y="124" text-anchor="start">1 · HTTP / NATS api.* · client traceparent</text>
+<path class="sync" d="M164 176 H268" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="173" y="168" text-anchor="start">2 · in-process · NEW ROOT + client link</text>
+<path class="sync" d="M268 220 H372" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="277" y="212" text-anchor="start">3 · NATS request · inject W3C headers</text>
+<path class="sync" d="M372 264 H476" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="381" y="256" text-anchor="start">4 · NATS import · server adds request-info</text>
+<path class="sync" d="M476 302 h34 v22 h-34" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="521" y="314" text-anchor="start">5 · in-process OTel · extract; child + tenant / location attrs</text>
+<path class="sync" d="M476 364 H164" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="173" y="356" text-anchor="start">6 · NATS reply · inject / extract traceparent + tracestate</text>
+<path class="sync" d="M476 408 H580" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="485" y="400" text-anchor="start">7 · NATS evt.* publish · W3C headers</text>
+<path class="sync" d="M580 440 h28 v20 h-28" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="622" y="452" text-anchor="start">8 · NATS JetStream · store message + headers</text>
+<path class="sync" d="M580 492 H684" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="589" y="484" text-anchor="start">9 · NATS JetStream deliver · on consumer pull, later</text>
+<path class="sync" d="M684 522 h28 v20 h-28" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="726" y="534" text-anchor="start">10 · in-process OTel · extract; child in SAME TRACE</text>
+<path class="async" d="M164 574 H788" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="173" y="566" text-anchor="start">11a · OTLP/gRPC 4317 · edge batches; async, never blocks</text>
+<path class="async" d="M476 604 H788" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="485" y="596" text-anchor="start">11b · OTLP/gRPC 4317 · platform batches</text>
+<path class="async" d="M684 634 H788" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="693" y="626" text-anchor="start">11c · OTLP/gRPC 4317 · consumer batches</text>
+<path class="write" d="M788 674 H892" marker-end="url(#s4-green)"/>
+<text class="edge-label" x="797" y="666" text-anchor="start">12 · OTLP/gRPC 4317 · disk queue → Tempo</text>
+<path class="sync" d="M1100 714 H996" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="1100" y="706" text-anchor="end">13a · HTTP · TraceQL query</text>
+<path class="sync" d="M996 748 H892" marker-end="url(#s4-blue)"/>
+<text class="edge-label" x="1100" y="740" text-anchor="end">13b · TraceQL query / HTTP · read Tempo</text>
+</svg></div><figcaption><b>Dashed arrows are asynchronous.</b> Step 11 is shown below the business interactions for readability; each service exports independently as spans finish. Vertical dotted lines indicate participant lifetime, not a transport.</figcaption></figure>
+<aside class="notes" aria-label="Sheet 4 notes"><div class="note"><span class="tag">ORDER</span><p><b>One call, including later work.</b> The numbered sequence shows the eleven participants and the required 13 interactions; 11 and 13 expand into distinct one-way arrows. <code>L4-02-033</code> <code>L4-02-037</code></p></div><div class="note"><span class="tag">EDGE</span><p><b>1–2: do not trust client parentage.</b> The shared module starts a new platform-sampled root. The client traceparent becomes a span link only; it cannot disable sampling. <code>L4-02-006</code></p></div><div class="note"><span class="tag">HEADERS</span><p><b>3–6: carry context, not spans.</b> Inject traceparent and tracestate on outbound request and reply; extract inbound context. The server supplies request-info at the account import. Parent / child applies internally. <code>L4-02-004</code> <code>L4-02-007</code> <code>L4-02-015</code></p></div><div class="note"><span class="tag">EVENT</span><p><b>7–10: time does not break the trace.</b> JetStream stores the headers with the message. A later pull consumer extracts those headers and starts a child in the same trace. <code>L4-02-004</code> <code>L4-02-008</code></p></div><div class="note"><span class="tag">ASYNC</span><p><b>11: exports are independent of this timeline.</b> Each finished span enters its service’s bounded queue. A background worker batches; full queues drop and count. Send timeout and short shutdown wait bound the work. <code>L4-02-017</code></p></div><div class="note"><span class="tag">READ</span><p><b>12–13: buffer, store, then inspect.</b> The agent’s durable disk queue forwards traces to Tempo; the operator enters a TraceQL query in Grafana, which reads Tempo. No telemetry uses NATS. <code>L4-02-021</code> <code>L4-02-022</code> <code>L4-02-025</code></p></div></aside></div><section class="legend"><div><h2>Legend · notation and status</h2><div class="key-grid"><div class="key-item"><span class="sw sw-prop"></span><span><b>Proposed</b> — dashed grey tile; nothing built</span></div><div class="key-item"><span class="sw sw-openq"></span><span><b>Open</b> — dashed amber; owner + item ID</span></div><div class="key-item"><span class="sw sw-blue"></span><span><b>Blue</b> — services, callers and synchronous calls</span></div><div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan</b> — cell, account and messaging boundaries</span></div><div class="key-item"><span class="sw sw-sync"></span><span><b>Solid blue arrow</b> — synchronous message / local action / query</span></div><div class="key-item"><span class="sw sw-async"></span><span><b>Dashed blue arrow</b> — nonblocking batch export</span></div><div class="key-item"><span class="sw sw-write"></span><span><b>Dashed green arrow</b> — asynchronous store ingest</span></div><div class="key-item"><span class="sw sw-life"></span><span><b>Dotted grey line</b> — participant lifeline</span></div><div class="key-item"><span class="sw sw-grey"></span><span><b>Self arrow</b> — in-process action; protocol stated</span></div></div></div><div><h2>Words on this sheet</h2><ul class="abbr"><li><b>ADR</b> Architecture Decision Record</li><li><b>OTel</b> OpenTelemetry</li><li><b>OTLP</b> OpenTelemetry Protocol</li><li><b>gRPC</b> Remote Procedure Call framework</li><li><b>HTTP</b> Hypertext Transfer Protocol</li><li><b>NATS</b> messaging system</li><li><b>V3</b> Version 3</li><li><b>LB</b> Linebooker</li><li><b>L3 / L4</b> architecture levels 3 / 4</li><li><b>W3C</b> World Wide Web Consortium</li><li><b>UI</b> User Interface</li><li><b>TraceQL</b> Tempo trace query language</li><li><b>ID</b> identifier</li><li><b>api / rpc / evt</b> application interface / remote procedure call / event subject prefixes</li></ul></div></section><footer class="foot"><span>Traceability: Parent LB-V3-L3-10 Observability · Decision ADR-058 · Register Proposed-Linebooker-V3-L4-02-Requirements.md</span><span class="brand">LB-V3-L4-02 · 4/5 · DIRECTIONAL</span></footer></section>
+
+<section class="sheet" aria-labelledby="s5-title">
+<header class="head"><div class="eyebrow">Proposed Linebooker V3 Architecture · LB-V3-L4-02 · <span class="doc-title">Distributed Tracing with OpenTelemetry</span> · Sheet 5 of 5 · as at 19 October 2026</div>
+<h1 id="s5-title">Deployment Modes</h1><p>How does the same code run locally and live, and what changes between them? Defers: agent product, hosting, sender authentication and live sampling; capacity and retention (LB-V3-L3-12). <b>This is a directional document:</b> nothing here is built; decision of record ADR-058.</p></header>
+<div class="body-grid"><figure><div class="fig-body"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 780" role="img" aria-label="Two proposed deployment modes share service code and a shared OpenTelemetry module. Local containers run services, agent, Tempo, Loki, Mimir or Prometheus and Grafana on one machine with telemetry enabled and no external dependencies. Live services send only to their cell agent, which requires tested durable disk buffering. Sender authentication, agent product and Grafana hosting are open. The configuration table distinguishes local and live; a missing live endpoint is a startup error.">
+<defs><marker id="s5-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--blue)"/></marker><marker id="s5-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker><marker id="s5-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker><marker id="s5-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--purple)"/></marker></defs>
+<rect class="group blue" x="20" y="50" width="540" height="380" rx="12"/>
+<text class="group-title" x="32" y="41" style="fill:var(--blue)">LOCAL MODE · ONE MACHINE · CONTAINERS</text>
+<rect class="group purple" x="600" y="50" width="540" height="380" rx="12"/>
+<text class="group-title" x="612" y="41" style="fill:var(--purple)">LIVE MODE · PER-CELL CONTROL PLANE</text>
+<rect class="tile prop" x="36" y="70" width="220" height="76" rx="8"/>
+<rect x="48" y="82" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="59" y="97">S</text>
+<text class="title" x="80" y="96">Services · OTel SDK</text>
+<text class="sub" x="48" y="116">Same code + shared module</text>
+<text class="sub" x="48" y="130">Telemetry on</text>
+<rect class="tile prop" x="324" y="70" width="220" height="76" rx="8"/>
+<rect x="336" y="82" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="347" y="97">A</text>
+<text class="title" x="368" y="96">Agent container</text>
+<text class="sub" x="336" y="116">Receives and forwards telemetry</text>
+<text class="sub" x="336" y="130">Local agent configuration</text>
+<path class="async" d="M256 108 H316" marker-end="url(#s5-blue)"/>
+<text class="edge-label" x="290" y="98" text-anchor="middle">OTLP 4317</text>
+<rect class="tile prop" x="36" y="218" width="150" height="72" rx="8"/>
+<rect x="48" y="230" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="59" y="245">T</text>
+<text class="title" x="80" y="244">Tempo</text>
+<text class="sub" x="48" y="264">Trace store container</text>
+<rect class="tile prop" x="208" y="218" width="150" height="72" rx="8"/>
+<rect x="220" y="230" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="231" y="245">L</text>
+<text class="title" x="252" y="244">Loki</text>
+<text class="sub" x="220" y="264">Log store container</text>
+<rect class="tile prop" x="380" y="218" width="164" height="72" rx="8"/>
+<rect x="392" y="230" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="403" y="245">M</text>
+<text class="title" x="424" y="244">Mimir / Prometheus</text>
+<text class="sub" x="392" y="264">Metrics container</text>
+<path class="write" d="M350 146 V180 H110 V210" marker-end="url(#s5-green)"/>
+<text class="edge-label" x="128" y="172" text-anchor="start">OTLP/gRPC 4317 · traces</text>
+<path class="write" d="M418 146 V194 H282 V210" marker-end="url(#s5-green)"/>
+<text class="edge-label" x="290" y="208" text-anchor="start">HTTP · logs</text>
+<path class="write" d="M486 146 V210" marker-end="url(#s5-green)"/>
+<text class="edge-label" x="474" y="172" text-anchor="end">HTTP · metrics</text>
+<rect class="tile prop" x="36" y="354" width="508" height="58" rx="8"/>
+<rect x="48" y="366" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="59" y="381">G</text>
+<text class="title" x="80" y="380">Grafana UI container</text>
+<text class="sub" x="48" y="400">No cloud account · no internet service · no external credentials</text>
+<path class="sync" d="M110 354 V298" marker-end="url(#s5-blue)"/>
+<text class="edge-label" x="122" y="314" text-anchor="start">TraceQL / HTTP</text>
+<path class="sync" d="M282 354 V298" marker-end="url(#s5-blue)"/>
+<text class="edge-label" x="294" y="334" text-anchor="start">LogQL / HTTP</text>
+<path class="sync" d="M462 354 V298" marker-end="url(#s5-blue)"/>
+<text class="edge-label" x="450" y="314" text-anchor="end">PromQL / HTTP</text>
+<rect class="tile prop" x="616" y="70" width="220" height="76" rx="8"/>
+<rect x="628" y="82" width="22" height="22" rx="7" fill="var(--blue)"/><text class="glyph" x="639" y="97">S</text>
+<text class="title" x="660" y="96">Services · OTel SDK</text>
+<text class="sub" x="628" y="116">Same code + shared module</text>
+<text class="sub" x="628" y="130">Own cell’s agent required</text>
+<rect class="tile prop" x="904" y="70" width="220" height="76" rx="8"/>
+<rect x="916" y="82" width="22" height="22" rx="7" fill="var(--purple)"/><text class="glyph" x="927" y="97">A</text>
+<text class="title" x="948" y="96">Cell agent</text>
+<text class="sub" x="916" y="116">Disk queue + deployment tests</text>
+<text class="sub" x="916" y="130">CONTROL ownership</text>
+<path class="async" d="M836 108 H896" marker-end="url(#s5-blue)"/>
+<text class="edge-label" x="870" y="98" text-anchor="middle">OTLP 4317</text>
+<rect class="tile openq" x="616" y="182" width="242" height="76" rx="8"/>
+<text class="title" x="628" y="208">L4-02-O06 · Security</text>
+<text class="sub" x="628" y="228">Sender authentication at agent</text>
+<text class="sub" x="628" y="242">Mechanism to be confirmed</text>
+<rect class="tile openq" x="882" y="182" width="242" height="76" rx="8"/>
+<text class="title" x="894" y="208">L4-02-O04 · Architecture</text>
+<text class="sub" x="894" y="228">Agent: Alloy or OTel Collector</text>
+<text class="sub" x="894" y="242">Either must prove disk buffering</text>
+<rect class="tile openq" x="616" y="304" width="508" height="108" rx="8"/>
+<text class="title" x="628" y="330">L4-02-O03 · Architecture: Grafana hosting</text>
+<text class="sub" x="628" y="350">Managed service OR self-hosted in the CONTROL control plane</text>
+<text class="sub" x="628" y="364">Tempo traces · Loki logs · Mimir / Prometheus metrics · Grafana UI</text>
+<text class="sub" x="628" y="378">Tempo 3.x microservices: object storage + queue (unchecked)</text>
+<path class="write" d="M1014 146 V166 H1132 V286 H1014 V296" marker-end="url(#s5-green)"/>
+<text class="edge-label" x="1108" y="276" text-anchor="end">OTLP/gRPC 4317 traces · HTTP logs / metrics</text>
+<rect class="tile prop" x="20" y="458" width="1120" height="266" rx="4"/>
+<text class="table-head" x="32" y="476">Setting</text>
+<text class="table-head" x="386" y="476">Local</text>
+<text class="table-head" x="716" y="476">Live</text>
+<path class="rule" d="M21 486 H1139"/><text class="table-code" x="32" y="502">OTEL_EXPORTER_OTLP_ENDPOINT</text>
+<text class="table-copy" x="386" y="502">Local agent container</text>
+<text class="table-copy" x="716" y="502">Cell agent; missing = startup error; no local fallback</text>
+<path class="rule" d="M21 520 H1139"/><text class="table-code" x="32" y="536">OTEL_EXPORTER_OTLP_PROTOCOL</text>
+<text class="table-copy" x="386" y="536">grpc</text>
+<text class="table-copy" x="716" y="536">grpc (OTLP/HTTP 4318 also allowed)</text>
+<path class="rule" d="M21 554 H1139"/><text class="table-code" x="32" y="570">OTEL_SERVICE_NAME</text>
+<text class="table-copy" x="386" y="570">Service identity from configuration</text>
+<text class="table-copy" x="716" y="570">Same service identity; deployment configured</text>
+<path class="rule" d="M21 588 H1139"/><text class="table-code" x="32" y="604">OTEL_RESOURCE_ATTRIBUTES</text>
+<text class="table-copy" x="386" y="604">deployment.environment.name=local</text>
+<text class="table-copy" x="386" y="616">cloud.region from local configuration</text>
+<text class="table-copy" x="716" y="604">deployment.environment.name=live</text>
+<text class="table-copy" x="716" y="616">cloud.region from deployment</text>
+<path class="rule" d="M21 622 H1139"/><text class="table-code" x="32" y="638">Platform mode setting</text>
+<text class="table-copy" x="386" y="638">local</text>
+<text class="table-copy" x="716" y="638">live; exact setting name to be confirmed</text>
+<path class="rule" d="M21 656 H1139"/><text class="table-code" x="32" y="672">Body capture</text>
+<text class="table-copy" x="386" y="672">off by default</text>
+<text class="table-copy" x="716" y="672">off by default; per-service opt in</text>
+<path class="rule" d="M21 690 H1139"/><text class="table-code" x="32" y="706">Sampling</text>
+<text class="table-copy" x="386" y="706">Always on</text>
+<text class="table-copy" x="716" y="706">Open L4-02-O05 · Architecture and operations</text>
+<rect class="tile openq" x="20" y="738" width="1120" height="36" rx="8"/>
+<text class="title" x="32" y="764">L4-02-O05 · Architecture and operations: confirm production sampling rate and where it is applied</text>
+</svg></div><figcaption><b>Configuration is the switch.</b> Values shown are symbolic roles and mode names, never endpoint addresses or credentials. Self-hosted production store requirements must be confirmed against the selected version and mode.</figcaption></figure>
+<aside class="notes" aria-label="Sheet 5 notes"><div class="note"><span class="tag">MODES</span><p><b>Two modes, one code path.</b> Local mode is fully contained on one machine; tracing is on. Live mode changes configuration, never instrumentation code. <code>L4-02-034</code> <code>L4-02-035</code> <code>L4-02-037</code></p></div><div class="note"><span class="tag">TRANSPORT</span><p><b>Own-cell OTLP only.</b> Default gRPC 4317; HTTP 4318 is allowed. No NATS credential carries telemetry. Agent and self-hosted Grafana are control-plane services. <code>L4-02-018</code> <code>L4-02-023</code></p></div><div class="note"><span class="tag">STARTUP</span><p><b>Fail clearly in live mode.</b> The module reads the standard OTEL variables plus platform mode. Missing live agent endpoint is a startup error, never a local fallback. <code>L4-02-035</code> <code>L4-02-036</code></p></div><div class="note"><span class="tag">PROVE</span><p><b>Chosen deployment must pass disk-queue tests.</b> Restart and hard kill preserve the queue; it holds the stated store outage volume; full queue loss is counted; the complete queue drains with every span stored. <code>L4-02-021</code></p></div><div class="note"><span class="tag">OPEN</span><p><b>Independent choices.</b> Architecture chooses managed versus self-hosted Grafana and Alloy versus Collector. Security owns sender authentication. Architecture and operations own live sampling. <code>L4-02-O03</code> <code>L4-02-O04</code> <code>L4-02-O05</code> <code>L4-02-O06</code></p></div><div class="note"><span class="tag">CAPACITY</span><p><b>Size queue and store ingest together.</b> Queue capacity, outage duration and retention belong to LB-V3-L3-12 and a later L4. Residency may require per-cell stores. <code>L4-02-021</code> <code>L4-02-O02</code></p></div></aside></div><section class="legend"><div><h2>Legend · notation and status</h2><div class="key-grid"><div class="key-item"><span class="sw sw-prop"></span><span><b>Proposed</b> — dashed grey tile; nothing built</span></div><div class="key-item"><span class="sw sw-openq"></span><span><b>Open</b> — dashed amber; owner + item ID</span></div><div class="key-item"><span class="sw sw-blue"></span><span><b>Blue</b> — services, callers and synchronous calls</span></div><div class="key-item"><span class="sw sw-cyan"></span><span><b>Cyan</b> — cell, account and messaging boundaries</span></div><div class="key-item"><span class="sw sw-purple"></span><span><b>Purple</b> — control-plane telemetry services</span></div><div class="key-item"><span class="sw sw-sync"></span><span><b>Solid blue arrow</b> — store query</span></div><div class="key-item"><span class="sw sw-async"></span><span><b>Dashed blue arrow</b> — service export</span></div><div class="key-item"><span class="sw sw-write"></span><span><b>Dashed green arrow</b> — store ingest</span></div><div class="key-item"><span class="sw sw-grey"></span><span><b>Grey rules</b> — configuration table rows</span></div></div></div><div><h2>Words on this sheet</h2><ul class="abbr"><li><b>ADR</b> Architecture Decision Record</li><li><b>OTel</b> OpenTelemetry</li><li><b>OTLP</b> OpenTelemetry Protocol</li><li><b>gRPC</b> Remote Procedure Call framework</li><li><b>HTTP</b> Hypertext Transfer Protocol</li><li><b>NATS</b> messaging system</li><li><b>V3</b> Version 3</li><li><b>LB</b> Linebooker</li><li><b>L3 / L4</b> architecture levels 3 / 4</li><li><b>SDK</b> Software Development Kit</li><li><b>UI</b> User Interface</li><li><b>TraceQL</b> Tempo trace query language</li><li><b>LogQL</b> Loki log query language</li><li><b>PromQL</b> Prometheus query language</li><li><b>AGPLv3</b> GNU Affero General Public License v3</li><li><b>ID</b> identifier</li><li><b>OTEL</b> OpenTelemetry configuration prefix</li><li><b>grpc</b> gRPC protocol setting</li></ul></div></section><footer class="foot"><span>Traceability: Parent LB-V3-L3-10 Observability · Decision ADR-058 · Register Proposed-Linebooker-V3-L4-02-Requirements.md</span><span class="brand">LB-V3-L4-02 · 5/5 · DIRECTIONAL</span></footer></section>
+</body>
+</html>

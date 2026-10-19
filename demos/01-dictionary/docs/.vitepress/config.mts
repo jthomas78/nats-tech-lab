@@ -52,6 +52,10 @@ const v3ArchitectureSidebar: DefaultTheme.SidebarItem[] = [
     text: 'Proposed Linebooker V3',
     items: [
       {
+        text: 'How this series is documented',
+        link: '/v3-architecture/architecture-documentation-model',
+      },
+      {
         text: 'L0-01 \u00b7 Architecture Atlas',
         link: '/v3-architecture/l0-01-architecture-atlas',
         collapsed: false,

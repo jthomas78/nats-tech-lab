@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture Documentation Guide</title>
+<!-- One-page reader guide to the L0-L4 model in
+     linebooker-v3-architecture-documentation-model.html. A standalone figure:
+     no LB-V3 ID, not in the L0 atlas, changes no status. The authoring
+     workflow stays in the source drawing. -->
+<style>
+:root {
+  --bg: #131416; --panel: #1A1E23; --panel2: #15181c;
+  --line: #2a3038; --line2: #3a424c; --stroke: #4A515B;
+  --tx: #DEE0E3; --tx2: #B7BCC2; --tx3: #8b929b;
+  --blue: #006FFF; --blue2: #4d94ff; --green: #27C07F; --amber: #f0b429; --purple: #a78bfa;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+@page { size: A4; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: var(--bg); }
+body { background: var(--bg); color: var(--tx); font-family: Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.sheet { width: 210mm; height: 297mm; margin: 0 auto; overflow: hidden; padding: 9mm 12mm 7mm; display: flex; flex-direction: column; gap: 7px;
+  background: radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%); }
+
+.chead { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 8px; font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--tx3); }
+.chead .r { color: var(--blue2); }
+
+.titleblock { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: 0 10px 10px 0; padding: 11px 18px 12px; }
+.fam { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--blue2); }
+h1 { font-size: 23px; line-height: 29px; letter-spacing: -.01em; font-weight: 700; margin: 2px 0 6px; }
+.titleblock p { color: var(--tx2); font-size: 12.5px; line-height: 19px; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 8px 14px 9px; }
+.panel > .lbl { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--tx3); margin-bottom: 7px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 11.5px; line-height: 16px; }
+th { text-align: left; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--tx3); font-weight: 600; border-bottom: 1px solid var(--line2); padding: 0 10px 5px 0; }
+td { border-bottom: 1px solid var(--line); padding: 4px 10px 4px 0; vertical-align: top; color: var(--tx2); }
+tr:last-child td { border-bottom: 0; }
+td.lv { font-family: var(--mono); font-weight: 700; color: var(--blue2); white-space: nowrap; width: 30px; }
+td.nm { color: var(--tx); font-weight: 600; width: 128px; }
+td.rd { width: 108px; color: var(--tx3); }
+td.no { width: 150px; color: var(--tx3); font-size: 11px; }
+tr.l4 td { background: rgba(0,111,255,.06); }
+tr.l4 td.nm, tr.l4 td.lv { color: var(--blue2); }
+
+/* Worked branch */
+.branch { display: grid; grid-template-columns: 1fr 18px 1fr 18px 1fr 18px 1fr; align-items: stretch; }
+.node { background: var(--panel2); border: 1px solid var(--stroke); border-radius: 6px; padding: 7px 9px 8px; display: flex; flex-direction: column; gap: 2px; }
+.node .id { font: 650 9.5px/14px var(--mono); color: var(--blue2); letter-spacing: .03em; }
+.node .t { color: var(--tx); font-weight: 600; font-size: 11.5px; line-height: 15px; }
+.node .q { color: var(--tx3); font-size: 10.5px; line-height: 14px; }
+.node .st { margin-top: auto; padding-top: 4px; }
+.node.leaf { border-color: var(--blue); }
+.node.planned { border-style: dashed; }
+.arr { align-self: center; justify-self: center; color: var(--blue2); font-size: 13px; }
+.pill { display: inline-block; font: 650 8.5px/15px var(--mono); letter-spacing: .06em; border: 1px solid var(--line2); border-radius: 999px; padding: 0 7px; color: var(--tx3); }
+.pill.ok { color: var(--green); border-color: var(--green); }
+.sibs { margin-top: 8px; font-size: 11px; line-height: 16px; color: var(--tx3); }
+.sibs b { color: var(--tx2); font-weight: 600; }
+
+/* L4 definition */
+.def { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: 0 9px 9px 0; padding: 10px 16px; display: grid; grid-template-columns: 74px 1fr; gap: 12px; align-items: start; }
+.def .lbl { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--blue2); padding-top: 2px; }
+.def p { font-size: 13.5px; line-height: 21px; }
+.def p b { font-weight: 650; }
+
+/* Supporting strip */
+.strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px 9px; }
+.tile .k { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--tx3); }
+.tile .v { color: var(--tx); font-weight: 600; font-size: 12px; line-height: 17px; margin: 2px 0 2px; }
+.tile p { color: var(--tx2); font-size: 11px; line-height: 15px; }
+.tile.adr { border-top: 2px solid var(--purple); }
+.tile.req { border-top: 2px solid var(--green); }
+.tile.view { border-top: 2px solid var(--blue); }
+.tile.ed { border-top: 2px solid var(--stroke); }
+
+/* Status */
+.status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.status div { font-size: 11px; line-height: 15px; color: var(--tx2); }
+.status .pill { margin-bottom: 3px; }
+.note { margin-top: 8px; font-size: 11px; line-height: 16px; color: var(--tx2); }
+.note b { color: var(--amber); font-weight: 600; }
+
+.cfoot { margin-top: auto; border-top: 1px solid var(--line); padding-top: 8px; display: flex; justify-content: space-between; gap: 16px; font-size: 9px; letter-spacing: .08em; color: var(--tx3); text-transform: uppercase; }
+.cfoot .brand { color: var(--amber); font-weight: 700; }
+</style>
+</head>
+<body>
+<main class="sheet">
+  <div class="chead"><span>Proposed Linebooker V3 · L0 – L4 model</span><span class="r">Reader guide · not an LB-V3 document</span></div>
+
+  <div class="titleblock">
+    <div class="fam">Architecture documentation guide</div>
+    <h1>How do I find the right architecture detail?</h1>
+    <p>The Proposed V3 architecture is drawn at five levels. Start at the top and zoom in. Each level answers one kind of question for one kind of reader, and every document sits under exactly one parent.</p>
+  </div>
+
+  <div class="panel">
+    <div class="lbl">Five levels — what each one tells you</div>
+    <table>
+      <thead><tr><th>Level</th><th>Document</th><th>It tells you</th><th>Written for</th><th>You will not find</th></tr></thead>
+      <tbody>
+        <tr><td class="lv">L0</td><td class="nm">Atlas</td><td>Where to find the document you need: the hierarchy, IDs, titles and status.</td><td class="rd">anyone</td><td class="no">system design</td></tr>
+        <tr><td class="lv">L1</td><td class="nm">Overview</td><td>Who the platform serves, the business capabilities, the external systems, and which country or region things run in.</td><td class="rd">everybody</td><td class="no">service internals, protocols, schemas</td></tr>
+        <tr><td class="lv">L2</td><td class="nm">Architecture</td><td>How the platform is structured, and which technologies are selected and why.</td><td class="rd">architects, leads, ops</td><td class="no">subjects, payloads, permissions</td></tr>
+        <tr><td class="lv">L3</td><td class="nm">Concern views</td><td>How one concern works — for example messaging, security, data or observability.</td><td class="rd">specialists in that concern</td><td class="no">unrelated concerns</td></tr>
+        <tr class="l4"><td class="lv">L4</td><td class="nm">Detailed designs</td><td>The contracts, flows, schemas, permissions and deployment specifications needed to build one design.</td><td class="rd">implementers</td><td class="no">the full system landscape again</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="lbl">One real branch — follow a question down</div>
+    <div class="branch">
+      <div class="node"><span class="id">LB-V3-L1-01</span><span class="t">System and Platform Overview</span><span class="q">Who uses it, for what, where?</span><span class="st"><span class="pill ok">AVAILABLE</span></span></div>
+      <div class="arr">→</div>
+      <div class="node"><span class="id">LB-V3-L2-01</span><span class="t">Logical and Technical Architecture</span><span class="q">How is it constructed?</span><span class="st"><span class="pill ok">AVAILABLE</span></span></div>
+      <div class="arr">→</div>
+      <div class="node planned"><span class="id">LB-V3-L3-10</span><span class="t">Observability</span><span class="q">How does observability work?</span><span class="st"><span class="pill">PLANNED</span></span></div>
+      <div class="arr">→</div>
+      <div class="node leaf"><span class="id">LB-V3-L4-02</span><span class="t">Distributed Tracing with OpenTelemetry</span><span class="q">What exactly do we build?</span><span class="st"><span class="pill ok">AVAILABLE</span></span></div>
+    </div>
+    <p class="sibs">The levels branch. <b>L2-01</b> has a sibling, <b>L2-02 Technology Selection</b>, and twelve L3 children such as <b>Messaging / NATS</b>, <b>Data</b> and <b>Multi-Region</b>. A detailed design develops one concern of its parent. A parent may still be PLANNED.</p>
+  </div>
+
+  <div class="def">
+    <div class="lbl">L4 is</div>
+    <p><b>L4 turns one architectural concern into an implementable design.</b> Each document defines the relevant contracts, interactions, data structures, permissions or deployment details, and makes unresolved choices explicit.</p>
+  </div>
+
+  <div class="strip">
+    <div class="tile req"><div class="k">Requirements</div><div class="v">What must be addressed</div><p>Each document has a register. Every requirement has an ID.</p></div>
+    <div class="tile view"><div class="k">Architecture views</div><div class="v">How it is designed</div><p>The drawings at L0 – L4. One question each.</p></div>
+    <div class="tile adr"><div class="k">ADRs</div><div class="v">What was decided, and why</div><p>A separate log, not a level. One decision can govern any level.</p></div>
+    <div class="tile ed"><div class="k">Editions</div><div class="v">One document, three forms</div><p>HTML drawing, PDF print, and optional prose page.</p></div>
+  </div>
+
+  <div class="panel">
+    <div class="lbl">How far to trust what you read</div>
+    <div class="status">
+      <div><span class="pill">PLANNED</span><br>Catalogued. Nothing to review yet.</div>
+      <div><span class="pill">DRAFT</span><br>Reviewable, but not accepted or not complete.</div>
+      <div><span class="pill ok">AVAILABLE</span><br>HTML and PDF match and passed validation.</div>
+      <div><span class="pill">SUPERSEDED</span><br>Kept for history. Links to its replacement.</div>
+    </div>
+    <p class="note">Status is about the document being ready, not about every decision in it being approved. <b>“Directional”</b> on a sheet means a first-pass position, dated, with each provisional item marked and any missing ADR shown.</p>
+  </div>
+
+  <div class="cfoot">
+    <span><span class="brand">Linebooker</span> · source: linebooker-v3-architecture-documentation-model.html</span>
+    <span>Rules: the architecture authority</span>
+  </div>
+</main>
+</body>
+</html>

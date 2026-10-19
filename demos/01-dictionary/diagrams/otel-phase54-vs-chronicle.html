@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tracing — Phase 54 against Chronicle</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --good: #27c07f;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1024px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 85ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b, li b { color: var(--text); font-weight: 600; }
+code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 92ch; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: .5; }
+.lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: .07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.hop { fill: none; stroke: var(--hop); stroke-width: 1.4; }
+.defect { font-family: var(--mono); font-size: 9.5px; fill: var(--bad); }
+.ok { font-family: var(--mono); font-size: 9.5px; fill: var(--good); }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head"><div class="head-txt">
+    <span class="eyebrow">Phase 54 (built 2026-10-16, validated on au-1) · Chronicle side compared 2026-10-16 with linebooker/chronicle, branch feature/pipelines</span>
+    <h1>Tracing — Phase 54 against Chronicle</h1>
+    <p class="sub">The same four columns for both: services, collector, trace store, read path. Green notes match the Phase 54 design. Red notes are gaps in what Chronicle has built.</p>
+  </div></header>
+
+  <figure>
+    <div class="fig-body">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 990 492" role="img" aria-label="Two pipelines in the same four columns. Top: Phase 54 as built. organizations-service and refdata-service use shared/otelnats, put traceparent in NATS headers, make SERVER and CLIENT spans and set the tenant per span. They export OTLP over HTTP to an OTel Collector with a disk queue for at least two hours, which writes to Tempo on local disk with no host port. observability-service queries Tempo and serves NATS api.* to operator credentials; Grafana with login also queries Tempo. Bottom: Chronicle, built. loads and tracking use the shared services/lib/logger package and put traceparent in NATS headers, but Inject is never called so every span starts a new trace; only SERVER spans exist and the tenant is a deploy-time setting. They export OTLP over gRPC to Grafana Alloy on two EC2 nodes with a memory queue only, which sends to hosted Grafana Cloud. People read traces directly in the Grafana Cloud UI; there is no trace query API.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="a-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--hop)"/></marker>
+        </defs>
+        <!-- Columns: services x=32 w=210 · collector x=310 w=190 · store x=560 w=170 · read x=790 w=170.
+             Band 2 = band 1 + 240 on y. Edge labels sit 8px above their line. -->
+
+        <!-- ===== Band 1: Phase 54 after ===== -->
+        <rect class="nb" x="16" y="16" width="958" height="220" rx="4"/>
+        <text class="grp" x="32" y="38">PHASE 54 AFTER — PROPOSED, NOT BUILT</text>
+
+        <rect class="n" x="32" y="60" width="210" height="106" rx="3"/>
+        <text class="lbl" x="44" y="79">organizations → refdata</text>
+        <text class="ok" x="44" y="94">shared/otelnats</text>
+        <text class="ok" x="44" y="107">traceparent in nats.Header</text>
+        <text class="lbl2" x="44" y="120">SERVER · CLIENT spans</text>
+        <text class="lbl2" x="44" y="133">tenant per span (BR-069)</text>
+        <text class="defect" x="44" y="146">new root per api.* call (BR-071)</text>
+
+        <path class="flow" d="M242 96 H302" marker-end="url(#a-sync)"/>
+        <text class="edge" x="248" y="88">OTLP/HTTP</text>
+
+        <rect class="n" x="310" y="60" width="190" height="72" rx="3"/>
+        <text class="lbl" x="322" y="79">OTel Collector</text>
+        <text class="lbl2" x="322" y="94">contrib image, in Docker</text>
+        <text class="lbl2" x="322" y="107">disk queue ≥ 2 h</text>
+        <text class="lbl2" x="322" y="120">retry until full</text>
+
+        <path class="proj" d="M500 90 H552" marker-end="url(#a-store)"/>
+        <text class="edge" x="512" y="82">OTLP</text>
+
+        <rect class="n" x="560" y="60" width="170" height="60" rx="3"/>
+        <text class="lbl" x="572" y="79">Tempo</text>
+        <text class="lbl2" x="572" y="94">local disk, monolithic</text>
+        <text class="lbl2" x="572" y="107">no host port</text>
+
+        <rect class="n" x="790" y="60" width="170" height="60" rx="3"/>
+        <text class="lbl" x="802" y="79">observability-service</text>
+        <text class="lbl2" x="802" y="94">NATS api.* trace query</text>
+        <text class="lbl2" x="802" y="107">operator creds only</text>
+        <path class="hop" d="M790 90 H738" marker-end="url(#a-hop)"/>
+        <text class="edge" x="744" y="82">query</text>
+
+        <rect class="n" x="790" y="150" width="170" height="44" rx="3"/>
+        <text class="lbl" x="802" y="169">Grafana</text>
+        <text class="lbl2" x="802" y="184">login required</text>
+        <path class="hop" d="M790 172 H700 V128" marker-end="url(#a-hop)"/>
+        <text class="edge" x="740" y="164">query</text>
+
+        <!-- ===== Band 2: Chronicle ===== -->
+        <rect class="nb" x="16" y="256" width="958" height="220" rx="4"/>
+        <text class="grp" x="32" y="278">CHRONICLE — BUILT (feature/pipelines)</text>
+
+        <rect class="n" x="32" y="300" width="210" height="106" rx="3"/>
+        <text class="lbl" x="44" y="319">loads, tracking</text>
+        <text class="ok" x="44" y="334">services/lib/logger (shared)</text>
+        <text class="ok" x="44" y="347">traceparent in nats.Header</text>
+        <text class="lbl2" x="44" y="360">SERVER spans only</text>
+        <text class="lbl2" x="44" y="373">tenant = deploy setting</text>
+        <text class="defect" x="44" y="386">sampler: SDK default</text>
+        <text class="defect" x="32" y="424">Inject never called —</text>
+        <text class="defect" x="32" y="438">each span starts a new trace</text>
+
+        <path class="flow" d="M242 336 H302" marker-end="url(#a-sync)"/>
+        <text class="edge" x="248" y="328">OTLP/gRPC</text>
+
+        <rect class="n" x="310" y="300" width="190" height="72" rx="3"/>
+        <text class="lbl" x="322" y="319">Grafana Alloy</text>
+        <text class="lbl2" x="322" y="334">2 EC2 nodes, private NLB</text>
+        <text class="lbl2" x="322" y="347">memory_limiter, batch</text>
+        <text class="lbl2" x="322" y="360">memory queue only</text>
+        <text class="defect" x="310" y="390">no disk queue — spans lost</text>
+
+        <path class="proj" d="M500 330 H552" marker-end="url(#a-store)"/>
+        <text class="edge" x="512" y="322">OTLP</text>
+
+        <rect class="n" x="560" y="300" width="170" height="60" rx="3"/>
+        <text class="lbl" x="572" y="319">Grafana Cloud</text>
+        <text class="lbl2" x="572" y="334">hosted (SaaS)</text>
+        <text class="lbl2" x="572" y="347">OTLP gateway</text>
+
+        <rect class="n" x="790" y="300" width="170" height="60" rx="3"/>
+        <text class="lbl" x="802" y="319">Grafana Cloud UI</text>
+        <text class="lbl2" x="802" y="334">people read directly</text>
+        <text class="defect" x="802" y="347">no trace query API</text>
+        <path class="hop" d="M790 330 H738" marker-end="url(#a-hop)"/>
+        <text class="edge" x="744" y="322">query</text>
+      </svg>
+    </div>
+    <figcaption><b>Same base, different finish.</b> Both use the OTel Go SDK, one shared setup package and W3C <code>traceparent</code> in NATS headers. Chronicle stops there: <code>logger.Inject</code> exists (<code>services/lib/logger/propagation.go:11</code>) but no service calls it, so no trace spans two services. Its Alloy config has no <code>sending_queue</code> or <code>file_storage</code>. Its tenant is one resource attribute per deployment (<code>OTEL_RESOURCE_ATTRIBUTES=tenant=…</code>), which is right for one deployment per tenant and wrong for the lab, where <code>refdata-service</code> serves every tenant. Both use the SDK's ParentBased sampler. Phase 54 makes every <code>api.*</code> call a new root and keeps the browser <code>traceparent</code> only as a link, so a client cannot switch tracing off (<code>BR-071</code>). Chronicle has no such edge rule.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>What to take from Chronicle</h2>
+    <ul>
+      <li><b>Copy the package shape.</b> One <code>Setup()</code> builds traces, logs and metrics and returns one shutdown function; the caller gives the service name. That is decision 14's <code>shared/otelnats</code>, and Phase 55 can reuse the logs half.</li>
+      <li><b>A shared helper is not a joined trace.</b> Chronicle had <code>Inject</code> and never called it. Only an end-to-end parent/child test catches that — 54a's BR-064 check.</li>
+      <li><b>Do not copy the tenant model.</b> A per-deployment tenant fits siloed services only. The lab needs a per-span tenant (BR-069).</li>
+      <li><b>Chronicle has no tests for tracing.</b> No outage test, no access test, no trace assertion.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

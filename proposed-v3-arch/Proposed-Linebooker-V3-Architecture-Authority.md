@@ -66,6 +66,7 @@ Architecture Operational Authority
     |   |   `-- LB-V3-L4-01  Physical Deployment on AWS, Two Regions
     |   +-- LB-V3-L3-09  Security + Identity
     |   +-- LB-V3-L3-10  Observability
+    |   |   `-- LB-V3-L4-02  Distributed Tracing with OpenTelemetry
     |   +-- LB-V3-L3-11  Financial Architecture
     |   `-- LB-V3-L3-12  Deployment + Services
     |
@@ -147,6 +148,7 @@ document repository.
 | LB-V3-L3-11 | L3 | Financial Architecture | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L3-12 | L3 | Deployment + Services | LB-V3-L2-01 | PLANNED | Create when scoped |
 | LB-V3-L4-01 | L4 | Physical Deployment on AWS, Two Regions | LB-V3-L3-08 | AVAILABLE | [L4-01 requirements](Proposed-Linebooker-V3-L4-01-Requirements.md) |
+| LB-V3-L4-02 | L4 | Distributed Tracing with OpenTelemetry | LB-V3-L3-10 | AVAILABLE | [L4-02 requirements](Proposed-Linebooker-V3-L4-02-Requirements.md) |
 
 ### Published artefacts
 
@@ -180,6 +182,9 @@ document repository.
 - `LB-V3-L4-01`
   - [Editable HTML](drawings/linebooker-v3-l4-01-physical-deployment-aws-two-regions.html)
   - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L4-01 Physical Deployment on AWS, Two Regions.pdf>)
+- `LB-V3-L4-02`
+  - [Editable HTML](drawings/linebooker-v3-l4-02-distributed-tracing-opentelemetry.html)
+  - [Final PDF](<../output/pdf/Proposed Linebooker V3 Architecture - L4-02 Distributed Tracing with OpenTelemetry.pdf>)
 
 ## Modelling invariants
 
@@ -433,6 +438,30 @@ authorized creation or revision:
 
 ## Change history
 
+- 2026-10-19 - Revised `LB-V3-L3-01` and `LB-V3-L3-05` to add the standing
+  `CONTROL` account beside `PLATFORM`, on the user's decision. `CONTROL` holds
+  NATS provisioning, identity and membership, and observability (the
+  telemetry agent and, when self-hosted, Grafana). `PLATFORM` keeps reference
+  data and the registry. `$SYS` stays administration only. `L3-01-O04` is
+  closed. `L3-05-O07` records the telemetry-on-NATS clash with ADR-058; the
+  same clash is `L4-02-O01`. Both drawings and PDFs were re-exported; both
+  stay AVAILABLE.
+- 2026-10-19 - Registered `LB-V3-L4-02 Distributed Tracing with
+  OpenTelemetry` as PLANNED, the second L4 document, parented under
+  `LB-V3-L3-10 Observability` on the user's instruction although that parent
+  is still PLANNED. It is the detailed design of ADR-058, the V3 tracing
+  decision of record. Its register records the shared module per language, the
+  NATS header carrier, the edge rule, the span attribute contract, seven hop
+  scenarios across accounts, clusters, leaf links, streams and regions, the
+  agent and self-hosted Grafana in the control plane beside the new `CONTROL`
+  account, and the local and live deployment modes. It records the clash with
+  `LB-V3-L3-05`, which still draws telemetry on NATS, as open item
+  `L4-02-O01`. Published the same day as five A3 landscape sheets - proposed
+  solution, tracing in the NATS topology with seven hop scenarios, shared
+  module and span contract, one call end to end as a numbered sequence, and
+  deployment modes - and moved from PLANNED to AVAILABLE as a directional
+  document as at 2026-10-19. The L0 atlas L4 band now holds seven tiles. Every
+  element is drawn as proposed; nothing is built.
 - 2026-09-18 - Renamed every drawing, print and written edition to carry the
   two-digit index from its stable ID, and dropped the `proposed-` prefix from
   the HTML source names. `proposed-linebooker-v3-l3-participant-tenancy.html`

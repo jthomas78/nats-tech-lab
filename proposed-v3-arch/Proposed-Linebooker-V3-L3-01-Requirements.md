@@ -64,7 +64,7 @@ document.
 | L3-01-009 | Included | State that the trust axis carries no geography and the placement axis carries no identity. | Sheet 1, the two converging edge labels and the closing amber panel. |
 | L3-01-010 | Included | Draw the two hierarchies as crossing rather than nesting. | Sheet 1, the grid: accounts as rows crossing cells as columns. |
 | L3-01-011 | Included | Show a cell holding many accounts, and an account spanning many cells, in one figure. | Sheet 1, grid columns and grid rows. |
-| L3-01-012 | Included | Show the standing accounts separately from tenant accounts. | Sheet 1, grid rows `$SYS` and `PLATFORM`. |
+| L3-01-012 | Included | Show the standing accounts separately from tenant accounts. | Sheet 1, grid rows `$SYS`, `CONTROL` and `PLATFORM`. |
 | L3-01-013 | Included | Show the system account as administrative only, carrying no business traffic. | Sheet 1, `$SYS` row intersections. |
 | L3-01-014 | Included | Show a tenant permitted in more than one cell as one account keeping one identity in each. | Sheet 1, `TENANT A` row and the `ACCOUNT` note. |
 | L3-01-015 | Included | Show a tenant permitted in exactly one cell. | Sheet 1, `TENANT B` row. |
@@ -93,14 +93,16 @@ document.
 | L3-01-038 | Derived | Where each replica runs, how it is packaged, scaled and rolled out per cell. | `LB-V3-L3-12 Deployment + Services`. |
 | L3-01-039 | Derived | Per-domain data ownership, retention and lineage inside a tenant account. | `LB-V3-L3-07 Data Architecture`. |
 | L3-01-040 | Derived | The exact account name scheme, credential lifetime, rotation and provisioning sequence. | L4 detailed design. |
-| L3-01-041 | Included | Map every control-plane and domain service named in `LB-V3-L2-01` to the account it connects as. | Sheet 3, the whole matrix: 6 control-plane rows and 8 domain rows against 3 account columns. |
+| L3-01-041 | Included | Map every control-plane and domain service named in `LB-V3-L2-01` to the account it connects as. | Sheet 3, the whole matrix: 6 control-plane rows and 8 domain rows against 4 account columns. |
 | L3-01-042 | Included | State that one NATS connection sees exactly one account, so a service needing two accounts needs two connections. | Sheet 3, scope line and the closing policy statement. |
 | L3-01-043 | Included | Show that exactly one service connects as the system account for claim and placement work. | Sheet 3, `NATS provisioning` row, the only `Connects` mark in the `$SYS` column, and the closing policy panel. |
-| L3-01-044 | Included | Show the control plane as platform-shaped: it owns its records in the platform account and publishes them outward. | Sheet 3, group A, `Connects` in the `PLATFORM` column on every row that owns records. |
+| L3-01-044 | Included | Show the control plane as control-shaped: a control-plane service owns its records in the `CONTROL` account and publishes them outward. A shared data service that tenants import owns its records in the `PLATFORM` account. | Sheet 3, group A, `Connects` in the `CONTROL` column on every control-plane row that owns records, and in the `PLATFORM` column on the `Reference + config` row only. |
 | L3-01-045 | Included | Show the domain plane as tenant-shaped: every domain service connects as one tenant account at a time. | Sheet 3, group B, `Connects` in the `TENANT` column on all eight rows. |
 | L3-01-046 | Included | Show that a domain service is refused the system account, so no business service can act as an administrator. | Sheet 3, group B, `Refused` in the `$SYS` column on all eight rows. |
 | L3-01-047 | Included | Show shared reference data reaching a tenant by import only, read-only, and never by a tenant writing to the platform account. | Sheet 3, `Imports` marks in the `PLATFORM` column, carrying `L3-05-011`. |
 | L3-01-048 | Included | Mark every cell with no source as open rather than guessing it. | Sheet 3, amber `Open` marks citing `L3-01-O07`, and the closing open panel citing `L3-01-O08`. |
+| L3-01-049 | Included | Show `CONTROL` as a standing account beside `PLATFORM`, not in place of it. `CONTROL` holds the control-plane services: NATS provisioning, identity and membership, and observability, which is the telemetry collector and, when self-hosted, Grafana. | Sheet 1, grid row `CONTROL` in every cell. Sheet 3, the `CONTROL` column. Sheet 2, the `Control-plane slice` tile. |
+| L3-01-050 | Included | Show `PLATFORM` as the account for shared data services that tenants import: reference data and the registry. Show that `$SYS` stays administration only and that `CONTROL` does not take any `$SYS` work. | Sheet 1, grid rows `PLATFORM` and `$SYS`. Sheet 3, the `PLATFORM` column and the closing policy panel. |
 
 ## Open confirmations
 
@@ -109,10 +111,10 @@ document.
 | L3-01-O01 | Whether one shared service replica holds a user credential per tenant account, or whether a replica is deployed per account. The drawing shows the question, not an answer. Demo 03 supplies only the constraint: an account is a hard wall, so a process reaching two accounts needs two connections. | Architecture |
 | L3-01-O02 | Whether one tenant may be permitted in a shared cell and a sovereign cell at the same time, and what that does to the single-identity rule. | Architecture and legal |
 | L3-01-O03 | Whether organisation-level isolation ever needs its own NATS account, for example where a transporter must not observe a shipper's traffic inside the same tenant. | Architecture |
-| L3-01-O04 | Which standing accounts exist besides the system account and the platform account. | Architecture |
+| L3-01-O04 | **Closed 2026-10-19.** Which standing accounts exist besides the system account and the platform account. Answer: one more, `CONTROL`, for the control-plane services. The standing accounts are now `$SYS`, `CONTROL` and `PLATFORM`. See `L3-01-049` and `L3-01-050`. A further standing account needs a new open item. | Architecture |
 | L3-01-O05 | The authority that may add or remove a permitted cell for a live tenant, and what happens to data already held in a cell being removed. | Architecture and business |
 | L3-01-O06 | A V3-scoped ADR for participant and tenancy. No decision of record exists today, so nothing here is settled for V3. | Architecture |
-| L3-01-O07 | Whether identity, membership and tenant-facing audit records live in the platform account or in each tenant account. Sheet 3 marks both cells open rather than choosing. | Architecture |
+| L3-01-O07 | Whether identity, membership and tenant-facing audit records live in the `CONTROL` account or in each tenant account. Sheet 3 marks both cells open rather than choosing. Until 2026-10-19 this item named the platform account; the records moved with the control plane to `CONTROL`. | Architecture |
 | L3-01-O08 | Whether a domain service reaches shared reference data by an import into its tenant account, or by a second connection to the platform account. | Architecture |
 
 ## Notes on evidence
@@ -147,3 +149,15 @@ cell is marked open instead of guessed.
   said which account a replica connects as. Adds requirements `L3-01-041` to
   `L3-01-048` and open items `L3-01-O07` and `L3-01-O08`. The PDF is now 3 pages
   at A3 landscape (1191 x 842 pts).
+- 2026-10-19 - Added the standing account `CONTROL` beside `PLATFORM`, on the
+  user's decision. `CONTROL` holds the control-plane services: NATS
+  provisioning, identity and membership, and observability (the telemetry
+  collector and, when self-hosted, Grafana). `PLATFORM` keeps the shared data
+  services that tenants import: reference data and the registry. `$SYS` stays
+  administration only. Adds `L3-01-049` and `L3-01-050`. Changes `L3-01-012`,
+  `L3-01-041` and `L3-01-044`. Closes `L3-01-O04` and re-words `L3-01-O07`.
+  Sheet 1 gets a `CONTROL` grid row. Sheet 3 gets a `CONTROL` column, so the
+  matrix has 4 account columns. On sheet 3 the tenant lifecycle and
+  entitlement imports now come from `CONTROL`, because those services moved
+  there. The telemetry design that uses this account is in `LB-V3-L4-02`,
+  under `ADR-058`.

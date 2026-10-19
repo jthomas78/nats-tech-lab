@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How the Proposed V3 architecture is documented</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head-txt { display: flex; flex-direction: column; gap: 6px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 85ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+figure h2 { padding: 14px 14px 0; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+.legend { margin: 0; padding: 8px 14px 10px; color: var(--muted); font-size: 11px; line-height: 18px; }
+.key { display: inline-block; width: 22px; margin: 0 5px 3px 10px; border-top: 2px solid; vertical-align: middle; }
+.key:first-child { margin-left: 0; }
+.key.blue { border-color: var(--sync); }
+.key.teal { border-color: var(--store); }
+.key.amber { border-color: var(--evtl); border-top-style: dashed; }
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; }
+a { color: var(--sync); overflow-wrap: anywhere; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: .5; }
+.lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: .07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head-txt">
+    <span class="eyebrow">PROPOSED LINEBOOKER V3 · ARCHITECTURE DOCUMENTATION MODEL · NOT AN LB-V3 DOCUMENT</span>
+    <h1>How the Proposed V3 architecture is documented</h1>
+    <p class="sub">Five levels of drawings answer "how is it shaped?". A separate decision log of ADRs answers "what did we choose, and why?". Every document has one question, one stable ID and up to three editions.</p>
+  </header>
+
+  <figure id="fig-model">
+    <h2>The model: five levels, one decision log, editions per document</h2>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 740" role="img" aria-label="The operational authority governs five levels of architecture documents, from the L0 navigation atlas through L1 system overview, L2 construction and technology selection, L3 concern views and L4 detailed designs. Each document has a handwritten requirements register and drawing, a derived print edition and an optional written edition. Catalogue statuses progress from planned to draft to available to superseded. A separate decision log contains V3 architecture decision records and lab records that apply them, with an index and cards PDF built from front matter. A decision-of-record pointer links a V3 ADR to the requirements register; ADRs are not a document level.">
+        <defs>
+          <marker id="m-flow" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 1 L8 4 L0 7 Z" fill="var(--sync)"/></marker>
+          <marker id="m-proj" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 1 L8 4 L0 7 Z" fill="var(--store)"/></marker>
+          <marker id="m-rep" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 1 L8 4 L0 7 Z" fill="var(--evtl)"/></marker>
+        </defs>
+        <!-- Fixed columns: A 20..340, B 380..688, C 720..980.
+             Nodes have at least 10px horizontal text padding; routes use the gutters. -->
+        <rect class="n" x="130" y="20" width="440" height="68" rx="3"/>
+        <text class="lbl" x="350" y="42" text-anchor="middle">OPERATIONAL AUTHORITY</text>
+        <text class="lbl2" x="350" y="58" text-anchor="middle">Proposed-Linebooker-V3-Architecture-Authority.md</text>
+        <text class="lbl2" x="350" y="74" text-anchor="middle">levels · IDs · statuses · catalogue · notation</text>
+        <path class="flow" d="M350 88 V120 H180 V150" marker-end="url(#m-flow)"/>
+        <text class="edge" x="260" y="114">governs</text>
+
+        <rect class="nb" x="20" y="160" width="320" height="560" rx="4"/>
+        <text class="grp" x="36" y="190">LB-V3 DOCUMENTS — ONE QUESTION EACH</text>
+        <rect class="nb" x="380" y="160" width="308" height="560" rx="4"/>
+        <text class="grp" x="396" y="190">EVERY DOCUMENT HAS</text>
+        <rect class="nb" x="720" y="160" width="260" height="400" rx="4"/>
+        <text class="grp" x="736" y="190">DECISION LOG — NOT A LEVEL</text>
+        <path class="flow" d="M340 218 H370" marker-end="url(#m-flow)"/>
+        <text class="edge" x="360" y="212" text-anchor="middle">each produces</text>
+
+        <rect class="n" x="36" y="240" width="288" height="56" rx="3"/>
+        <text class="lbl" x="180" y="260" text-anchor="middle">L0 · Architecture Atlas (LB-V3-L0-01)</text>
+        <text class="lbl2" x="180" y="274" text-anchor="middle">Where is the diagram I need?</text>
+        <text class="lbl2" x="180" y="288" text-anchor="middle">anyone · no C4 equivalent</text>
+        <path class="flow" d="M180 296 V322" marker-end="url(#m-flow)"/>
+        <text class="edge" x="190" y="316">zooms into</text>
+        <rect class="n" x="36" y="332" width="288" height="56" rx="3"/>
+        <text class="lbl" x="180" y="352" text-anchor="middle">L1 · System + Platform Overview</text>
+        <text class="lbl2" x="180" y="366" text-anchor="middle">Who uses it, for what, where?</text>
+        <text class="lbl2" x="180" y="380" text-anchor="middle">everybody · ≈ C4 Context</text>
+        <path class="flow" d="M180 388 V414" marker-end="url(#m-flow)"/>
+        <rect class="n" x="36" y="424" width="288" height="56" rx="3"/>
+        <text class="lbl" x="180" y="444" text-anchor="middle">L2 · Logical + Tech Selection</text>
+        <text class="lbl2" x="180" y="458" text-anchor="middle">How is it built? Which tech, why?</text>
+        <text class="lbl2" x="180" y="472" text-anchor="middle">architects, ops · ≈ C4 Container</text>
+        <path class="flow" d="M180 480 V506" marker-end="url(#m-flow)"/>
+        <rect class="n" x="36" y="516" width="288" height="56" rx="3"/>
+        <text class="lbl" x="180" y="536" text-anchor="middle">L3 · Concern views (12)</text>
+        <text class="lbl2" x="180" y="550" text-anchor="middle">How does one concern work?</text>
+        <text class="lbl2" x="180" y="564" text-anchor="middle">specialists · ≈ C4 Component</text>
+        <path class="flow" d="M180 572 V598" marker-end="url(#m-flow)"/>
+        <rect class="n" x="36" y="608" width="288" height="56" rx="3"/>
+        <text class="lbl" x="180" y="628" text-anchor="middle">L4 · Detailed designs</text>
+        <text class="lbl2" x="180" y="642" text-anchor="middle">What exactly do we build?</text>
+        <text class="lbl2" x="180" y="656" text-anchor="middle">implementers · partly C4 Code</text>
+
+        <rect class="n" x="396" y="240" width="248" height="56" rx="3"/>
+        <text class="lbl" x="520" y="260" text-anchor="middle">Requirements register</text>
+        <text class="lbl2" x="520" y="274" text-anchor="middle">…-&lt;level&gt;-&lt;nn&gt;-Requirements.md</text>
+        <text class="lbl2" x="520" y="288" text-anchor="middle">source · hand-written</text>
+        <path class="flow" d="M520 296 V322" marker-end="url(#m-flow)"/>
+        <text class="edge" x="530" y="316">governs</text>
+        <rect class="n" x="396" y="332" width="248" height="56" rx="3"/>
+        <text class="lbl" x="520" y="352" text-anchor="middle">Drawn edition</text>
+        <text class="lbl2" x="520" y="366" text-anchor="middle">drawings/linebooker-v3-*.html</text>
+        <text class="lbl2" x="520" y="380" text-anchor="middle">source · hand-written</text>
+        <path class="proj" d="M520 388 V414" marker-end="url(#m-proj)"/>
+        <text class="edge" x="530" y="408">exports</text>
+        <rect class="n" x="396" y="424" width="248" height="56" rx="3"/>
+        <text class="lbl" x="520" y="444" text-anchor="middle">Print edition</text>
+        <text class="lbl2" x="520" y="458" text-anchor="middle">output/pdf/*.pdf</text>
+        <text class="lbl2" x="520" y="472" text-anchor="middle">derived · A3 or A4</text>
+        <path class="proj" d="M644 360 H668 V544 H654" marker-end="url(#m-proj)"/>
+        <text class="edge" x="656" y="502" text-anchor="end">explained by</text>
+        <rect class="n" x="396" y="516" width="248" height="56" rx="3"/>
+        <text class="lbl" x="520" y="536" text-anchor="middle">Written edition</text>
+        <text class="lbl2" x="520" y="550" text-anchor="middle">docs/v3-architecture/*.md</text>
+        <text class="lbl2" x="520" y="564" text-anchor="middle">optional · prose + PNG</text>
+        <!-- Two rows preserve the minimum status-box widths and 24px gutters. -->
+        <text class="grp" x="396" y="604">CATALOGUE STATUS</text>
+        <rect class="n" x="396" y="620" width="84" height="28" rx="3"/>
+        <text class="lbl2" x="438" y="638" text-anchor="middle">PLANNED</text>
+        <path class="flow" d="M480 634 H514" marker-end="url(#m-flow)"/>
+        <rect class="n" x="524" y="620" width="100" height="28" rx="3"/>
+        <text class="lbl2" x="574" y="638" text-anchor="middle">DRAFT</text>
+        <path class="flow" d="M624 634 H652 V664 H438 V674" marker-end="url(#m-flow)"/>
+        <rect class="n" x="396" y="684" width="84" height="28" rx="3"/>
+        <text class="lbl2" x="438" y="702" text-anchor="middle">AVAILABLE</text>
+        <path class="flow" d="M480 698 H514" marker-end="url(#m-flow)"/>
+        <rect class="n" x="524" y="684" width="100" height="28" rx="3"/>
+        <text class="lbl2" x="574" y="702" text-anchor="middle">SUPERSEDED</text>
+
+        <rect class="n" x="736" y="240" width="228" height="56" rx="3"/>
+        <text class="lbl" x="850" y="260" text-anchor="middle">v3 ADR</text>
+        <text class="lbl2" x="850" y="274" text-anchor="middle">a platform principle</text>
+        <text class="lbl2" x="850" y="288" text-anchor="middle">ADR/v3/ · e.g. ADR-058</text>
+        <rect class="n" x="736" y="352" width="228" height="56" rx="3"/>
+        <text class="lbl" x="850" y="372" text-anchor="middle">lab ADR</text>
+        <text class="lbl2" x="850" y="386" text-anchor="middle">proven in this lab</text>
+        <text class="lbl2" x="850" y="400" text-anchor="middle">ADR/lab/ · applies a v3 ADR</text>
+        <path class="flow" d="M850 352 V306" marker-end="url(#m-flow)"/>
+        <text class="edge" x="860" y="332">applies</text>
+        <rect class="n" x="736" y="464" width="228" height="56" rx="3"/>
+        <text class="lbl" x="850" y="487" text-anchor="middle">ADR-INDEX.md + cards PDF</text>
+        <text class="lbl2" x="850" y="503" text-anchor="middle">generated from front matter</text>
+        <path class="proj" d="M980 430 H988 V492 H974" marker-end="url(#m-proj)"/>
+        <text class="edge" x="978" y="424" text-anchor="end">builds</text>
+        <path class="rep" d="M850 240 V214 H704 V268 H654" marker-end="url(#m-rep)"/>
+        <text class="edge" x="778" y="208" text-anchor="middle">decision of record</text>
+      </svg>
+    </div>
+    <p class="legend"><span class="key blue"></span>blue solid = structure / governs / zoom; <span class="key teal"></span>teal solid = produces a file; <span class="key amber"></span>amber dashed = points at the decision of record.</p>
+    <figcaption><b>Levels draw the shape. ADRs record the decisions.</b> A document sits at the lowest level that can answer its one question, under one parent. Its register lists every requirement with an ID; where a requirement rests on a decision, it names the ADR. ADRs are numbered in one global sequence and are not a level: a decision can govern documents at any level.</figcaption>
+  </figure>
+
+  <figure id="fig-sequence">
+    <h2>The sequence: from a question to a published document</h2>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 1250" role="img" aria-label="Five vertical swimlanes show the proposer, decision log, LB-V3 document, team review, and outputs and lab. Raise one question and ask whether it sets or changes a significant architectural approach or rule. If it does, write or update a proposed architecture decision record; if not, or if an existing ADR covers it, go straight to the document. The design follows into placement and registration, a requirements register, and a draft drawing. Team review can find an unrecorded decision and return to the ADR. An accepted ADR corrects the document; a passing review proceeds to validation and PDF export, an optional written edition, and lab measurement. Lab findings loop around the outside back to a new question or a superseded document.">
+        <defs>
+          <marker id="s-flow" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 1 L8 4 L0 7 Z" fill="var(--sync)"/></marker>
+          <marker id="s-proj" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 1 L8 4 L0 7 Z" fill="var(--store)"/></marker>
+          <marker id="s-rep" viewBox="0 0 8 8" refX="0" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 1 L8 4 L0 7 Z" fill="var(--evtl)"/></marker>
+        </defs>
+        <!-- Five vertical lanes. Node gutters are at least 24px; long feedback uses
+             x=216 / 406, with the lab loop on the far-left x=12 rail.
+             Long labels wrap rather than shrinking the mandated font sizes. -->
+        <text class="grp" x="122" y="24" text-anchor="middle">PROPOSER</text>
+        <text class="grp" x="312" y="24" text-anchor="middle">DECISION LOG (ADR)</text>
+        <text class="grp" x="502" y="24" text-anchor="middle">LB-V3 DOCUMENT</text>
+        <text class="grp" x="692" y="24" text-anchor="middle">TEAM REVIEW</text>
+        <text class="grp" x="887" y="24" text-anchor="middle">OUTPUTS + LAB</text>
+        <path class="nb" d="M210 40 V1192 M400 40 V1192 M590 40 V1192 M784 40 V1192"/>
+
+        <rect class="n" x="39" y="60" width="166" height="68" rx="3"/>
+        <text class="lbl" x="122" y="80" text-anchor="middle">1 · Raise one question</text>
+        <text class="lbl2" x="122" y="98" text-anchor="middle">new concern, change</text>
+        <text class="lbl2" x="122" y="112" text-anchor="middle">or lab finding</text>
+        <path class="flow" d="M122 128 V158" marker-end="url(#s-flow)"/>
+        <rect class="n" x="40" y="168" width="164" height="68" rx="3"/>
+        <text class="lbl" x="122" y="188" text-anchor="middle">2 · ADR needed?</text>
+        <text class="lbl2" x="122" y="206" text-anchor="middle">sets or changes an</text>
+        <text class="lbl2" x="122" y="220" text-anchor="middle">approach or a rule?</text>
+        <path class="flow" d="M122 236 V258 H312 V270" marker-end="url(#s-flow)"/>
+        <text class="edge" x="290" y="252" text-anchor="middle">yes: new or changed</text>
+        <path class="flow" d="M204 202 H502 V382" marker-end="url(#s-flow)"/>
+        <text class="edge" x="276" y="196">no, or ADR exists</text>
+
+        <rect class="n" x="230" y="280" width="164" height="68" rx="3"/>
+        <text class="lbl" x="312" y="298" text-anchor="middle">3 · Write ADR</text>
+        <text class="lbl" x="312" y="312" text-anchor="middle">— Proposed</text>
+        <text class="lbl2" x="312" y="328" text-anchor="middle">context, decision,</text>
+        <text class="lbl2" x="312" y="340" text-anchor="middle">reasons, consequences</text>
+        <path class="flow" d="M312 348 V426 H410" marker-end="url(#s-flow)"/>
+        <text class="edge" x="322" y="374">the design</text>
+        <text class="edge" x="322" y="388">follows</text>
+        <rect class="n" x="419" y="392" width="166" height="68" rx="3"/>
+        <text class="lbl" x="502" y="410" text-anchor="middle">4 · Place and register</text>
+        <text class="lbl2" x="502" y="428" text-anchor="middle">lowest level + parent</text>
+        <text class="lbl2" x="502" y="440" text-anchor="middle">· new ID</text>
+        <text class="lbl2" x="502" y="452" text-anchor="middle">PLANNED row · node on L0</text>
+        <path class="flow" d="M502 460 V494" marker-end="url(#s-flow)"/>
+        <rect class="n" x="419" y="504" width="166" height="68" rx="3"/>
+        <text class="lbl" x="502" y="524" text-anchor="middle">5 · Write the register</text>
+        <text class="lbl2" x="502" y="540" text-anchor="middle">Included · Derived · Open</text>
+        <text class="lbl2" x="502" y="552" text-anchor="middle">cites ADR or</text>
+        <text class="lbl2" x="502" y="564" text-anchor="middle">"no V3 ADR yet"</text>
+        <path class="flow" d="M502 572 V606" marker-end="url(#s-flow)"/>
+        <rect class="n" x="420" y="616" width="164" height="56" rx="3"/>
+        <text class="lbl" x="502" y="636" text-anchor="middle">6 · Draw it — DRAFT</text>
+        <text class="lbl2" x="502" y="654" text-anchor="middle">may be marked directional</text>
+        <path class="flow" d="M502 672 V756 H600" marker-end="url(#s-flow)"/>
+        <rect class="n" x="610" y="728" width="164" height="56" rx="3"/>
+        <text class="lbl" x="692" y="746" text-anchor="middle">7 · Review</text>
+        <text class="lbl2" x="692" y="762" text-anchor="middle">findings against</text>
+        <text class="lbl2" x="692" y="776" text-anchor="middle">the authority</text>
+        <path class="rep" d="M692 728 V700 H216 V314 H220" marker-end="url(#s-rep)"/>
+        <text class="edge" x="230" y="694">unrecorded decision found</text>
+        <path class="flow" d="M670 784 V820 H312 V842" marker-end="url(#s-flow)"/>
+        <text class="edge" x="440" y="814">decision made</text>
+        <rect class="n" x="230" y="852" width="164" height="68" rx="3"/>
+        <text class="lbl" x="312" y="872" text-anchor="middle">8 · ADR — Accepted</text>
+        <text class="lbl2" x="312" y="890" text-anchor="middle">item status</text>
+        <text class="lbl2" x="312" y="904" text-anchor="middle">Proposed → Chosen</text>
+        <path class="rep" d="M394 886 H540 V682" marker-end="url(#s-rep)"/>
+        <text class="edge" x="532" y="850" text-anchor="end">ADR wins:</text>
+        <text class="edge" x="532" y="862" text-anchor="end">correct the doc</text>
+        <path class="flow" d="M774 756 H887 V842" marker-end="url(#s-flow)"/>
+        <text class="edge" x="820" y="750">passes</text>
+        <rect class="n" x="800" y="852" width="174" height="68" rx="3"/>
+        <text class="lbl" x="887" y="870" text-anchor="middle">9 · Validate +</text>
+        <text class="lbl" x="887" y="884" text-anchor="middle">export PDF</text>
+        <text class="lbl2" x="887" y="900" text-anchor="middle">status → AVAILABLE</text>
+        <text class="lbl2" x="887" y="912" text-anchor="middle">· L0 updated</text>
+        <path class="proj" d="M887 920 V970" marker-end="url(#s-proj)"/>
+        <rect class="n" x="800" y="980" width="174" height="68" rx="3"/>
+        <text class="lbl" x="887" y="1000" text-anchor="middle">10 · Written edition</text>
+        <text class="lbl2" x="887" y="1018" text-anchor="middle">optional · never changes</text>
+        <text class="lbl2" x="887" y="1032" text-anchor="middle">status</text>
+        <path class="flow" d="M887 1048 V1098" marker-end="url(#s-flow)"/>
+        <rect class="n" x="800" y="1108" width="174" height="68" rx="3"/>
+        <text class="lbl" x="887" y="1128" text-anchor="middle">11 · Build + measure</text>
+        <text class="lbl" x="887" y="1142" text-anchor="middle">in lab</text>
+        <text class="lbl2" x="887" y="1160" text-anchor="middle">lab ADR applies v3 ADR</text>
+        <path class="rep" d="M887 1176 V1224 H12 V94 H30" marker-end="url(#s-rep)"/>
+        <text class="edge" x="500" y="1218" text-anchor="middle">finding → new question or SUPERSEDED</text>
+      </svg>
+    </div>
+    <p class="legend"><span class="key blue"></span>blue solid = next step; <span class="key teal"></span>teal solid = produces an output; <span class="key amber"></span>amber dashed = loop back / correction.</p>
+    <figcaption><b>Record the decision, then draw.</b> An ADR is written or updated when a question sets or changes a significant architectural approach, principle or rule — before the drawing if that is already clear, or during review if the drawing turns out to make a decision nobody recorded. One question can need both an ADR and a drawing. A drawing may go ahead before its ADR exists, but it must say "directional" and show the missing ADR. Once the ADR is accepted, it wins: the document is corrected to match it, never the other way round.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Sources</h2>
+    <ul>
+      <li>Rules: <a href="../Proposed-Linebooker-V3-Architecture-Authority.md">proposed-v3-arch/Proposed-Linebooker-V3-Architecture-Authority.md</a></li>
+      <li>ADR rules: <a href="../../obsidian/V3-Platform/Architecture/ADR/README.md">obsidian/V3-Platform/Architecture/ADR/README.md</a></li>
+      <li>C4 mapping: <a href="../../.claude/skills/architecture-C4-draughtsman/references/c4-modelling.md">.claude/skills/architecture-C4-draughtsman/references/c4-modelling.md</a></li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
