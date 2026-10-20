@@ -2808,9 +2808,24 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
 - [x] **57.8 — Migrate the Producer sites** 7, 8 and 9.
 - [x] **57.9 — Dependency guard** (decision 9):
   `shared/otelnats/guard_test.go` with its allowlist.
-- [ ] **57.10 — Suites.** `ginkgo ./...` in `shared/` modules touched and in
+- [x] **57.10 — Suites.** `ginkgo ./...` in `shared/` modules touched and in
   `shipping-service`, `organizations-service` and `refdata-service`;
-  pass/fail/skip counts recorded here.
+  pass/fail/skip counts recorded here. Run 2026-10-20, no
+  `*_TEST_DATABASE_URL` set, all green, 0 failed:
+  - `shared/otelnats`: 127 passed (includes the 4 guard specs).
+  - `shared/natstenants`: 12 Ginkgo passed, plus the plain `go test`
+    tests (the two new lifecycle parentage tests among them).
+  - `shared/natsnotify`, `shared/jstream`: plain `go test`, all pass.
+  - `shipping-service`: 9 suites. Dictionary 102 of 114 run, 12 pending
+    (the existing `P` specs in `pubsub_observability_test.go`, not
+    touched here); Eventhandler 6/6; KVStore 16/16; the rest plain tests,
+    all pass.
+  - `organizations-service`: 12 suites. Organizations 202/202, Identity
+    14/14, refdataclient 9/9, Activities 7/7, Orchestration 12/12,
+    Workflow 13/13; Worker 15 passed, 1 skipped; **Postgres 30 of 30
+    skipped** (no `*_TEST_DATABASE_URL`, so they did not run).
+  - `refdata-service`: 5 suites, Refdata 164/164, all pass.
+  - No existing test file changed in Phase 57.
 ---
 
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
