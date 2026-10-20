@@ -638,3 +638,32 @@ what that credential may do. Refined 2026-10-15 after a Codex review.
   operator's credential stops working within its expiry.
 - Until this ships, the accurate statement is: **anyone who can reach
   `adminConnectInfo` can obtain the operator access it grants.**
+
+### Phase 110 (candidate, deferred from Phase 57's design gate, 2026-10-20) — Shipping Projector: One Cancellation Behavior for Traced and Untraced Messages
+
+#### Goal
+
+In `shipping-service/dictionary/internal/eventhandler/tracing.go`,
+`startMessage` gives a traced message a base `ctx` of
+`context.Background()` and an untraced message the registration `msgCtx`.
+So the same projector stops its work on shutdown only when tracing is off.
+Turning tracing on or off should not change when work is cancelled.
+
+Phase 57 keeps this split on purpose (BR-082: a wrapper never changes
+cancellation or deadline behavior). This phase decides whether, and how,
+to make the two paths the same.
+
+#### Open questions (full design needed before this leaves candidate)
+
+- Which behavior is correct for a projector message during shutdown:
+  finish the current message (today's traced path) or stop with the
+  registration `ctx` (today's untraced path)? What does this mean for the
+  Ack/Nak of a message that is cut off part-way?
+- Why does the traced path use `context.Background()`? The code comment
+  gives the parent as the reason (no span left on the registration `ctx`).
+  Phase 57's Consumer wrapper removes that need. Check that no other
+  reason exists before changing it.
+- Do the container and meta projectors need the same answer?
+- Proof: a spec that cancels the registration `ctx` while a message is in
+  progress, run with tracing on and with tracing off, gives the same
+  result.

@@ -2476,8 +2476,12 @@ the reconciliation path.
 > confirmed the business rules BR-078 to BR-080 below on 2026-10-20.
 > BR-081 (reserved attribute keys) and the required specs were added the
 > same day from a review the user approved.
+> **Amended 2026-10-20 by the user:** every caller keeps its existing
+> cancellation and deadline behavior (BR-082). The shipping projector's
+> cancellation change is no longer part of this phase; it is deferred to
+> its own proposal (Phase 110 in `Main-POC-Plan-Candidates.md`).
 > Design gate only — no tasks, tests or code until approved. At approval
-> the four rules go into `BUSINESS_RULES-SHIPPING.md` next to BR-064 to
+> the five rules go into `BUSINESS_RULES-SHIPPING.md` next to BR-064 to
 > BR-077, in the same commit as the task list (demo 01 workflow step 4).
 >
 > **Depends on** the separate projector error-status fix (side session
@@ -2538,6 +2542,13 @@ trace).
   `lab.tenant.originating` stays absent and is never filled from a caller
   label. The span kind is not an attribute; a wrapper sets it from its own
   type and no label can change it.
+- **BR-082 — Cancellation and deadline are preserved.** A wrapper
+  preserves the supplied context's cancellation and deadline semantics. The
+  callback's `ctx` is derived from the `ctx` the caller passes, so it keeps
+  that `ctx`'s cancellation, deadline and values. Each site passes the same
+  base `ctx` it uses today, on its traced path and on its untraced path.
+  Tracing decides only the span parent (decision 6), never the lifetime of
+  the work.
 
 #### Design decisions (draft)
 
@@ -2572,7 +2583,11 @@ trace).
    header.
 4. **The callback gets the span's context.** Nested work (an evt.* publish
    inside a projector, a notify.* publish inside the bridge) starts under
-   the right parent with no extra code.
+   the right parent with no extra code. The span's context is derived from
+   the caller's `ctx`, so its cancellation and deadline are the caller's
+   (BR-082). For the Client wrapper this is no change: today the retry loop
+   runs on the caller's `ctx`, and the span `ctx` cancels at the same
+   moment.
 5. **Extra attributes through `otelnats` options, not OTel types.** A
    caller adds labels such as `entity_id` and `consumer.durable` with an
    option that `shared/otelnats` defines (string key, string value). Service
@@ -2586,19 +2601,41 @@ trace).
    protects itself differently (`context.Background()` in the shipping
    projector and the transporter-profile projector, a process `ctx` in the
    bridge and the tenant lifecycle). The Consumer wrapper removes any span
-   from `ctx` before it extracts the header, and keeps the rest of `ctx`
-   (deadline, cancellation, values). With a nil provider the callback gets
-   the caller's `ctx` unchanged (BR-079).
+   from the `ctx` the caller passes before it extracts the header, and
+   keeps the rest of that `ctx` (deadline, cancellation, values — BR-082).
+   With a nil provider the callback gets the caller's `ctx` unchanged
+   (BR-079).
 
-   **This changes behavior; it is not only a move of code.** Today a span
+   **Parent selection moves into the wrapper; cancellation does not
+   move.** The wrapper decides the parent. The caller still decides the
+   base `ctx`, and with it the cancellation and the deadline. Today a span
    on `ctx` wins over the header; after this phase the header wins. The
-   specs under "Required specs" pin the new behavior.
+   specs under "Required specs" pin this behavior.
 
-   **Accepted change — needs the user's sign-off at approval:** the
-   shipping projector's traced path (`tracing.go` `startMessage`) today
-   starts from `context.Background()`. After this phase it starts from the
-   caller's `ctx` with the span removed, so it now stops when that `ctx` is
-   cancelled or its deadline passes. The untraced path already does this.
+   **This corrects parentage at one site: the tenant lifecycle.** In
+   `shared/natstenants/tenants.go`, a `created` delivery runs
+   `EnsureByName` with its CONSUMER span `ctx`. For a new tenant,
+   `ensure` passes that `ctx` to `SubscribeLifecycle`, which keeps it as
+   `context.WithoutCancel(ctx)`. `WithoutCancel` removes the cancellation
+   but keeps the values, so the provisioning span stays on the new
+   subscription's base `ctx`. Today every later lifecycle message on that
+   tenant's connection becomes a child of that old provisioning span,
+   because `StartConsumer` prefers a span on `ctx` over the header. After
+   this phase the header wins, so each message gets its own parent from
+   its `traceparent`. This is a deliberate correction of trace parentage.
+   The cancellation behavior there stays the same (BR-082). At the other
+   three Consumer sites the base `ctx` holds no span today, so their parent
+   does not change.
+
+   **The shipping projector keeps its two base contexts.** In `tracing.go`
+   `startMessage` the traced path starts from `context.Background()` and
+   the untraced path from the registration `msgCtx`. So today a traced
+   message is not cancelled with the registration `ctx`, and an untraced
+   message is. This phase keeps that split exactly: the site still chooses
+   the base `ctx` by whether tracing is on, as in decision 8, and passes it
+   to the Consumer wrapper. A comment at the site names Phase 110. Making
+   the two paths the same is a behavior change and is deferred to
+   Phase 110 (`Main-POC-Plan-Candidates.md`).
 7. **Option A — a concrete, nil-safe `*Provider`.** Every wrapper is a
    method on `*Provider` and works on a nil receiver: it calls the callback
    once and returns what the callback returned (BR-079). No interface is
@@ -2659,10 +2696,26 @@ its rule ID, written red before the code (demo 01 workflow step 3).
   the message's `traceparent` header, even when `ctx` already holds a
   span. With no header, the span is a new root, not a child of the `ctx`
   span.
-- **Decision 6b — cancellation, deadline, values.** The callback's `ctx`
-  keeps the caller's cancellation, deadline and values after the span is
-  removed: cancelling the caller's `ctx` cancels the callback's `ctx`, the
-  deadline is the same, and a value set on the caller's `ctx` is readable.
+- **Decision 6b / BR-082 — cancellation, deadline, values.** For each
+  wrapper (Client, Consumer, Producer): the callback's `ctx` keeps the
+  caller's cancellation, deadline and values. Cancelling the caller's `ctx`
+  cancels the callback's `ctx`; the deadline is the same; a value set on
+  the caller's `ctx` is readable. For the Consumer wrapper this also holds
+  after the span is removed.
+- **BR-082 — shipping projector split kept.** A traced projector message is
+  not cancelled when the registration `ctx` is cancelled, and an untraced
+  message is. This is a characterization test: it records today's behavior,
+  so it passes before the migration and must stay green after it. If an
+  existing spec already pins this, that spec serves and must pass
+  unchanged.
+- **Decision 6 — tenant lifecycle parentage (regression).** Provision a
+  tenant dynamically through a traced `created` delivery, so its lifecycle
+  subscription is made from the provisioning span's `ctx`. Then send a
+  later lifecycle message on that tenant's connection with its own
+  `traceparent`. Its CONSUMER span's parent is that header's span, not the
+  provisioning span. With no header, it is a new root. The same spec also
+  checks that the new subscription's deliveries are still not cancelled
+  when the provisioning `ctx` is cancelled (`WithoutCancel` kept, BR-082).
 - **Decision 6c / BR-079 — nil provider.** With a nil `*Provider`, the
   callback gets the caller's `ctx` unchanged, runs exactly once, and its
   error is returned unchanged. No header is added to the message. A panic
@@ -2674,8 +2727,8 @@ its rule ID, written red before the code (demo 01 workflow step 3).
 |---|------|-------|---------|
 | 1 | `shipping-service/internal/refdataconsumer/consumer.go` — `startCall` | CLIENT span, retry count, `Nats-Service-Error` | Client |
 | 2 | `organizations-service/organizations/internal/refdataclient/client.go` — `startCall` | same as 1 (own copy of the header name) | Client |
-| 3 | `shipping-service/dictionary/internal/eventhandler/tracing.go` — `startMessage` | CONSUMER span, `entity_id`, `consumer.durable`, `Background()` parent | Consumer |
-| 4 | `shared/natstenants/tenants.go` — lifecycle `delivery` | CONSUMER span, `fail`/`end` pair | Consumer |
+| 3 | `shipping-service/dictionary/internal/eventhandler/tracing.go` — `startMessage` | CONSUMER span, `entity_id`, `consumer.durable`; traced base `Background()`, untraced base `msgCtx` (split kept, decision 6) | Consumer |
+| 4 | `shared/natstenants/tenants.go` — lifecycle `delivery` | CONSUMER span, `fail`/`end` pair; a dynamically made subscription inherits the provisioning span (parentage corrected, decision 6) | Consumer |
 | 5 | `refdata-service/refdata/internal/notifybridge/notifybridge.go` — `bridge` | CONSUMER span, no error status (best effort) | Consumer |
 | 6 | `organizations-service/.../transporterprofile/orchestration/projector.go` — `Consume` callback | CONSUMER span; error status from the projector fix | Consumer |
 | 7 | `organizations-service/.../transporterprofile/orchestration/event_store.go` — `appendOTel` | PRODUCER span, inject, `ErrSequenceConflict` mapping | Producer |
@@ -2693,6 +2746,9 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
   not covered. Such a case uses the low-level API with an allowlist entry
   (decision 10), or waits for its own design.
 - **Metrics and logs** (Phase 55). No meters, log bridges or unused hooks.
+- **Any change to cancellation or deadline behavior** (BR-082). In
+  particular, the shipping projector's traced and untraced base contexts
+  stay different; aligning them is Phase 110.
 - **The SERVER side.** `Middleware` (`micro.go`) and the HTTP middleware
   already own their spans and stay as they are.
 
