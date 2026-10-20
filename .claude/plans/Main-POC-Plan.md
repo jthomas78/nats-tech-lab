@@ -2469,6 +2469,243 @@ the reconciliation path.
 
 ---
 
+### Phase 57 — PROPOSED (awaiting approval; follows Phase 54 and the projector error-status fix) — Span Lifecycle in Shared Wrappers: Service Code Says What It Does, Not How OTel Records It
+
+> Proposed 2026-10-20 after a Claude/Codex review. The user chose option A
+> (a concrete, nil-safe `*Provider`; no interfaces by default) and
+> confirmed the business rules BR-078 to BR-080 below on 2026-10-20.
+> BR-081 (reserved attribute keys) and the required specs were added the
+> same day from a review the user approved.
+> Design gate only — no tasks, tests or code until approved. At approval
+> the four rules go into `BUSINESS_RULES-SHIPPING.md` next to BR-064 to
+> BR-077, in the same commit as the task list (demo 01 workflow step 4).
+>
+> **Depends on** the separate projector error-status fix (side session
+> `projector-span-record-er`). That fix lands first; this phase moves its
+> result into the consumer wrapper and does not re-decide it.
+
+#### Goal
+
+Service code says *what* work is observed (a call to refdata, one projector
+message, one evt.* publish) and *what happened* (its result or error).
+`shared/otelnats` decides *how* OTel records it. Today nine service-code
+sites start a span through `shared/otelnats`, then set status, inject
+headers and end the span by hand, and each one reports errors in its own
+way. After this phase none of them touch a span.
+
+The architectural goal is centralized shared observability. This phase
+puts that boundary around the **existing tracing only**. It adds no
+metrics or logging infrastructure; those are a later step (Phase 55) and
+must not appear here as unused hooks.
+
+#### Business rules
+
+Existing rules stay as written: BR-037 (one span per logical call, never one
+per retry), BR-064 (one trace across services through `traceparent`),
+BR-065 (a CLIENT span carries the caller's `service.name`), BR-069 (tenant
+attributes come from `Trust` only), BR-071 (`api.*` always starts a new
+trace).
+
+- **BR-078 — Shared instrumentation ownership.** Shared wrappers own span
+  creation, context propagation, error recording and completion. Service
+  code supplies the operation and its outcome. One CLIENT span covers the
+  entire retry loop (BR-037 kept). A dependency check enforces the
+  boundary; it allows explicit exceptions for shared instrumentation, tests
+  and diagnostic tools.
+- **BR-079 — No-tracing behavior.** With a nil provider, the wrapper calls
+  the operation exactly once with the original context. It keeps the
+  operation's result, error and panic behavior unchanged. It adds no
+  instrumentation and changes no tracing headers.
+- **BR-080 — Outcome policy.** A span is Error when the operation it
+  represents fails. A failed projector attempt is Error even when a
+  redelivery may succeed later. An intentional skip (for example an event
+  type the projector does not project) stays Unset. A best-effort fan-out
+  does not take on its children's failures automatically; each failed child
+  operation keeps its own Error status.
+- **BR-081 — Reserved attribute keys.** A caller-supplied label never
+  replaces an attribute the wrapper sets. The reserved keys are:
+  - the tenant attributes from `Trust` (BR-069): every key that starts
+    with `lab.tenant.` — today `lab.tenant.receiving_account` and
+    `lab.tenant.originating`;
+  - the messaging attributes: `messaging.system`,
+    `messaging.destination.name`, `peer.service`;
+  - the Client wrapper's `rpc.retry_count` (BR-037);
+  - `lab.requester` (BR-041).
+
+  **The rule for a clash is fixed: the trusted value always wins, and the
+  caller's label is dropped,** with a debug log that names the key. This
+  holds also when the trusted value is empty: an empty
+  `lab.tenant.originating` stays absent and is never filled from a caller
+  label. The span kind is not an attribute; a wrapper sets it from its own
+  type and no label can change it.
+
+#### Design decisions (draft)
+
+1. **A wrapper owns the whole span.** Start, attributes, trace-header
+   inject or extract, error status and end all happen inside the wrapper.
+   It ends the span with `defer`. On a panic it marks the span Error, ends
+   it, then panics again with the same value (BR-079: panic behavior is
+   kept).
+2. **Three wrappers, one per span kind that service code makes today.**
+   Names and exact signatures are fixed at the start of the first task;
+   the shapes are:
+   - **Client** — wraps the *whole retry loop* as one callback. One CLIENT
+     span covers every attempt and records `rpc.retry_count` (BR-037). The
+     wrapper injects `traceparent` into the request before the callback
+     runs, and reads micro's `Nats-Service-Error` header on the final reply
+     (BR-055 carried over). The callback returns the reply, the retry count
+     and the error. **The service still owns the retry policy** — attempts,
+     back-off and timeouts stay in `refdataconsumer` / `refdataclient`.
+   - **Consumer** — a handler wrapper that takes the subject and the
+     header, not a `*nats.Msg`. JetStream callers drop the
+     `&nats.Msg{Subject: msg.Subject(), Header: msg.Headers()}` glue.
+   - **Producer** — takes the outgoing `*nats.Msg` and injects the trace
+     header into the message itself, then runs the publish callback. The
+     callback still does the publish, so service-specific error mapping
+     (for example `ErrSequenceConflict` in the event store) stays in the
+     service.
+3. **Callbacks return `error`; results travel by closure.** Go methods
+   cannot have type parameters, so a wrapper does not try to pass a typed
+   result through. A caller that needs a value (`ack.Sequence`,
+   `reply.Data`) captures it in the closure. The Client wrapper is the one
+   exception: it returns the reply, because it must read the reply's
+   header.
+4. **The callback gets the span's context.** Nested work (an evt.* publish
+   inside a projector, a notify.* publish inside the bridge) starts under
+   the right parent with no extra code.
+5. **Extra attributes through `otelnats` options, not OTel types.** A
+   caller adds labels such as `entity_id` and `consumer.durable` with an
+   option that `shared/otelnats` defines (string key, string value). Service
+   code then imports no `go.opentelemetry.io/...` package at all, which
+   keeps the dependency check (decision 9) a plain import rule. The
+   reserved keys and the clash rule are BR-081: the wrapper drops a caller
+   label whose key is reserved, so the trusted value always wins. The order
+   in which the wrapper applies attributes does not decide this.
+6. **Consumer parent comes from the message header only.** `StartConsumer`
+   today prefers a span already on `ctx` over the header, so each site
+   protects itself differently (`context.Background()` in the shipping
+   projector and the transporter-profile projector, a process `ctx` in the
+   bridge and the tenant lifecycle). The Consumer wrapper removes any span
+   from `ctx` before it extracts the header, and keeps the rest of `ctx`
+   (deadline, cancellation, values). With a nil provider the callback gets
+   the caller's `ctx` unchanged (BR-079).
+
+   **This changes behavior; it is not only a move of code.** Today a span
+   on `ctx` wins over the header; after this phase the header wins. The
+   specs under "Required specs" pin the new behavior.
+
+   **Accepted change — needs the user's sign-off at approval:** the
+   shipping projector's traced path (`tracing.go` `startMessage`) today
+   starts from `context.Background()`. After this phase it starts from the
+   caller's `ctx` with the span removed, so it now stops when that `ctx` is
+   cancelled or its deadline passes. The untraced path already does this.
+7. **Option A — a concrete, nil-safe `*Provider`.** Every wrapper is a
+   method on `*Provider` and works on a nil receiver: it calls the callback
+   once and returns what the callback returned (BR-079). No interface is
+   added by default. An interface is added only where a real service
+   boundary or a test seam needs one, and that need is named in the task
+   that adds it.
+8. **Nil checks that choose a publish path stay.** Some nil checks do more
+   than skip tracing. In `shared/jstream/jstream.go` the nil check also
+   chooses `p.publish` (no headers) over `p.publishMsg` (headers). Those
+   branches stay in the service code; only the span code inside the traced
+   branch moves.
+9. **Guard: a dependency check.** A Ginkgo spec (placed in
+   `shared/otelnats`, scanning the backend modules and `shared/`) fails
+   when:
+   - a non-test `.go` file outside the allowlist imports any
+     `go.opentelemetry.io/` package; or
+   - a non-test file outside `shared/otelnats` calls the low-level
+     `StartServer` / `StartClient` / `StartProducer` / `StartConsumer` or
+     `Inject` / `Extract`. The import rule alone would miss
+     `notifybridge.go`, which ends a span without importing OTel.
+
+   Allowlist: `shared/otelnats`, `_test.go` files (instrumentation tests),
+   and `observability-service/cmd/otel-stackcheck` (a diagnostic tool).
+   Each entry carries a one-line reason. Today the import rule already
+   matches exactly the eight non-test files listed under "Sites to
+   migrate"; after this phase it matches none.
+10. **Low-level API stays public.** `StartServer`, `StartClient`,
+    `StartProducer` and `StartConsumer` stay exported as an escape hatch for
+    a case no wrapper fits. Using one outside `shared/otelnats` needs an
+    allowlist entry with its reason (decision 9). `Middleware` in
+    `micro.go` and the HTTP middleware already follow the
+    wrapper pattern; they are not changed.
+11. **The notify bridge keeps its best-effort policy.** A partial fan-out
+    does not make the bridge's CONSUMER span Error (BR-080); each failed
+    tenant publish is Error on its own PRODUCER span, through the Producer
+    wrapper in `natsnotify`. Only the bridge's span code moves into the
+    Consumer wrapper.
+12. **Business rules hold through the move.** BR-069: every Consumer call
+    passes a `Trust` value; the wrapper sets the tenant attributes from it
+    and from nothing else. BR-037: span kinds (CLIENT, CONSUMER, PRODUCER)
+    are unchanged at every site. The existing instrumentation specs
+    (`*_otel_test.go`, `trace_async_test.go`, `natsnotify_otel_test.go`,
+    `lifecycle_otel_test.go`) must pass unchanged, apart from status
+    changes BR-080 requires.
+
+#### Required specs
+
+These specs are required at approval. Each becomes a Ginkgo `Context` with
+its rule ID, written red before the code (demo 01 workflow step 3).
+
+- **BR-081 — reserved keys.** For each wrapper: a caller label that uses a
+  reserved key (`lab.tenant.receiving_account`, `lab.tenant.originating`,
+  `messaging.destination.name`, `rpc.retry_count`) does not change the
+  trusted attribute. A label `lab.tenant.originating=globex` on a span whose
+  `Trust` has no originating tenant leaves the attribute absent. A label
+  with a key that is not reserved (`entity_id`) is kept.
+- **Decision 6a — parent selection.** The CONSUMER span's parent comes from
+  the message's `traceparent` header, even when `ctx` already holds a
+  span. With no header, the span is a new root, not a child of the `ctx`
+  span.
+- **Decision 6b — cancellation, deadline, values.** The callback's `ctx`
+  keeps the caller's cancellation, deadline and values after the span is
+  removed: cancelling the caller's `ctx` cancels the callback's `ctx`, the
+  deadline is the same, and a value set on the caller's `ctx` is readable.
+- **Decision 6c / BR-079 — nil provider.** With a nil `*Provider`, the
+  callback gets the caller's `ctx` unchanged, runs exactly once, and its
+  error is returned unchanged. No header is added to the message. A panic
+  in the callback propagates unchanged.
+
+#### Sites to migrate
+
+| # | Site | Today | Wrapper |
+|---|------|-------|---------|
+| 1 | `shipping-service/internal/refdataconsumer/consumer.go` — `startCall` | CLIENT span, retry count, `Nats-Service-Error` | Client |
+| 2 | `organizations-service/organizations/internal/refdataclient/client.go` — `startCall` | same as 1 (own copy of the header name) | Client |
+| 3 | `shipping-service/dictionary/internal/eventhandler/tracing.go` — `startMessage` | CONSUMER span, `entity_id`, `consumer.durable`, `Background()` parent | Consumer |
+| 4 | `shared/natstenants/tenants.go` — lifecycle `delivery` | CONSUMER span, `fail`/`end` pair | Consumer |
+| 5 | `refdata-service/refdata/internal/notifybridge/notifybridge.go` — `bridge` | CONSUMER span, no error status (best effort) | Consumer |
+| 6 | `organizations-service/.../transporterprofile/orchestration/projector.go` — `Consume` callback | CONSUMER span; error status from the projector fix | Consumer |
+| 7 | `organizations-service/.../transporterprofile/orchestration/event_store.go` — `appendOTel` | PRODUCER span, inject, `ErrSequenceConflict` mapping | Producer |
+| 8 | `shared/jstream/jstream.go` — `Publish` | PRODUCER span, inject; nil check chooses the publish path | Producer |
+| 9 | `shared/natsnotify/natsnotify.go` — `publishOTel` | PRODUCER span, inject, warn log on failure | Producer |
+
+Sites 1 and 2 also lose their local `serviceErrorHeader` /
+`micro.ErrorHeader` checks; the Client wrapper owns that read.
+
+#### Out of scope
+
+- **Async completion.** A wrapper ends its span when the callback returns.
+  Work that finishes later on another goroutine — `PublishAsync` acks, a
+  reply that arrives on a separate subscription, a Temporal activity — is
+  not covered. Such a case uses the low-level API with an allowlist entry
+  (decision 10), or waits for its own design.
+- **Metrics and logs** (Phase 55). No meters, log bridges or unused hooks.
+- **The SERVER side.** `Middleware` (`micro.go`) and the HTTP middleware
+  already own their spans and stay as they are.
+
+#### Open at the gate
+
+- Wrapper names (`Call` / `Consume` / `Produce` are the working names).
+- Whether `natsnotify`'s untraced path and `publishOTel` merge into one
+  path once the Producer wrapper is nil-safe. They can only merge if the
+  untraced publish may use `PublishMsg` with an empty header; BR-079 says
+  no tracing header is added, which an empty header map does not break.
+
+---
+
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase
