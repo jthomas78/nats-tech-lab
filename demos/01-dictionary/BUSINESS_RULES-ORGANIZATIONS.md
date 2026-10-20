@@ -1807,3 +1807,29 @@ append into a reported one, and it drops its own error.
 >   suspend), BR-071's new root plus link, and no `obs.trace.*` span. Not
 >   tested directly: the per-tenant wiring in `Start` and `NewManager`,
 >   because starting a tenant needs Postgres.
+
+### BR-TP76 (IMPLEMENTED 2026-10-20) — A failed projector attempt marks its CONSUMER span Error
+
+- **BR-TP76 (the rule):** On the OTel path, the `TRANSPORTER` projector's
+  CONSUMER span is **one processing attempt**. When processing fails, the
+  span records the error and its status is Error. This covers: the event
+  cannot be decoded (the message is terminated), the aggregate cannot be
+  hydrated, and the profile projection, KV cache or certificate projection
+  write fails (the message is Nak'd for redelivery). A redelivery that then
+  succeeds runs under a new span, which ends Unset. An intentional skip — an
+  audit-only branch event or an unrecognised event type, acknowledged and not
+  projected — is not a failure and leaves the status Unset.
+- **Why "processing failed", not "Nak means error":** the status reports
+  what happened to this attempt. A Nak can also be a deliberate deferral in
+  another handler, so the settle call alone does not decide the status.
+  OTel has no trace-wide error status; a tracing UI highlights the trace
+  because one of its spans is Error.
+- **Enforced in:** `orchestration/projector.go` (`startDelivery`, `project`),
+  in the same style as shipping-service's
+  `internal/eventhandler/tracing.go` (`startMessage`).
+- **Test:** `orchestration/projector_span_status_test.go` — `BR-TP76 a
+  failed processing attempt marks its CONSUMER span Error`: undecodable
+  event → one Error span with the error recorded, no redelivery; a
+  projection write that fails once → Error then Unset; a cache write that
+  fails once → Error then Unset; a skipped `details-updated` event → one
+  Unset span.

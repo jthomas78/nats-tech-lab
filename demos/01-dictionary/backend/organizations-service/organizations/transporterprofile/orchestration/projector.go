@@ -8,7 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/codes"
 
 	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 
@@ -78,69 +78,8 @@ func (p *Projector) Start(ctx context.Context) error {
 	consume, err := consumer.Consume(func(msg jetstream.Msg) {
 		// Decision 6: one ctx per delivery, carrying the CONSUMER span when
 		// traced, so every write below is part of the event's trace.
-		ctx := context.Background()
-		if p.otel != nil {
-			var span trace.Span
-			ctx, span = p.otel.StartConsumer(ctx, &nats.Msg{Subject: msg.Subject(), Header: msg.Headers()},
-				otelnats.Trust{ReceivingAccount: p.account})
-			defer span.End()
-		}
-		eventType, ok := profiledomain.EventType(msg.Subject())
-		if !ok {
-			_ = msg.Ack()
-			return
-		}
-		// Only known state-transition events project. Audit-only branch events
-		// and any unrecognised event type are acknowledged and skipped, so a
-		// stray or future event can never overwrite the projection.
-		if !profiledomain.ProjectsState(eventType) {
-			_ = msg.Ack()
-			return
-		}
-		var event profiledomain.Event
-		if json.Unmarshal(msg.Data(), &event) != nil {
-			_ = msg.Term()
-			return
-		}
-		event.Type = eventType
-		// Certificate events intentionally contain only changed fields. Rebuild
-		// the aggregate for this one canonical projection write instead of
-		// sneaking a full-state snapshot into the immutable event. This also
-		// gives projection restart the same result as an event replay.
-		agg, _, err := NewJetStreamEventStore(p.js).Hydrate(ctx, event.Context, event.OrganizationID)
-		if err != nil {
-			_ = msg.Nak()
-			return
-		}
-		state := agg.State()
-		if err := p.projection.Upsert(ctx, state); err != nil {
-			_ = msg.Nak()
-			return
-		}
-		if err := p.cache.Put(ctx, state); err != nil {
-			_ = msg.Nak()
-			return
-		}
-		// The certificate projection is written from the same hydrated state,
-		// so a redelivery re-writes identical rows rather than applying a
-		// delta twice. Every certificate is written, not just the one this
-		// event names: a supersede-on-approval moves several at once
-		// (BR-TP69), and writing only the named one would leave the others
-		// showing cover they no longer carry.
-		if p.certificates != nil {
-			failed := false
-			for _, certificate := range state.Certificates {
-				if err := p.certificates.UpsertCertificate(ctx, state.ID, projectedCertificate(certificate)); err != nil {
-					failed = true
-					break
-				}
-			}
-			if failed {
-				_ = msg.Nak()
-				return
-			}
-		}
-		_ = msg.Ack()
+		ctx, end := p.startDelivery(msg)
+		end(p.project(ctx, msg))
 	})
 	if err != nil {
 		return fmt.Errorf("consume transporter profile events: %w", err)
@@ -148,6 +87,86 @@ func (p *Projector) Start(ctx context.Context) error {
 	p.mu.Lock()
 	p.consume = consume
 	p.mu.Unlock()
+	return nil
+}
+
+// startDelivery starts the one span for one delivery and returns its ctx
+// and the function that ends it: nil for a successful or intentionally
+// skipped delivery, the processing error otherwise (BR-TP76). The span is
+// this processing attempt, so a failed attempt is Error even when a
+// redelivery later succeeds under a span of its own. Without a Provider the
+// delivery is untraced.
+func (p *Projector) startDelivery(msg jetstream.Msg) (context.Context, func(error)) {
+	ctx := context.Background()
+	if p.otel == nil {
+		return ctx, func(error) {}
+	}
+	ctx, span := p.otel.StartConsumer(ctx, &nats.Msg{Subject: msg.Subject(), Header: msg.Headers()},
+		otelnats.Trust{ReceivingAccount: p.account})
+	return ctx, func(err error) {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}
+}
+
+// project settles one delivery — Ack, Nak or Term — and returns why
+// processing failed, or nil when it succeeded or the event was skipped on
+// purpose.
+func (p *Projector) project(ctx context.Context, msg jetstream.Msg) error {
+	eventType, ok := profiledomain.EventType(msg.Subject())
+	if !ok {
+		_ = msg.Ack()
+		return nil
+	}
+	// Only known state-transition events project. Audit-only branch events
+	// and any unrecognised event type are acknowledged and skipped, so a
+	// stray or future event can never overwrite the projection.
+	if !profiledomain.ProjectsState(eventType) {
+		_ = msg.Ack()
+		return nil
+	}
+	var event profiledomain.Event
+	if err := json.Unmarshal(msg.Data(), &event); err != nil {
+		_ = msg.Term()
+		return fmt.Errorf("decode transporter profile event: %w", err)
+	}
+	event.Type = eventType
+	// Certificate events intentionally contain only changed fields. Rebuild
+	// the aggregate for this one canonical projection write instead of
+	// sneaking a full-state snapshot into the immutable event. This also
+	// gives projection restart the same result as an event replay.
+	agg, _, err := NewJetStreamEventStore(p.js).Hydrate(ctx, event.Context, event.OrganizationID)
+	if err != nil {
+		_ = msg.Nak()
+		return fmt.Errorf("hydrate transporter profile: %w", err)
+	}
+	state := agg.State()
+	if err := p.projection.Upsert(ctx, state); err != nil {
+		_ = msg.Nak()
+		return fmt.Errorf("upsert transporter profile projection: %w", err)
+	}
+	if err := p.cache.Put(ctx, state); err != nil {
+		_ = msg.Nak()
+		return fmt.Errorf("cache transporter profile: %w", err)
+	}
+	// The certificate projection is written from the same hydrated state,
+	// so a redelivery re-writes identical rows rather than applying a
+	// delta twice. Every certificate is written, not just the one this
+	// event names: a supersede-on-approval moves several at once
+	// (BR-TP69), and writing only the named one would leave the others
+	// showing cover they no longer carry.
+	if p.certificates != nil {
+		for _, certificate := range state.Certificates {
+			if err := p.certificates.UpsertCertificate(ctx, state.ID, projectedCertificate(certificate)); err != nil {
+				_ = msg.Nak()
+				return fmt.Errorf("upsert certificate %s: %w", certificate.ID, err)
+			}
+		}
+	}
+	_ = msg.Ack()
 	return nil
 }
 

@@ -239,7 +239,8 @@ Split by domain so a rule add/edit only requires reading its own file:
   CONFIRMED 2026-08-25) points this service's `evt.*` seam
   (`JetStreamEventStore.append`) at the `obs.pubsub.*` hook, BR-045; its
   transporter-profile payloads are the priority case for BR-046's redaction
-  review. Rules will live in
+  review. BR-TP76 (2026-10-20) marks a failed `TRANSPORTER` projector
+  attempt's CONSUMER span Error; an intentional skip stays Unset. Rules will live in
   `organizations-service/organizations/internal/domain/`.
 
 - **[BUSINESS_RULES-APP-SHELL.md](BUSINESS_RULES-APP-SHELL.md)** — the
