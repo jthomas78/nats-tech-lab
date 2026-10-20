@@ -10,7 +10,6 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"go.opentelemetry.io/otel/codes"
 
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
@@ -193,22 +192,28 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 
 // appendOTel is append's OTel path (Phase 54b-3b). It keeps the same
 // optimistic-concurrency headers and ErrSequenceConflict mapping; only the
-// tracing differs. The observation is emitted while the PRODUCER span is
-// open, so its envelope carries that span's IDs, and only after the PubAck,
-// for the same reason as on the untraced path.
+// tracing differs. otelnats.Produce owns the PRODUCER span and writes its
+// traceparent into msg (Phase 57, BR-078); a mapped error marks it Error.
+// The observation is emitted while the span is open, so its envelope
+// carries that span's IDs, and only after the PubAck, for the same reason as
+// on the untraced path.
 func (s *JetStreamEventStore) appendOTel(ctx context.Context, msg *nats.Msg) (uint64, error) {
-	ctx, span := s.otel.StartProducer(ctx, msg.Subject)
-	defer span.End()
-	otelnats.Inject(ctx, msg)
-	ack, err := s.js.PublishMsg(ctx, msg)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		var jsErr jetstream.JetStreamError
-		if errors.As(err, &jsErr) && jsErr.APIError() != nil && jsErr.APIError().ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence {
-			return 0, ErrSequenceConflict
+	var seq uint64
+	err := s.otel.Produce(ctx, msg, func(ctx context.Context) error {
+		ack, err := s.js.PublishMsg(ctx, msg)
+		if err != nil {
+			var jsErr jetstream.JetStreamError
+			if errors.As(err, &jsErr) && jsErr.APIError() != nil && jsErr.APIError().ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence {
+				return ErrSequenceConflict
+			}
+			return fmt.Errorf("publish transporter profile event: %w", err)
 		}
-		return 0, fmt.Errorf("publish transporter profile event: %w", err)
+		s.observer.ObservePublish(ctx, msg.Subject, msg.Data)
+		seq = ack.Sequence
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-	s.observer.ObservePublish(ctx, msg.Subject, msg.Data)
-	return ack.Sequence, nil
+	return seq, nil
 }

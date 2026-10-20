@@ -31,7 +31,6 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/nats-io/nats.go"
-	"go.opentelemetry.io/otel/codes"
 )
 
 // Tokens are the four observability tokens BR-045 attributes an observation
@@ -144,46 +143,25 @@ func (n *Notifier) Publish(ctx context.Context, subj Subject, payload []byte) {
 
 	// A nil ctx is tolerated: several publishers this replaces are reached
 	// from a KV watch callback that has no request context behind it.
-	if n.otel != nil {
-		n.publishOTel(ctx, subj, payload)
-		return
-	}
-	// Without OTel the notify carries no traceparent (Phase 54d).
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := n.nc.Publish(subj.Name, payload); err != nil {
-		if n.log != nil {
-			n.log.Warn("notify publish failed", "subject", subj.Name, "err", err)
-		}
-		return
-	}
-
-	tok := subj.Tokens
-	n.otelObs.ObservePublishAs(ctx, subj.Name, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
-}
-
-// publishOTel is Publish on the OTel path: a PRODUCER span under the span on
-// ctx, its traceparent on the message, and the observation with its IDs. A
-// publish that never reached the wire marks the span Error and is not
-// observed.
-func (n *Notifier) publishOTel(ctx context.Context, subj Subject, payload []byte) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, span := n.otel.StartProducer(ctx, subj.Name)
-	defer span.End()
-
+	// One path, traced or not (Phase 57). With OTel, otelnats.Produce makes
+	// a PRODUCER span under the span on ctx and writes its traceparent into
+	// msg. Without OTel (Phase 54d) msg has no header, and nats.go sends it
+	// as a plain PUB, the same bytes nc.Publish sends (BR-079). A publish
+	// that never reached the wire marks the span Error, is logged and is not
+	// observed.
 	msg := &nats.Msg{Subject: subj.Name, Data: payload}
-	otelnats.Inject(ctx, msg)
-	if err := n.nc.PublishMsg(msg); err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		if n.log != nil {
-			n.log.Warn("notify publish failed", "subject", subj.Name, "err", err)
+	_ = n.otel.Produce(ctx, msg, func(ctx context.Context) error {
+		if err := n.nc.PublishMsg(msg); err != nil {
+			if n.log != nil {
+				n.log.Warn("notify publish failed", "subject", subj.Name, "err", err)
+			}
+			return err
 		}
-		return
-	}
-
-	tok := subj.Tokens
-	n.otelObs.ObservePublishAs(ctx, subj.Name, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
+		tok := subj.Tokens
+		n.otelObs.ObservePublishAs(ctx, subj.Name, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
+		return nil
+	})
 }

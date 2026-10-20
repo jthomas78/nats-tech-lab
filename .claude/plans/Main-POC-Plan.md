@@ -2805,7 +2805,7 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
 - [x] **57.6 — Migrate the Client sites** 1 and 2.
 - [x] **57.7 — Migrate the Consumer sites** 3, 5 and 6 (site 3 keeps its
   base `ctx` split, with a comment naming Phase 110).
-- [ ] **57.8 — Migrate the Producer sites** 7, 8 and 9.
+- [x] **57.8 — Migrate the Producer sites** 7, 8 and 9.
 - [ ] **57.9 — Dependency guard** (decision 9):
   `shared/otelnats/guard_test.go` with its allowlist.
 - [ ] **57.10 — Suites.** `ginkgo ./...` in `shared/` modules touched and in

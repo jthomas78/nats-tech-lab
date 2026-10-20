@@ -23,7 +23,6 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
@@ -132,17 +131,18 @@ func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) er
 		return nil
 	}
 
-	ctx, span := p.otel.StartProducer(ctx, subject)
-	defer span.End()
+	// otelnats.Produce owns the PRODUCER span and its traceparent (Phase 57,
+	// BR-078); the nil check above stays, because it chooses the header-less
+	// publish (decision 8).
 	msg := &nats.Msg{Subject: subject, Data: data}
-	otelnats.Inject(ctx, msg)
-	if err := p.publishMsg(ctx, subject, msg.Header, data); err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		return err
-	}
-	// Observed while the span is still open, so its IDs are the producer's.
-	p.otelObserver.ObservePublish(ctx, subject, data)
-	return nil
+	return p.otel.Produce(ctx, msg, func(ctx context.Context) error {
+		if err := p.publishMsg(ctx, subject, msg.Header, data); err != nil {
+			return err
+		}
+		// Observed while the span is still open, so its IDs are the producer's.
+		p.otelObserver.ObservePublish(ctx, subject, data)
+		return nil
+	})
 }
 
 func (p *Publisher) publish(ctx context.Context, subject string, data []byte) error {
