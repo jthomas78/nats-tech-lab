@@ -2469,7 +2469,7 @@ the reconciliation path.
 
 ---
 
-### Phase 57 — PROPOSED (awaiting approval; follows Phase 54 and the projector error-status fix) — Span Lifecycle in Shared Wrappers: Service Code Says What It Does, Not How OTel Records It
+### Phase 57 — DESIGN APPROVED 2026-10-20 (follows Phase 54 and the projector error-status fix; rules and task list not yet written) — Span Lifecycle in Shared Wrappers: Service Code Says What It Does, Not How OTel Records It
 
 > Proposed 2026-10-20 after a Claude/Codex review. The user chose option A
 > (a concrete, nil-safe `*Provider`; no interfaces by default) and
@@ -2480,13 +2480,16 @@ the reconciliation path.
 > cancellation and deadline behavior (BR-082). The shipping projector's
 > cancellation change is no longer part of this phase; it is deferred to
 > its own proposal (Phase 110 in `Main-POC-Plan-Candidates.md`).
-> Design gate only — no tasks, tests or code until approved. At approval
-> the five rules go into `BUSINESS_RULES-SHIPPING.md` next to BR-064 to
-> BR-077, in the same commit as the task list (demo 01 workflow step 4).
+> **Design approved by the user 2026-10-20**, including BR-078 to BR-082,
+> the required specs and Phase 110's deferral. "Open at the gate" items are
+> decided in the first task.
+> Next step: the five rules go into `BUSINESS_RULES-SHIPPING.md` next to
+> BR-064 to BR-077, in the same commit as the task list (demo 01 workflow
+> step 4).
 >
-> **Depends on** the separate projector error-status fix (side session
-> `projector-span-record-er`). That fix lands first; this phase moves its
-> result into the consumer wrapper and does not re-decide it.
+> **Depends on** the projector error-status fix (BR-TP76, commits
+> `e0b5b044` and `2ead4902`, merged into `poc/phase54-otel`). This phase
+> moves its result into the consumer wrapper and does not re-decide it.
 
 #### Goal
 
