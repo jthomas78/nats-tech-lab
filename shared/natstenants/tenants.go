@@ -50,7 +50,6 @@ import (
 	"sync"
 
 	"github.com/nats-io/nats.go"
-	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
@@ -213,8 +212,10 @@ func WithOTel(p *otelnats.Provider, receivingAccount string) LifecycleOption {
 // cross-account path entirely in accounts-service's declared imports.
 //
 // With WithOTel, each delivery is a CONSUMER span instead (Phase 54,
-// decision 5): it continues the event's traceparent, carries the receiving
-// account, and is the span on the ctx the handler gets.
+// decision 5): its parent is the event's traceparent and nothing else
+// (Phase 57, decision 6), it carries the receiving account, and it is the
+// span on the ctx the handler gets. The ctx keeps context.WithoutCancel, so
+// cancelling the subscribing ctx never cancels a delivery (BR-082).
 func SubscribeLifecycle(ctx context.Context, nc *nats.Conn, log *slog.Logger, h LifecycleHandlers, opts ...LifecycleOption) error {
 	ctx = context.WithoutCancel(ctx)
 	type lifecycleEvent struct {
@@ -225,49 +226,33 @@ func SubscribeLifecycle(ctx context.Context, nc *nats.Conn, log *slog.Logger, h 
 		opt(&cfg)
 	}
 
-	// delivery is one traced lifecycle delivery: the ctx the handler gets,
-	// and how its span ends. The OTel path is a CONSUMER span (decision 5);
-	// without OTel the delivery is untraced (Phase 54d).
-	type delivery struct {
-		ctx  context.Context
-		fail func(error)
-		end  func()
-	}
-	start := func(msg *nats.Msg) delivery {
-		if cfg.otel != nil {
-			spanCtx, span := cfg.otel.StartConsumer(ctx, msg, otelnats.Trust{ReceivingAccount: cfg.receivingAccount})
-			return delivery{
-				ctx:  spanCtx,
-				fail: func(err error) { span.SetStatus(codes.Error, err.Error()); span.End() },
-				end:  func() { span.End() },
-			}
-		}
-		return delivery{ctx: ctx, fail: func(error) {}, end: func() {}}
-	}
 	// handle decodes one delivery and runs op on its tenant. decodeMsg and
-	// opMsg are the log messages for the two ways it can fail.
+	// opMsg are the log messages for the two ways it can fail. With OTel the
+	// delivery is a CONSUMER span whose parent is the message's traceparent
+	// only, never a span left on ctx by the delivery that provisioned this
+	// tenant (Phase 57, decision 6); without OTel it is untraced (Phase 54d).
+	trust := otelnats.Trust{ReceivingAccount: cfg.receivingAccount}
 	handle := func(op func(context.Context, string) error, decodeMsg, opMsg string) nats.MsgHandler {
 		return func(msg *nats.Msg) {
-			d := start(msg)
-			var evt lifecycleEvent
-			if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
-				if log != nil {
-					log.Error(decodeMsg, "err", err)
+			_ = cfg.otel.Consume(ctx, msg.Subject, msg.Header, trust, func(ctx context.Context) error {
+				var evt lifecycleEvent
+				if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
+					if log != nil {
+						log.Error(decodeMsg, "err", err)
+					}
+					if err == nil {
+						err = errors.New("lifecycle event has no tenant name")
+					}
+					return err
 				}
-				if err == nil {
-					err = errors.New("lifecycle event has no tenant name")
+				if err := op(ctx, evt.Name); err != nil {
+					if log != nil {
+						log.Error(opMsg, "tenant", evt.Name, "err", err)
+					}
+					return err
 				}
-				d.fail(err)
-				return
-			}
-			if err := op(d.ctx, evt.Name); err != nil {
-				if log != nil {
-					log.Error(opMsg, "tenant", evt.Name, "err", err)
-				}
-				d.fail(err)
-				return
-			}
-			d.end()
+				return nil
+			})
 		}
 	}
 	created := handle(h.Ensure, "decode notify.accounts.account.created",

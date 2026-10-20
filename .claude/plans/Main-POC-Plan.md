@@ -2791,16 +2791,16 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
   `BUSINESS_RULES-SHIPPING.md`, the index line in `BUSINESS_RULES.md`, the
   gate decisions above, this list. The shipping projector premise was
   corrected first (decision 6, Phase 110 reframed).
-- [ ] **57.2 — Characterization spec, before any code.**
+- [x] **57.2 — Characterization spec, before any code.**
   `shipping-service/dictionary/projector_ctx_test.go` (BR-082 shipping
   projector split). Green on the code as it is.
-- [ ] **57.3 — Wrapper specs (red).** `shared/otelnats/wrap_test.go`:
+- [x] **57.3 — Wrapper specs (red).** `shared/otelnats/wrap_test.go`:
   BR-078 (kind, one span, parent from header, `traceparent` on the
   message), BR-079 / 6c (nil provider), BR-080 (error, service-error
   header, panic), BR-081 (reserved keys), 6a (parent selection), 6b /
   BR-082 (cancellation, deadline, values for all three wrappers).
-- [ ] **57.4 — Wrappers (green).** `shared/otelnats/wrap.go`.
-- [ ] **57.5 — Tenant lifecycle regression (red, then green).**
+- [x] **57.4 — Wrappers (green).** `shared/otelnats/wrap.go`.
+- [x] **57.5 — Tenant lifecycle regression (red, then green).**
   `shared/natstenants/lifecycle_parent_test.go`; then migrate site 4.
 - [ ] **57.6 — Migrate the Client sites** 1 and 2.
 - [ ] **57.7 — Migrate the Consumer sites** 3, 5 and 6 (site 3 keeps its
