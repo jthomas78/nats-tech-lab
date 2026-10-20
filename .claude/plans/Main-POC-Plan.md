@@ -2474,8 +2474,10 @@ the reconciliation path.
 > Proposed 2026-10-20 after a Claude/Codex review. The user chose option A
 > (a concrete, nil-safe `*Provider`; no interfaces by default) and
 > confirmed the business rules BR-078 to BR-080 below on 2026-10-20.
+> BR-081 (reserved attribute keys) and the required specs were added the
+> same day from a review the user approved.
 > Design gate only — no tasks, tests or code until approved. At approval
-> the three rules go into `BUSINESS_RULES-SHIPPING.md` next to BR-064 to
+> the four rules go into `BUSINESS_RULES-SHIPPING.md` next to BR-064 to
 > BR-077, in the same commit as the task list (demo 01 workflow step 4).
 >
 > **Depends on** the separate projector error-status fix (side session
@@ -2520,6 +2522,22 @@ trace).
   type the projector does not project) stays Unset. A best-effort fan-out
   does not take on its children's failures automatically; each failed child
   operation keeps its own Error status.
+- **BR-081 — Reserved attribute keys.** A caller-supplied label never
+  replaces an attribute the wrapper sets. The reserved keys are:
+  - the tenant attributes from `Trust` (BR-069): every key that starts
+    with `lab.tenant.` — today `lab.tenant.receiving_account` and
+    `lab.tenant.originating`;
+  - the messaging attributes: `messaging.system`,
+    `messaging.destination.name`, `peer.service`;
+  - the Client wrapper's `rpc.retry_count` (BR-037);
+  - `lab.requester` (BR-041).
+
+  **The rule for a clash is fixed: the trusted value always wins, and the
+  caller's label is dropped,** with a debug log that names the key. This
+  holds also when the trusted value is empty: an empty
+  `lab.tenant.originating` stays absent and is never filled from a caller
+  label. The span kind is not an attribute; a wrapper sets it from its own
+  type and no label can change it.
 
 #### Design decisions (draft)
 
@@ -2559,7 +2577,10 @@ trace).
    caller adds labels such as `entity_id` and `consumer.durable` with an
    option that `shared/otelnats` defines (string key, string value). Service
    code then imports no `go.opentelemetry.io/...` package at all, which
-   keeps the dependency check (decision 9) a plain import rule.
+   keeps the dependency check (decision 9) a plain import rule. The
+   reserved keys and the clash rule are BR-081: the wrapper drops a caller
+   label whose key is reserved, so the trusted value always wins. The order
+   in which the wrapper applies attributes does not decide this.
 6. **Consumer parent comes from the message header only.** `StartConsumer`
    today prefers a span already on `ctx` over the header, so each site
    protects itself differently (`context.Background()` in the shipping
@@ -2567,9 +2588,17 @@ trace).
    bridge and the tenant lifecycle). The Consumer wrapper removes any span
    from `ctx` before it extracts the header, and keeps the rest of `ctx`
    (deadline, cancellation, values). With a nil provider the callback gets
-   the caller's `ctx` unchanged (BR-079). Consequence: the shipping
-   projector's traced path now carries its registration `ctx`'s
-   cancellation, as its untraced path already does.
+   the caller's `ctx` unchanged (BR-079).
+
+   **This changes behavior; it is not only a move of code.** Today a span
+   on `ctx` wins over the header; after this phase the header wins. The
+   specs under "Required specs" pin the new behavior.
+
+   **Accepted change — needs the user's sign-off at approval:** the
+   shipping projector's traced path (`tracing.go` `startMessage`) today
+   starts from `context.Background()`. After this phase it starts from the
+   caller's `ctx` with the span removed, so it now stops when that `ctx` is
+   cancelled or its deadline passes. The untraced path already does this.
 7. **Option A — a concrete, nil-safe `*Provider`.** Every wrapper is a
    method on `*Provider` and works on a nil receiver: it calls the callback
    once and returns what the callback returned (BR-079). No interface is
@@ -2614,6 +2643,30 @@ trace).
     (`*_otel_test.go`, `trace_async_test.go`, `natsnotify_otel_test.go`,
     `lifecycle_otel_test.go`) must pass unchanged, apart from status
     changes BR-080 requires.
+
+#### Required specs
+
+These specs are required at approval. Each becomes a Ginkgo `Context` with
+its rule ID, written red before the code (demo 01 workflow step 3).
+
+- **BR-081 — reserved keys.** For each wrapper: a caller label that uses a
+  reserved key (`lab.tenant.receiving_account`, `lab.tenant.originating`,
+  `messaging.destination.name`, `rpc.retry_count`) does not change the
+  trusted attribute. A label `lab.tenant.originating=globex` on a span whose
+  `Trust` has no originating tenant leaves the attribute absent. A label
+  with a key that is not reserved (`entity_id`) is kept.
+- **Decision 6a — parent selection.** The CONSUMER span's parent comes from
+  the message's `traceparent` header, even when `ctx` already holds a
+  span. With no header, the span is a new root, not a child of the `ctx`
+  span.
+- **Decision 6b — cancellation, deadline, values.** The callback's `ctx`
+  keeps the caller's cancellation, deadline and values after the span is
+  removed: cancelling the caller's `ctx` cancels the callback's `ctx`, the
+  deadline is the same, and a value set on the caller's `ctx` is readable.
+- **Decision 6c / BR-079 — nil provider.** With a nil `*Provider`, the
+  callback gets the caller's `ctx` unchanged, runs exactly once, and its
+  error is returned unchanged. No header is added to the message. A panic
+  in the callback propagates unchanged.
 
 #### Sites to migrate
 
