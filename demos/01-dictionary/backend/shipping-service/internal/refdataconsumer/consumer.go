@@ -38,10 +38,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/micro"
 	"github.com/nats-io/nuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
@@ -519,64 +516,41 @@ const requestorHeader = "Nats-Requestor"
 // the only transport this consumer has.
 //
 // BR-037: with WithTracing, exactly one CLIENT span covers the whole call —
-// started before the retry loop, not one per attempt. It is the child of the
-// span on ctx (a REST handler's SERVER span, BR-073), and records the
-// attempts as rpc.retry_count. Most of this consumer's subjects are this
-// tenant account's local aliases, remapped to rpc.{tenant}.refdata.*.v1
-// inside the NATS server (accounts-service's provisioner.go).
+// the whole retry loop runs inside otelnats.Call, not one span per attempt
+// (Phase 57, BR-078). It is the child of the span on ctx (a REST handler's
+// SERVER span, BR-073), and records the attempts as rpc.retry_count. Most of
+// this consumer's subjects are this tenant account's local aliases, remapped
+// to rpc.{tenant}.refdata.*.v1 inside the NATS server (accounts-service's
+// provisioner.go). Without WithTracing the call is untraced (Phase 54d).
 func (c *Consumer) requestRPC(ctx context.Context, subject string, body []byte) ([]byte, error) {
 	msg := &nats.Msg{
 		Subject: subject,
 		Data:    body,
 		Header:  nats.Header{requestorHeader: []string{c.requestorID}},
 	}
-	finish := c.startCall(ctx, msg)
-	var lastErr error
-	attempt := 0
-	for ; attempt <= c.rpcRetries; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-time.After(c.rpcBackoff * time.Duration(attempt)):
-			case <-ctx.Done():
-				finish(attempt, nil, ctx.Err())
-				return nil, ctx.Err()
+	reply, err := c.otel.Call(ctx, msg, "refdata", func(ctx context.Context) (*nats.Msg, int, error) {
+		var lastErr error
+		attempt := 0
+		for ; attempt <= c.rpcRetries; attempt++ {
+			if attempt > 0 {
+				select {
+				case <-time.After(c.rpcBackoff * time.Duration(attempt)):
+				case <-ctx.Done():
+					return nil, attempt, ctx.Err()
+				}
 			}
-		}
-		rctx, cancel := context.WithTimeout(ctx, c.rpcRequestTimeout)
-		reply, err := c.nc.RequestMsgWithContext(rctx, msg)
-		cancel()
-		if err == nil {
-			finish(attempt, reply, nil)
-			return reply.Data, nil
-		}
-		lastErr = err
-	}
-	finalErr := fmt.Errorf("%w (subject %s): %v", ErrRPCUnavailable, subject, lastErr)
-	finish(attempt-1, nil, finalErr)
-	return nil, finalErr
-}
-
-// startCall starts the call's one span, writes its traceparent into msg, and
-// returns the function that ends it. With WithTracing the span is an OTel
-// CLIENT span (Phase 54b-4, BR-064, BR-065), the same shape as
-// organizations-service's refdataclient; without it, the call is untraced
-// (Phase 54d).
-func (c *Consumer) startCall(ctx context.Context, msg *nats.Msg) func(retries int, reply *nats.Msg, err error) {
-	if c.otel != nil {
-		ctx, span := c.otel.StartClient(ctx, msg.Subject, "refdata")
-		otelnats.Inject(ctx, msg)
-		return func(retries int, reply *nats.Msg, err error) {
-			span.SetAttributes(attribute.Int("rpc.retry_count", retries))
-			switch {
-			case err != nil:
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
-			case reply.Header.Get(micro.ErrorHeader) != "":
-				span.SetStatus(codes.Error, reply.Header.Get(micro.ErrorHeader))
+			rctx, cancel := context.WithTimeout(ctx, c.rpcRequestTimeout)
+			reply, err := c.nc.RequestMsgWithContext(rctx, msg)
+			cancel()
+			if err == nil {
+				return reply, attempt, nil
 			}
-			span.End()
+			lastErr = err
 		}
+		return nil, attempt - 1, fmt.Errorf("%w (subject %s): %v", ErrRPCUnavailable, subject, lastErr)
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return func(int, *nats.Msg, error) {}
+	return reply.Data, nil
 }

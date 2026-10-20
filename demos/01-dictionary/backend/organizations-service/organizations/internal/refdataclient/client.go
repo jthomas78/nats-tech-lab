@@ -24,8 +24,6 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 )
@@ -226,69 +224,43 @@ func (c *Client) ResolveArea(ctx context.Context, level domain.AreaLevel, code s
 }
 
 // requestRPC makes one logical rpc.* call, retrying up to defaultRPCRetries
-// times. BR-037: exactly one span covers the whole call — minted before the
-// retry loop starts, not one per attempt, so a 3-attempt failure is one span
-// with rpc.retry_count=2, not three parentless siblings. The span continues
-// the parent in ctx (the inbound handler's own span), or is a root if ctx
-// carries none.
+// times. BR-037: exactly one span covers the whole call — the whole retry
+// loop runs inside otelnats.Call (Phase 57, BR-078), not one span per
+// attempt, so a 3-attempt failure is one span with rpc.retry_count=2, not
+// three parentless siblings. The span continues the parent in ctx (the
+// inbound handler's own span), or is a root if ctx carries none. The peer
+// service is always "refdata", the only thing this package ever calls.
+// Without a Provider the call is untraced and carries no traceparent
+// (Phase 54d).
 func (c *Client) requestRPC(ctx context.Context, subject string, body []byte) ([]byte, error) {
 	msg := &nats.Msg{
 		Subject: subject,
 		Data:    body,
 		Header:  nats.Header{requestorHeader: []string{c.requestorID}},
 	}
-	finish := c.startCall(ctx, msg)
-	var lastErr error
-	attempt := 0
-	for ; attempt <= defaultRPCRetries; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-time.After(defaultRPCBackoff * time.Duration(attempt)):
-			case <-ctx.Done():
-				finish(attempt, nil, ctx.Err())
-				return nil, ctx.Err()
+	reply, err := c.otel.Call(ctx, msg, "refdata", func(ctx context.Context) (*nats.Msg, int, error) {
+		var lastErr error
+		attempt := 0
+		for ; attempt <= defaultRPCRetries; attempt++ {
+			if attempt > 0 {
+				select {
+				case <-time.After(defaultRPCBackoff * time.Duration(attempt)):
+				case <-ctx.Done():
+					return nil, attempt, ctx.Err()
+				}
 			}
-		}
-		rctx, cancel := context.WithTimeout(ctx, defaultRPCRequestTimeout)
-		reply, err := c.nc.RequestMsgWithContext(rctx, msg)
-		cancel()
-		if err == nil {
-			finish(attempt, reply, nil)
-			return reply.Data, nil
-		}
-		lastErr = err
-	}
-	finalErr := fmt.Errorf("%w (subject %s): %v", ErrRPCUnavailable, subject, lastErr)
-	finish(attempt-1, nil, finalErr)
-	return nil, finalErr
-}
-
-// startCall starts the call's one span, writes its traceparent into msg, and
-// returns the function that ends it. With an otelnats Provider the span is
-// an OTel CLIENT span (BR-064, BR-065); without one the call is untraced
-// (Phase 54d retired the legacy tracer). The peer service is always "refdata", the
-// only thing this package ever calls.
-func (c *Client) startCall(ctx context.Context, msg *nats.Msg) func(retries int, reply *nats.Msg, err error) {
-	if c.otel != nil {
-		ctx, span := c.otel.StartClient(ctx, msg.Subject, "refdata")
-		otelnats.Inject(ctx, msg)
-		return func(retries int, reply *nats.Msg, err error) {
-			span.SetAttributes(attribute.Int("rpc.retry_count", retries))
-			switch {
-			case err != nil:
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
-			case reply.Header.Get(serviceErrorHeader) != "":
-				// BR-055 carried over: refdata's micro error reply.
-				span.SetStatus(codes.Error, reply.Header.Get(serviceErrorHeader))
+			rctx, cancel := context.WithTimeout(ctx, defaultRPCRequestTimeout)
+			reply, err := c.nc.RequestMsgWithContext(rctx, msg)
+			cancel()
+			if err == nil {
+				return reply, attempt, nil
 			}
-			span.End()
+			lastErr = err
 		}
+		return nil, attempt - 1, fmt.Errorf("%w (subject %s): %v", ErrRPCUnavailable, subject, lastErr)
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	// No Provider: the call is untraced and carries no traceparent.
-	return func(int, *nats.Msg, error) {}
+	return reply.Data, nil
 }
-
-// serviceErrorHeader is micro's error header on a reply.
-const serviceErrorHeader = "Nats-Service-Error"
