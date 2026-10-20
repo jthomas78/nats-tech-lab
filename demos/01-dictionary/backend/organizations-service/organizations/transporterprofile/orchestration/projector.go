@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"go.opentelemetry.io/otel/codes"
 
 	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 
@@ -77,13 +75,14 @@ func (p *Projector) Start(ctx context.Context) error {
 	}
 	consume, err := consumer.Consume(func(msg jetstream.Msg) {
 		// Decision 6: one ctx per delivery, carrying the CONSUMER span when
-		// traced, so every write below is part of the event's trace.
-		ctx, end := p.startDelivery(msg)
-		// Deferred so the span still ends if project panics; the closure
-		// reads the final err, not its nil value at defer time.
-		var err error
-		defer func() { end(err) }()
-		err = p.project(ctx, msg)
+		// traced, so every write below is part of the event's trace. The span
+		// is this processing attempt: Error when project returns an error
+		// (BR-TP76), even when a redelivery later succeeds under a span of
+		// its own. otelnats.Consume ends it on a panic too. Without a
+		// Provider the delivery is untraced.
+		_ = p.otel.Consume(context.Background(), msg.Subject(), msg.Headers(),
+			otelnats.Trust{ReceivingAccount: p.account},
+			func(ctx context.Context) error { return p.project(ctx, msg) })
 	})
 	if err != nil {
 		return fmt.Errorf("consume transporter profile events: %w", err)
@@ -92,28 +91,6 @@ func (p *Projector) Start(ctx context.Context) error {
 	p.consume = consume
 	p.mu.Unlock()
 	return nil
-}
-
-// startDelivery starts the one span for one delivery and returns its ctx
-// and the function that ends it: nil for a successful or intentionally
-// skipped delivery, the processing error otherwise (BR-TP76). The span is
-// this processing attempt, so a failed attempt is Error even when a
-// redelivery later succeeds under a span of its own. Without a Provider the
-// delivery is untraced.
-func (p *Projector) startDelivery(msg jetstream.Msg) (context.Context, func(error)) {
-	ctx := context.Background()
-	if p.otel == nil {
-		return ctx, func(error) {}
-	}
-	ctx, span := p.otel.StartConsumer(ctx, &nats.Msg{Subject: msg.Subject(), Header: msg.Headers()},
-		otelnats.Trust{ReceivingAccount: p.account})
-	return ctx, func(err error) {
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
-		span.End()
-	}
 }
 
 // project settles one delivery — Ack, Nak or Term — and returns why

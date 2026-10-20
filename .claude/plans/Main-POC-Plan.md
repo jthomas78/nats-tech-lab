@@ -2803,7 +2803,7 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
 - [x] **57.5 — Tenant lifecycle regression (red, then green).**
   `shared/natstenants/lifecycle_parent_test.go`; then migrate site 4.
 - [x] **57.6 — Migrate the Client sites** 1 and 2.
-- [ ] **57.7 — Migrate the Consumer sites** 3, 5 and 6 (site 3 keeps its
+- [x] **57.7 — Migrate the Consumer sites** 3, 5 and 6 (site 3 keeps its
   base `ctx` split, with a comment naming Phase 110).
 - [ ] **57.8 — Migrate the Producer sites** 7, 8 and 9.
 - [ ] **57.9 — Dependency guard** (decision 9):

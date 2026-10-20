@@ -165,16 +165,15 @@ func register(
 		event.ID = id
 
 		// One span per message, continuing the traceparent the evt.* publish
-		// carried if present, else a fresh root — see startMessage.
-		spanCtx, end := cfg.startMessage(msgCtx, msg, id, durable)
-
-		if err := project(spanCtx, msg.Subject(), event); err != nil {
+		// carried if present, else a fresh root — see runMessage.
+		err := cfg.runMessage(msgCtx, msg, id, durable, func(ctx context.Context) error {
+			return project(ctx, msg.Subject(), event)
+		})
+		if err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
-			end(err)
 			_ = msg.Nak()
 			return
 		}
-		end(nil)
 		_ = msg.Ack()
 	})
 }

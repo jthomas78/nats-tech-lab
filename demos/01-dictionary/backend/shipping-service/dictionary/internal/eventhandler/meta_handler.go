@@ -70,20 +70,22 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 			return
 		}
 
-		// One span per message — see startMessage.
-		spanCtx, end := cfg.startMessage(msgCtx, msg, id, MetaProjectorDurable)
-
-		data, err := mergeSet(spanCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
+		// One span per message — see runMessage.
+		err := cfg.runMessage(msgCtx, msg, id, MetaProjectorDurable, func(ctx context.Context) error {
+			data, err := mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
+			if err != nil {
+				log.Error("meta projection failed, will redeliver", "subject", msg.Subject(), "err", err)
+				return err
+			}
+			if data != nil {
+				n.Publish(ctx, notify.Changed(event.Context, "meta"), data)
+			}
+			return nil
+		})
 		if err != nil {
-			log.Error("meta projection failed, will redeliver", "subject", msg.Subject(), "err", err)
-			end(err)
 			_ = msg.Nak()
 			return
 		}
-		if data != nil {
-			n.Publish(spanCtx, notify.Changed(event.Context, "meta"), data)
-		}
-		end(nil)
 		_ = msg.Ack()
 	})
 }

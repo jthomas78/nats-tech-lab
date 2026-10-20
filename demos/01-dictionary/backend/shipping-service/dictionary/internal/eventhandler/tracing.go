@@ -6,8 +6,6 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jthomas78/nats-tech-lab/shared/otelnats"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
@@ -50,39 +48,38 @@ func (c projectorConfig) notifier(nc *nats.Conn, log *slog.Logger) *natsnotify.N
 	return notifier(nc, log, natsnotify.WithOTel(c.otel))
 }
 
-// startMessage starts the one span for one projector message and returns
-// its ctx and the function that ends it: nil for success, the projection
-// error otherwise.
+// runMessage runs project for one projector message under its one span and
+// returns project's error. The caller Acks or Naks after it returns, so the
+// span has ended by then.
 //
-// The per-message ctx starts from context.Background(), so the CONSUMER
-// span's parent is the message's traceparent (BR-037) and never a span
-// left on the registration ctx. Without a Provider the message is untraced
-// (Phase 54d).
+// The span is otelnats.Consume's CONSUMER span: its parent is the message's
+// traceparent (BR-037), never a span left on the registration ctx (Phase 57,
+// decision 6). Without a Provider the message is untraced (Phase 54d).
+//
+// The base ctx differs by path, and Phase 57 keeps that split exactly
+// (BR-082, characterized in projector_ctx_test.go): traced, the message runs
+// on context.Background(); untraced, on msgCtx, which is
+// context.WithoutCancel(registration ctx). Neither is cancelled with the
+// registration ctx; only the untraced one carries its values. Phase 110
+// owns any change to this.
 //
 // The span records entity_id and consumer.durable: the container and meta
 // projectors consume the same evt.* message, and the durable name is what
 // tells their two spans apart.
-func (c projectorConfig) startMessage(
+func (c projectorConfig) runMessage(
 	msgCtx context.Context,
 	msg jetstream.Msg,
 	id, durable string,
-) (context.Context, func(error)) {
+	project func(ctx context.Context) error,
+) error {
+	base := msgCtx
 	if c.otel != nil {
-		ctx, span := c.otel.StartConsumer(context.Background(),
-			&nats.Msg{Subject: msg.Subject(), Header: msg.Headers()},
-			otelnats.Trust{ReceivingAccount: c.account})
-		span.SetAttributes(
-			attribute.String("entity_id", id),
-			attribute.String(consumerDurableAttr, durable),
-		)
-		return ctx, func(err error) {
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
-			}
-			span.End()
-		}
+		base = context.Background() // Phase 110: see above.
 	}
-
-	return msgCtx, func(error) {}
+	return c.otel.Consume(base, msg.Subject(), msg.Headers(),
+		otelnats.Trust{ReceivingAccount: c.account},
+		project,
+		otelnats.Label{Key: "entity_id", Value: id},
+		otelnats.Label{Key: consumerDurableAttr, Value: durable},
+	)
 }

@@ -64,38 +64,36 @@ func RegisterContainers(
 		}
 		event.ID = id
 
-		// One span per message — see startMessage.
-		spanCtx, end := cfg.startMessage(msgCtx, msg, id, ContainerProjectorDurable)
+		// One span per message — see runMessage.
+		err := cfg.runMessage(msgCtx, msg, id, ContainerProjectorDurable, func(ctx context.Context) error {
+			agg := currentContainerAgg(ctx, kv, event)
+			agg.Apply(msg.Subject(), event)
+			state := agg.State(event.Context)
 
-		agg := currentContainerAgg(spanCtx, kv, event)
-		agg.Apply(msg.Subject(), event)
-		state := agg.State(event.Context)
-
-		persisted, err := repo.Upsert(spanCtx, state)
+			persisted, err := repo.Upsert(ctx, state)
+			if err != nil {
+				log.Error("container projection failed, will redeliver", "subject", msg.Subject(), "err", err)
+				return err
+			}
+			data, err := json.Marshal(persisted)
+			if err != nil {
+				log.Error("marshal container state", "err", err)
+				return err
+			}
+			if _, err := kv.Put(ctx, event.Context, state.KVKey(), data); err != nil {
+				log.Error("container kv write failed, will redeliver", "subject", msg.Subject(), "err", err)
+				return err
+			}
+			n.Publish(ctx, notify.Changed(event.Context, "container"), data)
+			if rawData, err := json.Marshal(event); err == nil {
+				n.Publish(ctx, notify.Raw(event.Context, "container", eventType), rawData)
+			}
+			return nil
+		})
 		if err != nil {
-			log.Error("container projection failed, will redeliver", "subject", msg.Subject(), "err", err)
-			end(err)
 			_ = msg.Nak()
 			return
 		}
-		data, err := json.Marshal(persisted)
-		if err != nil {
-			log.Error("marshal container state", "err", err)
-			end(err)
-			_ = msg.Nak()
-			return
-		}
-		if _, err := kv.Put(spanCtx, event.Context, state.KVKey(), data); err != nil {
-			log.Error("container kv write failed, will redeliver", "subject", msg.Subject(), "err", err)
-			end(err)
-			_ = msg.Nak()
-			return
-		}
-		n.Publish(spanCtx, notify.Changed(event.Context, "container"), data)
-		if rawData, err := json.Marshal(event); err == nil {
-			n.Publish(spanCtx, notify.Raw(event.Context, "container", eventType), rawData)
-		}
-		end(nil)
 		_ = msg.Ack()
 	})
 }

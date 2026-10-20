@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
@@ -150,15 +149,14 @@ const platformAccount = "PLATFORM"
 // notify.* PRODUCER span is its child (Phase 54b-3a). Without OTel the
 // fan-out runs under the process ctx, as before.
 func bridge(ctx context.Context, p *otelnats.Provider, pub Publisher, msg jetstream.Msg, subj natsnotify.Subject) {
-	if p == nil {
-		pub.PublishToAll(ctx, subj, msg.Data())
-		return
-	}
-	// StartConsumer reads the subject and the traceparent header only.
-	spanCtx, span := p.StartConsumer(ctx, &nats.Msg{Subject: msg.Subject(), Header: msg.Headers()},
-		otelnats.Trust{ReceivingAccount: platformAccount})
-	defer span.End()
-	pub.PublishToAll(spanCtx, subj, msg.Data())
+	// Best effort: PublishToAll reports nothing, so the span is never Error
+	// here. otelnats.Consume reads the subject and the traceparent header
+	// only (Phase 57, decision 6); with a nil p the bridge is untraced.
+	_ = p.Consume(ctx, msg.Subject(), msg.Headers(), otelnats.Trust{ReceivingAccount: platformAccount},
+		func(ctx context.Context) error {
+			pub.PublishToAll(ctx, subj, msg.Data())
+			return nil
+		})
 }
 
 func sleepOrDone(ctx context.Context, d time.Duration) {
