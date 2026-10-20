@@ -1830,6 +1830,10 @@ append into a reported one, and it drops its own error.
 - **Test:** `orchestration/projector_span_status_test.go` — `BR-TP76 a
   failed processing attempt marks its CONSUMER span Error`: undecodable
   event → one Error span with the error recorded, no redelivery; a
-  projection write that fails once → Error then Unset; a cache write that
-  fails once → Error then Unset; a skipped `details-updated` event → one
-  Unset span.
+  hydrate failure (an empty `organizationID` makes the hydration filter an
+  invalid subject) → Error with the error recorded; a projection write that
+  fails once → Error then Unset; a cache write that fails once → Error then
+  Unset; a certificate write that fails once → one Error span with the error
+  recorded, the rest Unset; a skipped `details-updated` event → one Unset
+  span. The span is ended from a deferred closure, so it still ends if
+  processing panics.

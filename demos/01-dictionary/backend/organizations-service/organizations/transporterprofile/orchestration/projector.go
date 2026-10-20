@@ -79,7 +79,11 @@ func (p *Projector) Start(ctx context.Context) error {
 		// Decision 6: one ctx per delivery, carrying the CONSUMER span when
 		// traced, so every write below is part of the event's trace.
 		ctx, end := p.startDelivery(msg)
-		end(p.project(ctx, msg))
+		// Deferred so the span still ends if project panics; the closure
+		// reads the final err, not its nil value at defer time.
+		var err error
+		defer func() { end(err) }()
+		err = p.project(ctx, msg)
 	})
 	if err != nil {
 		return fmt.Errorf("consume transporter profile events: %w", err)
