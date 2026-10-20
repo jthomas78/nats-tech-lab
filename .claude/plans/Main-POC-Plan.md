@@ -2632,13 +2632,23 @@ trace).
 
    **The shipping projector keeps its two base contexts.** In `tracing.go`
    `startMessage` the traced path starts from `context.Background()` and
-   the untraced path from the registration `msgCtx`. So today a traced
-   message is not cancelled with the registration `ctx`, and an untraced
-   message is. This phase keeps that split exactly: the site still chooses
-   the base `ctx` by whether tracing is on, as in decision 8, and passes it
-   to the Consumer wrapper. A comment at the site names Phase 110. Making
-   the two paths the same is a behavior change and is deferred to
-   Phase 110 (`Main-POC-Plan-Candidates.md`).
+   the untraced path from the registration `msgCtx`. Each projector builds
+   `msgCtx` as `context.WithoutCancel(ctx)` (`handler.go`,
+   `container_handler.go`, `meta_handler.go`), so **neither** path is
+   cancelled with the registration `ctx`. The two bases differ in values
+   only: the untraced path keeps the registration `ctx`'s values, and the
+   traced path drops them. This phase keeps that split exactly: the site
+   still chooses the base `ctx` by whether tracing is on, as in decision 8,
+   and passes it to the Consumer wrapper. A comment at the site names
+   Phase 110. Making the two paths the same is a behavior change and is
+   deferred to Phase 110 (`Main-POC-Plan-Candidates.md`).
+
+   *Corrected 2026-10-20 during implementation:* the approved text said an
+   untraced message is cancelled with the registration `ctx`. The code
+   shows it is not (`WithoutCancel` at all three registrations). The
+   decision (keep the split exactly) is unchanged; only its description
+   and the characterization spec below were corrected, with the user's
+   approval.
 7. **Option A — a concrete, nil-safe `*Provider`.** Every wrapper is a
    method on `*Provider` and works on a nil receiver: it calls the callback
    once and returns what the callback returned (BR-079). No interface is
@@ -2705,12 +2715,13 @@ its rule ID, written red before the code (demo 01 workflow step 3).
   cancels the callback's `ctx`; the deadline is the same; a value set on
   the caller's `ctx` is readable. For the Consumer wrapper this also holds
   after the span is removed.
-- **BR-082 — shipping projector split kept.** A traced projector message is
-  not cancelled when the registration `ctx` is cancelled, and an untraced
-  message is. This is a characterization test: it records today's behavior,
-  so it passes before the migration and must stay green after it. If an
-  existing spec already pins this, that spec serves and must pass
-  unchanged.
+- **BR-082 — shipping projector split kept.** Neither a traced nor an
+  untraced projector message is cancelled when the registration `ctx` is
+  cancelled. An untraced message's `ctx` carries a value set on the
+  registration `ctx`; a traced message's `ctx` does not. This is a
+  characterization test: it records today's behavior, so it passes before
+  the migration and must stay green after it. No existing spec pins this
+  (checked 2026-10-20). *(Corrected 2026-10-20; see decision 6.)*
 - **Decision 6 — tenant lifecycle parentage (regression).** Provision a
   tenant dynamically through a traced `created` delivery, so its lifecycle
   subscription is made from the provisioning span's `ctx`. Then send a
@@ -2730,7 +2741,7 @@ its rule ID, written red before the code (demo 01 workflow step 3).
 |---|------|-------|---------|
 | 1 | `shipping-service/internal/refdataconsumer/consumer.go` — `startCall` | CLIENT span, retry count, `Nats-Service-Error` | Client |
 | 2 | `organizations-service/organizations/internal/refdataclient/client.go` — `startCall` | same as 1 (own copy of the header name) | Client |
-| 3 | `shipping-service/dictionary/internal/eventhandler/tracing.go` — `startMessage` | CONSUMER span, `entity_id`, `consumer.durable`; traced base `Background()`, untraced base `msgCtx` (split kept, decision 6) | Consumer |
+| 3 | `shipping-service/dictionary/internal/eventhandler/tracing.go` — `startMessage` | CONSUMER span, `entity_id`, `consumer.durable`; traced base `Background()`, untraced base `msgCtx` = `WithoutCancel` (values differ, cancellation does not; split kept, decision 6) | Consumer |
 | 4 | `shared/natstenants/tenants.go` — lifecycle `delivery` | CONSUMER span, `fail`/`end` pair; a dynamically made subscription inherits the provisioning span (parentage corrected, decision 6) | Consumer |
 | 5 | `refdata-service/refdata/internal/notifybridge/notifybridge.go` — `bridge` | CONSUMER span, no error status (best effort) | Consumer |
 | 6 | `organizations-service/.../transporterprofile/orchestration/projector.go` — `Consume` callback | CONSUMER span; error status from the projector fix | Consumer |
@@ -2751,7 +2762,8 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
 - **Metrics and logs** (Phase 55). No meters, log bridges or unused hooks.
 - **Any change to cancellation or deadline behavior** (BR-082). In
   particular, the shipping projector's traced and untraced base contexts
-  stay different; aligning them is Phase 110.
+  stay different (they differ in values, not cancellation); aligning them
+  is Phase 110.
 - **The SERVER side.** `Middleware` (`micro.go`) and the HTTP middleware
   already own their spans and stay as they are.
 

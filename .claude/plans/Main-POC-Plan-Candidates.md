@@ -639,31 +639,38 @@ what that credential may do. Refined 2026-10-15 after a Codex review.
 - Until this ships, the accurate statement is: **anyone who can reach
   `adminConnectInfo` can obtain the operator access it grants.**
 
-### Phase 110 (candidate, deferred from Phase 57's design gate, 2026-10-20) — Shipping Projector: One Cancellation Behavior for Traced and Untraced Messages
+### Phase 110 (candidate, deferred from Phase 57's design gate, 2026-10-20; reframed 2026-10-20) — Shipping Projector: One Base Context for Traced and Untraced Messages
+
+> **Reframed 2026-10-20.** This candidate first said the untraced path
+> stops on shutdown and the traced path does not. That is wrong: each
+> projector builds `msgCtx` as `context.WithoutCancel(ctx)`
+> (`handler.go`, `container_handler.go`, `meta_handler.go`), so neither
+> path is cancelled with the registration `ctx`. The two paths differ in
+> values only. Phase 57's characterization spec pins that.
 
 #### Goal
 
 In `shipping-service/dictionary/internal/eventhandler/tracing.go`,
 `startMessage` gives a traced message a base `ctx` of
-`context.Background()` and an untraced message the registration `msgCtx`.
-So the same projector stops its work on shutdown only when tracing is off.
-Turning tracing on or off should not change when work is cancelled.
+`context.Background()`, which drops the registration `ctx`'s values, and
+an untraced message the registration `msgCtx`
+(`context.WithoutCancel(ctx)`), which keeps them. Turning tracing on or off
+should not change which values the projector's work can read.
 
 Phase 57 keeps this split on purpose (BR-082: a wrapper never changes
-cancellation or deadline behavior). This phase decides whether, and how,
+cancellation, deadline or values). This phase decides whether, and how,
 to make the two paths the same.
 
 #### Open questions (full design needed before this leaves candidate)
 
-- Which behavior is correct for a projector message during shutdown:
-  finish the current message (today's traced path) or stop with the
-  registration `ctx` (today's untraced path)? What does this mean for the
-  Ack/Nak of a message that is cut off part-way?
-- Why does the traced path use `context.Background()`? The code comment
-  gives the parent as the reason (no span left on the registration `ctx`).
-  Phase 57's Consumer wrapper removes that need. Check that no other
-  reason exists before changing it.
+- Does any value on the registration `ctx` matter to the projector's work
+  (the Postgres repository, the KV store, the notify publishes, the
+  observer)? Name each one, or show there is none.
+- Should the traced path also use `msgCtx` (`WithoutCancel(ctx)`)? Phase
+  57's Consumer wrapper removes any span from the `ctx` it is given, so the
+  original reason for `context.Background()` (no span left on the
+  registration `ctx`) is gone. Check that no other reason exists before
+  changing it.
 - Do the container and meta projectors need the same answer?
-- Proof: a spec that cancels the registration `ctx` while a message is in
-  progress, run with tracing on and with tracing off, gives the same
-  result.
+- Proof: Phase 57's characterization spec changes in one place only — the
+  traced message then reads the registration value too.
