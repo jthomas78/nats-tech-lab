@@ -2469,7 +2469,7 @@ the reconciliation path.
 
 ---
 
-### Phase 57 — DESIGN APPROVED 2026-10-20 (follows Phase 54 and the projector error-status fix; rules and task list not yet written) — Span Lifecycle in Shared Wrappers: Service Code Says What It Does, Not How OTel Records It
+### Phase 57 — IN PROGRESS 2026-10-20 (design approved 2026-10-20; follows Phase 54 and the projector error-status fix) — Span Lifecycle in Shared Wrappers: Service Code Says What It Does, Not How OTel Records It
 
 > Proposed 2026-10-20 after a Claude/Codex review. The user chose option A
 > (a concrete, nil-safe `*Provider`; no interfaces by default) and
@@ -2767,14 +2767,50 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
 - **The SERVER side.** `Middleware` (`micro.go`) and the HTTP middleware
   already own their spans and stay as they are.
 
-#### Open at the gate
+#### Decided at the gate (task 57.1, 2026-10-20)
 
-- Wrapper names (`Call` / `Consume` / `Produce` are the working names).
-- Whether `natsnotify`'s untraced path and `publishOTel` merge into one
-  path once the Producer wrapper is nil-safe. They can only merge if the
-  untraced publish may use `PublishMsg` with an empty header; BR-079 says
-  no tracing header is added, which an empty header map does not break.
+- **Wrapper names: `Call`, `Consume`, `Produce`** (the working names), all
+  methods on `*Provider`. Signatures:
+  - `Call(ctx, msg *nats.Msg, peerService string, call func(ctx) (reply *nats.Msg, retries int, err error), labels ...Label) (*nats.Msg, error)`
+  - `Consume(ctx, subject string, header nats.Header, trust Trust, handle func(ctx) error, labels ...Label) error`
+  - `Produce(ctx, msg *nats.Msg, publish func(ctx) error, labels ...Label) error`
 
+  A caller label is `otelnats.Label{Key, Value}` (decision 5).
+- **`natsnotify` merges its two paths.** Both paths publish with
+  `nc.PublishMsg`. With a nil provider `Produce` leaves `msg.Header` nil,
+  and nats.go sends a message with no header as a plain `PUB`, exactly
+  what `nc.Publish` sends. So the wire bytes are unchanged (BR-079), and
+  the warn log and the observation sit in one place. This is not a nil
+  check that chooses a publish path (decision 8); `jstream` and the event
+  store keep theirs, because their untraced paths do differ
+  (`js.Publish` without headers, and the shared error mapping).
+
+#### Tasks
+
+- [x] **57.1 — Rules and tasks.** BR-078 to BR-082 in
+  `BUSINESS_RULES-SHIPPING.md`, the index line in `BUSINESS_RULES.md`, the
+  gate decisions above, this list. The shipping projector premise was
+  corrected first (decision 6, Phase 110 reframed).
+- [ ] **57.2 — Characterization spec, before any code.**
+  `shipping-service/dictionary/projector_ctx_test.go` (BR-082 shipping
+  projector split). Green on the code as it is.
+- [ ] **57.3 — Wrapper specs (red).** `shared/otelnats/wrap_test.go`:
+  BR-078 (kind, one span, parent from header, `traceparent` on the
+  message), BR-079 / 6c (nil provider), BR-080 (error, service-error
+  header, panic), BR-081 (reserved keys), 6a (parent selection), 6b /
+  BR-082 (cancellation, deadline, values for all three wrappers).
+- [ ] **57.4 — Wrappers (green).** `shared/otelnats/wrap.go`.
+- [ ] **57.5 — Tenant lifecycle regression (red, then green).**
+  `shared/natstenants/lifecycle_parent_test.go`; then migrate site 4.
+- [ ] **57.6 — Migrate the Client sites** 1 and 2.
+- [ ] **57.7 — Migrate the Consumer sites** 3, 5 and 6 (site 3 keeps its
+  base `ctx` split, with a comment naming Phase 110).
+- [ ] **57.8 — Migrate the Producer sites** 7, 8 and 9.
+- [ ] **57.9 — Dependency guard** (decision 9):
+  `shared/otelnats/guard_test.go` with its allowlist.
+- [ ] **57.10 — Suites.** `ginkgo ./...` in `shared/` modules touched and in
+  `shipping-service`, `organizations-service` and `refdata-service`;
+  pass/fail/skip counts recorded here.
 ---
 
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning

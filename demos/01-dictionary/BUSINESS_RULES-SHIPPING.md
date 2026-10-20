@@ -1974,6 +1974,93 @@ the default tab; Traces is. Phase 55 rebuilds Pulse on Prometheus metrics.
 - **Test:** `PulsePanel.spec.js` (`pulse-unavailable`). **Stack check:** the
   notice shows on `au-1`.
 
+### BR-078 (Phase 57, confirmed by the user 2026-10-20) — Shared wrappers own the span; service code supplies the operation and its outcome
+
+Three wrappers on `*otelnats.Provider` own span creation, context
+propagation, error recording and completion: `Call` (CLIENT), `Consume`
+(CONSUMER) and `Produce` (PRODUCER). Service code passes the work as a
+callback and returns its error; it never starts, ends or sets the status of
+a span. One CLIENT span covers the entire retry loop (BR-037 kept): `Call`
+takes the whole loop as one callback and records `rpc.retry_count`. A
+`Consume` span's parent comes from the message's `traceparent` header only,
+never from a span already on `ctx`. A dependency guard enforces the
+boundary: outside its allowlist, no non-test file imports
+`go.opentelemetry.io/…` or calls `StartServer` / `StartClient` /
+`StartProducer` / `StartConsumer` / `Inject` / `Extract`. The allowlist is
+`shared/otelnats`, `_test.go` files and
+`observability-service/cmd/otel-stackcheck`, each with its reason.
+
+- **Enforced in:** `shared/otelnats/wrap.go`; the nine migrated sites
+  (Phase 57, "Sites to migrate").
+- **Test:** `shared/otelnats/wrap_test.go`, `Describe("BR-078: …")` (one
+  span per call, kind, parent from the header); `shared/otelnats/guard_test.go`,
+  `Describe("BR-078: dependency guard")`.
+
+### BR-079 (Phase 57, confirmed by the user 2026-10-20) — With no tracing, a wrapper only runs the operation
+
+With a nil `*Provider`, a wrapper calls the operation exactly once with the
+caller's `ctx` unchanged. It returns the operation's result and error
+unchanged, and a panic in the operation propagates unchanged. It adds no
+instrumentation and writes no tracing header.
+
+- **Enforced in:** `shared/otelnats/wrap.go`.
+- **Test:** `shared/otelnats/wrap_test.go`, `Describe("BR-079: …")`.
+
+### BR-080 (Phase 57, confirmed by the user 2026-10-20) — A span is Error when the operation it represents fails
+
+A failed operation marks its span Error and records the error. A failed
+projector attempt is Error even when a redelivery may succeed later
+(BR-TP76). An intentional skip (an event type a projector does not project)
+returns no error and stays Unset. A best-effort fan-out does not take on its
+children's failures: the notify bridge's CONSUMER span stays Unset when a
+tenant publish fails, and that publish's own PRODUCER span is Error. A
+`Call` reply carrying micro's `Nats-Service-Error` header is Error (BR-055
+carried over). A panic marks the span Error, ends it, then panics again.
+
+- **Enforced in:** `shared/otelnats/wrap.go`; the callers choose what is an
+  error (`orchestration/projector.go`, `notifybridge.go`).
+- **Test:** `shared/otelnats/wrap_test.go`, `Describe("BR-080: …")`;
+  `orchestration/projector_span_status_test.go` (BR-TP76);
+  `natsnotify_otel_test.go`.
+
+### BR-081 (Phase 57, confirmed by the user 2026-10-20) — A caller label never replaces an attribute the wrapper sets
+
+A caller adds labels with `otelnats.Label{Key, Value}`. The reserved keys
+are every `lab.tenant.*` key (BR-069), `messaging.system`,
+`messaging.destination.name`, `peer.service`, `rpc.retry_count` (BR-037)
+and `lab.requester` (BR-041). A label with a reserved key is dropped, with
+a debug log that names the key; the trusted value always wins. This holds
+when the trusted value is empty: an absent `lab.tenant.originating` stays
+absent. A label with any other key (`entity_id`) is kept. The span kind is
+set by the wrapper and is not a label.
+
+- **Enforced in:** `shared/otelnats/wrap.go` (`labelAttrs`).
+- **Test:** `shared/otelnats/wrap_test.go`, `Describe("BR-081: …")`.
+
+### BR-082 (Phase 57, confirmed by the user 2026-10-20) — A wrapper keeps the caller's cancellation, deadline and values
+
+The callback's `ctx` is derived from the `ctx` the caller passes, so it
+keeps that `ctx`'s cancellation, deadline and values. `Consume` removes only
+the span from it. Each site passes the same base `ctx` it used before
+Phase 57, on its traced and its untraced path. Two sites pin this:
+
+- **Shipping projectors.** A traced message's base is
+  `context.Background()`; an untraced message's base is the registration
+  `ctx` with `context.WithoutCancel`. Neither is cancelled with the
+  registration `ctx`; only the untraced one carries its values (Phase 110
+  owns any change).
+- **Tenant lifecycle.** A subscription made from a provisioning delivery
+  keeps `context.WithoutCancel(ctx)`, so its deliveries are not cancelled
+  with the provisioning `ctx`. Its later deliveries take their parent from
+  their own `traceparent`, not from the provisioning span (corrected in
+  Phase 57).
+
+- **Enforced in:** `shared/otelnats/wrap.go`; each site's base `ctx`.
+- **Test:** `shared/otelnats/wrap_test.go`, `Describe("BR-082: …")` (all
+  three wrappers); `shipping-service/dictionary/projector_ctx_test.go`
+  (characterization, green before and after the migration);
+  `shared/natstenants/lifecycle_parent_test.go` (regression).
+
 ---
 
 ## Guards (not numbered rules)

@@ -108,6 +108,12 @@ Split by domain so a rule add/edit only requires reading its own file:
   disk queue survives restarts (068), tenant attributes come from trusted
   context only (069, replacing BR-051), replies use the lab's own schema
   (070), and a browser `traceparent` is a link, never a parent (071).
+  BR-078–082 (Phase 57, confirmed 2026-10-20) move the span lifecycle into
+  shared wrappers in `shared/otelnats` (`Call`, `Consume`, `Produce`): the
+  wrapper owns the span (078), a nil provider only runs the operation (079),
+  a failed operation is Error and a best-effort fan-out is not (080), a
+  caller label never replaces a trusted attribute (081), and the caller's
+  cancellation, deadline and values are kept (082).
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D48, BR-D39 being the Phase 28 `obs.trace.*` mirror of
   BR-036 and BR-D45 (Phase 43a, CONFIRMED) pointing this service's `evt.*`
