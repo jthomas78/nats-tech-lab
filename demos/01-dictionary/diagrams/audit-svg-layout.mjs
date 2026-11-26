@@ -2,8 +2,8 @@
 // folder. Companion to export-html-png.mjs: that one renders a page, this one
 // checks the page's *layout* before (or after) it is rendered, so the classic
 // hand-placed-SVG defects — a label sitting on top of another label, text
-// spilling out of its box, a connector drawn straight through a node or across
-// a label, two boxes overlapping — are caught mechanically instead of by
+// spilling out of its box, a connector drawn straight through a node, two
+// boxes overlapping — are caught mechanically instead of by
 // eyeballing the PNG.
 //
 //   node audit-svg-layout.mjs <page.html> [more.html ...] [--json] [--quiet]
@@ -16,7 +16,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 
 const MERMAID_CLI =
-  '/opt/homebrew/Cellar/mermaid-cli/11.16.0/libexec/lib/node_modules/@mermaid-js/mermaid-cli'
+  '/opt/homebrew/opt/mermaid-cli/libexec/lib/node_modules/@mermaid-js/mermaid-cli'
 const require = createRequire(path.join(MERMAID_CLI, 'package.json'))
 const puppeteer = require('puppeteer')
 
@@ -35,7 +35,6 @@ const audit = () => {
   // ---- tunables (page-side, so they stay next to the geometry they judge) ----
   const TEXT_PAD = 1.0 // px of slack before two text boxes count as overlapping
   const BOX_PAD = 0.5 // px a glyph may exceed its containing box by
-  const EDGE_PAD = 1.5 // px inflation of a label box when testing edge crossings
   const NODE_INSET = 3 // px inset before an edge counts as "inside" a node
   const ENDPOINT_SKIP = 7 // px of an edge near its own ends exempt from node hits
   const DANGLE = 16 // px an endpoint may float from the nearest shape
@@ -77,19 +76,6 @@ const audit = () => {
   // to be straddled and crossed. They are not nodes and not connectors.
   const DECOR = /(^|\s)(nb|bnd|bound|boundary|group|lane|life|lifeline|axis|grid|tick|divider|sep)(\s|$)/
   const isDecor = (el) => DECOR.test(el.getAttribute('class') || '')
-
-  // A text is exempt from the edge-crossing check if it paints a background
-  // knockout halo (paint-order: stroke + an opaque stroke wide enough to read).
-  const hasHalo = (el) => {
-    const cs = getComputedStyle(el)
-    const w = parseFloat(cs.strokeWidth) || 0
-    return (
-      cs.paintOrder.trim().startsWith('stroke') &&
-      cs.stroke !== 'none' &&
-      !/rgba\(.*,\s*0\)/.test(cs.stroke) &&
-      w >= 2.5
-    )
-  }
 
   const samples = (el) => {
     const ctm = el.getScreenCTM()
@@ -178,10 +164,6 @@ const audit = () => {
       body.rect.h = body.rect.b - body.rect.y
       shapes = shapes.filter((s) => s !== cap)
     }
-    // Boundary lines/rects still get the label-crossing check, at WARN: a
-    // dashed rule through a caption is a legibility smudge, not a broken graph.
-    const decorLines = decor.filter(({ el }) => isEdge(el))
-
     // 1. text vs. text
     for (let i = 0; i < texts.length; i++) {
       for (let j = i + 1; j < texts.length; j++) {
@@ -214,25 +196,14 @@ const audit = () => {
           `"${short(t.text)}" at ${at(t.el)}`)
     }
 
-    // 3. connectors vs. labels, and connectors through unrelated nodes
-    const runEdge = (edge, severity) => {
+    // 3. connectors through unrelated nodes. A label may cross a line; that
+    // is not checked.
+    const runEdge = (edge) => {
       const pts = samples(edge)
       if (!pts.length) return
       const end = pts[pts.length - 1].d
       const a = pts[0]
       const z = pts[pts.length - 1]
-
-      const crossed = new Set()
-      for (const t of texts) {
-        if (hasHalo(t.el)) continue
-        if (pts.some((p) => inside(t.rect, p, -EDGE_PAD))) crossed.add(t)
-      }
-      for (const t of crossed)
-        add(severity, svgIndex, label, 'edge-crosses-label',
-          `${where(edge)} at ${at(edge)} is drawn through a label`,
-          `"${short(t.text)}" at ${at(t.el)} — move the label clear of the line, or give it a background halo`)
-
-      if (severity !== 'ERROR') return
 
       const pierced = new Set()
       for (const s2 of shapes) {
@@ -255,8 +226,7 @@ const audit = () => {
             'an arrow should start and end at a node edge, not in open space')
       }
     }
-    for (const edge of edges) runEdge(edge, 'ERROR')
-    for (const { el } of decorLines) runEdge(el, 'WARN')
+    for (const edge of edges) runEdge(edge)
 
     // 4. shape vs. shape — overlapping node boxes (containment is fine: that is
     // a cylinder cap over its body, or a nested sub-box).

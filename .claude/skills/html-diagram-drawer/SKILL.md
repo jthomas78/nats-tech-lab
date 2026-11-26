@@ -1,6 +1,6 @@
 ---
 name: /Users/jeremy/dev/github/jthomas78/nats-tech-lab/.claude/skills/html-diagram-drawer/SKILL.md
-description: Create hand-authored HTML+inline-SVG architecture diagrams, sequence/flow diagrams, and UI mockups, rendered to a high-DPI PNG via headless Chrome for embedding in this repo's ARCHITECTURE-*.md docs. Use this whenever a diagram benefits from real CSS layout and prose captions around it (multiple related diagrams building one narrative on a page, a design write-up, or a UI mockup for review before implementation) rather than a pure Draw.io node/edge graph — see drawio-architecture-drawer for that case instead. Always reach for this skill, not raw ad hoc SVG or a screenshot mockup, whenever the user asks to "diagram," "sketch," "mock up," or "illustrate" something for this repo's architecture docs. Carries two drawing variants: the default schematic style for mechanism, sequence and before/after figures, and an AWS-style topology variant for "AWS-style", "cloud architecture", "topology", "landscape" or "system overview" diagrams.
+description: Create hand-authored HTML+inline-SVG architecture diagrams, flow diagrams, and UI mockups, rendered to a high-DPI PNG via headless Chrome for embedding in this repo's ARCHITECTURE-*.md docs. Use this whenever a diagram benefits from real CSS layout and prose captions around it (multiple related diagrams building one narrative on a page, a design write-up, or a UI mockup for review before implementation) rather than a pure Draw.io node/edge graph — see drawio-architecture-drawer for that case instead. Always reach for this skill, not raw ad hoc SVG or a screenshot mockup, whenever the user asks to "diagram," "sketch," "mock up," or "illustrate" something for this repo's architecture docs. Carries two drawing variants: the default schematic style for mechanism and before/after figures, and an AWS-style topology variant for "AWS-style", "cloud architecture", "topology", "landscape" or "system overview" diagrams. For a use case, class or sequence diagram, use uml-diagram-html-drawer instead.
 ---
 
 # HTML Diagram Drawer
@@ -24,6 +24,11 @@ skill whenever the exact numbers below need double-checking.
 
 ## When to reach for this vs. the alternatives
 
+- **`uml-diagram-html-drawer`** — use instead for a **use case diagram**, a
+  **class diagram** or a **sequence diagram**, also when one is part of a
+  page this skill builds.
+  It owns the UML notation, its own palette and its own template. Existing
+  sequence figures made with this skill stay as they are.
 - **`drawio-architecture-drawer`** — use instead when the deliverable
   needs to stay editable as a true node/edge graph in a GUI diagramming
   tool (e.g. a non-technical stakeholder will edit it later), or when it
@@ -69,8 +74,8 @@ Claude Code's own context on it. Check availability, then route:
      and follow it (Codex gets its own full filesystem/shell access once
      running, so it doesn't need every convention pasted inline — just
      pointed at the file), calling out its "Layout geometry" section
-     specifically: box widths derived from label length, edge labels
-     placed off the line, connectors routed on a lane grid. Those are the
+     specifically: box widths derived from label length, a halo on
+     every label, connectors routed on a lane grid. Those are the
      rules a generated diagram breaks most often, and Claude Code is the
      one that has to find the breakage afterwards because Codex cannot
      run the audit (below).
@@ -311,7 +316,7 @@ page may use different variants.
 ### What this variant overrides
 
 Only these rules change. Everything else in this skill — the lane grid,
-box-sizing arithmetic, "never put a label on a line", the mechanical
+box-sizing arithmetic, label halos, the mechanical
 check, the export commands, the validation checklist — applies unchanged.
 
 | Rule | Schematic (default) | AWS-style topology |
@@ -449,30 +454,18 @@ estimated:
   same box. Adjacent columns whose labels nearly touch read as one
   smeared block at export scale.
 
-### Never put a label on a line
+### Labels and lines
 
-- **Edge labels sit beside their segment, not on it.** For a horizontal
-  edge at `y`, an above-the-line label's baseline is `y − 6` and a
-  below-the-line label's is `y + 15` (a 9.5px label's box is ~11px tall,
-  so a smaller offset overlaps the stroke). For a vertical edge, offset
-  the label ≥ 8px horizontally and don't centre it on the line.
-- **Label the orthogonal run, not the diagonal.** Diagonals are where
-  labels land on the stroke most often, because the line's `y` at the
-  label's `x` isn't obvious from the coordinates. If an edge is a single
-  diagonal, offset the label perpendicular to it — moving it "up a bit"
-  moves it *along* the line, not off it.
-- **Where a label genuinely must cross a line** — a boundary-crossing
-  annotation straddling an account divider, for instance — give it a
-  knockout halo rather than accepting the collision:
-  ```css
-  .edge { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
-  ```
-  `paint-order: stroke` with a background-coloured stroke paints a halo
-  behind the glyphs, so the line breaks around the text instead of
-  running through it. The audit treats a haloed label as legible and
-  stops reporting the crossing — which makes the halo a deliberate
-  decision, not a way to silence a finding. Add it where the crossing is
-  intended; move the label where it isn't.
+A label may cross a connector or a lifeline. Give every label a
+background-coloured halo so the line breaks around the glyphs:
+
+```css
+.edge { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+```
+
+Edge labels still read best beside their segment: for a horizontal edge
+at `y`, put an above-the-line baseline at `y − 6` and a below-the-line
+baseline at `y + 15`.
 
 ### Route connectors on a lane grid
 
@@ -513,7 +506,6 @@ measures the real rendered geometry of every diagram on it:
 | `text-overlap` | ERROR | two labels' boxes intersect |
 | `text-overflows-box` | ERROR | a label spills outside the node it sits in |
 | `text-clipped` | ERROR | a label falls outside the SVG viewport and will be cut off |
-| `edge-crosses-label` | ERROR | a connector is drawn through a label that has no halo |
 | `edge-pierces-node` | ERROR | a connector runs through a box it doesn't attach to |
 | `box-overlap` | ERROR | two node shapes collide (containment and cylinder caps are fine) |
 | `edge-dangles` | WARN | an endpoint floats >16px from any shape or lifeline |
@@ -555,8 +547,7 @@ runs the audit and the render, after Codex hands back the HTML.
    (see "Layout geometry" above for what each code means and how to
    resolve it) and re-run until it's clean, or — for a finding that is
    genuinely intended, such as a deliberate boundary-crossing annotation
-   — resolve it explicitly, by adding the label halo or `data-audit`
-   opt-out, not by ignoring the output. WARNs are judgement calls: read
+   — resolve it explicitly, with a `data-audit` opt-out, not by ignoring the output. WARNs are judgement calls: read
    them, act on the ones that are real. Re-run the audit after *any*
    later edit to the SVG, including one that only moves a label —
    that is exactly the edit that creates a new collision somewhere else.
@@ -671,14 +662,13 @@ runs the audit and the render, after Codex hands back the HTML.
 ## Validation checklist
 
 - `node audit-svg-layout.mjs <file>.html` exits 0 — no `text-overlap`,
-  `text-overflows-box`, `text-clipped`, `edge-crosses-label`,
+  `text-overflows-box`, `text-clipped`,
   `edge-pierces-node` or `box-overlap` findings left unresolved, and any
   WARN still standing is one you decided to keep. Re-run it after the
   last SVG edit, not just the first — this check is only worth anything
   if it reflects the geometry that actually shipped.
-- Every label is legible in the exported PNG at 100%: nothing sits on a
-  connector, nothing touches a box stroke, nothing collides with a
-  neighbouring label. The audit catches the geometric cases; you still
+- Every label is legible in the exported PNG at 100%: nothing touches a box stroke, nothing collides with a
+  neighbouring label. A label may cross a line if it has a halo. The audit catches the geometric cases; you still
   look at the image for the ones it can't score — a label that's clear of
   every line but reads as belonging to the wrong edge, or a box so tight
   the text has no visual air.

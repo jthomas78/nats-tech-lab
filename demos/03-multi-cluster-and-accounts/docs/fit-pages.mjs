@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 
 const MERMAID_CLI =
-  '/opt/homebrew/Cellar/mermaid-cli/11.16.0/libexec/lib/node_modules/@mermaid-js/mermaid-cli'
+  '/opt/homebrew/opt/mermaid-cli/libexec/lib/node_modules/@mermaid-js/mermaid-cli'
 const require = createRequire(path.join(MERMAID_CLI, 'package.json'))
 const puppeteer = require('puppeteer')
 

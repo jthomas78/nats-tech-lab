@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab OTel Tracing</title>
+<style>
+  :root {
+    --bg: #131416;
+    --panel: #1A1E23;
+    --stroke: #4A515B;
+    --text: #DEE0E3;
+    --muted: #B7BCC2;
+    --dim: #8B929A;
+    --accent: #006FFF;
+    --accent-t: #6FA8FF;
+    --truth: #27C07F;
+    --truth-t: #5FD9A3;
+    --warn: #9A7B1E;
+    --warn-t: #D6B656;
+    --bad: #F87171;
+    --mono: 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/20px Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  main { max-width: 1840px; margin: 0 auto; padding: 32px 16px 56px; }
+  .eyebrow { color: var(--accent-t); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+  h1 { font-size: 22px; line-height: 30px; margin: 4px 0 6px; font-weight: 600; }
+  h2 { font-size: 15px; line-height: 22px; margin: 0 0 4px; font-weight: 600; }
+  h2 .no { color: var(--accent-t); font-family: var(--mono); margin-right: 8px; }
+  .lede { color: var(--muted); margin: 0 0 18px; max-width: 980px; }
+  code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0 0 28px; color: var(--muted); font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .legend svg { flex: none; }
+
+  figure { margin: 0 0 36px; background: var(--panel); border: 1px solid var(--stroke); border-radius: 8px; padding: 18px 18px 14px; }
+  .fig { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 22px; align-items: start; }
+  .fig svg.d { width: 100%; height: auto; display: block; background: var(--bg); border-radius: 6px; }
+  figcaption { color: var(--muted); margin-top: 12px; max-width: 1100px; }
+  figcaption b { color: var(--text); }
+
+  .refs { border-left: 1px solid var(--stroke); padding-left: 18px; }
+  .refs .hd { font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--dim); text-transform: uppercase; margin-bottom: 6px; }
+  .refs .keys { color: var(--dim); font-size: 11.5px; line-height: 17px; margin-bottom: 10px; }
+  .refs .keys code { font-size: 11px; color: var(--muted); }
+  .refs ol { list-style: none; margin: 0; padding: 0; }
+  .refs li { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; line-height: 18px; }
+  .refs li b { color: var(--accent-t); font-family: var(--mono); font-weight: 600; margin-right: 6px; }
+  .refs li code { font-size: 11.5px; color: var(--text); word-break: break-all; }
+  .refs .acct { color: var(--truth-t); }
+  .refs .warn { color: var(--warn-t); }
+  .refs .badtext { color: var(--bad); }
+
+  table.t { border-collapse: collapse; width: 100%; margin-top: 16px; font-size: 12.5px; }
+  table.t th, table.t td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--stroke); vertical-align: top; }
+  table.t th { color: var(--dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; }
+  table.t td { color: var(--muted); }
+  .yes { color: var(--truth-t); font-weight: 600; }
+  .no-c { color: var(--bad); font-weight: 600; }
+
+  .gaps { background: var(--panel); border: 1px solid var(--stroke); border-left: 3px solid var(--warn); border-radius: 8px; padding: 16px 20px; }
+  .gaps ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+  .gaps li { margin: 4px 0; }
+
+  /* SVG */
+  svg text { font-family: Inter, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .n { fill: var(--panel); stroke: var(--stroke); stroke-width: 1; }
+  .n.acct { stroke: var(--truth); stroke-width: 1.5; }
+  .n.ext { stroke-dasharray: 5 4; }
+  .n.sdk { stroke: var(--warn); }
+  .lbl { font-size: 13px; font-weight: 600; fill: var(--text); }
+  .lbl2 { font-size: 11px; fill: var(--muted); }
+  .stereo { font-size: 10.5px; fill: var(--dim); }
+  .mem { font-family: var(--mono) !important; font-size: 11.5px; fill: var(--text); }
+  .mem.m { fill: var(--muted); }
+  .div { stroke: var(--stroke); stroke-width: 1; }
+  .life { stroke: var(--stroke); stroke-width: 1; stroke-dasharray: 4 4; }
+  .flow { stroke: var(--accent); stroke-width: 1.5; fill: none; marker-end: url(#a-flow); }
+  .ret { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; marker-end: url(#a-ret); }
+  .rep { stroke: var(--warn-t); stroke-width: 1.4; stroke-dasharray: 6 4; fill: none; marker-end: url(#a-rep); }
+  .acl { stroke: var(--truth); stroke-width: 1.6; fill: none; marker-end: url(#a-acct); }
+  .err { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 5 4; fill: none; marker-end: url(#a-bad); }
+  .self { stroke: var(--accent); stroke-width: 1.4; fill: none; marker-end: url(#a-flow); }
+  .assoc { stroke: var(--muted); stroke-width: 1.2; fill: none; marker-end: url(#a-ret); }
+  .embed { stroke: var(--muted); stroke-width: 1.2; fill: none; marker-end: url(#a-embed); }
+  .t { font-size: 12px; fill: var(--text); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+  .t.c { text-anchor: middle; }
+  .t.e { text-anchor: end; }
+  .s { font-size: 10.5px; fill: var(--muted); font-family: var(--mono); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+  .s.c { text-anchor: middle; }
+  .s.e { text-anchor: end; }
+  .s.g, .t.g { fill: var(--truth-t); }
+  .s.w, .t.w { fill: var(--warn-t); }
+  .s.r, .t.r { fill: var(--bad); }
+  .cl { font-size: 11px; fill: var(--muted); paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
+  .bar-s { fill: rgba(0,111,255,.22); stroke: var(--accent); stroke-width: 1; }
+  .bar-c { fill: rgba(214,182,86,.20); stroke: var(--warn-t); stroke-width: 1; }
+  .nb { fill: none; stroke: var(--stroke); stroke-width: 1; stroke-dasharray: 3 4; }
+  .nbl { font-size: 11px; fill: var(--dim); letter-spacing: .06em; }
+  .divider { stroke: var(--stroke); stroke-width: 1; stroke-dasharray: 2 5; }
+  .uc { fill: var(--panel); stroke: var(--stroke); stroke-width: 1.2; }
+  .uc.acct { stroke: var(--truth); stroke-width: 1.5; }
+  .actor { fill: none; stroke: var(--text); stroke-width: 1.4; }
+  .assoc-uc { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+  .inc { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; marker-end: url(#a-ret); }
+  .bnd { fill: none; stroke: var(--stroke); stroke-width: 1.2; }
+
+  @media (max-width: 1200px) {
+    .fig { grid-template-columns: 1fr; }
+    .refs { border-left: 0; padding-left: 0; border-top: 1px solid var(--stroke); padding-top: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="a-flow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#006FFF"/></marker>
+    <marker id="a-ret" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#B7BCC2" stroke-width="1.2"/></marker>
+    <marker id="a-rep" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#D6B656"/></marker>
+    <marker id="a-acct" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#27C07F"/></marker>
+    <marker id="a-bad" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#F87171"/></marker>
+    <marker id="a-embed" markerWidth="13" markerHeight="13" refX="11" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L11,6 L0,12 z" fill="#1A1E23" stroke="#B7BCC2" stroke-width="1.2"/></marker>
+  </defs>
+</svg>
+
+<main>
+  <div class="eyebrow">Demo 01 · shared/otelnats · after Phase 57 (incl. 57.11)</div>
+  <h1>OTel tracing in the lab — <code>api.*</code> and <code>rpc.*</code></h1>
+  <p class="lede">
+    This page shows only the two request families. A browser calls a service on <code>api.*</code>.
+    A service calls another service on <code>rpc.*</code>. <code>evt.*</code> and <code>notify.*</code> are not on this page.
+    With no <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, <code>InitFromEnv</code> returns a nil Provider, and every wrapper below
+    does nothing (BR-079). Hops carry IDs H1–H6; figure 1 defines them.
+  </p>
+
+  <div class="legend">
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="flow"/></svg>call</span>
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="ret"/></svg>reply</span>
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="rep"/></svg>span to the OTel SDK / export (async)</span>
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="acl"/></svg>NATS account: span metadata, or a service import (H6)</span>
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="err"/></svg>not captured</span>
+    <span><svg width="14" height="22"><rect x="2" y="1" width="10" height="20" class="bar-s"/></svg>SERVER span open</span>
+    <span><svg width="14" height="22"><rect x="2" y="1" width="10" height="20" class="bar-c"/></svg>CLIENT span open</span>
+  </div>
+
+  <!-- ============================================================ 1 ACCOUNTS AND HOPS -->
+  <figure>
+    <h2><span class="no">1</span>Accounts and hops — the system context for tracing</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 1440 600" role="img" aria-label="Demo 01 NATS accounts and the hops between them">
+        <!-- the one server -->
+        <rect x="170" y="20" width="1080" height="560" rx="8" class="nb"/>
+        <text x="182" y="40" class="nbl">NATS SERVER · nats:4222 · WEBSOCKET :9222 · OPERATOR MODE · ONE SERVER, NO CLUSTER</text>
+
+        <!-- browser actor -->
+        <circle cx="80" cy="152" r="9" class="actor"/><line x1="80" y1="161" x2="80" y2="186" class="actor"/><line x1="66" y1="170" x2="94" y2="170" class="actor"/><line x1="80" y1="186" x2="68" y2="204" class="actor"/><line x1="80" y1="186" x2="92" y2="204" class="actor"/>
+        <text x="80" y="222" class="lbl" text-anchor="middle">Browser user</text>
+        <text x="80" y="237" class="lbl2" text-anchor="middle">seafreight-app</text>
+
+        <!-- ACME -->
+        <rect x="200" y="60" width="470" height="250" rx="6" class="bnd"/>
+        <text x="216" y="84" class="lbl">ACME</text>
+        <text x="216" y="100" class="lbl2">tenant account · acme.creds</text>
+        <rect x="230" y="140" width="200" height="60" rx="6" class="n"/>
+        <text x="330" y="164" class="lbl" text-anchor="middle">organizations-service</text>
+        <text x="330" y="182" class="lbl2" text-anchor="middle">conn as acme · browserrpc</text>
+        <text x="330" y="222" class="s c">refdataclient · CLIENT span</text>
+        <rect x="460" y="140" width="190" height="60" rx="6" class="n acct"/>
+        <text x="555" y="158" class="stereo" text-anchor="middle">«service import»</text>
+        <text x="555" y="176" class="mem" text-anchor="middle">refdata.item.get.v1</text>
+        <text x="555" y="192" class="lbl2" text-anchor="middle">local subject</text>
+
+        <!-- GLOBEX -->
+        <rect x="200" y="340" width="470" height="130" rx="6" class="bnd"/>
+        <text x="216" y="364" class="lbl">GLOBEX</text>
+        <text x="216" y="380" class="lbl2">tenant account · same layout as ACME</text>
+        <rect x="230" y="395" width="200" height="50" rx="6" class="n"/>
+        <text x="330" y="416" class="lbl" text-anchor="middle">organizations-service</text>
+        <text x="330" y="434" class="lbl2" text-anchor="middle">conn as globex</text>
+        <rect x="460" y="395" width="190" height="50" rx="6" class="n acct"/>
+        <text x="555" y="414" class="stereo" text-anchor="middle">«service import»</text>
+        <text x="555" y="432" class="mem" text-anchor="middle">refdata.item.get.v1</text>
+
+        <!-- PLATFORM -->
+        <rect x="720" y="60" width="500" height="410" rx="6" class="bnd"/>
+        <text x="736" y="84" class="lbl">PLATFORM</text>
+        <text x="736" y="100" class="lbl2">platform services · platform.creds and one creds file per holder</text>
+        <rect x="750" y="140" width="230" height="60" rx="6" class="n acct"/>
+        <text x="865" y="158" class="stereo" text-anchor="middle">«service export»</text>
+        <text x="865" y="176" class="mem" text-anchor="middle">rpc.*.refdata.item.get.v1</text>
+        <text x="865" y="192" class="lbl2" text-anchor="middle">arrives as rpc.acme.refdata.…</text>
+        <rect x="1010" y="140" width="190" height="60" rx="6" class="n"/>
+        <text x="1105" y="164" class="lbl" text-anchor="middle">refdata-service</text>
+        <text x="1105" y="182" class="lbl2" text-anchor="middle">natsrpc · EdgeRPC</text>
+        <rect x="750" y="280" width="230" height="56" rx="6" class="n"/>
+        <text x="865" y="302" class="lbl" text-anchor="middle">plugin holder</text>
+        <text x="865" y="320" class="lbl2" text-anchor="middle">announcer · example-plugin</text>
+        <rect x="750" y="390" width="230" height="56" rx="6" class="n"/>
+        <text x="865" y="412" class="lbl" text-anchor="middle">mfe-registry-service</text>
+        <text x="865" y="430" class="lbl2" text-anchor="middle">servicerpc · EdgeRPC</text>
+
+        <!-- SYS -->
+        <rect x="720" y="500" width="500" height="56" rx="6" class="bnd"/>
+        <text x="736" y="524" class="lbl">SYS</text>
+        <text x="736" y="542" class="lbl2">system account · server and account admin · no application calls</text>
+
+        <!-- collector, outside NATS -->
+        <rect x="1280" y="140" width="150" height="60" rx="6" class="n ext"/>
+        <text x="1355" y="158" class="stereo" text-anchor="middle">«system»</text>
+        <text x="1355" y="176" class="lbl" text-anchor="middle">otel-collector</text>
+        <text x="1355" y="192" class="lbl2" text-anchor="middle">:4318 · OTLP/HTTP</text>
+
+        <!-- H1 -->
+        <line x1="100" y1="170" x2="228" y2="170" class="flow"/>
+        <text x="164" y="163" class="t c">H1 · api.*</text>
+        <text x="164" y="185" class="s c">WebSocket</text>
+        <!-- H6 -->
+        <line x1="430" y1="170" x2="458" y2="170" class="acl"/>
+        <line x1="650" y1="170" x2="748" y2="170" class="acl"/>
+        <text x="699" y="163" class="t c g">H6</text>
+        <text x="699" y="185" class="s c g">rename</text>
+        <line x1="980" y1="170" x2="1008" y2="170" class="acl"/>
+        <!-- H2 -->
+        <line x1="865" y1="336" x2="865" y2="388" class="flow"/>
+        <text x="877" y="358" class="t">H2 · rpc._platform.mfe-registry.…</text>
+        <text x="877" y="376" class="s">same account · no CLIENT span</text>
+        <!-- OTLP: not a hop -->
+        <line x1="1200" y1="170" x2="1278" y2="170" class="rep"/>
+        <text x="1239" y="163" class="t c w">OTLP</text>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <div class="keys"><code>d1/</code> = <code>demos/01-dictionary/</code></div>
+        <ol>
+          <li><b>Server</b><code>d1/nats/nats.conf:12</code> (client), <code>:27-28</code> (WebSocket).</li>
+          <li><b>Accounts</b><code>d1/nats/bootstrap-operator.sh:84</code> (SYS), <code>:94</code> (PLATFORM, ACME, GLOBEX).</li>
+          <li class="acct"><b>Export</b><code>bootstrap-operator.sh:126-128</code>.</li>
+          <li class="acct"><b>Import</b><code>d1/backend/accounts-service/accounts/provisioner.go:221-229</code>. <code>RenamingSubject</code> at <code>:223</code>.</li>
+          <li><b>H1</b><code>organizations/internal/browserrpc/adapter.go:276</code>. Figure 5.</li>
+          <li class="acct"><b>H6</b><code>organizations/internal/refdataclient/client.go:159-168</code> → <code>refdata/internal/natsrpc/adapter.go:269</code>. Figure 5.</li>
+          <li><b>H2</b><code>shared/mferegistry/subjects.go:70</code>. Holder creds <code>bootstrap-operator.sh:561</code>; registry <code>:488</code>. Server side <code>mfe-registry-service/registry/internal/servicerpc/adapter.go:268</code>.</li>
+          <li><b>OTLP</b><code>d1/deploy/cell/compose.runtime.yaml:40</code>. Figure 7.</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>One server, four accounts, two NATS hops on this page.</b> A tenant account and PLATFORM are separate. A tenant reaches
+      refdata only through a service import, which renames the subject (H6). GLOBEX has the same imports, renamed to its own name. Spans leave every
+      service over OTLP/HTTP. That path never uses NATS, so it is not a hop.</figcaption>
+    <table class="t">
+      <thead><tr><th>Hop</th><th>Crosses</th><th>Example in demo 01</th><th>Context carried</th><th>Span recorded</th><th>In demo 01</th></tr></thead>
+      <tbody>
+        <tr><td><b>H1</b></td><td>Browser → service, in the tenant account</td><td><code>api.*</code> into organizations</td><td>None. The browser has no OTel SDK.</td><td>SERVER, <code>EdgeAPI</code>: a new root. A sent <code>traceparent</code> is a link only (BR-071).</td><td class="yes">Yes</td></tr>
+        <tr><td><b>H2</b></td><td>Service → service, one account</td><td>plugin holder → mfe-registry, both in PLATFORM</td><td>None. The mferegistry client has no <code>Call</code>.</td><td>SERVER, <code>EdgeRPC</code> only. No CLIENT span.</td><td class="yes">Yes</td></tr>
+        <tr><td><b>H3</b></td><td>Publish → subscribe, core NATS</td><td><code>notify.*</code></td><td colspan="2">Not on this page.</td><td class="yes">Yes</td></tr>
+        <tr><td><b>H4</b></td><td>Cluster ↔ cluster, over a gateway</td><td>—</td><td colspan="2">Demo 01 has one server: no route, gateway or leaf node. See demos 02 and 03.</td><td class="no-c">No</td></tr>
+        <tr><td><b>H5</b></td><td>Publish → later consume, JetStream</td><td><code>evt.*</code></td><td colspan="2">Not on this page.</td><td class="yes">Yes</td></tr>
+        <tr><td class="yes">H6</td><td>Service → service, <b>across accounts</b>, through a service import</td><td>organizations (ACME) → refdata (PLATFORM)</td><td><code>traceparent</code> header. The subject is renamed: <code>refdata.item.get.v1</code> → <code>rpc.acme.refdata.item.get.v1</code>.</td><td>CLIENT in ACME (no account attribute). SERVER, <code>EdgeRPC</code>, a child, <code>receiving_account = PLATFORM</code>.</td><td class="yes">Yes</td></tr>
+      </tbody>
+    </table>
+  </figure>
+
+  <!-- ============================================================ 2 USE CASE -->
+  <figure>
+    <h2><span class="no">2</span>Use cases — who uses tracing, and for what</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 1290 580" role="img" aria-label="Use case diagram of lab tracing for api and rpc calls">
+        <!-- system boundary -->
+        <rect x="230" y="24" width="830" height="540" rx="8" class="bnd"/>
+        <text x="246" y="46" class="lbl">Lab tracing</text>
+        <text x="330" y="46" class="lbl2">shared/otelnats + deploy/cell telemetry</text>
+
+        <!-- actors (left: primary) -->
+        <g>
+          <circle cx="110" cy="92" r="9" class="actor"/><line x1="110" y1="101" x2="110" y2="126" class="actor"/><line x1="96" y1="110" x2="124" y2="110" class="actor"/><line x1="110" y1="126" x2="98" y2="144" class="actor"/><line x1="110" y1="126" x2="122" y2="144" class="actor"/>
+          <text x="110" y="162" class="lbl" text-anchor="middle">Browser user</text><text x="110" y="177" class="lbl2" text-anchor="middle">seafreight-app</text>
+
+          <circle cx="110" cy="282" r="9" class="actor"/><line x1="110" y1="291" x2="110" y2="316" class="actor"/><line x1="96" y1="300" x2="124" y2="300" class="actor"/><line x1="110" y1="316" x2="98" y2="334" class="actor"/><line x1="110" y1="316" x2="122" y2="334" class="actor"/>
+          <text x="110" y="352" class="lbl" text-anchor="middle">Backend service</text><text x="110" y="367" class="lbl2" text-anchor="middle">organizations</text>
+
+          <g transform="translate(0,-60)"><circle cx="110" cy="512" r="9" class="actor"/><line x1="110" y1="521" x2="110" y2="546" class="actor"/><line x1="96" y1="530" x2="124" y2="530" class="actor"/><line x1="110" y1="546" x2="98" y2="564" class="actor"/><line x1="110" y1="546" x2="122" y2="564" class="actor"/>
+          <text x="110" y="582" class="lbl" text-anchor="middle">Operator</text><text x="110" y="597" class="lbl2" text-anchor="middle">developer · support</text></g>
+        </g>
+
+        <!-- actors (right: secondary systems) -->
+        <rect x="1110" y="197" width="160" height="56" rx="6" class="n ext"/>
+        <text x="1190" y="216" class="stereo" text-anchor="middle">«system»</text>
+        <text x="1190" y="234" class="lbl" text-anchor="middle">otel-collector</text>
+        <text x="1190" y="247" class="lbl2" text-anchor="middle">:4318</text>
+        <g transform="translate(0,-60)"><rect x="1110" y="472" width="160" height="56" rx="6" class="n ext"/>
+        <text x="1190" y="491" class="stereo" text-anchor="middle">«system»</text>
+        <text x="1190" y="509" class="lbl" text-anchor="middle">Tempo</text>
+        <text x="1190" y="522" class="lbl2" text-anchor="middle">:3200 query</text></g>
+
+        <!-- use cases -->
+        <ellipse cx="410" cy="110" rx="125" ry="26" class="uc"/>
+        <text x="410" y="114" class="lbl" text-anchor="middle">Call a service on api.*</text>
+        <ellipse cx="410" cy="210" rx="125" ry="30" class="uc"/>
+        <text x="410" y="207" class="lbl" text-anchor="middle">Run untraced</text>
+        <text x="410" y="223" class="s c">[no OTLP endpoint]</text>
+        <ellipse cx="410" cy="310" rx="125" ry="26" class="uc"/>
+        <text x="410" y="314" class="lbl" text-anchor="middle">Call a service on rpc.*</text>
+
+        <ellipse cx="700" cy="100" rx="115" ry="26" class="uc acct"/>
+        <text x="700" y="104" class="lbl" text-anchor="middle">Record the NATS account</text>
+        <ellipse cx="700" cy="195" rx="115" ry="26" class="uc"/>
+        <text x="700" y="199" class="lbl" text-anchor="middle">Start a SERVER span</text>
+        <ellipse cx="700" cy="290" rx="115" ry="30" class="uc"/>
+        <text x="700" y="287" class="lbl" text-anchor="middle">Start a CLIENT span</text>
+        <text x="700" y="303" class="s c">retries inside one span</text>
+        <ellipse cx="700" cy="380" rx="115" ry="26" class="uc"/>
+        <text x="700" y="384" class="lbl" text-anchor="middle">Propagate traceparent</text>
+
+        <ellipse cx="950" cy="225" rx="95" ry="30" class="uc"/>
+        <text x="950" y="222" class="lbl" text-anchor="middle">Export spans</text>
+        <text x="950" y="238" class="s c">batch · OTLP/HTTP</text>
+
+        <g transform="translate(0,-60)"><ellipse cx="520" cy="500" rx="140" ry="26" class="uc"/></g>
+        <g transform="translate(0,-60)"><text x="520" y="504" class="lbl" text-anchor="middle">Find a trace in Grafana</text></g>
+        <g transform="translate(0,-60)"><ellipse cx="520" cy="580" rx="140" ry="26" class="uc"/></g>
+        <g transform="translate(0,-60)"><text x="520" y="584" class="lbl" text-anchor="middle">Query traces in the Admin UI</text></g>
+
+        <!-- associations -->
+        <line x1="128" y1="110" x2="285" y2="110" class="assoc-uc"/>
+        <line x1="128" y1="300" x2="285" y2="308" class="assoc-uc"/>
+        <g transform="translate(0,-60)"><line x1="128" y1="528" x2="384" y2="503" class="assoc-uc"/></g>
+        <g transform="translate(0,-60)"><line x1="128" y1="540" x2="384" y2="577" class="assoc-uc"/></g>
+        <line x1="1045" y1="225" x2="1110" y2="225" class="assoc-uc"/>
+        <g transform="translate(0,-60)"><line x1="660" y1="497" x2="1110" y2="495" class="assoc-uc"/></g>
+        <g transform="translate(0,-60)"><line x1="660" y1="578" x2="1110" y2="512" class="assoc-uc"/></g>
+
+        <!-- include / extend -->
+        <line x1="528" y1="120" x2="594" y2="182" class="inc"/>
+        <text x="572" y="140" class="s">«include»</text>
+        <line x1="528" y1="300" x2="594" y2="208" class="inc"/>
+        <text x="572" y="262" class="s">«include»</text>
+        <line x1="535" y1="308" x2="583" y2="296" class="inc"/>
+        <line x1="522" y1="322" x2="596" y2="370" class="inc"/>
+        <text x="548" y="358" class="s">«include»</text>
+        <line x1="700" y1="169" x2="700" y2="128" class="inc"/>
+        <text x="708" y="153" class="s">«include»</text>
+        <line x1="410" y1="180" x2="410" y2="138" class="inc"/>
+        <text x="418" y="164" class="s">«extend»</text>
+        <line x1="410" y1="240" x2="410" y2="282" class="inc"/>
+        <text x="418" y="264" class="s">«extend»</text>
+        <line x1="815" y1="198" x2="857" y2="215" class="inc"/>
+        <line x1="815" y1="285" x2="859" y2="238" class="inc"/>
+        <text x="822" y="262" class="s">«include»</text>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <div class="keys"><code>org/</code> = <code>demos/01-dictionary/backend/organizations-service/organizations/</code><br>
+        <code>refdata/</code> = <code>demos/01-dictionary/backend/refdata-service/refdata/</code></div>
+        <ol>
+          <li><b>api.*</b><code>org/internal/browserrpc/adapter.go:276</code>. Detail in figure 5, steps 1–5.</li>
+          <li><b>rpc.*</b><code>org/internal/refdataclient/client.go:241</code> → <code>refdata/internal/natsrpc/adapter.go:269</code>. Figure 5, steps 6–16.</li>
+          <li><b>Run untraced</b><code>shared/otelnats/otelnats.go:141-145</code>. Every wrapper returns at once (BR-079). Figure 4, steps 2–3.</li>
+          <li><b>SERVER span</b><code>shared/otelnats/span.go:73</code>.</li>
+          <li class="acct"><b>Account</b><code>span.go:99-108</code>. Detail in figure 6.</li>
+          <li><b>CLIENT span</b><code>shared/otelnats/wrap.go:86</code>.</li>
+          <li><b>traceparent</b><code>shared/otelnats/carrier.go:57</code>, <code>:66</code>.</li>
+          <li><b>Export</b><code>otelnats.go:99-115</code>. Figure 7, steps 1–4.</li>
+          <li><b>Grafana / Admin UI</b>Figure 7, steps 5–12.</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>Three people or programs use tracing.</b> The browser user and the backend service make calls. Each call gets spans
+      as a side effect. The operator reads the spans later. When the endpoint is not set, every call still works, with no spans («extend»).</figcaption>
+  </figure>
+
+  <!-- ============================================================ 2 CLASS -->
+  <figure>
+    <h2><span class="no">3</span>Classes — tracing only</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 1440 680" role="img" aria-label="Class diagram of the tracing types">
+        <g transform="translate(0,34)">
+          <!-- column headers -->
+          <text x="20" y="-12" class="nbl">CALLERS (api.* / rpc.*)</text>
+          <text x="400" y="-12" class="nbl">SHARED/OTELNATS</text>
+          <text x="800" y="-12" class="nbl">VALUE TYPES</text>
+          <text x="1140" y="-12" class="nbl">OTEL SDK → WIRE</text>
+
+          <!-- browserrpc.Adapter -->
+          <rect x="20" y="20" width="300" height="124" rx="6" class="n"/>
+          <text x="32" y="38" class="stereo">organizations · internal/browserrpc (×6 + usersrpc)</text>
+          <text x="32" y="56" class="lbl">Adapter</text>
+          <line x1="20" y1="66" x2="320" y2="66" class="div"/>
+          <text x="32" y="84" class="mem">otel   *otelnats.Provider</text>
+          <text x="32" y="102" class="mem">tenant string</text>
+          <line x1="20" y1="112" x2="320" y2="112" class="div"/>
+          <text x="32" y="130" class="mem">trust(micro.Request) Trust</text>
+
+          <!-- natsrpc.Adapter -->
+          <rect x="20" y="170" width="300" height="122" rx="6" class="n"/>
+          <text x="32" y="188" class="stereo">refdata · internal/natsrpc</text>
+          <text x="32" y="206" class="lbl">Adapter</text>
+          <line x1="20" y1="216" x2="320" y2="216" class="div"/>
+          <text x="32" y="234" class="mem">otel *otelnats.Provider</text>
+          <line x1="20" y1="244" x2="320" y2="244" class="div"/>
+          <text x="32" y="262" class="mem">platformTrust(micro.Request) Trust</text>
+          <text x="32" y="280" class="mem m">  → {ReceivingAccount: "PLATFORM"}</text>
+
+          <!-- refdataclient.Client -->
+          <rect x="20" y="315" width="300" height="140" rx="6" class="n"/>
+          <text x="32" y="333" class="stereo">organizations · internal/refdataclient</text>
+          <text x="32" y="351" class="lbl">Client</text>
+          <line x1="20" y1="361" x2="320" y2="361" class="div"/>
+          <text x="32" y="379" class="mem">nc          *nats.Conn (tenant)</text>
+          <text x="32" y="397" class="mem">otel        *otelnats.Provider</text>
+          <text x="32" y="415" class="mem">requestorID string</text>
+          <line x1="20" y1="425" x2="320" y2="425" class="div"/>
+          <text x="32" y="443" class="mem">requestRPC(ctx, subject, body)</text>
+
+          <!-- natstenants.Manager -->
+          <rect x="20" y="480" width="300" height="140" rx="6" class="n"/>
+          <text x="32" y="498" class="stereo">shared/natstenants</text>
+          <text x="32" y="516" class="lbl">Manager[R]</text>
+          <line x1="20" y1="526" x2="320" y2="526" class="div"/>
+          <text x="32" y="544" class="mem">credsDir string</text>
+          <text x="32" y="562" class="mem">tracing  *otelnats.Provider</text>
+          <line x1="20" y1="572" x2="320" y2="572" class="div"/>
+          <text x="32" y="590" class="mem">Discover(credsDir) → tenants</text>
+          <text x="32" y="608" class="mem">provision(ctx, nc, tenant)</text>
+
+          <!-- Provider -->
+          <rect x="400" y="20" width="330" height="252" rx="6" class="n"/>
+          <text x="412" y="38" class="stereo">shared/otelnats</text>
+          <text x="412" y="56" class="lbl">Provider</text>
+          <line x1="400" y1="66" x2="730" y2="66" class="div"/>
+          <text x="412" y="84" class="mem">cfg    Config</text>
+          <text x="412" y="102" class="mem">tp     *sdktrace.TracerProvider</text>
+          <text x="412" y="120" class="mem">tracer trace.Tracer</text>
+          <line x1="400" y1="130" x2="730" y2="130" class="div"/>
+          <text x="412" y="148" class="mem">«func» InitFromEnv(ctx, name)</text>
+          <text x="412" y="166" class="mem">Middleware(edge, trust, h)</text>
+          <text x="412" y="184" class="mem">Call(ctx, msg, peer, call, labels…)</text>
+          <text x="412" y="202" class="mem">StartServer(ctx, msg, edge, trust)</text>
+          <text x="412" y="220" class="mem">StartClient(ctx, subject, peer)</text>
+          <text x="412" y="238" class="mem">Shutdown(ctx) error</text>
+          <text x="412" y="260" class="mem m">nil p: Middleware, Call, Shutdown no-op</text>
+
+          <!-- serverRequest -->
+          <rect x="400" y="300" width="330" height="176" rx="6" class="n"/>
+          <text x="412" y="318" class="stereo">shared/otelnats · unexported</text>
+          <text x="412" y="336" class="lbl">serverRequest</text>
+          <line x1="400" y1="346" x2="730" y2="346" class="div"/>
+          <text x="412" y="364" class="mem">micro.Request (embedded)</text>
+          <text x="412" y="382" class="mem">ctx  context.Context</text>
+          <text x="412" y="400" class="mem">span trace.Span (SERVER)</text>
+          <text x="412" y="418" class="mem">once sync.Once</text>
+          <line x1="400" y1="428" x2="730" y2="428" class="div"/>
+          <text x="412" y="446" class="mem">Respond / RespondJSON / Error → end()</text>
+          <text x="412" y="464" class="mem">«func» ContextFrom(req) context.Context</text>
+
+          <!-- HeaderCarrier -->
+          <rect x="400" y="500" width="330" height="112" rx="6" class="n"/>
+          <text x="412" y="518" class="stereo">shared/otelnats</text>
+          <text x="412" y="536" class="lbl">HeaderCarrier (nats.Header)</text>
+          <line x1="400" y1="546" x2="730" y2="546" class="div"/>
+          <text x="412" y="564" class="mem">Get / Set / Keys</text>
+          <text x="412" y="582" class="mem">«func» Inject(ctx, msg)</text>
+          <text x="412" y="600" class="mem">«func» Extract(ctx, header) ctx</text>
+
+          <!-- Trust -->
+          <rect x="800" y="20" width="260" height="112" rx="6" class="n acct"/>
+          <text x="812" y="38" class="stereo">otelnats · account metadata</text>
+          <text x="812" y="56" class="lbl">Trust</text>
+          <line x1="800" y1="66" x2="1060" y2="66" class="div"/>
+          <text x="812" y="84" class="mem">ReceivingAccount  string</text>
+          <text x="812" y="102" class="mem">OriginatingTenant string</text>
+          <text x="812" y="122" class="mem m">only source of lab.tenant.*</text>
+
+          <!-- Edge -->
+          <rect x="800" y="155" width="260" height="94" rx="6" class="n"/>
+          <text x="812" y="173" class="stereo">otelnats · enum</text>
+          <text x="812" y="191" class="lbl">Edge</text>
+          <line x1="800" y1="201" x2="1060" y2="201" class="div"/>
+          <text x="812" y="219" class="mem">EdgeRPC  parent = traceparent</text>
+          <text x="812" y="237" class="mem">EdgeAPI  new root, link only</text>
+
+          <!-- Config -->
+          <rect x="800" y="270" width="260" height="112" rx="6" class="n"/>
+          <text x="812" y="288" class="stereo">otelnats</text>
+          <text x="812" y="306" class="lbl">Config</text>
+          <line x1="800" y1="316" x2="1060" y2="316" class="div"/>
+          <text x="812" y="334" class="mem">ServiceName   Endpoint</text>
+          <text x="812" y="352" class="mem">ExportTimeout ShutdownTimeout</text>
+          <text x="812" y="370" class="mem">Exporter      CaptureBodies</text>
+
+          <!-- micro.Request -->
+          <rect x="800" y="405" width="260" height="94" rx="6" class="n ext"/>
+          <text x="812" y="423" class="stereo">nats.go micro · interface</text>
+          <text x="812" y="441" class="lbl">Request</text>
+          <line x1="800" y1="451" x2="1060" y2="451" class="div"/>
+          <text x="812" y="469" class="mem">Subject() Headers() Data()</text>
+          <text x="812" y="487" class="mem">Respond() RespondJSON() Error()</text>
+
+          <!-- Label -->
+          <rect x="800" y="520" width="260" height="92" rx="6" class="n"/>
+          <text x="812" y="538" class="stereo">otelnats · Call option</text>
+          <text x="812" y="556" class="lbl">Label</text>
+          <line x1="800" y1="566" x2="1060" y2="566" class="div"/>
+          <text x="812" y="584" class="mem">Key   string</text>
+          <text x="812" y="602" class="mem">Value string</text>
+
+          <!-- SDK column -->
+          <rect x="1140" y="20" width="280" height="140" rx="6" class="n sdk"/>
+          <text x="1152" y="38" class="stereo">go.opentelemetry.io/otel/sdk/trace</text>
+          <text x="1152" y="56" class="lbl">TracerProvider</text>
+          <line x1="1140" y1="66" x2="1420" y2="66" class="div"/>
+          <text x="1152" y="84" class="mem">resource service.name only</text>
+          <text x="1152" y="102" class="mem">sampler  ParentBased(Always)</text>
+          <line x1="1140" y1="112" x2="1420" y2="112" class="div"/>
+          <text x="1152" y="130" class="mem">Tracer(name) trace.Tracer</text>
+          <text x="1152" y="148" class="mem">ForceFlush / Shutdown(ctx)</text>
+
+          <rect x="1140" y="190" width="280" height="122" rx="6" class="n sdk"/>
+          <text x="1152" y="208" class="stereo">sdk/trace · WithBatcher</text>
+          <text x="1152" y="226" class="lbl">BatchSpanProcessor</text>
+          <line x1="1140" y1="236" x2="1420" y2="236" class="div"/>
+          <text x="1152" y="254" class="mem">queue (bounded, drops when full)</text>
+          <line x1="1140" y1="264" x2="1420" y2="264" class="div"/>
+          <text x="1152" y="282" class="mem">OnEnd(span) → enqueue</text>
+          <text x="1152" y="300" class="mem">export batch → Exporter</text>
+
+          <rect x="1140" y="340" width="280" height="140" rx="6" class="n sdk"/>
+          <text x="1152" y="358" class="stereo">exporters/otlp/otlptrace/otlptracehttp</text>
+          <text x="1152" y="376" class="lbl">Exporter</text>
+          <line x1="1140" y1="386" x2="1420" y2="386" class="div"/>
+          <text x="1152" y="404" class="mem">url     {endpoint}/v1/traces</text>
+          <text x="1152" y="422" class="mem">retry   disabled</text>
+          <text x="1152" y="440" class="mem">timeout ExportTimeout</text>
+          <line x1="1140" y1="450" x2="1420" y2="450" class="div"/>
+          <text x="1152" y="468" class="mem">ExportSpans(ctx, spans)</text>
+
+          <rect x="1140" y="520" width="280" height="92" rx="6" class="n ext"/>
+          <text x="1152" y="538" class="stereo">deploy/cell · container, not a class</text>
+          <text x="1152" y="556" class="lbl">otel-collector :4318</text>
+          <line x1="1140" y1="566" x2="1420" y2="566" class="div"/>
+          <text x="1152" y="584" class="mem">disk queue → Tempo :4317</text>
+          <text x="1152" y="602" class="mem m">Grafana reads Tempo :3200</text>
+
+          <!-- relations -->
+          <line x1="320" y1="84" x2="400" y2="84" class="assoc"/>
+          <text x="360" y="78" class="cl" text-anchor="middle">otel</text>
+          <line x1="320" y1="234" x2="400" y2="234" class="assoc"/>
+          <text x="360" y="228" class="cl" text-anchor="middle">otel</text>
+          <line x1="320" y1="397" x2="400" y2="262" class="assoc"/>
+          <text x="352" y="322" class="cl" text-anchor="middle">otel</text>
+          <path d="M20 560 L8 560 L8 100 L18 100" class="acl"/>
+          <text x="2" y="330" class="cl" transform="rotate(-90 12 330)" text-anchor="middle" style="fill:#5FD9A3">sets tenant = creds stem</text>
+
+          <line x1="730" y1="84" x2="800" y2="84" class="acl"/>
+          <text x="765" y="78" class="cl" text-anchor="middle">reads</text>
+          <line x1="730" y1="210" x2="800" y2="210" class="assoc"/>
+          <line x1="565" y1="272" x2="565" y2="300" class="assoc"/>
+          <text x="575" y="290" class="cl">wraps req</text>
+          <line x1="730" y1="372" x2="800" y2="452" class="embed"/>
+          <text x="770" y="396" class="cl">embeds</text>
+          <path d="M730 252 L768 252 L768 556 L732 556" class="assoc" style="stroke-dasharray:4 4"/>
+          <text x="776" y="530" class="cl" transform="rotate(-90 776 530)">Inject / Extract</text>
+
+          <path d="M565 20 L565 6 L1280 6 L1280 18" class="rep"/>
+          <text x="920" y="0" class="cl" text-anchor="middle" style="stroke:#131416">tp *sdktrace.TracerProvider</text>
+          <line x1="1280" y1="160" x2="1280" y2="188" class="rep"/>
+          <text x="1290" y="178" class="cl">span processor</text>
+          <line x1="1280" y1="312" x2="1280" y2="338" class="rep"/>
+          <line x1="1280" y1="480" x2="1280" y2="518" class="rep"/>
+          <text x="1290" y="503" class="cl">OTLP/HTTP POST</text>
+        </g>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <div class="keys"><code>org/</code> = <code>demos/01-dictionary/backend/organizations-service/organizations/</code><br>
+        <code>refdata/</code> = <code>demos/01-dictionary/backend/refdata-service/refdata/</code></div>
+        <ol>
+          <li><b>Adapter</b><code>org/internal/browserrpc/adapter.go:179</code>. <code>trust</code> at <code>:1194</code> returns <code>a.tenant</code>.</li>
+          <li><b>Adapter</b><code>refdata/internal/natsrpc/adapter.go:100</code>. <code>platformTrust</code> at <code>:707</code>, constant at <code>:94</code>.</li>
+          <li><b>Client</b><code>org/internal/refdataclient/client.go:69</code>, <code>otel</code> at <code>:74</code>.</li>
+          <li><b>Manager</b><code>shared/natstenants/tenants.go</code>. <code>Discover</code> at <code>:106</code>, creds stem at <code>:150</code>.</li>
+          <li><b>Provider</b><code>shared/otelnats/otelnats.go:73</code>. <code>InitFromEnv</code> at <code>:142</code>, nil when no endpoint at <code>:145</code>.</li>
+          <li><b>serverRequest</b><code>shared/otelnats/micro.go:53</code>. <code>ContextFrom</code> at <code>:44</code>.</li>
+          <li><b>HeaderCarrier</b><code>shared/otelnats/carrier.go:22</code>. <code>Inject</code> <code>:57</code>, <code>Extract</code> <code>:66</code>.</li>
+          <li><b>Trust / Edge</b><code>shared/otelnats/span.go:47</code> and <code>:33</code>. <b>Label</b><code>wrap.go:27</code>.</li>
+          <li><b>SDK</b><code>shared/otelnats/otelnats.go:99-115</code>: <code>otlptracehttp.New</code> (retry off), <code>NewTracerProvider</code>, <code>WithBatcher</code>, resource, sampler.</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>Every caller holds one <code>*otelnats.Provider</code>.</b> The callers never touch the OTel SDK. The Provider owns the SDK
+      <code>TracerProvider</code>. That sends each ended span to a batcher, then to the OTLP/HTTP exporter, then to the Collector.
+      The account reaches a span through one path only: a caller builds a <code>Trust</code>, and <code>StartServer</code> reads it.</figcaption>
+  </figure>
+
+  <!-- ============================================================ 3 STARTUP -->
+  <figure>
+    <h2><span class="no">4</span>Startup and shutdown — <code>otelnats.InitFromEnv</code>, then the adapters wrap their handlers</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 1130 870" role="img" aria-label="Startup and shutdown sequence of organizations-service tracing">
+        <!-- lane heads -->
+        <rect x="15" y="16" width="160" height="44" rx="6" class="n"/>
+        <text x="95" y="36" class="lbl" text-anchor="middle">main()</text>
+        <text x="95" y="51" class="lbl2" text-anchor="middle">organizations-service</text>
+        <rect x="205" y="16" width="160" height="44" rx="6" class="n"/>
+        <text x="285" y="36" class="lbl" text-anchor="middle">otelnats</text>
+        <text x="285" y="51" class="lbl2" text-anchor="middle">InitFromEnv · Init</text>
+        <rect x="395" y="16" width="160" height="44" rx="6" class="n sdk"/>
+        <text x="475" y="36" class="lbl" text-anchor="middle">OTel SDK</text>
+        <text x="475" y="51" class="lbl2" text-anchor="middle">exporter · TracerProvider</text>
+        <rect x="585" y="16" width="160" height="44" rx="6" class="n"/>
+        <text x="665" y="36" class="lbl" text-anchor="middle">tenants.Manager</text>
+        <text x="665" y="51" class="lbl2" text-anchor="middle">one conn per tenant</text>
+        <rect x="775" y="16" width="160" height="44" rx="6" class="n"/>
+        <text x="855" y="36" class="lbl" text-anchor="middle">browserrpc.Adapter</text>
+        <text x="855" y="51" class="lbl2" text-anchor="middle">api.* · per tenant</text>
+        <rect x="965" y="16" width="150" height="44" rx="6" class="n ext"/>
+        <text x="1040" y="36" class="lbl" text-anchor="middle">NATS · micro</text>
+        <text x="1040" y="51" class="lbl2" text-anchor="middle">tenant account</text>
+
+        <line x1="95" y1="60" x2="95" y2="850" class="life"/>
+        <line x1="285" y1="60" x2="285" y2="850" class="life"/>
+        <line x1="475" y1="60" x2="475" y2="850" class="life"/>
+        <line x1="665" y1="60" x2="665" y2="850" class="life"/>
+        <line x1="855" y1="60" x2="855" y2="850" class="life"/>
+        <line x1="1040" y1="60" x2="1040" y2="850" class="life"/>
+
+        <!-- 1-2 -->
+        <line x1="95" y1="104" x2="283" y2="104" class="flow"/>
+        <text x="190" y="97" class="t c">1 · InitFromEnv(ctx, name)</text>
+        <path d="M285 134 L319 134 L319 148 L291 148" class="self"/>
+        <text x="327" y="140" class="t">2 · read OTEL_EXPORTER_OTLP_ENDPOINT</text>
+
+        <!-- alt frame -->
+        <rect x="40" y="168" width="560" height="186" rx="4" class="nb"/>
+        <text x="48" y="182" class="nbl">alt [endpoint unset]</text>
+        <line x1="283" y1="204" x2="97" y2="204" class="ret"/>
+        <text x="190" y="197" class="t c">3 · nil, nil</text>
+        <text x="190" y="219" class="s c w">runs untraced (BR-079)</text>
+        <line x1="40" y1="230" x2="600" y2="230" class="divider"/>
+        <text x="48" y="244" class="nbl">[endpoint set]</text>
+        <line x1="285" y1="266" x2="473" y2="266" class="flow"/>
+        <text x="380" y="259" class="t c">4 · otlptracehttp.New</text>
+        <text x="380" y="281" class="s c">/v1/traces · 2 s · no retry</text>
+        <line x1="285" y1="310" x2="473" y2="310" class="flow"/>
+        <text x="380" y="303" class="t c">5 · NewTracerProvider</text>
+        <text x="380" y="325" class="s c">batcher · ParentBased(AlwaysSample)</text>
+        <line x1="283" y1="342" x2="97" y2="342" class="ret"/>
+        <text x="190" y="335" class="t c">6 · *Provider</text>
+
+        <!-- 7 -->
+        <line x1="95" y1="390" x2="663" y2="390" class="flow"/>
+        <text x="380" y="383" class="t c">7 · MountTenants(…, tracing)</text>
+        <text x="380" y="405" class="s c">no OTel globals set</text>
+
+        <!-- loop frame -->
+        <rect x="610" y="420" width="500" height="208" rx="4" class="nb"/>
+        <text x="618" y="434" class="nbl">loop [each tenant .creds]</text>
+        <path d="M665 452 L699 452 L699 466 L671 466" class="self"/>
+        <text x="707" y="458" class="t">8 · connect as the tenant</text>
+        <path d="M665 492 L699 492 L699 506 L671 506" class="self"/>
+        <text x="707" y="498" class="t">9 · refdataclient.New(nc, WithTracing)</text>
+        <line x1="665" y1="542" x2="853" y2="542" class="acl"/>
+        <text x="760" y="535" class="t c g">10 · browserrpc.New</text>
+        <text x="760" y="557" class="s c g">Tenant, Tracing</text>
+        <line x1="855" y1="580" x2="1038" y2="580" class="flow"/>
+        <text x="947" y="573" class="t c">11 · AddService</text>
+        <line x1="855" y1="614" x2="1038" y2="614" class="flow"/>
+        <text x="947" y="607" class="t c">12 · AddEndpoint × n</text>
+        <text x="947" y="626" class="s c">Middleware(EdgeAPI, trust, h)</text>
+
+        <!-- shutdown -->
+        <line x1="20" y1="656" x2="1110" y2="656" class="divider"/>
+        <text x="20" y="672" class="nbl">SHUTDOWN · ctx done</text>
+        <path d="M95 696 L129 696 L129 710 L101 710" class="self"/>
+        <text x="137" y="702" class="t">13 · server.Shutdown</text>
+        <line x1="95" y1="744" x2="663" y2="744" class="flow"/>
+        <text x="380" y="737" class="t c">14 · deferred tenantMgr.Close()</text>
+        <line x1="95" y1="788" x2="283" y2="788" class="flow"/>
+        <text x="190" y="781" class="t c">15 · deferred Shutdown(ctx)</text>
+        <text x="190" y="803" class="s c">nil Provider: no-op</text>
+        <line x1="285" y1="830" x2="473" y2="830" class="rep"/>
+        <text x="380" y="823" class="t c w">16 · tp.Shutdown — flush ≤ 5 s</text>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <div class="keys"><code>cmd/</code> = <code>demos/01-dictionary/backend/organizations-service/cmd/</code><br>
+        <code>org/</code> = <code>demos/01-dictionary/backend/organizations-service/organizations/</code></div>
+        <ol>
+          <li><b>1</b><code>cmd/main.go:68</code>. refdata does the same at <code>refdata-service/cmd/main.go:88</code>.</li>
+          <li><b>2</b><code>shared/otelnats/otelnats.go:142-143</code>.</li>
+          <li><b>3</b><code>otelnats.go:144-145</code>.</li>
+          <li><b>4</b><code>otelnats.go:99-104</code>. Defaults <code>:43-44</code>, route <code>:51</code>.</li>
+          <li><b>5</b><code>otelnats.go:111-115</code>. Resource is <code>service.name</code> only.</li>
+          <li><b>7</b><code>cmd/main.go:75</code> → <code>org/composition.go:134</code> → <code>org/internal/tenants/tenants.go:96</code>.</li>
+          <li><b>8</b><code>tenants.go:98</code>, <code>shared/natstenants</code>.</li>
+          <li><b>9</b><code>tenants.go:124</code>. CLIENT spans for <code>rpc.*</code>.</li>
+          <li class="acct"><b>10</b><code>tenants.go:133-140</code>. The tenant becomes the span account (figure 6).</li>
+          <li><b>11</b><code>org/internal/browserrpc/adapter.go:226</code>.</li>
+          <li><b>12</b><code>adapter.go:276-277</code>. refdata wraps with <code>EdgeRPC</code> at <code>refdata/internal/natsrpc/adapter.go:269</code>.</li>
+          <li><b>13</b><code>cmd/main.go:134</code>.</li>
+          <li><b>14–15</b><code>cmd/main.go:79</code>, <code>:72</code>. Defers run last-in, first-out.</li>
+          <li><b>16</b><code>otelnats.go:178-184</code> (BR-066).</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>Tracing is set up once, before any connection.</b> <code>main</code> gets a Provider, or nil. It hands the same
+      value to every tenant connection. Each adapter wraps each handler when it registers it. On shutdown the connections close first, then the
+      Provider flushes the last spans.</figcaption>
+  </figure>
+
+  <!-- ============================================================ 4 CALL -->
+  <figure>
+    <h2><span class="no">5</span>One browser call — <code>api.*</code> into organizations, <code>rpc.*</code> into refdata, spans out to the SDK</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 1330 1200" role="img" aria-label="Sequence of one api call and one rpc call">
+        <!-- participants -->
+        <g>
+          <rect x="5" y="20" width="150" height="46" rx="6" class="n"/><text x="80" y="40" class="lbl" text-anchor="middle">Browser</text><text x="80" y="57" class="lbl2" text-anchor="middle">seafreight-app</text>
+          <rect x="165" y="20" width="150" height="46" rx="6" class="n"/><text x="240" y="40" class="lbl" text-anchor="middle">NATS · acme</text><text x="240" y="57" class="lbl2" text-anchor="middle">tenant account</text>
+          <rect x="325" y="20" width="150" height="46" rx="6" class="n"/><text x="400" y="40" class="lbl" text-anchor="middle">organizations</text><text x="400" y="57" class="lbl2" text-anchor="middle">browserrpc + Middleware</text>
+          <rect x="485" y="20" width="150" height="46" rx="6" class="n"/><text x="560" y="40" class="lbl" text-anchor="middle">organizations</text><text x="560" y="57" class="lbl2" text-anchor="middle">handler · refdataclient</text>
+          <rect x="645" y="20" width="150" height="46" rx="6" class="n"/><text x="720" y="40" class="lbl" text-anchor="middle">NATS · PLATFORM</text><text x="720" y="57" class="lbl2" text-anchor="middle">service import target</text>
+          <rect x="805" y="20" width="150" height="46" rx="6" class="n"/><text x="880" y="40" class="lbl" text-anchor="middle">refdata-service</text><text x="880" y="57" class="lbl2" text-anchor="middle">natsrpc + Middleware</text>
+          <rect x="985" y="20" width="150" height="46" rx="6" class="n sdk"/><text x="1060" y="40" class="lbl" text-anchor="middle">OTel SDK</text><text x="1060" y="57" class="lbl2" text-anchor="middle">one per process · batcher</text>
+          <rect x="1165" y="20" width="150" height="46" rx="6" class="n ext"/><text x="1240" y="40" class="lbl" text-anchor="middle">otel-collector</text><text x="1240" y="57" class="lbl2" text-anchor="middle">:4318 → Tempo</text>
+        </g>
+        <g>
+          <line x1="80" y1="66" x2="80" y2="1185" class="life"/>
+          <line x1="240" y1="66" x2="240" y2="1185" class="life"/>
+          <line x1="400" y1="66" x2="400" y2="1185" class="life"/>
+          <line x1="560" y1="66" x2="560" y2="1185" class="life"/>
+          <line x1="720" y1="66" x2="720" y2="1185" class="life"/>
+          <line x1="880" y1="66" x2="880" y2="1185" class="life"/>
+          <line x1="1060" y1="66" x2="1060" y2="1185" class="life"/>
+          <line x1="1240" y1="66" x2="1240" y2="1185" class="life"/>
+        </g>
+        <!-- span bars -->
+        <rect x="394" y="205" width="12" height="700" class="bar-s"/>
+        <rect x="554" y="345" width="12" height="475" class="bar-c"/>
+        <rect x="874" y="550" width="12" height="140" class="bar-s"/>
+
+        <!-- 1 -->
+        <line x1="80" y1="110" x2="238" y2="110" class="flow"/>
+        <text x="160" y="103" class="t c">1 · request</text>
+        <text x="160" y="126" class="s c">api.acme.organizations.…</text>
+        <text x="160" y="141" class="s c w">no traceparent</text>
+        <!-- 2 -->
+        <line x1="240" y1="165" x2="392" y2="165" class="flow"/>
+        <text x="317" y="158" class="t c">2 · deliver on acme conn</text>
+        <!-- 3 -->
+        <path d="M406 205 L440 205 L440 219 L410 219" class="self"/>
+        <text x="446" y="209" class="t">3 · SERVER span · new root</text>
+        <text x="446" y="226" class="s g">lab.tenant.receiving_account=acme</text>
+        <text x="446" y="241" class="s">sent traceparent → link only</text>
+        <!-- 4 -->
+        <line x1="406" y1="275" x2="552" y2="275" class="flow"/>
+        <text x="480" y="268" class="t c">4 · h(serverRequest)</text>
+        <!-- 5 -->
+        <path d="M566 305 L600 305 L600 319 L570 319" class="self"/>
+        <text x="606" y="309" class="t">5 · ctx := ContextFrom(req)</text>
+        <!-- 6 -->
+        <path d="M566 345 L600 345 L600 359 L570 359" class="self"/>
+        <text x="606" y="349" class="t">6 · p.Call → CLIENT span</text>
+        <text x="606" y="365" class="s">peer.service=refdata · Inject traceparent</text>
+        <!-- 7 -->
+        <line x1="566" y1="410" x2="718" y2="410" class="flow"/>
+        <text x="643" y="403" class="t c">7 · refdata.item.get.v1</text>
+        <text x="643" y="425" class="s c">local alias + traceparent</text>
+        <!-- 8 -->
+        <path d="M720 455 L754 455 L754 469 L724 469" class="self"/>
+        <text x="760" y="459" class="t">8 · import renames subject</text>
+        <text x="760" y="475" class="s">rpc.acme.refdata.item.get.v1</text>
+        <!-- 9 -->
+        <line x1="720" y1="510" x2="872" y2="510" class="flow"/>
+        <text x="797" y="503" class="t c">9 · deliver on PLATFORM conn</text>
+        <!-- 10 -->
+        <path d="M886 550 L920 550 L920 564 L890 564" class="self"/>
+        <text x="926" y="554" class="t">10 · SERVER span · child of 6</text>
+        <text x="926" y="571" class="s g">receiving_account=PLATFORM</text>
+        <text x="926" y="586" class="s">resolveItemKVFirst(ctx)</text>
+        <!-- 11 -->
+        <line x1="874" y1="640" x2="722" y2="640" class="ret"/>
+        <text x="797" y="633" class="t c">11 · Respond → reply</text>
+        <!-- 12 -->
+        <line x1="886" y1="690" x2="1058" y2="690" class="rep"/>
+        <text x="973" y="683" class="t c w">12 · end SERVER → batch</text>
+        <text x="973" y="705" class="s c">refdata's own SDK</text>
+        <!-- 13 -->
+        <line x1="720" y1="735" x2="568" y2="735" class="ret"/>
+        <text x="643" y="728" class="t c">13 · reply</text>
+        <!-- 14 -->
+        <path d="M566 775 L600 775 L600 789 L570 789" class="self"/>
+        <text x="606" y="779" class="t">14 · rpc.retry_count · status</text>
+        <text x="606" y="795" class="s">Nats-Service-Error → Error</text>
+        <!-- 15 -->
+        <line x1="566" y1="820" x2="1058" y2="820" class="rep"/>
+        <text x="813" y="813" class="t c w">15 · end CLIENT → batch</text>
+        <!-- 16 -->
+        <line x1="554" y1="865" x2="408" y2="865" class="ret"/>
+        <text x="480" y="858" class="t c">16 · req.Respond(…)</text>
+        <!-- 17 -->
+        <line x1="406" y1="905" x2="1058" y2="905" class="rep"/>
+        <text x="733" y="898" class="t c w">17 · end SERVER → batch</text>
+        <!-- 18 -->
+        <line x1="394" y1="950" x2="242" y2="950" class="ret"/>
+        <text x="317" y="943" class="t c">18 · reply</text>
+        <!-- 19 -->
+        <line x1="240" y1="990" x2="82" y2="990" class="ret"/>
+        <text x="160" y="983" class="t c">19 · reply</text>
+
+        <!-- async -->
+        <line x1="20" y1="1022" x2="1310" y2="1022" class="divider"/>
+        <text x="1310" y="1015" class="s e">later · async · the caller never waits</text>
+        <!-- 20 -->
+        <path d="M1060 1060 L1094 1060 L1094 1074 L1064 1074" class="rep"/>
+        <text x="1100" y="1064" class="t w">20 · batch full or timer</text>
+        <!-- 21 -->
+        <line x1="1060" y1="1110" x2="1238" y2="1110" class="rep"/>
+        <text x="1150" y="1103" class="t c w">21 · OTLP/HTTP</text>
+        <text x="1150" y="1125" class="s c">POST /v1/traces</text>
+        <!-- 22 -->
+        <path d="M1240 1155 L1206 1155 L1206 1169 L1236 1169" class="rep"/>
+        <text x="1200" y="1159" class="t e w">22 · disk queue → tempo:4317</text>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <div class="keys"><code>org/</code>, <code>refdata/</code> as in figure 2. <code>fe/</code> = <code>demos/01-dictionary/frontend/seafreight-app/src/</code></div>
+        <ol>
+          <li><b>1</b><code>fe/nats/useNatsConnection.js:166</code>. Headers at <code>:168</code>. <span class="warn">No OTel SDK in the browser.</span></li>
+          <li><b>2</b><code>org/internal/tenants/tenants.go:140</code>. One adapter per tenant connection.</li>
+          <li><b>3</b><code>org/internal/browserrpc/adapter.go:276</code> → <code>shared/otelnats/micro.go:28</code> → <code>span.go:83-88</code>. <span class="acct">Account from <code>trust</code>, <code>adapter.go:1194</code>.</span></li>
+          <li><b>4</b><code>micro.go:53</code> <code>serverRequest</code>.</li>
+          <li><b>5</b><code>micro.go:44</code>.</li>
+          <li><b>6</b><code>org/internal/refdataclient/client.go:241</code> → <code>wrap.go:86</code>, <code>Inject</code> at <code>:100</code>, <code>span.go:114</code>. No account attribute.</li>
+          <li><b>7</b><code>client.go:168</code>. Retry loop inside <code>Call</code>, <code>:253</code>.</li>
+          <li><b>8</b><code>client.go:159-164</code>. accounts-service provisioner, <code>jwt.RenamingSubject</code>.</li>
+          <li><b>9</b><code>refdata/internal/natsrpc/adapter.go:36</code> <code>rpc.*.refdata.item.get.v1</code>.</li>
+          <li><b>10</b><code>adapter.go:269</code> → <code>span.go:89-92</code> (traceparent → parent). <span class="acct"><code>platformTrust</code>, <code>:707</code>.</span> Handler <code>:301</code>.</li>
+          <li><b>11–12</b><code>micro.go:61</code> → <code>end</code> at <code>:82</code> → <code>span.End()</code> <code>:90</code>.</li>
+          <li><b>14</b><code>wrap.go:105-108</code>.</li>
+          <li><b>15, 17</b><code>wrap.go:98</code> deferred <code>end</code>; <code>micro.go:90</code>.</li>
+          <li><b>20</b><code>shared/otelnats/otelnats.go:113</code> <code>WithBatcher</code>. A full queue drops spans.</li>
+          <li><b>21</b><code>otelnats.go:99-104</code>. Endpoint <code>deploy/cell/compose.runtime.yaml:40</code>.</li>
+          <li><b>22</b><code>demos/01-dictionary/otel/collector.yaml:37-44</code>.</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>One trace, three spans, two processes.</b> The organizations SERVER span is the root, because the browser sends no trace.
+      The CLIENT span (6) is its child. The refdata SERVER span (10) is the child of the CLIENT span. Each span goes to its own process's SDK
+      when it ends. Export is later and in a batch, so a request never waits for the Collector.</figcaption>
+  </figure>
+
+  <!-- ============================================================ 5 ACCOUNT -->
+  <figure>
+    <h2><span class="no">6</span>How the NATS account becomes span metadata</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 1120 715" role="img" aria-label="Sequence of the account reaching a span attribute">
+        <g>
+          <rect x="15" y="20" width="150" height="46" rx="6" class="n ext"/><text x="90" y="40" class="lbl" text-anchor="middle">NATS_CREDS_DIR</text><text x="90" y="57" class="lbl2" text-anchor="middle">*.creds files</text>
+          <rect x="205" y="20" width="150" height="46" rx="6" class="n"/><text x="280" y="40" class="lbl" text-anchor="middle">natstenants</text><text x="280" y="57" class="lbl2" text-anchor="middle">Manager[R]</text>
+          <rect x="395" y="20" width="150" height="46" rx="6" class="n"/><text x="470" y="40" class="lbl" text-anchor="middle">NATS server</text><text x="470" y="57" class="lbl2" text-anchor="middle">accounts from JWTs</text>
+          <rect x="585" y="20" width="150" height="46" rx="6" class="n"/><text x="660" y="40" class="lbl" text-anchor="middle">organizations</text><text x="660" y="57" class="lbl2" text-anchor="middle">browserrpc.Adapter</text>
+          <rect x="775" y="20" width="150" height="46" rx="6" class="n"/><text x="850" y="40" class="lbl" text-anchor="middle">shared/otelnats</text><text x="850" y="57" class="lbl2" text-anchor="middle">Middleware · StartServer</text>
+          <rect x="955" y="20" width="150" height="46" rx="6" class="n acct"/><text x="1030" y="40" class="lbl" text-anchor="middle">SERVER span</text><text x="1030" y="57" class="lbl2" text-anchor="middle">attributes</text>
+        </g>
+        <g>
+          <line x1="90" y1="66" x2="90" y2="700" class="life"/>
+          <line x1="280" y1="66" x2="280" y2="700" class="life"/>
+          <line x1="470" y1="66" x2="470" y2="700" class="life"/>
+          <line x1="660" y1="66" x2="660" y2="700" class="life"/>
+          <line x1="850" y1="66" x2="850" y2="700" class="life"/>
+          <line x1="1030" y1="66" x2="1030" y2="700" class="life"/>
+        </g>
+        <rect x="140" y="80" width="420" height="250" rx="6" class="nb"/>
+        <text x="150" y="322" class="nbl">AT START · ONCE PER TENANT</text>
+
+        <line x1="280" y1="110" x2="92" y2="110" class="flow"/>
+        <text x="185" y="103" class="t c">1 · Discover(credsDir)</text>
+        <line x1="90" y1="150" x2="278" y2="150" class="ret"/>
+        <text x="185" y="143" class="t c">2 · acme.creds → "acme"</text>
+        <text x="185" y="165" class="s c">file stem = tenant name</text>
+        <line x1="280" y1="205" x2="468" y2="205" class="flow"/>
+        <text x="375" y="198" class="t c">3 · connect with acme.creds</text>
+        <line x1="470" y1="245" x2="282" y2="245" class="ret"/>
+        <text x="375" y="238" class="t c">4 · conn in tenant account</text>
+        <text x="375" y="260" class="s c">the user JWT picks the account</text>
+        <line x1="280" y1="300" x2="658" y2="300" class="acl"/>
+        <text x="470" y="293" class="t c g">5 · browserrpc.New(Tenant: "acme")</text>
+        <text x="470" y="315" class="s c">Adapter.tenant = "acme"</text>
+
+        <line x1="470" y1="365" x2="848" y2="365" class="flow"/>
+        <text x="660" y="358" class="t c">6 · api.acme.… arrives on the acme conn</text>
+        <line x1="850" y1="405" x2="662" y2="405" class="flow"/>
+        <text x="755" y="398" class="t c">7 · trust(req)</text>
+        <line x1="660" y1="445" x2="848" y2="445" class="acl"/>
+        <text x="755" y="438" class="t c g">8 · Trust{ReceivingAccount: "acme"}</text>
+        <path d="M850 485 L884 485 L884 499 L854 499" class="self"/>
+        <text x="890" y="489" class="t">9 · StartServer → tenantAttrs</text>
+
+        <line x1="850" y1="540" x2="1028" y2="540" class="acl"/>
+        <text x="940" y="533" class="t c g">10 · lab.tenant.receiving_account</text>
+        <text x="940" y="555" class="s c g">"acme"</text>
+        <line x1="850" y1="585" x2="1028" y2="585" class="flow"/>
+        <text x="940" y="578" class="t c">11 · messaging.system=nats</text>
+        <text x="940" y="600" class="s c">messaging.destination.name</text>
+        <line x1="850" y1="630" x2="1028" y2="630" class="ret"/>
+        <text x="940" y="623" class="t c">12 · lab.requester</text>
+        <text x="940" y="645" class="s c">Nats-Requestor · display only</text>
+        <line x1="850" y1="675" x2="1028" y2="675" class="err"/>
+        <text x="940" y="668" class="t c r">13 · lab.tenant.originating</text>
+        <text x="940" y="690" class="s c r">not set today</text>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <ol>
+          <li><b>1–2</b><code>shared/natstenants/tenants.go:106</code>, stem at <code>:150</code>.</li>
+          <li><b>3–4</b>The server binds the connection to the account in the user JWT. NATS does not put the account name in the message.</li>
+          <li><b>5</b><code>org/internal/tenants/tenants.go:133</code> <code>scoped.Tenant = tenant</code>, then <code>:140</code>.</li>
+          <li><b>6</b>The micro handler is the <code>Middleware</code> closure, <code>shared/otelnats/micro.go:32</code>.</li>
+          <li><b>7–8</b><code>org/internal/browserrpc/adapter.go:1194-1195</code>.</li>
+          <li><b>9</b><code>shared/otelnats/span.go:73-76</code>, <code>tenantAttrs</code> <code>:99-108</code>.</li>
+          <li><b>10</b><span class="acct"><code>span.go:15</code>, <code>:103</code>. Always set on SERVER spans.</span></li>
+          <li><b>11</b><code>span.go:101-102</code>.</li>
+          <li><b>12</b><code>span.go:78-80</code>. Never a tenant source (BR-069).</li>
+          <li><b>13</b><span class="badtext"><code>span.go:105-107</code> adds it only when set. No caller sets <code>OriginatingTenant</code>. The helper <code>OriginatingTenantFromRPCSubject</code> (<code>span.go:129</code>) has no caller.</span></li>
+        </ol>
+      </div>
+    </div>
+    <table class="t">
+      <thead><tr><th>Span</th><th>Made by</th><th>lab.tenant.receiving_account</th><th>Value comes from</th><th>lab.tenant.originating</th></tr></thead>
+      <tbody>
+        <tr><td>SERVER · <code>api.*</code> (6 services + usersrpc)</td><td><code>Middleware(EdgeAPI, a.trust, h)</code></td><td class="yes">yes</td><td><code>a.tenant</code> = creds file stem, or <code>"PLATFORM"</code> for PLATFORM adapters</td><td class="no-c">no</td></tr>
+        <tr><td>SERVER · <code>rpc.*</code> (refdata natsrpc, mfe-registry servicerpc)</td><td><code>Middleware(EdgeRPC, platformTrust, h)</code></td><td class="yes">yes, always <code>PLATFORM</code></td><td>constant <code>platformAccount</code>, <code>refdata/internal/natsrpc/adapter.go:94</code></td><td class="no-c">no — the tenant is in the subject (<code>rpc.acme.…</code>) but not read</td></tr>
+        <tr><td>CLIENT · <code>rpc.*</code> (refdataclient, refdataconsumer)</td><td><code>p.Call(ctx, msg, "refdata", …)</code></td><td class="no-c">no</td><td><code>StartClient</code> sets <code>peer.service</code> only, <code>span.go:114-122</code></td><td class="no-c">no</td></tr>
+      </tbody>
+    </table>
+    <figcaption><b>The account is a string the adapter vouches for.</b> NATS enforces the account. It does not tell the span its name.
+      The lab uses the creds file stem as the name, and puts it into <code>Trust</code>. Headers and the body are never read for it (BR-069).</figcaption>
+  </figure>
+
+  <!-- ============================================================ 6 EXPORT -->
+  <figure>
+    <h2><span class="no">7</span>Export and query — <code>deploy/cell</code></h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 1090 720" role="img" aria-label="Sequence of span export to Tempo and query via Grafana">
+        <rect x="178" y="8" width="735" height="704" rx="8" class="nb"/>
+        <text x="190" y="702" class="nbl">TELEMETRY NETWORK · ONLY GRAFANA HAS A HOST PORT</text>
+        <g>
+          <rect x="5" y="20" width="150" height="46" rx="6" class="n sdk"/><text x="80" y="40" class="lbl" text-anchor="middle">any Go service</text><text x="80" y="57" class="lbl2" text-anchor="middle">Provider · SDK batcher</text>
+          <rect x="190" y="20" width="150" height="46" rx="6" class="n"/><text x="265" y="40" class="lbl" text-anchor="middle">otel-collector</text><text x="265" y="57" class="lbl2" text-anchor="middle">:4318 · backend + telemetry</text>
+          <rect x="375" y="20" width="150" height="46" rx="6" class="n"/><text x="450" y="40" class="lbl" text-anchor="middle">Tempo</text><text x="450" y="57" class="lbl2" text-anchor="middle">:4317 in · :3200 query</text>
+          <rect x="560" y="20" width="150" height="46" rx="6" class="n"/><text x="635" y="40" class="lbl" text-anchor="middle">Grafana</text><text x="635" y="57" class="lbl2" text-anchor="middle">:3000 · host port</text>
+          <rect x="745" y="20" width="150" height="46" rx="6" class="n"/><text x="820" y="40" class="lbl" text-anchor="middle">observability-service</text><text x="820" y="57" class="lbl2" text-anchor="middle">tracequery gateway</text>
+          <rect x="930" y="20" width="150" height="46" rx="6" class="n ext"/><text x="1005" y="40" class="lbl" text-anchor="middle">Operator</text><text x="1005" y="57" class="lbl2" text-anchor="middle">browser · Admin UI</text>
+        </g>
+        <g>
+          <line x1="80" y1="66" x2="80" y2="690" class="life"/>
+          <line x1="265" y1="66" x2="265" y2="690" class="life"/>
+          <line x1="450" y1="66" x2="450" y2="690" class="life"/>
+          <line x1="635" y1="66" x2="635" y2="690" class="life"/>
+          <line x1="820" y1="66" x2="820" y2="690" class="life"/>
+          <line x1="1005" y1="66" x2="1005" y2="690" class="life"/>
+        </g>
+        <path d="M80 110 L114 110 L114 124 L84 124" class="rep"/>
+        <text x="120" y="114" class="t w">1 · span.End()</text>
+        <text x="120" y="130" class="s">→ batch queue</text>
+        <line x1="80" y1="175" x2="263" y2="175" class="rep"/>
+        <text x="172" y="168" class="t c w">2 · OTLP/HTTP /v1/traces</text>
+        <text x="172" y="190" class="s c">retry off · ExportTimeout</text>
+        <path d="M265 225 L299 225 L299 239 L269 239" class="rep"/>
+        <text x="305" y="229" class="t w">3 · sending_queue → disk</text>
+        <text x="305" y="245" class="s">file_storage/queue</text>
+        <line x1="265" y1="290" x2="448" y2="290" class="rep"/>
+        <text x="357" y="283" class="t c w">4 · OTLP gRPC tempo:4317</text>
+
+        <line x1="1005" y1="345" x2="637" y2="345" class="flow"/>
+        <text x="820" y="338" class="t c">5 · open localhost:3000</text>
+        <text x="820" y="360" class="s c">GRAFANA_PORT · login on</text>
+        <line x1="635" y1="395" x2="452" y2="395" class="flow"/>
+        <text x="542" y="388" class="t c">6 · TraceQL · tempo:3200</text>
+        <line x1="450" y1="435" x2="633" y2="435" class="ret"/>
+        <text x="542" y="428" class="t c">7 · traces</text>
+        <line x1="635" y1="475" x2="1003" y2="475" class="ret"/>
+        <text x="820" y="468" class="t c">8 · trace view</text>
+
+        <line x1="1005" y1="535" x2="822" y2="535" class="flow"/>
+        <text x="912" y="528" class="t c">9 · trace query</text>
+        <line x1="820" y1="580" x2="452" y2="580" class="flow"/>
+        <text x="635" y="573" class="t c">10 · HTTP · TEMPO_URL tempo:3200</text>
+        <line x1="450" y1="620" x2="818" y2="620" class="ret"/>
+        <text x="635" y="613" class="t c">11 · traces</text>
+        <line x1="820" y1="660" x2="1003" y2="660" class="ret"/>
+        <text x="912" y="653" class="t c">12 · results</text>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <div class="keys"><code>cell/</code> = <code>demos/01-dictionary/deploy/cell/</code> · <code>otel/</code> = <code>demos/01-dictionary/otel/</code></div>
+        <ol>
+          <li><b>1</b><code>shared/otelnats/otelnats.go:111-115</code>. Batcher, resource, sampler.</li>
+          <li><b>2</b><code>otelnats.go:99-104</code>. Endpoint <code>cell/compose.runtime.yaml:40</code>.</li>
+          <li><b>3</b><code>otel/collector.yaml:15-16</code>, <code>:42-44</code>. No processors, <code>:66-69</code>.</li>
+          <li><b>4</b><code>otel/collector.yaml:37-38</code>. Tempo <code>cell/compose.telemetry.yaml:60</code>.</li>
+          <li><b>5</b><code>cell/compose.telemetry.yaml:74-79</code>. Port <code>deploy/environments/local-za-1.env:41</code> (3000), <code>local-au-1.env:44</code> (3050).</li>
+          <li><b>6–7</b>Datasource <code>otel/grafana/datasources.yaml:13</code>, mounted at <code>compose.telemetry.yaml:92</code>.</li>
+          <li><b>8</b>The Admin UI links to Grafana from <code>VITE_GRAFANA_URL</code>, <code>cell/compose.runtime.yaml:412</code>.</li>
+          <li><b>10–11</b><code>cell/compose.runtime.yaml:379</code> <code>TEMPO_URL</code>.</li>
+          <li class="warn">The Collector and Tempo publish no host port. A published Collector would accept forged spans (<code>compose.telemetry.yaml:22-25</code>).</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>Two readers, one store.</b> Grafana and observability-service both read Tempo on <code>:3200</code>.
+      Only Grafana is reachable from the host.</figcaption>
+  </figure>
+
+  <!-- ============================================================ GAPS -->
+  <div class="gaps">
+    <h2>Gaps — <code>api.*</code> and <code>rpc.*</code> only</h2>
+    <ul>
+      <li>The browser has no OTel SDK. The <code>api.*</code> SERVER span is the root. <code>demos/01-dictionary/frontend/seafreight-app/src/nats/useNatsConnection.js:166</code>.</li>
+      <li>The mfe-registry client makes no CLIENT span. It uses a plain <code>RequestWithContext</code>, so its <code>rpc.*</code> SERVER span starts a new root. <code>shared/mferegistry/client/client.go:146</code>.</li>
+      <li><code>lab.tenant.originating</code> is never set. refdata spans show <code>PLATFORM</code> only, but the subject holds the tenant (<code>rpc.acme.…</code>).</li>
+      <li>CLIENT spans carry no account attribute.</li>
+      <li>The resource is <code>service.name</code> only, at <code>shared/otelnats/otelnats.go:114</code>. There is no region, cell, cluster or instance. <code>OTEL_RESOURCE_ATTRIBUTES</code> is ignored.</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>

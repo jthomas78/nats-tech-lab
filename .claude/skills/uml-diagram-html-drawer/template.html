@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Two to four words. A name, not a sentence. -->
+<title>Page Title Here</title>
+<style>
+  /* ---- tokens: the only place colors live. To adapt to another project,
+     change these values (and the marker fills below), nothing else. ---- */
+  :root {
+    --bg: #131416;        /* page + diagram canvas */
+    --panel: #1A1E23;     /* figure panels, class boxes, use case fill */
+    --stroke: #4A515B;    /* borders, lifelines, dividers */
+    --text: #DEE0E3;
+    --muted: #B7BCC2;     /* reply arrows, associations, sub-labels */
+    --dim: #8B929A;       /* stereotypes, column heads */
+    --accent: #006FFF;    /* call arrows, SERVER bars */
+    --accent-t: #6FA8FF;  /* accent as text */
+    --truth: #27C07F;     /* the highlighted concern (e.g. source of truth) */
+    --truth-t: #5FD9A3;
+    --warn: #9A7B1E;      /* async / SDK / secondary path */
+    --warn-t: #D6B656;
+    --bad: #F87171;       /* not captured, failure, gap */
+    --mono: 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/20px Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  main { max-width: 1840px; margin: 0 auto; padding: 32px 16px 56px; }
+  .eyebrow { color: var(--accent-t); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+  h1 { font-size: 22px; line-height: 30px; margin: 4px 0 6px; font-weight: 600; }
+  h2 { font-size: 15px; line-height: 22px; margin: 0 0 4px; font-weight: 600; }
+  h2 .no { color: var(--accent-t); font-family: var(--mono); margin-right: 8px; }
+  .lede { color: var(--muted); margin: 0 0 18px; max-width: 980px; }
+  code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0 0 28px; color: var(--muted); font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .legend svg { flex: none; }
+
+  figure { margin: 0 0 36px; background: var(--panel); border: 1px solid var(--stroke); border-radius: 8px; padding: 18px 18px 14px; }
+  .fig { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 22px; align-items: start; }
+  .fig svg.d { width: 100%; height: auto; display: block; background: var(--bg); border-radius: 6px; }
+  figcaption { color: var(--muted); margin-top: 12px; max-width: 1100px; }
+  figcaption b { color: var(--text); }
+
+  .refs { border-left: 1px solid var(--stroke); padding-left: 18px; }
+  .refs .hd { font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--dim); text-transform: uppercase; margin-bottom: 6px; }
+  .refs .keys { color: var(--dim); font-size: 11.5px; line-height: 17px; margin-bottom: 10px; }
+  .refs .keys code { font-size: 11px; color: var(--muted); }
+  .refs ol { list-style: none; margin: 0; padding: 0; }
+  .refs li { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; line-height: 18px; }
+  .refs li b { color: var(--accent-t); font-family: var(--mono); font-weight: 600; margin-right: 6px; }
+  .refs li code { font-size: 11.5px; color: var(--text); word-break: break-all; }
+  .refs .acct { color: var(--truth-t); }
+  .refs .warn { color: var(--warn-t); }
+  .refs .badtext { color: var(--bad); }
+
+  table.t { border-collapse: collapse; width: 100%; margin-top: 16px; font-size: 12.5px; }
+  table.t th, table.t td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--stroke); vertical-align: top; }
+  table.t th { color: var(--dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; }
+  table.t td { color: var(--muted); }
+  .yes { color: var(--truth-t); font-weight: 600; }
+  .no-c { color: var(--bad); font-weight: 600; }
+
+  .gaps { background: var(--panel); border: 1px solid var(--stroke); border-left: 3px solid var(--warn); border-radius: 8px; padding: 16px 20px; }
+  .gaps ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+  .gaps li { margin: 4px 0; }
+
+  /* ---- SVG vocabulary (see SKILL.md "Class vocabulary") ---- */
+  svg text { font-family: Inter, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .n { fill: var(--panel); stroke: var(--stroke); stroke-width: 1; }
+  .n.acct { stroke: var(--truth); stroke-width: 1.5; }
+  .n.ext { stroke-dasharray: 5 4; }
+  .n.sdk { stroke: var(--warn); }
+  .lbl { font-size: 13px; font-weight: 600; fill: var(--text); }
+  .lbl2 { font-size: 11px; fill: var(--muted); }
+  .stereo { font-size: 10.5px; fill: var(--dim); }
+  .mem { font-family: var(--mono) !important; font-size: 11.5px; fill: var(--text); }
+  .mem.m { fill: var(--muted); }
+  .div { stroke: var(--stroke); stroke-width: 1; }
+  .life { stroke: var(--stroke); stroke-width: 1; stroke-dasharray: 4 4; }
+  .flow { stroke: var(--accent); stroke-width: 1.5; fill: none; marker-end: url(#a-flow); }
+  .ret { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; marker-end: url(#a-ret); }
+  .rep { stroke: var(--warn-t); stroke-width: 1.4; stroke-dasharray: 6 4; fill: none; marker-end: url(#a-rep); }
+  .acl { stroke: var(--truth); stroke-width: 1.6; fill: none; marker-end: url(#a-acct); }
+  .err { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 5 4; fill: none; marker-end: url(#a-bad); }
+  .self { stroke: var(--accent); stroke-width: 1.4; fill: none; marker-end: url(#a-flow); }
+  .assoc { stroke: var(--muted); stroke-width: 1.2; fill: none; marker-end: url(#a-ret); }
+  .embed { stroke: var(--muted); stroke-width: 1.2; fill: none; marker-end: url(#a-embed); }
+  .t { font-size: 12px; fill: var(--text); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+  .t.c { text-anchor: middle; }
+  .t.e { text-anchor: end; }
+  .s { font-size: 10.5px; fill: var(--muted); font-family: var(--mono); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+  .s.c { text-anchor: middle; }
+  .s.e { text-anchor: end; }
+  .s.g, .t.g { fill: var(--truth-t); }
+  .s.w, .t.w { fill: var(--warn-t); }
+  .s.r, .t.r { fill: var(--bad); }
+  .cl { font-size: 11px; fill: var(--muted); paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
+  .bar-s { fill: rgba(0,111,255,.22); stroke: var(--accent); stroke-width: 1; }
+  .bar-c { fill: rgba(214,182,86,.20); stroke: var(--warn-t); stroke-width: 1; }
+  .nb { fill: none; stroke: var(--stroke); stroke-width: 1; stroke-dasharray: 3 4; }
+  .nbl { font-size: 11px; fill: var(--dim); letter-spacing: .06em; }
+  .divider { stroke: var(--stroke); stroke-width: 1; stroke-dasharray: 2 5; }
+  .uc { fill: var(--panel); stroke: var(--stroke); stroke-width: 1.2; }
+  .uc.acct { stroke: var(--truth); stroke-width: 1.5; }
+  .actor { fill: none; stroke: var(--text); stroke-width: 1.4; }
+  .assoc-uc { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+  .inc { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; marker-end: url(#a-ret); }
+  .bnd { fill: none; stroke: var(--stroke); stroke-width: 1.2; }
+
+  @media (max-width: 1200px) {
+    .fig { grid-template-columns: 1fr; }
+    .refs { border-left: 0; padding-left: 0; border-top: 1px solid var(--stroke); padding-top: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- One shared marker set for every figure. Fills repeat the tokens because
+     markers cannot read CSS variables in every browser. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="a-flow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#006FFF"/></marker>
+    <marker id="a-ret" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#B7BCC2" stroke-width="1.2"/></marker>
+    <marker id="a-rep" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#D6B656"/></marker>
+    <marker id="a-acct" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#27C07F"/></marker>
+    <marker id="a-bad" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#F87171"/></marker>
+    <marker id="a-embed" markerWidth="13" markerHeight="13" refX="11" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L11,6 L0,12 z" fill="#1A1E23" stroke="#B7BCC2" stroke-width="1.2"/></marker>
+  </defs>
+</svg>
+
+<main>
+  <div class="eyebrow">Scope · component · as of commit or date</div>
+  <h1>Page headline — the one question</h1>
+  <p class="lede">Two or three sentences. What this page shows, and what it leaves out.</p>
+
+  <div class="legend">
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="flow"/></svg>call</span>
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="ret"/></svg>reply</span>
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="rep"/></svg>async</span>
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="acl"/></svg>highlighted concern</span>
+    <span><svg width="44" height="10"><line x1="2" y1="5" x2="40" y2="5" class="err"/></svg>not captured</span>
+    <span><svg width="14" height="22"><rect x="2" y="1" width="10" height="20" class="bar-s"/></svg>activation</span>
+  </div>
+
+  <!-- ===================================================== 1 USE CASE -->
+  <figure>
+    <h2><span class="no">1</span>Use cases — who uses it, and for what</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 900 300" role="img" aria-label="Use case diagram of SYSTEM">
+        <rect x="200" y="24" width="500" height="252" rx="8" class="bnd"/>
+        <text x="216" y="46" class="lbl">System name</text>
+        <!-- stick-figure actor: head r9, body 25, arms at +9, legs 18 -->
+        <circle cx="100" cy="92" r="9" class="actor"/><line x1="100" y1="101" x2="100" y2="126" class="actor"/><line x1="86" y1="110" x2="114" y2="110" class="actor"/><line x1="100" y1="126" x2="88" y2="144" class="actor"/><line x1="100" y1="126" x2="112" y2="144" class="actor"/>
+        <text x="100" y="162" class="lbl" text-anchor="middle">Actor</text><text x="100" y="177" class="lbl2" text-anchor="middle">concrete example</text>
+        <!-- secondary system actor -->
+        <rect x="740" y="82" width="140" height="56" rx="6" class="n ext"/>
+        <text x="810" y="101" class="stereo" text-anchor="middle">«system»</text>
+        <text x="810" y="119" class="lbl" text-anchor="middle">External</text>
+        <!-- use cases: verb phrase inside an ellipse -->
+        <ellipse cx="340" cy="110" rx="115" ry="26" class="uc"/>
+        <text x="340" y="114" class="lbl" text-anchor="middle">Do the main thing</text>
+        <ellipse cx="580" cy="110" rx="95" ry="26" class="uc acct"/>
+        <text x="580" y="114" class="lbl" text-anchor="middle">Record a fact</text>
+        <ellipse cx="340" cy="220" rx="115" ry="30" class="uc"/>
+        <text x="340" y="217" class="lbl" text-anchor="middle">Fall back</text>
+        <text x="340" y="233" class="s c">[condition]</text>
+        <!-- association: plain line, actor to use case edge -->
+        <line x1="118" y1="110" x2="225" y2="110" class="assoc-uc"/>
+        <line x1="675" y1="110" x2="740" y2="110" class="assoc-uc"/>
+        <!-- «include»: base → included. «extend»: extension → base -->
+        <line x1="455" y1="110" x2="483" y2="110" class="inc"/>
+        <text x="469" y="102" class="s c">«include»</text>
+        <line x1="340" y1="190" x2="340" y2="138" class="inc"/>
+        <text x="348" y="168" class="s">«extend»</text>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <ol>
+          <li><b>Main</b><code>path/to/file.go:42</code>. Detail in figure 3, steps 1–4.</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>Bold lead sentence.</b> One or two plain sentences on what the reader should see.</figcaption>
+  </figure>
+
+  <!-- ===================================================== 2 CLASS -->
+  <figure>
+    <h2><span class="no">2</span>Classes — only the ones that matter here</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 900 260" role="img" aria-label="Class diagram of SYSTEM">
+        <text x="20" y="22" class="nbl">COLUMN · PACKAGE</text>
+        <!-- class box: stereotype + name, divider, fields, divider, methods. row step 17 -->
+        <rect x="20" y="40" width="300" height="150" rx="6" class="n"/>
+        <text x="34" y="60" class="stereo">package · «struct»</text>
+        <text x="34" y="78" class="lbl">TypeName</text>
+        <line x1="20" y1="88" x2="320" y2="88" class="div"/>
+        <text x="34" y="106" class="mem">field Type</text>
+        <text x="34" y="123" class="mem m">other *Thing</text>
+        <line x1="20" y1="134" x2="320" y2="134" class="div"/>
+        <text x="34" y="152" class="mem">Method(ctx) error</text>
+        <text x="34" y="169" class="mem">Other() Thing</text>
+
+        <rect x="520" y="40" width="300" height="96" rx="6" class="n acct"/>
+        <text x="534" y="60" class="stereo">package · «value»</text>
+        <text x="534" y="78" class="lbl">Highlighted</text>
+        <line x1="520" y1="88" x2="820" y2="88" class="div"/>
+        <text x="534" y="106" class="mem">Key string</text>
+
+        <!-- association (open arrow) with a relation label above the line -->
+        <line x1="320" y1="106" x2="520" y2="106" class="assoc"/>
+        <text x="420" y="99" class="cl" text-anchor="middle">uses</text>
+        <!-- embedding / generalization: hollow triangle, class="embed" -->
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <ol>
+          <li><b>TypeName</b><code>path/to/file.go:12</code>.</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>Bold lead sentence.</b> What the classes are for.</figcaption>
+  </figure>
+
+  <!-- ===================================================== 3 SEQUENCE -->
+  <figure>
+    <h2><span class="no">3</span>Sequence — one request, end to end</h2>
+    <div class="fig">
+      <svg class="d" viewBox="0 0 900 330" role="img" aria-label="Sequence diagram of one request">
+        <!-- lane heads: 140 wide, centres 160 apart -->
+        <rect x="20" y="16" width="140" height="44" rx="6" class="n"/>
+        <text x="90" y="36" class="lbl" text-anchor="middle">Caller</text>
+        <text x="90" y="51" class="lbl2" text-anchor="middle">role</text>
+        <rect x="180" y="16" width="140" height="44" rx="6" class="n"/>
+        <text x="250" y="36" class="lbl" text-anchor="middle">Service</text>
+        <rect x="340" y="16" width="140" height="44" rx="6" class="n sdk"/>
+        <text x="410" y="36" class="lbl" text-anchor="middle">SDK</text>
+        <line x1="90" y1="60" x2="90" y2="314" class="life"/>
+        <line x1="250" y1="60" x2="250" y2="314" class="life"/>
+        <line x1="410" y1="60" x2="410" y2="314" class="life"/>
+        <!-- activation bar: 10 wide, centred on the lifeline -->
+        <rect x="245" y="92" width="10" height="120" class="bar-s"/>
+        <!-- message: label y-7 above the line, sub-label y+15 below. row step 44 -->
+        <line x1="90" y1="100" x2="244" y2="100" class="flow"/>
+        <text x="167" y="93" class="t c">1 · request(x)</text>
+        <text x="167" y="115" class="s c">subject.or.route</text>
+        <!-- self call -->
+        <path d="M255 144 L289 144 L289 158 L261 158" class="self"/>
+        <text x="296" y="150" class="t">2 · work()</text>
+        <!-- async (to SDK) -->
+        <line x1="255" y1="188" x2="404" y2="188" class="rep"/>
+        <text x="330" y="181" class="t c w">3 · span.End()</text>
+        <!-- reply -->
+        <line x1="244" y1="210" x2="96" y2="210" class="ret"/>
+        <text x="167" y="203" class="t c">4 · reply</text>
+        <!-- async divider + combined fragment -->
+        <line x1="20" y1="240" x2="880" y2="240" class="divider"/>
+        <text x="20" y="256" class="nbl">LATER · ASYNC</text>
+        <rect x="330" y="262" width="160" height="44" rx="4" class="nb"/>
+        <text x="338" y="276" class="nbl">opt [queue full]</text>
+        <line x1="410" y1="294" x2="480" y2="294" class="err"/>
+      </svg>
+      <div class="refs">
+        <div class="hd">Source · file:line</div>
+        <ol>
+          <li><b>1</b><code>path/to/client.go:10</code>.</li>
+          <li><b>2</b><code>path/to/service.go:20</code>.</li>
+        </ol>
+      </div>
+    </div>
+    <figcaption><b>Bold lead sentence.</b> Numbers on the arrows match the list on the right.</figcaption>
+  </figure>
+
+  <div class="gaps">
+    <h2>Gaps</h2>
+    <ul>
+      <li>What the diagram shows is missing in the code, with <code>file:line</code>.</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>
