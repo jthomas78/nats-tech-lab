@@ -23,7 +23,12 @@ import (
 //
 // With Config.CaptureBodies, the request body is a span event at the start
 // and the reply body is one just before the span ends (decision 7).
+//
+// With a nil Provider, Middleware returns h unchanged (BR-079).
 func (p *Provider) Middleware(edge Edge, trust func(micro.Request) Trust, h micro.HandlerFunc) micro.HandlerFunc {
+	if p == nil {
+		return h
+	}
 	return func(req micro.Request) {
 		msg := &nats.Msg{Subject: req.Subject(), Header: nats.Header(req.Headers())}
 		ctx, span := p.StartServer(context.Background(), msg, edge, trust(req))

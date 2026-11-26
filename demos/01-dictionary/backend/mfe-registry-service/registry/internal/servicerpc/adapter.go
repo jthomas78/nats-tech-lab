@@ -262,11 +262,8 @@ func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger, tracing *oteln
 		message, code, status := classify(err, "the withdrawal could not be recorded")
 		shared.RespondErrorBody(req, svc, log, err, status, UnregisterResponse{Error: message, Code: code})
 	})
-	wrap := func(h micro.HandlerFunc) micro.HandlerFunc { return h }
-	if tracing != nil {
-		wrap = func(h micro.HandlerFunc) micro.HandlerFunc {
-			return tracing.Middleware(otelnats.EdgeRPC, platformTrust, h)
-		}
+	wrap := func(h micro.HandlerFunc) micro.HandlerFunc {
+		return tracing.Middleware(otelnats.EdgeRPC, platformTrust, h)
 	}
 	if err := svc.AddEndpoint("registry-announce", wrap(handler), micro.WithEndpointSubject(mferegistry.Announce)); err != nil {
 		_ = svc.Stop()

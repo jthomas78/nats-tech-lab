@@ -35,7 +35,13 @@ func (p *Provider) HTTPMiddleware(receivingAccount string, next http.Handler) ht
 // (shipping-service's SwitchTenant, Phase 54d). receivingAccount is the
 // caller's own state, never a value from the request (BR-069). A
 // self-declared Nats-Requestor header becomes lab.requester (BR-041).
+//
+// With a nil Provider, HTTPMiddleware and HTTPMiddlewareFor return next
+// unchanged (BR-079).
 func (p *Provider) HTTPMiddlewareFor(receivingAccount func(*http.Request) string, next http.Handler) http.Handler {
+	if p == nil {
+		return next
+	}
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
 		span.SetAttributes(AttrReceivingAccount.String(receivingAccount(r)))

@@ -264,12 +264,9 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"context-list", a.handleContextList, ContextListSubject},
 	}
 	for _, ep := range endpoints {
-		handler := micro.HandlerFunc(ep.handler)
-		if a.otel != nil {
-			// A caller on rpc.* is a trusted service, so the trace continues
-			// (EdgeRPC). Without a Provider the endpoint runs untraced.
-			handler = a.otel.Middleware(otelnats.EdgeRPC, platformTrust, ep.handler)
-		}
+		// A caller on rpc.* is a trusted service, so the trace continues
+		// (EdgeRPC). Without a Provider the endpoint runs untraced (BR-079).
+		handler := a.otel.Middleware(otelnats.EdgeRPC, platformTrust, ep.handler)
 		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err

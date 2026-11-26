@@ -222,13 +222,10 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	a.svc = svc
 
 	for _, ep := range a.endpoints() {
-		handler := micro.HandlerFunc(ep.handler)
-		if a.otel != nil {
-			// A browser call is untrusted, so the span starts a new root and
-			// only links a sent traceparent (EdgeAPI, BR-071). Without a
-			// Provider the endpoint runs untraced.
-			handler = a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
-		}
+		// A browser call is untrusted, so the span starts a new root and
+		// only links a sent traceparent (EdgeAPI, BR-071). Without a
+		// Provider the endpoint runs untraced (BR-079).
+		handler := a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
 		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err

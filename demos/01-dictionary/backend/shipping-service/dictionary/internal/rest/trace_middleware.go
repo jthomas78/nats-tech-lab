@@ -17,9 +17,6 @@ import (
 // business path it describes.
 func (h *Handlers) httpTraceMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	tracing := h.deps().Tracing
-	if tracing == nil {
-		return next
-	}
 	traced := tracing.HTTPMiddlewareFor(func(*http.Request) string { return h.deps().Tenant }, next)
 	return traced.ServeHTTP
 }

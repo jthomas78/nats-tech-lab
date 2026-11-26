@@ -246,13 +246,11 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"meta-known-containers", a.handleMetaKnownContainers, MetaKnownContainersSubject},
 	}
 	for _, ep := range endpoints {
-		handler := micro.HandlerFunc(ep.handler)
-		if a.otel != nil {
-			// A browser call: a new root, any sent traceparent only a link
-			// (BR-071). The receiving account is this adapter's tenant, and
-			// the originating tenant stays empty (BR-069).
-			handler = a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
-		}
+		// A browser call: a new root, any sent traceparent only a link
+		// (BR-071). The receiving account is this adapter's tenant, and
+		// the originating tenant stays empty (BR-069). Without a Provider
+		// the endpoint runs untraced (BR-079).
+		handler := a.otel.Middleware(otelnats.EdgeAPI, a.trust, ep.handler)
 		if err := svc.AddEndpoint(ep.name, handler, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err

@@ -2003,8 +2003,15 @@ caller's `ctx` unchanged. It returns the operation's result and error
 unchanged, and a panic in the operation propagates unchanged. It adds no
 instrumentation and writes no tracing header.
 
-- **Enforced in:** `shared/otelnats/wrap.go`.
-- **Test:** `shared/otelnats/wrap_test.go`, `Describe("BR-079: …")`.
+The SERVER middlewares follow the same rule (amended 2026-10-20, confirmed
+by the user): with a nil `*Provider`, `Middleware` returns the handler
+unchanged, and `HTTPMiddleware` and `HTTPMiddlewareFor` return `next`
+unchanged. So no caller needs its own nil check before it wraps a handler.
+
+- **Enforced in:** `shared/otelnats/wrap.go`, `shared/otelnats/micro.go`,
+  `shared/otelnats/http.go`.
+- **Test:** `shared/otelnats/wrap_test.go`, `Describe("BR-079: …")`;
+  `shared/otelnats/server_nil_test.go`, `Describe("BR-079: …")`.
 
 ### BR-080 (Phase 57, confirmed by the user 2026-10-20) — A span is Error when the operation it represents fails
 

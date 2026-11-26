@@ -81,10 +81,7 @@ func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger, tracing *oteln
 	}
 	a.svc = svc
 	for _, ep := range a.routes() {
-		h := ep.handler
-		if tracing != nil {
-			h = tracing.Middleware(otelnats.EdgeAPI, platformTrust, ep.handler)
-		}
+		h := tracing.Middleware(otelnats.EdgeAPI, platformTrust, ep.handler)
 		if err := svc.AddEndpoint(ep.name, h, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err

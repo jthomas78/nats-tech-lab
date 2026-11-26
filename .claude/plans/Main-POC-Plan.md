@@ -2765,7 +2765,12 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
   stay different (they differ in values, not cancellation); aligning them
   is Phase 110.
 - **The SERVER side.** `Middleware` (`micro.go`) and the HTTP middleware
-  already own their spans and stay as they are.
+  already own their spans and stay as they are. Exception, added after the
+  phase (task 57.11): their nil-provider behavior now follows BR-079.
+- **A shared endpoint mount helper.** Reviewed 2026-10-20 and not done:
+  after 57.11 each adapter loop is 6 plain lines, and the helper has no
+  clean home. Look again when a 9th traced adapter arrives, or when a mount
+  rule grows (endpoint metadata, a second option on every endpoint).
 
 #### Decided at the gate (task 57.1, 2026-10-20)
 
@@ -2826,6 +2831,19 @@ Sites 1 and 2 also lose their local `serviceErrorHeader` /
     skipped** (no `*_TEST_DATABASE_URL`, so they did not run).
   - `refdata-service`: 5 suites, Refdata 164/164, all pass.
   - No existing test file changed in Phase 57.
+- [x] **57.11 — Nil-safe SERVER middlewares** (follow-up, approved by the
+  user 2026-10-20). Design: with a nil `*Provider`, `Middleware` returns
+  `h`, and `HTTPMiddleware` / `HTTPMiddlewareFor` return `next`, each
+  unchanged (BR-079, amended). No behavior change: an untraced endpoint was
+  already unwrapped, and `ContextFrom(req)` already returned `Background()`.
+  Steps: specs red in `shared/otelnats/server_nil_test.go`; code green in
+  `micro.go` and `http.go`; then remove the 10 caller guards (the 8
+  `api.*` / `rpc.*` adapters, `accounts/handler.go` `TraceHTTP`, and
+  shipping `rest/trace_middleware.go`); then the suites.
+  Done 2026-10-20: the 3 new specs were red (nil-pointer panic), then
+  green. `go vet` clean. `go test` passes in `shared/otelnats`,
+  `shared/browserrpc`, `shared/natstenants` and all 6 traced services, with
+  no `*_TEST_DATABASE_URL` set, so the Postgres specs skipped.
 ---
 
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning

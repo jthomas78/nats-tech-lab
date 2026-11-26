@@ -121,10 +121,7 @@ func NewUsersAdapter(nc *nats.Conn, reader *UserClaimsReader, revoker *UserRevok
 	a.svc = svc
 
 	for _, ep := range a.endpoints() {
-		h := micro.HandlerFunc(ep.handler)
-		if a.otel != nil {
-			h = a.otel.Middleware(otelnats.EdgeAPI, platformTrust, ep.handler)
-		}
+		h := a.otel.Middleware(otelnats.EdgeAPI, platformTrust, ep.handler)
 		if err := svc.AddEndpoint(ep.name, h, micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err

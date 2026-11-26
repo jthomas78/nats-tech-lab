@@ -120,12 +120,9 @@ type Handlers struct {
 
 // TraceHTTP wraps the REST API in its tracing. With a Provider each request
 // is one OTel SERVER span on the PLATFORM account (BR-073). With none the API
-// is served untraced and next is returned unchanged (Phase 54d).
+// is served untraced and next is returned unchanged (Phase 54d, BR-079).
 func TraceHTTP(next http.Handler, tracing *otelnats.Provider) http.Handler {
-	if tracing != nil {
-		return tracing.HTTPMiddleware("PLATFORM", next)
-	}
-	return next
+	return tracing.HTTPMiddleware("PLATFORM", next)
 }
 
 func NewHandlers(store *Store, provisioner *Provisioner, credsWriteDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
