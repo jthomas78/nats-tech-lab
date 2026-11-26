@@ -3,156 +3,522 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Architecture Documentation Guide</title>
-<!-- One-page reader guide to the L0-L4 model in
-     linebooker-v3-architecture-documentation-model.html. A standalone figure:
-     no LB-V3 ID, not in the L0 atlas, changes no status. The authoring
-     workflow stays in the source drawing. -->
+<title>Architecture Model Guide</title>
+<!-- General guide to the L0-L4 architecture model. It explains the model
+     and does not depend on any current architecture, technology, document
+     inventory or status. One fictional, technology-neutral example (a room
+     booking system) shows detail growing from L1 to L4. A standalone
+     figure: no ID of its own, not in the L0 atlas, changes no status.
+     Two A3 landscape sheets: 1 the levels and reference, 2 the example. -->
 <style>
 :root {
   --bg: #131416; --panel: #1A1E23; --panel2: #15181c;
   --line: #2a3038; --line2: #3a424c; --stroke: #4A515B;
-  --tx: #DEE0E3; --tx2: #B7BCC2; --tx3: #8b929b;
-  --blue: #006FFF; --blue2: #4d94ff; --green: #27C07F; --amber: #f0b429; --purple: #a78bfa;
+  --tx: #DEE0E3; --tx2: #B7BCC2; --tx3: #8b929b; --dim: #737c87;
+  --blue: #006FFF; --blue2: #4d94ff; --green: #27C07F; --amber: #f0b429; --purple: #a78bfa; --red: #f87171;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
 }
-@page { size: A4; margin: 0; }
+@page { size: A3 landscape; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: var(--bg); }
 body { background: var(--bg); color: var(--tx); font-family: Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
-.sheet { width: 210mm; height: 297mm; margin: 0 auto; overflow: hidden; padding: 9mm 12mm 7mm; display: flex; flex-direction: column; gap: 7px;
+.sheet { width: 420mm; height: 297mm; margin: 0 auto; overflow: hidden; padding: 9mm 12mm 7mm; display: flex; flex-direction: column; gap: 10px;
   background: radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%); }
+.sheet.first { page-break-after: always; }
 
-.chead { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 8px; font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--tx3); }
+.chead { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 8px; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--tx3); }
 .chead .r { color: var(--blue2); }
 
-.titleblock { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: 0 10px 10px 0; padding: 11px 18px 12px; }
-.fam { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--blue2); }
-h1 { font-size: 23px; line-height: 29px; letter-spacing: -.01em; font-weight: 700; margin: 2px 0 6px; }
-.titleblock p { color: var(--tx2); font-size: 12.5px; line-height: 19px; }
+.titleblock { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: 0 10px 10px 0; padding: 10px 18px 11px; }
+.fam { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--blue2); }
+h1 { font-size: 24px; line-height: 30px; letter-spacing: -.01em; font-weight: 700; margin: 2px 0 4px; }
+.titleblock p { color: var(--tx2); font-size: 13px; line-height: 19px; max-width: 160ch; }
+.titleblock p b { color: var(--tx); font-weight: 600; }
 
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 8px 14px 9px; }
-.panel > .lbl { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--tx3); margin-bottom: 7px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 10px 14px 11px; }
+.lbl { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--tx3); margin-bottom: 7px; }
+.panel p { color: var(--tx2); font-size: 12px; line-height: 17px; }
+.panel p + p { margin-top: 6px; }
+.panel p b { color: var(--tx); font-weight: 600; }
 
-table { width: 100%; border-collapse: collapse; font-size: 11.5px; line-height: 16px; }
-th { text-align: left; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--tx3); font-weight: 600; border-bottom: 1px solid var(--line2); padding: 0 10px 5px 0; }
-td { border-bottom: 1px solid var(--line); padding: 4px 10px 4px 0; vertical-align: top; color: var(--tx2); }
-tr:last-child td { border-bottom: 0; }
-td.lv { font-family: var(--mono); font-weight: 700; color: var(--blue2); white-space: nowrap; width: 30px; }
-td.nm { color: var(--tx); font-weight: 600; width: 128px; }
-td.rd { width: 108px; color: var(--tx3); }
-td.no { width: 150px; color: var(--tx3); font-size: 11px; }
-tr.l4 td { background: rgba(0,111,255,.06); }
-tr.l4 td.nm, tr.l4 td.lv { color: var(--blue2); }
+/* Sheet 1: the model at a glance */
+.body1 { flex: 1; min-height: 0; display: grid; grid-template-columns: 212px 1fr; gap: 12px; }
+.l0 { background: var(--panel2); border: 1px dashed var(--stroke); border-radius: 9px; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; min-height: 0; }
+.l0 .tag { font: 650 9px/14px var(--mono); letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
+.l0 p { font-size: 11.5px; line-height: 16px; color: var(--tx2); }
+.l0 p b { color: var(--tx); font-weight: 600; }
+.l0 .pic { flex: none; }
+.l0 .tail { margin-top: auto; border-left: 2px solid var(--stroke); padding-left: 9px; }
 
-/* Worked branch */
-.branch { display: grid; grid-template-columns: 1fr 18px 1fr 18px 1fr 18px 1fr; align-items: stretch; }
-.node { background: var(--panel2); border: 1px solid var(--stroke); border-radius: 6px; padding: 7px 9px 8px; display: flex; flex-direction: column; gap: 2px; }
-.node .id { font: 650 9.5px/14px var(--mono); color: var(--blue2); letter-spacing: .03em; }
-.node .t { color: var(--tx); font-weight: 600; font-size: 11.5px; line-height: 15px; }
-.node .q { color: var(--tx3); font-size: 10.5px; line-height: 14px; }
-.node .st { margin-top: auto; padding-top: 4px; }
-.node.leaf { border-color: var(--blue); }
-.node.planned { border-style: dashed; }
-.arr { align-self: center; justify-self: center; color: var(--blue2); font-size: 13px; }
-.pill { display: inline-block; font: 650 8.5px/15px var(--mono); letter-spacing: .06em; border: 1px solid var(--line2); border-radius: 999px; padding: 0 7px; color: var(--tx3); }
+.prog { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.exbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; border: 1px solid var(--amber); border-radius: 6px; padding: 5px 12px; font-size: 11.5px; line-height: 16px; color: var(--tx2); background: rgba(240,180,41,.05); }
+.exbar .x b { color: var(--amber); font: 700 10px/16px var(--mono); letter-spacing: .12em; margin-right: 8px; }
+.exbar .lg { display: flex; gap: 16px; color: var(--tx3); font-size: 11px; white-space: nowrap; }
+.lvls { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 26px 1fr 26px 1fr 26px 1fr; }
+.lvl { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 10px 11px; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.lhead { display: flex; align-items: center; gap: 8px; }
+.lhead .lv { font: 700 18px/22px var(--mono); color: var(--blue2); }
+.l0 .lhead .lv { color: var(--tx2); }
+.lhead .nm { font-weight: 650; font-size: 14px; color: var(--tx); flex: 1; }
+.verb { font: 700 9.5px/16px var(--mono); letter-spacing: .14em; color: var(--bg); background: var(--blue2); border-radius: 3px; padding: 0 6px; }
+.l0 .verb { background: var(--tx3); }
+.q { font-size: 13.5px; line-height: 18px; font-weight: 650; color: var(--tx); }
+.l0 .q { font-size: 12.5px; line-height: 17px; }
+.pic { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 8px 0 6px; }
+.lvl .pic { flex: 1; min-height: 0; }
+.pic svg { display: block; width: 100%; height: auto; }
+.addsrow { display: flex; flex-wrap: wrap; gap: 4px 5px; align-items: center; }
+.addsrow b { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--green); font-weight: 650; margin-right: 3px; }
+.chip { font-size: 11px; line-height: 16px; color: var(--tx); border: 1px solid rgba(39,192,127,.55); background: rgba(39,192,127,.07); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
+.next { font-size: 11.5px; line-height: 16px; color: var(--tx2); min-height: 32px; }
+.next b { color: var(--blue2); font-weight: 650; }
+.gut { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--blue2); }
+.gut span { font-size: 16px; }
+.gut i { font: normal 650 9px/10px var(--mono); letter-spacing: .12em; writing-mode: vertical-rl; color: var(--tx2); text-transform: uppercase; }
+
+.qgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.qc { font-size: 12px; line-height: 16px; color: var(--tx2); display: flex; gap: 8px; align-items: flex-start; }
+.qc b { color: var(--tx); font-weight: 600; }
+.asks { background: var(--panel2); border-left: 2px solid var(--blue2); border-radius: 0 6px 6px 0; padding: 5px 9px 6px; }
+.asks .k { font: 650 9px/14px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--blue2); }
+.l0 .asks { border-left-color: var(--tx3); }
+.l0 .asks .k { color: var(--tx3); }
+.asks p, .l0 .asks p { font-size: 11.5px; line-height: 16px; color: var(--tx); font-style: italic; }
+.asks p + p { margin-top: 3px; }
+.lvl .pic { display: flex; align-items: flex-start; padding-top: 12px; }
+.lvchip { font: 700 11px/18px var(--mono); color: var(--blue2); border: 1px solid var(--blue2); border-radius: 4px; padding: 0 5px; flex: none; }
+.qc.zero .lvchip { color: var(--tx2); border-color: var(--tx3); border-style: dashed; }
+.qc.rule { border-top-color: var(--amber); color: var(--tx2); display: block; font-size: 11.5px; }
+.qc.rule b { color: var(--tx); font-weight: 600; }
+
+.sw { display: inline-block; width: 20px; height: 11px; vertical-align: -1px; margin-right: 5px; border-radius: 2px; }
+.sw.hl { border: 1.6px solid var(--blue2); background: rgba(0,111,255,.14); }
+.sw.dsh { border: 1.4px dashed var(--blue2); }
+.dt { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--blue2); margin-right: 5px; vertical-align: 0; }
+.ch { display: inline-block; width: 16px; height: 10px; border-radius: 999px; border: 1px solid rgba(39,192,127,.7); background: rgba(39,192,127,.1); margin-right: 5px; vertical-align: -1px; }
+
+/* Sheet 2: reference */
+.body2 { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 500px; gap: 12px; }
+.stack { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.ladder { display: flex; flex-direction: column; min-height: 0; padding: 12px 18px 16px; }
+.ladder .lhd, .rung { display: grid; grid-template-columns: 230px 128px 1.15fr 1fr 170px; gap: 22px; align-items: center; }
+.ladder .lhd { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--tx3); font-weight: 600; border-bottom: 1px solid var(--line2); padding-bottom: 6px; margin-bottom: 10px; }
+.rung { flex: 1; min-height: 0; }
+.blk { height: 100%; min-height: 64px; display: flex; align-items: center; gap: 14px; padding: 0 18px; border: 1.6px solid var(--blue2); background: rgba(0,111,255,.12); border-radius: 6px; }
+.blk b { font: 700 24px/28px var(--mono); color: var(--blue2); }
+.blk span { font-size: 17px; line-height: 22px; font-weight: 650; color: var(--tx); }
+.rung.zero .blk { border: 1.4px dashed var(--stroke); background: var(--panel2); }
+.rung.zero .blk b { color: var(--tx2); }
+.vbx { font: 700 12px/18px var(--mono); letter-spacing: .14em; color: var(--blue2); }
+.rung.zero .vbx { color: var(--tx2); }
+.ans { font-size: 15px; line-height: 21px; font-weight: 600; color: var(--tx); }
+.cnt { font-size: 13px; line-height: 19px; color: var(--tx2); }
+.rdr { font-size: 13px; line-height: 19px; color: var(--tx3); }
+.link { width: 230px; height: 34px; flex: none; display: flex; align-items: center; justify-content: center; position: relative; }
+.link::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 6px; border-left: 1.6px solid var(--blue2); }
+.link::after { content: ""; position: absolute; left: calc(50% - 5px); bottom: 0; border: 5px solid transparent; border-top: 7px solid var(--blue2); border-bottom: 0; }
+.link.nav::before { border-left: 1.4px dashed var(--stroke); }
+.link.nav::after { border-top-color: var(--stroke); }
+.link i { position: absolute; left: calc(50% + 12px); font: normal 650 9.5px/12px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--tx2); white-space: nowrap; }
+
+ul.rules { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+ul.rules li { font-size: 12px; line-height: 17px; color: var(--tx2); padding-left: 12px; position: relative; }
+ul.rules li::before { content: "▸"; position: absolute; left: 0; color: var(--blue2); font-size: 10px; }
+ul.rules li b { color: var(--tx); font-weight: 600; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.two > div { border-top: 2px solid var(--green); padding-top: 6px; font-size: 11.5px; line-height: 16px; color: var(--tx2); }
+.two > div.p { border-top-color: var(--purple); }
+.two b { display: block; color: var(--tx); font-weight: 600; font-size: 12px; margin-bottom: 2px; }
+.eds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.eds div { border-top: 2px solid var(--stroke); padding-top: 5px; font-size: 11.5px; line-height: 16px; color: var(--tx2); }
+.eds b { display: block; color: var(--tx); font-weight: 600; font-size: 12px; }
+.pill { display: inline-block; font: 650 9px/16px var(--mono); letter-spacing: .06em; border: 1px solid var(--line2); border-radius: 999px; padding: 0 7px; color: var(--tx3); white-space: nowrap; }
 .pill.ok { color: var(--green); border-color: var(--green); }
-.sibs { margin-top: 8px; font-size: 11px; line-height: 16px; color: var(--tx3); }
-.sibs b { color: var(--tx2); font-weight: 600; }
+.pill.dr { color: var(--blue2); border-color: var(--blue2); }
+.pill.adr { color: var(--purple); border-color: var(--purple); }
+.st2 { display: grid; grid-template-columns: 104px 1fr; gap: 5px 10px; align-items: start; font-size: 11.5px; line-height: 16px; color: var(--tx2); }
+.subhd { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--tx); font-weight: 600; margin: 2px 0 6px; }
+.subhd + .st2 { margin-bottom: 9px; }
+.ex { margin-top: 8px; border-left: 2px solid var(--amber); padding: 3px 0 3px 10px; font-size: 11.5px; line-height: 16px; color: var(--tx2); }
+.ex b { color: var(--tx); font-weight: 600; }
 
-/* L4 definition */
-.def { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: 0 9px 9px 0; padding: 10px 16px; display: grid; grid-template-columns: 74px 1fr; gap: 12px; align-items: start; }
-.def .lbl { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--blue2); padding-top: 2px; }
-.def p { font-size: 13.5px; line-height: 21px; }
-.def p b { font-weight: 650; }
-
-/* Supporting strip */
-.strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
-.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px 9px; }
-.tile .k { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--tx3); }
-.tile .v { color: var(--tx); font-weight: 600; font-size: 12px; line-height: 17px; margin: 2px 0 2px; }
-.tile p { color: var(--tx2); font-size: 11px; line-height: 15px; }
-.tile.adr { border-top: 2px solid var(--purple); }
-.tile.req { border-top: 2px solid var(--green); }
-.tile.view { border-top: 2px solid var(--blue); }
-.tile.ed { border-top: 2px solid var(--stroke); }
-
-/* Status */
-.status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
-.status div { font-size: 11px; line-height: 15px; color: var(--tx2); }
-.status .pill { margin-bottom: 3px; }
-.note { margin-top: 8px; font-size: 11px; line-height: 16px; color: var(--tx2); }
-.note b { color: var(--amber); font-weight: 600; }
-
-.cfoot { margin-top: auto; border-top: 1px solid var(--line); padding-top: 8px; display: flex; justify-content: space-between; gap: 16px; font-size: 9px; letter-spacing: .08em; color: var(--tx3); text-transform: uppercase; }
+.cfoot { border-top: 1px solid var(--line); padding-top: 7px; display: flex; justify-content: space-between; gap: 16px; font-size: 9.5px; letter-spacing: .08em; color: var(--tx3); text-transform: uppercase; }
 .cfoot .brand { color: var(--amber); font-weight: 700; }
+
+/* SVG */
+.n   { fill: none; stroke: var(--stroke); stroke-width: 1; }
+.mu  { fill: none; stroke: var(--line2); stroke-width: 1; }
+.hl  { fill: rgba(0,111,255,.12); stroke: var(--blue2); stroke-width: 1.6; }
+.hld { fill: rgba(0,111,255,.04); stroke: var(--blue2); stroke-width: 1.3; stroke-dasharray: 5 3; }
+.nb  { fill: none; stroke: var(--stroke); stroke-width: 1; stroke-dasharray: 4 3; }
+.dot { fill: var(--blue2); }
+.t1  { font-family: var(--mono); font-size: 11px; fill: var(--tx); }
+.t2  { font-family: var(--mono); font-size: 9.5px; fill: var(--tx3); }
+.tm1 { font-family: var(--mono); font-size: 11px; fill: var(--tx3); }
+.tm2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.hd  { font-family: var(--mono); font-size: 9.5px; fill: var(--tx); font-weight: 600; }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--tx3); letter-spacing: .07em; }
+.grpb { font-family: var(--mono); font-size: 9.5px; fill: var(--blue2); letter-spacing: .07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--tx2); }
+.lb  { font-family: var(--mono); font-size: 9.5px; fill: var(--blue2); }
+.note { font-family: var(--mono); font-size: 9.5px; fill: var(--amber); }
+.flow { fill: none; stroke: var(--blue2); stroke-width: 1.5; }
+.ret  { fill: none; stroke: var(--stroke); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.hop  { fill: none; stroke: var(--stroke); stroke-width: 1.2; }
+.nav  { fill: none; stroke: var(--stroke); stroke-width: 1.2; stroke-dasharray: 5 4; }
+.life { fill: none; stroke: var(--line2); stroke-width: 1; stroke-dasharray: 3 3; }
 </style>
 </head>
 <body>
-<main class="sheet">
-  <div class="chead"><span>Proposed Linebooker V3 · L0 – L4 model</span><span class="r">Reader guide · not an LB-V3 document</span></div>
+
+<!-- ============================ SHEET 1: REFERENCE ============================ -->
+<main class="sheet first">
+  <div class="chead"><span>L0 – L4 architecture model · guide · sheet 1 of 2</span><span class="r">General guide · independent of any current design</span></div>
 
   <div class="titleblock">
-    <div class="fam">Architecture documentation guide</div>
-    <h1>How do I find the right architecture detail?</h1>
-    <p>The Proposed V3 architecture is drawn at five levels. Start at the top and zoom in. Each level answers one kind of question for one kind of reader, and every document sits under exactly one parent.</p>
+    <div class="fam">Architecture model guide · the levels</div>
+    <h1>Five levels, one question each</h1>
+    <p>Each level answers one kind of question. L0 finds documents. From L1 to L4, each level adds detail to one subject in the level above. <b>The levels organise architecture information. They are not a delivery sequence:</b> write the level that a question needs. Sheet 2 follows one fictional example through L1 to L4.</p>
   </div>
 
-  <div class="panel">
-    <div class="lbl">Five levels — what each one tells you</div>
-    <table>
-      <thead><tr><th>Level</th><th>Document</th><th>It tells you</th><th>Written for</th><th>You will not find</th></tr></thead>
-      <tbody>
-        <tr><td class="lv">L0</td><td class="nm">Atlas</td><td>Where to find the document you need: the hierarchy, IDs, titles and status.</td><td class="rd">anyone</td><td class="no">system design</td></tr>
-        <tr><td class="lv">L1</td><td class="nm">Overview</td><td>Who the platform serves, the business capabilities, the external systems, and which country or region things run in.</td><td class="rd">everybody</td><td class="no">service internals, protocols, schemas</td></tr>
-        <tr><td class="lv">L2</td><td class="nm">Architecture</td><td>How the platform is structured, and which technologies are selected and why.</td><td class="rd">architects, leads, ops</td><td class="no">subjects, payloads, permissions</td></tr>
-        <tr><td class="lv">L3</td><td class="nm">Concern views</td><td>How one concern works — for example messaging, security, data or observability.</td><td class="rd">specialists in that concern</td><td class="no">unrelated concerns</td></tr>
-        <tr class="l4"><td class="lv">L4</td><td class="nm">Detailed designs</td><td>The contracts, flows, schemas, permissions and deployment specifications needed to build one design.</td><td class="rd">implementers</td><td class="no">the full system landscape again</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="panel">
-    <div class="lbl">One real branch — follow a question down</div>
-    <div class="branch">
-      <div class="node"><span class="id">LB-V3-L1-01</span><span class="t">System and Platform Overview</span><span class="q">Who uses it, for what, where?</span><span class="st"><span class="pill ok">AVAILABLE</span></span></div>
-      <div class="arr">→</div>
-      <div class="node"><span class="id">LB-V3-L2-01</span><span class="t">Logical and Technical Architecture</span><span class="q">How is it constructed?</span><span class="st"><span class="pill ok">AVAILABLE</span></span></div>
-      <div class="arr">→</div>
-      <div class="node planned"><span class="id">LB-V3-L3-10</span><span class="t">Observability</span><span class="q">How does observability work?</span><span class="st"><span class="pill">PLANNED</span></span></div>
-      <div class="arr">→</div>
-      <div class="node leaf"><span class="id">LB-V3-L4-02</span><span class="t">Distributed Tracing with OpenTelemetry</span><span class="q">What exactly do we build?</span><span class="st"><span class="pill ok">AVAILABLE</span></span></div>
+  <div class="body2">
+    <div class="panel ladder">
+      <div class="lbl">Levels at a glance</div>
+      <div class="lhd"><span></span><span>Reader journey</span><span>Answers</span><span>Typical content</span><span>Reader</span></div>
+      <div class="rung zero"><div class="blk"><b>L0</b><span>Atlas</span></div><div class="vbx">FIND</div><div class="ans">Where is the architecture information I need?</div><div class="cnt">a map of the documents: every document, its level and its parent</div><div class="rdr">anyone</div></div>
+      <div class="link nav"><i>lists every document below</i></div>
+      <div class="rung"><div class="blk"><b>L1</b><span>Overview</span></div><div class="vbx">UNDERSTAND</div><div class="ans">What is the system, who uses it, and what surrounds it?</div><div class="cnt">people, the system boundary, external systems</div><div class="rdr">everybody</div></div>
+      <div class="link"><i>opens the system</i></div>
+      <div class="rung"><div class="blk"><b>L2</b><span>Architecture</span></div><div class="vbx">STRUCTURE</div><div class="ans">What are the major technical parts, and how do they cooperate?</div><div class="cnt">applications, services, data stores, connections, technology choices</div><div class="rdr">architects, leads, operations</div></div>
+      <div class="link"><i>follows one concern</i></div>
+      <div class="rung"><div class="blk"><b>L3</b><span>Concern view</span></div><div class="vbx">FOCUS</div><div class="ans">How does one architectural concern work?</div><div class="cnt">one concern across the parts it touches, with its rules</div><div class="rdr">specialists in that concern</div></div>
+      <div class="link"><i>specifies one design</i></div>
+      <div class="rung"><div class="blk"><b>L4</b><span>Detailed design</span></div><div class="vbx">SPECIFY</div><div class="ans">What precisely must be built?</div><div class="cnt">contracts, sequences, schemas, rules, deployment specifications</div><div class="rdr">implementers</div></div>
     </div>
-    <p class="sibs">The levels branch. <b>L2-01</b> has a sibling, <b>L2-02 Technology Selection</b>, and twelve L3 children such as <b>Messaging / NATS</b>, <b>Data</b> and <b>Multi-Region</b>. A detailed design develops one concern of its parent. A parent may still be PLANNED.</p>
-  </div>
 
-  <div class="def">
-    <div class="lbl">L4 is</div>
-    <p><b>L4 turns one architectural concern into an implementable design.</b> Each document defines the relevant contracts, interactions, data structures, permissions or deployment details, and makes unresolved choices explicit.</p>
-  </div>
+    <div class="stack">
+      <div class="panel">
+        <div class="lbl">Choosing a level</div>
+        <ul class="rules">
+          <li><b>To find a document,</b> start at L0.</li>
+          <li><b>To learn what the system is,</b> start at L1.</li>
+          <li><b>Too much detail for a level?</b> It belongs one level lower, under the subject it details.</li>
+          <li><b>A concern that crosses several parts</b> gets an L3 view, not more detail in L2. L3 explains how it works; L4 specifies one design in it precisely.</li>
+          <li><b>Not every L3 needs an L4.</b> Add one when someone must build it.</li>
+          <li><b>Not a delivery sequence.</b> Write the level a reader needs. A lower level is added when someone needs that detail.</li>
+        </ul>
+      </div>
 
-  <div class="strip">
-    <div class="tile req"><div class="k">Requirements</div><div class="v">What must be addressed</div><p>Each document has a register. Every requirement has an ID.</p></div>
-    <div class="tile view"><div class="k">Architecture views</div><div class="v">How it is designed</div><p>The drawings at L0 – L4. One question each.</p></div>
-    <div class="tile adr"><div class="k">ADRs</div><div class="v">What was decided, and why</div><p>A separate log, not a level. One decision can govern any level.</p></div>
-    <div class="tile ed"><div class="k">Editions</div><div class="v">One document, three forms</div><p>HTML drawing, PDF print, and optional prose page.</p></div>
-  </div>
+      <div class="panel">
+        <div class="lbl">Beside the levels, not levels</div>
+        <div class="two">
+          <div><b>Requirements</b>One register per document. Each requirement has an ID. The view traces its content back to a requirement, and each requirement to the view that addresses it.</div>
+          <div class="p"><b>ADRs — decision records</b>One decision log with one number sequence. A decision can govern documents at any level, and one decision can govern several documents.</div>
+        </div>
+      </div>
 
-  <div class="panel">
-    <div class="lbl">How far to trust what you read</div>
-    <div class="status">
-      <div><span class="pill">PLANNED</span><br>Catalogued. Nothing to review yet.</div>
-      <div><span class="pill">DRAFT</span><br>Reviewable, but not accepted or not complete.</div>
-      <div><span class="pill ok">AVAILABLE</span><br>HTML and PDF match and passed validation.</div>
-      <div><span class="pill">SUPERSEDED</span><br>Kept for history. Links to its replacement.</div>
+      <div class="panel">
+        <div class="lbl">One document, up to three editions</div>
+        <div class="eds">
+          <div><b>Drawing</b>The editable source.</div>
+          <div><b>Print</b>Same content, same ID and title.</div>
+          <div><b>Prose page</b>Optional. Explains the drawing; never adds scope.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="lbl">Document readiness and decision status</div>
+        <div class="subhd">Document readiness — can I read it?</div>
+        <div class="st2">
+          <span><span class="pill">PLANNED</span></span><span>Listed in the atlas. Nothing to read yet.</span>
+          <span><span class="pill dr">DRAFT</span></span><span>Readable and open to review. Not accepted, or not complete.</span>
+          <span><span class="pill ok">AVAILABLE</span></span><span>Drawing and print edition match and passed validation.</span>
+          <span><span class="pill">SUPERSEDED</span></span><span>Kept for history. Points to its replacement.</span>
+        </div>
+        <div class="subhd">Decision status — is it settled?</div>
+        <div class="st2">
+          <span><span class="pill adr">ADR PROPOSED</span></span><span>The decision is written down, not yet accepted.</span>
+          <span><span class="pill adr">ADR ACCEPTED</span></span><span>The decision of record. If a view disagrees, the view is corrected.</span>
+          <span><span class="pill">DIRECTIONAL</span></span><span>A dated first-pass position. Each provisional item is marked.</span>
+        </div>
+        <div class="ex"><b>Readiness is not approval.</b> A document can be AVAILABLE and directional: ready to read, with some choices still open.</div>
+      </div>
     </div>
-    <p class="note">Status is about the document being ready, not about every decision in it being approved. <b>“Directional”</b> on a sheet means a first-pass position, dated, with each provisional item marked and any missing ADR shown.</p>
   </div>
 
   <div class="cfoot">
-    <span><span class="brand">Linebooker</span> · source: linebooker-v3-architecture-documentation-model.html</span>
-    <span>Rules: the architecture authority</span>
+    <span><span class="brand">Linebooker</span> · architecture model guide · the example is fictional</span>
+    <span>Model guide · 1 / 2</span>
   </div>
 </main>
+
+<!-- ============================ SHEET 2: EXAMPLE ============================ -->
+<main class="sheet">
+  <div class="chead"><span>L0 – L4 architecture model · guide · sheet 2 of 2</span><span class="r">General guide · independent of any current design</span></div>
+
+  <div class="titleblock">
+    <div class="fam">Architecture model guide · one example, level by level</div>
+    <h1>Find, understand, structure, focus, specify</h1>
+    <p>Each level answers one kind of question. From L1 to L4, each view adds detail to one subject chosen in the view before it. L0 is the map that finds any view. <b>The levels organise architecture information. They are not a delivery sequence:</b> write the level that a question needs.</p>
+  </div>
+
+  <div class="body1">
+    <!-- L0: beside the progression, not the first magnification -->
+    <aside class="l0">
+      <div class="tag">Navigation · beside the views</div>
+      <div class="lhead"><span class="lv">L0</span><span class="nm">Atlas</span><span class="verb">FIND</span></div>
+      <p class="q">Where is the architecture information I need?</p>
+      <div class="pic">
+        <svg viewBox="0 0 190 214" role="img" aria-label="Example atlas: an indented tree of the example's documents, each row directly under its parent, with lines to the parent. L1 room booking overview; under it L2 system structure and L2 technology choices; under system structure, L3 access control, messaging and data retention; under access control, L4 permission check; under data retention, L4 retention schedule. The rows for the branch drawn on this sheet are blue.">
+          <path class="mu" d="M10 25 V198 H16 M10 42 H16"/>
+          <path class="mu" d="M22 51 V146 H28 M22 68 H28 M22 120 H28"/>
+          <path class="mu" d="M34 77 V94 H40"/>
+          <path class="mu" d="M34 155 V172 H40"/>
+          <text class="grpb" x="6" y="20">L1</text><text class="lb" x="28" y="20">Room booking overview</text>
+          <text class="grpb" x="18" y="46">L2</text><text class="lb" x="40" y="46">System structure</text>
+          <text class="grpb" x="30" y="72">L3</text><text class="lb" x="52" y="72">Access control</text>
+          <text class="grpb" x="42" y="98">L4</text><text class="lb" x="64" y="98">Permission check</text>
+          <text class="grp" x="30" y="124">L3</text><text class="edge" x="52" y="124">Messaging</text>
+          <text class="grp" x="30" y="150">L3</text><text class="edge" x="52" y="150">Data retention</text>
+          <text class="grp" x="42" y="176">L4</text><text class="edge" x="64" y="176">Retention schedule</text>
+          <text class="grp" x="18" y="202">L2</text><text class="edge" x="40" y="202">Technology choices</text>
+        </svg>
+      </div>
+      <p><b>A map of the documents.</b> Each row is one document. A line joins it to its parent. A real atlas also gives each document's ID and status.</p>
+      <p><b>Blue rows:</b> the views drawn on the right.</p>
+      <div class="asks"><div class="k">Questions that belong here</div><p>"Where is the document about access control?"</p><p>"Which views exist for this system?"</p></div>
+      <p class="tail"><b>Not a magnification.</b> L0 draws no part of the system. Start at L0 to find a view. Start at L1 to learn the system.</p>
+    </aside>
+
+    <div class="prog">
+      <div class="exbar">
+        <span class="x"><b>EXAMPLE</b>A fictional room-booking system. It shows how detail grows. It is not a proposed architecture.</span>
+        <span class="lg"><span><span class="sw hl"></span>selected here; the next level opens it</span><span><span class="sw dsh"></span>carried in from the level above</span><span><span class="dt"></span>part of the concern followed</span><span><span class="ch"></span>new at this level</span></span>
+      </div>
+
+      <div class="lvls">
+        <!-- L1 -->
+        <section class="lvl">
+          <div class="lhead"><span class="lv">L1</span><span class="nm">Overview</span><span class="verb">UNDERSTAND</span></div>
+          <p class="q">What is the system, who uses it, and what surrounds it?</p>
+          <div class="pic">
+            <svg viewBox="0 0 300 334" role="img" aria-label="Example L1 view. Two kinds of people, Member and Administrator, use the Room Booking System, which is drawn as one selected box with its inside hidden. The system depends on two external systems: an identity provider for sign-in and a message provider for notices.">
+              <defs>
+                <marker id="a-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--blue2)"/></marker>
+              </defs>
+              <text class="grp" x="10" y="12">PEOPLE</text>
+              <rect class="n" x="10" y="20" width="135" height="40" rx="3"/>
+              <text class="t1" x="20" y="37">Member</text><text class="t2" x="20" y="51">books rooms</text>
+              <rect class="n" x="155" y="20" width="135" height="40" rx="3"/>
+              <text class="t1" x="165" y="37">Administrator</text><text class="t2" x="165" y="51">manages rooms</text>
+
+              <path class="flow" d="M77 60 V91" marker-end="url(#a-b)"/>
+              <text class="edge" x="85" y="80">books</text>
+              <path class="flow" d="M222 60 V91" marker-end="url(#a-b)"/>
+              <text class="edge" x="230" y="80">manages</text>
+
+              <rect class="hl" x="10" y="100" width="280" height="118" rx="4"/>
+              <text class="grpb" x="20" y="118">SYSTEM BOUNDARY</text>
+              <text class="t1" x="20" y="142">Room Booking System</text>
+              <text class="t2" x="20" y="157">the system this set describes</text>
+              <text class="tm2" x="20" y="202">inside: hidden at L1</text>
+
+              <path class="flow" d="M77 218 V257" marker-end="url(#a-b)"/>
+              <text class="edge" x="85" y="242">sign-in</text>
+              <path class="flow" d="M222 218 V257" marker-end="url(#a-b)"/>
+              <text class="edge" x="230" y="242">notices</text>
+
+              <rect class="n" x="10" y="266" width="135" height="40" rx="3"/>
+              <text class="t1" x="20" y="283">Identity provider</text><text class="t2" x="20" y="297">external system</text>
+              <rect class="n" x="155" y="266" width="135" height="40" rx="3"/>
+              <text class="t1" x="165" y="283">Message provider</text><text class="t2" x="165" y="297">external system</text>
+              <text class="grp" x="10" y="326">EXTERNAL SYSTEMS</text>
+            </svg>
+          </div>
+          <div class="addsrow"><b>Adds</b><span class="chip">people</span><span class="chip">system boundary</span><span class="chip">external systems</span></div>
+          <p class="next"><b>Selected: the system.</b> L2 opens this box.</p>
+          <div class="asks"><div class="k">Questions that belong here</div><p>"Who uses the booking system?"</p><p>"Which outside systems does it need?"</p></div>
+        </section>
+
+        <div class="gut"><span>▸</span><i>opens the system</i></div>
+
+        <!-- L2 -->
+        <section class="lvl">
+          <div class="lhead"><span class="lv">L2</span><span class="nm">Architecture</span><span class="verb">STRUCTURE</span></div>
+          <p class="q">What are the major technical parts, and how do they cooperate?</p>
+          <div class="pic">
+            <svg viewBox="0 0 300 400" role="img" aria-label="Example L2 view. Inside the Room Booking System boundary, carried from L1: a web app and a mobile app call an API gateway. The gateway calls three services: bookings, messages and accounts. The bookings service keeps a booking data store. The messages service calls the external message provider, and the accounts service calls the external identity provider. Dots mark the six parts that take part in access control, the concern selected for L3.">
+              <defs>
+                <marker id="b-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--blue2)"/></marker>
+              </defs>
+              <text class="grpb" x="5" y="12">ROOM BOOKING SYSTEM · FROM L1</text>
+              <rect class="hld" x="5" y="20" width="290" height="282" rx="4"/>
+
+              <rect class="n" x="15" y="32" width="130" height="40" rx="3"/>
+              <text class="t1" x="25" y="49">Web app</text><text class="t2" x="25" y="63">application</text>
+              <circle class="dot" cx="136" cy="41" r="4"/>
+              <rect class="n" x="155" y="32" width="130" height="40" rx="3"/>
+              <text class="t1" x="165" y="49">Mobile app</text><text class="t2" x="165" y="63">application</text>
+              <circle class="dot" cx="276" cy="41" r="4"/>
+
+              <path class="flow" d="M80 72 V95" marker-end="url(#b-b)"/>
+              <path class="flow" d="M220 72 V95" marker-end="url(#b-b)"/>
+
+              <rect class="n" x="15" y="104" width="270" height="36" rx="3"/>
+              <text class="t1" x="25" y="126">API gateway</text>
+              <text class="t2" x="264" y="126" text-anchor="end">entry for every request</text>
+              <circle class="dot" cx="276" cy="113" r="4"/>
+
+              <path class="flow" d="M57 140 V163" marker-end="url(#b-b)"/>
+              <path class="flow" d="M150 140 V163" marker-end="url(#b-b)"/>
+              <path class="flow" d="M243 140 V163" marker-end="url(#b-b)"/>
+
+              <rect class="n" x="15" y="172" width="84" height="40" rx="3"/>
+              <text class="t1" x="25" y="189">Bookings</text><text class="t2" x="25" y="203">service</text>
+              <circle class="dot" cx="90" cy="181" r="4"/>
+              <rect class="n" x="108" y="172" width="84" height="40" rx="3"/>
+              <text class="t1" x="118" y="189">Messages</text><text class="t2" x="118" y="203">service</text>
+              <rect class="n" x="201" y="172" width="84" height="40" rx="3"/>
+              <text class="t1" x="211" y="189">Accounts</text><text class="t2" x="211" y="203">service</text>
+              <circle class="dot" cx="276" cy="181" r="4"/>
+
+              <path class="flow" d="M57 212 V235" marker-end="url(#b-b)"/>
+              <text class="edge" x="65" y="228">keep</text>
+              <rect class="n" x="15" y="244" width="84" height="40" rx="3"/>
+              <text class="t1" x="25" y="261">Booking</text><text class="t2" x="25" y="275">data store</text>
+
+              <path class="flow" d="M150 212 V325" marker-end="url(#b-b)"/>
+              <text class="edge" x="158" y="268">send</text>
+              <path class="flow" d="M243 212 V325" marker-end="url(#b-b)"/>
+              <text class="edge" x="251" y="268">verify</text>
+
+              <text class="grp" x="15" y="352">EXTERNAL</text>
+              <text class="grp" x="15" y="366">FROM L1</text>
+              <rect class="mu" x="108" y="334" width="84" height="40" rx="3"/>
+              <text class="tm1" x="118" y="351">Message</text><text class="tm2" x="118" y="365">provider</text>
+              <rect class="mu" x="201" y="334" width="84" height="40" rx="3"/>
+              <text class="tm1" x="211" y="351">Identity</text><text class="tm2" x="211" y="365">provider</text>
+              <circle class="dot" cx="276" cy="343" r="4"/>
+
+              <circle class="dot" cx="19" cy="389" r="4"/>
+              <text class="edge" x="29" y="392">takes part in access control</text>
+            </svg>
+          </div>
+          <div class="addsrow"><b>Adds</b><span class="chip">applications</span><span class="chip">services</span><span class="chip">data stores</span><span class="chip">connections</span></div>
+          <p class="next"><b>Selected: access control.</b> It touches six parts. L3 follows it across them, with web and mobile grouped.</p>
+          <div class="asks"><div class="k">Questions that belong here</div><p>"Which service keeps the bookings?"</p><p>"How does a request reach a service?"</p></div>
+        </section>
+
+        <div class="gut"><span>▸</span><i>follows one concern</i></div>
+
+        <!-- L3 -->
+        <section class="lvl">
+          <div class="lhead"><span class="lv">L3</span><span class="nm">Concern view</span><span class="verb">FOCUS</span></div>
+          <p class="q">How does one architectural concern work?</p>
+          <div class="pic">
+            <svg viewBox="0 0 300 402" role="img" aria-label="Example L3 view of access control, the concern selected at L2. It crosses the same six L2 parts, with web and mobile grouped as applications, each row with one numbered job: 1 the applications start sign-in and send the token; 2 the identity provider proves who the user is and issues a token; 3 the API gateway checks the token on every request; 4 the bookings service checks permission before any change, which is selected for L4; 5 the accounts service supplies the user's role. Below, the rules the concern sets.">
+              <text class="grpb" x="5" y="12">ACCESS CONTROL · SELECTED AT L2</text>
+              <rect class="hld" x="5" y="20" width="290" height="290" rx="4"/>
+
+              <rect class="n" x="15" y="30" width="120" height="40" rx="3"/>
+              <text class="t1" x="25" y="47">Applications</text><text class="t2" x="25" y="61">web + mobile</text>
+              <circle class="dot" cx="126" cy="39" r="4"/>
+              <text class="edge" x="145" y="47">1 start sign-in;</text><text class="edge" x="145" y="61">send token each time</text>
+
+              <rect class="n" x="15" y="88" width="120" height="40" rx="3"/>
+              <text class="t1" x="25" y="105">Identity</text><text class="t2" x="25" y="119">external</text>
+              <circle class="dot" cx="126" cy="97" r="4"/>
+              <text class="edge" x="145" y="105">2 prove who the user</text><text class="edge" x="145" y="119">is; issue a token</text>
+
+              <rect class="n" x="15" y="146" width="120" height="40" rx="3"/>
+              <text class="t1" x="25" y="163">API gateway</text><text class="t2" x="25" y="177">entry</text>
+              <circle class="dot" cx="126" cy="155" r="4"/>
+              <text class="edge" x="145" y="163">3 check the token</text><text class="edge" x="145" y="177">on every request</text>
+
+              <rect class="hl" x="15" y="204" width="120" height="40" rx="3"/>
+              <text class="t1" x="25" y="221">Bookings</text><text class="t2" x="25" y="235">service</text>
+              <circle class="dot" cx="126" cy="213" r="4"/>
+              <text class="t1" x="145" y="221">4 check permission</text><text class="edge" x="145" y="235">before any change</text>
+
+              <rect class="n" x="15" y="262" width="120" height="40" rx="3"/>
+              <text class="t1" x="25" y="279">Accounts</text><text class="t2" x="25" y="293">service</text>
+              <circle class="dot" cx="126" cy="271" r="4"/>
+              <text class="edge" x="145" y="279">5 supply the role:</text><text class="edge" x="145" y="293">Member or Administrator</text>
+
+              <rect class="nb" x="5" y="322" width="290" height="74" rx="4"/>
+              <text class="grp" x="15" y="338">RULES THE CONCERN SETS</text>
+              <text class="edge" x="15" y="356">Member: change own bookings only</text>
+              <text class="edge" x="15" y="370">Administrator: change any booking</text>
+              <text class="edge" x="15" y="384">No valid token: refuse the request</text>
+            </svg>
+          </div>
+          <div class="addsrow"><b>Adds</b><span class="chip">one concern</span><span class="chip">its steps across parts</span><span class="chip">its rules</span></div>
+          <p class="next"><b>Selected: step 4.</b> The same six parts (web and mobile as one row). A focus, not a box inside a box.</p>
+          <div class="asks"><div class="k">Questions that belong here</div><p>"How does access control work end to end?"</p><p>"Which part refuses a request, and when?"</p></div>
+        </section>
+
+        <div class="gut"><span>▸</span><i>specifies one step</i></div>
+
+        <!-- L4 -->
+        <section class="lvl">
+          <div class="lhead"><span class="lv">L4</span><span class="nm">Detailed design</span><span class="verb">SPECIFY</span></div>
+          <p class="q">What precisely must be built?</p>
+          <div class="pic">
+            <svg viewBox="0 0 300 404" role="img" aria-label="Example L4 design of the permission check, step 4 selected at L3, drawn as a sequence. The app sends a change to the gateway. The gateway forwards it to the bookings service. Bookings asks accounts for the role, gets the role, checks the rule, and returns the result to the gateway, which returns it to the app. Below, the contract for changing a booking: request, allowed and refused results, and the rule.">
+              <defs>
+                <marker id="d-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--blue2)"/></marker>
+                <marker id="d-g" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--stroke)"/></marker>
+              </defs>
+              <text class="grpb" x="5" y="12">PERMISSION CHECK · STEP 4 FROM L3</text>
+              <rect class="hld" x="5" y="20" width="290" height="262" rx="4"/>
+
+              <rect class="n" x="11" y="28" width="66" height="26" rx="3"/><text class="hd" x="44" y="45" text-anchor="middle">App</text>
+              <rect class="n" x="83" y="28" width="66" height="26" rx="3"/><text class="hd" x="116" y="45" text-anchor="middle">Gateway</text>
+              <rect class="hl" x="155" y="28" width="66" height="26" rx="3"/><text class="hd" x="188" y="45" text-anchor="middle">Bookings</text>
+              <rect class="n" x="227" y="28" width="66" height="26" rx="3"/><text class="hd" x="260" y="45" text-anchor="middle">Accounts</text>
+              <path class="life" d="M44 54 V274"/>
+              <path class="life" d="M116 54 V274"/>
+              <path class="life" d="M188 54 V274"/>
+              <path class="life" d="M260 54 V274"/>
+
+              <path class="flow" d="M44 78 H107" marker-end="url(#d-b)"/><text class="edge" x="50" y="73">1 change</text>
+              <path class="flow" d="M116 108 H179" marker-end="url(#d-b)"/><text class="edge" x="122" y="103">2 forward</text>
+              <path class="flow" d="M188 138 H251" marker-end="url(#d-b)"/><text class="edge" x="194" y="133">3 get role</text>
+              <path class="ret" d="M260 168 H197" marker-end="url(#d-g)"/><text class="edge" x="203" y="163">4 role</text>
+              <path class="flow" d="M188 190 H212 V206 H197" marker-end="url(#d-b)"/><text class="edge" x="218" y="202">5 check</text>
+              <path class="ret" d="M188 232 H125" marker-end="url(#d-g)"/><text class="edge" x="131" y="227">6 result</text>
+              <path class="ret" d="M116 262 H53" marker-end="url(#d-g)"/><text class="edge" x="59" y="257">7 result</text>
+
+              <rect class="nb" x="5" y="294" width="290" height="104" rx="4"/>
+              <text class="grp" x="15" y="312">CONTRACT · CHANGE A BOOKING</text>
+              <text class="grp" x="15" y="330">request</text><text class="edge" x="80" y="330">booking id · change · token</text>
+              <text class="grp" x="15" y="346">allowed</text><text class="edge" x="80" y="346">the updated booking</text>
+              <text class="grp" x="15" y="362">refused</text><text class="edge" x="80" y="362">reason: not permitted</text>
+              <text class="grp" x="15" y="378">rule</text><text class="edge" x="80" y="378">Member: own bookings only</text>
+            </svg>
+          </div>
+          <div class="addsrow"><b>Adds</b><span class="chip">exact messages</span><span class="chip">order</span><span class="chip">fields</span><span class="chip">refusals</span></div>
+          <p class="next"><b>Excerpt, simplified.</b> A full L4 gives every rule, field and step. Other L4 forms: a schema, a rule table, a deployment specification.</p>
+          <div class="asks"><div class="k">Questions that belong here</div><p>"What does a refused change send back?"</p><p>"Which fields does a change carry?"</p></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="qgrid">
+      <div class="qc"><span class="lvchip">?</span><span><b>Where does my question belong?</b> Match it to the "questions that belong here" box in each level.</span></div>
+      <div class="qc"><span class="lvchip">▾</span><span><b>Too much detail for this level?</b> It belongs one level lower, under the subject it details.</span></div>
+      <div class="qc"><span class="lvchip">L3</span><span><b>A concern that crosses several parts</b> gets an L3 view, not more detail in L2. L4 then specifies one design in it.</span></div>
+      <div class="qc rule"><b>Not a delivery sequence.</b> The levels organise information. Write the level a reader needs; a lower level is added when someone needs that detail.</div>
+    </div>
+  </div>
+
+  <div class="cfoot">
+    <span><span class="brand">Linebooker</span> · architecture model guide · the example is fictional</span>
+    <span>Model guide · 2 / 2</span>
+  </div>
+</main>
+
 </body>
 </html>

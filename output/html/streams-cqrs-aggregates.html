@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streams, aggregates and CQRS — where each one sits</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+</head>
+<body>
+<main class="wrap">
+<header class="head"><div class="head-txt">
+<span class="eyebrow">Concept · NATS JetStream · demo 04 jetstream-cqrs</span>
+<h1>Streams, aggregates and CQRS — where each one sits</h1>
+<p class="sub">An aggregate is one business thing with rules; a stream is a JetStream storage log; a subject joins them.</p>
+</div></header>
+<figure>
+<div class="fig-body">
+<svg viewBox="0 0 1000 592" role="img" aria-label="The Fleet business domain contains vehicle, driver and trip aggregate types, each with individual aggregates such as truck-1, bob and t-900. Three alternative storage layouts are compared: one FLEET stream per domain is the recommended start; VEHICLES, DRIVERS and TRIPS streams split storage by aggregate type when a type is busy; one stream for each individual aggregate creates thousands of streams and Raft groups and should be avoided in NATS. An aggregate is identified by its subject, not by a dedicated stream.">
+<!-- Grid A: panel x=16,344,672; width=304; gutter=24. Domain y=46–160; options y=220–576. -->
+<text class="lbl" x="16" y="20" text-anchor="start">A · Positioning: domain → aggregate type → aggregate → stream</text>
+<rect class="nb" x="16" y="46" width="960" height="114" rx="4"/>
+<text class="grp" x="32" y="66" text-anchor="start">DOMAIN — FLEET</text>
+<rect class="n" x="92" y="88" width="124" height="52" rx="3"/>
+<text class="lbl" x="154.0" y="111.0" text-anchor="middle">vehicle</text>
+<text class="lbl2" x="154.0" y="124.0" text-anchor="middle">truck-1, truck-2 …</text>
+<rect class="n" x="420" y="88" width="78" height="52" rx="3"/>
+<text class="lbl" x="459.0" y="111.0" text-anchor="middle">driver</text>
+<text class="lbl2" x="459.0" y="124.0" text-anchor="middle">bob, ana …</text>
+<rect class="n" x="748" y="88" width="60" height="52" rx="3"/>
+<text class="lbl" x="778.0" y="111.0" text-anchor="middle">trip</text>
+<text class="lbl2" x="778.0" y="124.0" text-anchor="middle">t-900 …</text>
+<text class="edge" x="500" y="193" text-anchor="middle">aggregate = subject, not stream</text>
+<rect class="nb" x="16" y="220" width="304" height="356" rx="4"/>
+<text class="grp" x="28" y="243" text-anchor="start">OPTION 1 — STREAM PER DOMAIN</text>
+<rect class="nb" x="344" y="220" width="304" height="356" rx="4"/>
+<text class="grp" x="356" y="243" text-anchor="start">OPTION 2 — STREAM PER AGGREGATE TYPE</text>
+<rect class="nb" x="672" y="220" width="304" height="356" rx="4"/>
+<text class="grp" x="684" y="243" text-anchor="start">OPTION 3 — STREAM PER AGGREGATE</text>
+<text class="grp" x="28" y="268" text-anchor="start" style="fill:var(--store)">RECOMMENDED START</text>
+<g><path class="n" d="M88 300 V348 A42.0 7 0 0 0 172 348 V300"/><ellipse class="n" cx="130.0" cy="300" rx="42.0" ry="7"/></g>
+<text class="lbl" x="130.0" y="322" text-anchor="middle">FLEET</text>
+<text class="lbl2" x="130.0" y="336" text-anchor="middle">evt.fleet.&gt;</text>
+<text class="lbl2" x="40" y="386" text-anchor="start">evt.fleet.vehicle.&lt;id&gt;.&gt;</text>
+<text class="lbl2" x="40" y="408" text-anchor="start">evt.fleet.driver.&lt;id&gt;.&gt;</text>
+<text class="lbl2" x="40" y="430" text-anchor="start">evt.fleet.trip.&lt;id&gt;.&gt;</text>
+<text class="lbl2" x="28" y="530" text-anchor="start">1 stream · 1 leader · one shared order</text>
+<text class="grp" x="356" y="268" text-anchor="start" style="fill:var(--sync)">GOOD WHEN ONE TYPE IS BUSY</text>
+<g><path class="n" d="M424 294 V336 A65.0 7 0 0 0 554 336 V294"/><ellipse class="n" cx="489.0" cy="294" rx="65.0" ry="7"/></g>
+<text class="lbl" x="489.0" y="316" text-anchor="middle">VEHICLES</text>
+<text class="lbl2" x="489.0" y="330" text-anchor="middle">evt.vehicles.&lt;id&gt;.&gt;</text>
+<g><path class="n" d="M424 366 V408 A62.0 7 0 0 0 548 408 V366"/><ellipse class="n" cx="486.0" cy="366" rx="62.0" ry="7"/></g>
+<text class="lbl" x="486.0" y="388" text-anchor="middle">DRIVERS</text>
+<text class="lbl2" x="486.0" y="402" text-anchor="middle">evt.drivers.&lt;id&gt;.&gt;</text>
+<g><path class="n" d="M424 438 V480 A56.0 7 0 0 0 536 480 V438"/><ellipse class="n" cx="480.0" cy="438" rx="56.0" ry="7"/></g>
+<text class="lbl" x="480.0" y="460" text-anchor="middle">TRIPS</text>
+<text class="lbl2" x="480.0" y="474" text-anchor="middle">evt.trips.&lt;id&gt;.&gt;</text>
+<text class="lbl2" x="356" y="530" text-anchor="start">3 streams · own settings · load spread</text>
+<text class="lbl2" x="356" y="552" text-anchor="start">demo 04: ODOMETER = vehicles only</text>
+<text class="grp" x="684" y="268" text-anchor="start" style="fill:var(--bad)">AVOID IN NATS</text>
+<g style="color:var(--bad)"><path class="n" d="M712 306 V342 A34.0 7 0 0 0 780 342 V306"/><ellipse class="n" cx="746.0" cy="306" rx="34.0" ry="7"/></g>
+<text class="lbl" x="746.0" y="328" text-anchor="middle">truck-1</text>
+<g style="color:var(--bad)"><path class="n" d="M826 306 V342 A34.0 7 0 0 0 894 342 V306"/><ellipse class="n" cx="860.0" cy="306" rx="34.0" ry="7"/></g>
+<text class="lbl" x="860.0" y="328" text-anchor="middle">truck-2</text>
+<g style="color:var(--bad)"><path class="n" d="M712 402 V438 A34.0 7 0 0 0 780 438 V402"/><ellipse class="n" cx="746.0" cy="402" rx="34.0" ry="7"/></g>
+<text class="lbl" x="746.0" y="424" text-anchor="middle">bob</text>
+<g style="color:var(--bad)"><path class="n" d="M826 402 V438 A34.0 7 0 0 0 894 438 V402"/><ellipse class="n" cx="860.0" cy="402" rx="34.0" ry="7"/></g>
+<text class="lbl" x="860.0" y="424" text-anchor="middle">…</text>
+<text class="lbl2" x="684" y="530" text-anchor="start">1000s of streams · 1000s of Raft groups</text>
+</svg>
+</div>
+<figcaption><b>Positioning.</b> Streams in a domain = aggregate types (option 2) or one (option 1). Each single aggregate is a subject, never a stream. Safe writes use <code>Nats-Expected-Last-Subject-Sequence</code> on the aggregate’s subject.</figcaption>
+</figure>
+<figure>
+<div class="fig-body">
+<svg viewBox="0 0 1000 584" role="img" aria-label="On the write side, a command reaches a command handler and an aggregate for truck-1. The aggregate is rebuilt by reading an odometer-write snapshot and replaying the ODOMETER stream tail after lastSeq, then checking domain rules. Accepted events append with an expected last subject sequence; a broken rule or moved sequence rejects the command. The stream asynchronously feeds a snapshotter which updates odometer-write and a projector on the read side which updates odometer-read. The query and UI watch that read model over WebSocket. The stream is authoritative and both KV buckets can be rebuilt; snapshots trail the stream.">
+<defs><marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker><marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker><marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker><marker id="b-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker></defs>
+<!-- Grid B: component x=16,180,432,856; main y=230–294. Routing rows y=104,182,262,338,446,536. -->
+<text class="lbl" x="16" y="20" text-anchor="start">B · CQRS: where the aggregate lives</text>
+<text class="grp" x="16" y="52" text-anchor="start">WRITE SIDE</text>
+<rect class="n" x="420" y="78" width="164" height="52" rx="3"/>
+<text class="lbl" x="502.0" y="101.0" text-anchor="middle">odometer-write</text>
+<text class="lbl2" x="502.0" y="114.0" text-anchor="middle">snapshot {state, lastSeq}</text>
+<rect class="n" x="690" y="78" width="100" height="52" rx="3"/>
+<text class="lbl" x="740.0" y="101.0" text-anchor="middle">snapshotter</text>
+<text class="lbl2" x="740.0" y="114.0" text-anchor="middle">write consumer</text>
+<rect class="n" x="16" y="230" width="134" height="64" rx="3"/>
+<text class="lbl" x="83.0" y="259.0" text-anchor="middle">command</text>
+<text class="lbl2" x="83.0" y="272.0" text-anchor="middle">travel truck-1 120km</text>
+<rect class="n" x="180" y="230" width="120" height="64" rx="3"/>
+<text class="lbl" x="240.0" y="259.0" text-anchor="middle">command handler</text>
+<text class="lbl2" x="240.0" y="272.0" text-anchor="middle">cqrs serve :20402</text>
+<rect class="n" x="432" y="230" width="134" height="64" rx="3"/>
+<text class="lbl" x="499.0" y="253.0" text-anchor="middle">aggregate truck-1</text>
+<text class="lbl2" x="499.0" y="266.0" text-anchor="middle">rules live here</text>
+<text class="lbl2" x="499.0" y="279.0" text-anchor="middle">domain.go</text>
+<g><path class="n" d="M856 238 V286 A50.0 7 0 0 0 956 286 V238"/><ellipse class="n" cx="906.0" cy="238" rx="50.0" ry="7"/></g>
+<text class="lbl" x="906.0" y="260" text-anchor="middle">ODOMETER</text>
+<text class="lbl2" x="906.0" y="274" text-anchor="middle">evt.odometer.&gt;</text>
+<rect class="n" x="466" y="372" width="74" height="32" rx="3"/>
+<text class="lbl" x="503.0" y="392.0" text-anchor="middle">rejected</text>
+<path class="flow" d="M150 262 H170" marker-end="url(#b-sync)"/>
+<path class="flow" d="M300 262 H422" marker-end="url(#b-sync)"/>
+<text class="edge" x="310" y="256" text-anchor="start">3 check rules</text>
+<path class="flow" d="M566 262 H846" marker-end="url(#b-sync)"/>
+<text class="edge" x="600" y="256" text-anchor="start">4 append · expect last subject seq</text>
+<path class="proj" d="M502 130 V158 H458 V220" marker-end="url(#b-store)"/>
+<text class="edge" x="468" y="154" text-anchor="start">1 read snapshot</text>
+<path class="rep" d="M906 231 V182 H534 V220" marker-end="url(#b-evtl)"/>
+<text class="edge" x="610" y="176" text-anchor="start">2 replay tail from lastSeq+1</text>
+<path class="err" d="M499 294 V362" marker-end="url(#b-bad)"/>
+<text class="edge" x="510" y="338" text-anchor="start">rule broken / seq moved</text>
+<path class="rep" d="M956 252 H980 V104 H800" marker-end="url(#b-evtl)"/>
+<path class="proj" d="M690 104 H594" marker-end="url(#b-store)"/>
+<line class="nb" x1="16" y1="470" x2="976" y2="470"/>
+<text class="grp" x="16" y="494" text-anchor="start">READ SIDE</text>
+<rect class="n" x="180" y="510" width="96" height="52" rx="3"/>
+<text class="lbl" x="228.0" y="533.0" text-anchor="middle">projector</text>
+<text class="lbl2" x="228.0" y="546.0" text-anchor="middle">read consumer</text>
+<rect class="n" x="432" y="510" width="106" height="52" rx="3"/>
+<text class="lbl" x="485.0" y="533.0" text-anchor="middle">odometer-read</text>
+<text class="lbl2" x="485.0" y="546.0" text-anchor="middle">read model</text>
+<rect class="n" x="690" y="510" width="152" height="52" rx="3"/>
+<text class="lbl" x="766.0" y="533.0" text-anchor="middle">query / UI</text>
+<text class="lbl2" x="766.0" y="546.0" text-anchor="middle">KV watch over WebSocket</text>
+<path class="rep" d="M906 293 V446 H228 V500" marker-end="url(#b-evtl)"/>
+<path class="proj" d="M276 536 H422" marker-end="url(#b-store)"/>
+<path class="flow" d="M538 536 H680" marker-end="url(#b-sync)"/>
+</svg>
+</div>
+<figcaption><b>CQRS.</b> The aggregate exists only on the write side, rebuilt per command from snapshot + tail; the stream is the only source of truth; both KV buckets are folds of it and can be rebuilt. Snapshot always trails the stream.</figcaption>
+</figure>
+<section class="sec">
+<h2>In one line each</h2>
+<ul>
+<li><b>Aggregate:</b> one business thing with an ID and rules (truck-1).</li>
+<li><b>Aggregate type:</b> the kind of thing (vehicle).</li>
+<li><b>Stream:</b> JetStream log with name, subjects and limits (ODOMETER).</li>
+<li><b>Subject:</b> the label that ties one aggregate to its events (<code>evt.odometer.vehicle.truck-1.&gt;</code>).</li>
+<li><b>Rule:</b> streams per domain = 1 or one per aggregate type. Never one per aggregate.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

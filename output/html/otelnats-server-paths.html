@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>otelnats SERVER Paths</title>
+<style>
+  :root {
+    --canvas: #131416;
+    --panel: #1A1E23;
+    --accent: #006FFF;
+    --truth: #27C07F;
+    --stroke: #4A515B;
+    --text: #DEE0E3;
+    --muted: #B7BCC2;
+    --warn: #9A7B1E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--text);
+    font: 13px/20px Inter, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  main { max-width: 1760px; margin: 0 auto; padding: 32px 16px 48px; }
+  .eyebrow { color: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+  h1 { font-size: 22px; line-height: 30px; margin: 4px 0 6px; font-weight: 600; }
+  .lede { color: var(--muted); margin: 0 0 24px; max-width: 900px; }
+
+  .flow {
+    display: grid;
+    grid-template-columns: 70px repeat(5, minmax(0, 1fr)) minmax(0, 1.1fr);
+    column-gap: 28px;
+    row-gap: 18px;
+    align-items: stretch;
+  }
+  .lane-label {
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--stroke); border-radius: 6px;
+    font-weight: 600; letter-spacing: .06em; color: var(--muted);
+  }
+  .lane-label code { color: var(--text); font-size: 14px; }
+  .box {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--stroke);
+    border-top: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .box.nats { border-top-color: var(--muted); }
+  .box.otel { border-top-color: var(--warn); }
+  .box.biz { border-top-color: var(--truth); grid-row: 1 / span 2; grid-column: 7; display: flex; flex-direction: column; justify-content: center; }
+  .box::after {
+    content: "";
+    position: absolute; top: 50%; right: -28px; width: 28px; height: 0;
+    border-top: 1px solid var(--stroke);
+  }
+  .box::before {
+    content: "";
+    position: absolute; top: calc(50% - 4px); right: -28px;
+    border-left: 7px solid var(--stroke); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+    transform: translateX(0);
+  }
+  .box.biz::after, .box.biz::before { display: none; }
+  .role { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .title { font-weight: 600; margin: 2px 0 6px; }
+  .box p { margin: 0 0 6px; color: var(--muted); }
+  .box p:last-child { margin-bottom: 0; }
+  code { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; color: var(--text); }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 600; line-height: 18px;
+    padding: 0 6px; border-radius: 4px; margin: 2px 4px 2px 0;
+    background: rgba(0,111,255,.15); color: #6FA8FF;
+  }
+  .tag.warn { background: rgba(154,123,30,.2); color: #D6B656; }
+  .tag.ok { background: rgba(39,192,127,.15); color: #5FD9A3; }
+  .diff { margin-top: 8px; border-top: 1px dashed var(--stroke); padding-top: 8px; }
+  .diff .old { color: var(--muted); display: block; }
+  .diff .old code { color: var(--muted); text-decoration: line-through; }
+  .diff .new { color: var(--text); display: block; }
+
+  .notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 32px; }
+  .note { background: var(--panel); border: 1px solid var(--stroke); border-radius: 6px; padding: 14px 16px; }
+  .note h2 { font-size: 13px; margin: 0 0 6px; }
+  .note ul { margin: 0; padding-left: 18px; color: var(--muted); }
+  .note li { margin: 2px 0; }
+  .decision { border-left: 3px solid var(--accent); }
+
+  @media (max-width: 1100px) {
+    .flow { grid-template-columns: 1fr; }
+    .lane-label { writing-mode: horizontal-tb; transform: none; padding: 6px; }
+    .box.biz { grid-row: auto; grid-column: auto; }
+    .box::after, .box::before { display: none; }
+    .notes { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Demo 01 · shared/otelnats · Phase 57 task 57.11</div>
+  <h1>Two request families, one SERVER middleware</h1>
+  <p class="lede">
+    A browser calls a service on <code>api.*</code>. A backend service calls another service on <code>rpc.*</code>.
+    The two paths differ in the caller, the NATS permission and the trace edge. Both end in the same business code.
+    After task 57.11 the nil check lives in <code>otelnats.Middleware</code>, not in each adapter.
+  </p>
+
+  <div class="flow">
+    <!-- api.* lane -->
+    <div class="lane-label"><code>api.*</code></div>
+
+    <div class="box">
+      <div class="role">Client</div>
+      <div class="title">Browser (Vue app)</div>
+      <p><code>request()</code> over WebSocket.</p>
+      <p>Token grants <code>api.&gt;</code> and <code>notify.&gt;</code> only. Never <code>rpc.&gt;</code>.</p>
+      <span class="tag warn">untrusted caller</span>
+    </div>
+
+    <div class="box nats">
+      <div class="role">NATS</div>
+      <div class="title">Tenant account, or PLATFORM</div>
+      <p>Core request / reply.</p>
+      <p><code>api.&lt;tenant&gt;.&lt;service&gt;.&lt;entity&gt;.&lt;action&gt;.v1</code></p>
+    </div>
+
+    <div class="box">
+      <div class="role">Service · adapter</div>
+      <div class="title">browserrpc ×6 + accounts usersrpc</div>
+      <p>accounts, mfe-registry, organizations, pricing, refdata, shipping.</p>
+      <div class="diff">
+        <span class="old">today: <code>if p != nil { … }</code></span>
+        <span class="new">now: <code>p.Middleware(EdgeAPI, …)</code></span>
+      </div>
+    </div>
+
+    <div class="box otel">
+      <div class="role">shared/otelnats</div>
+      <div class="title"><code>Middleware(EdgeAPI, …)</code></div>
+      <p><span class="tag">SERVER span</span> a new root. A sent <code>traceparent</code> is a link only (BR-071).</p>
+      <p><code>p == nil</code> → returns <code>h</code> unchanged (BR-079).</p>
+    </div>
+
+    <div class="box">
+      <div class="role">Service · handler</div>
+      <div class="title">Endpoint handler</div>
+      <p><code>ctx := otelnats.ContextFrom(req)</code></p>
+      <p>Span ends inside <code>Respond</code> / <code>Error</code>.</p>
+    </div>
+
+    <div class="box biz">
+      <div class="role">Service · business code</div>
+      <div class="title"><code>commands.*</code> / <code>queries.*</code></div>
+      <p>The same methods serve both families (§2.4). Dual exposure costs adapter code only, never business logic.</p>
+      <p><span class="tag ok">one source of behavior</span></p>
+    </div>
+
+    <!-- rpc.* lane -->
+    <div class="lane-label"><code>rpc.*</code></div>
+
+    <div class="box">
+      <div class="role">Client</div>
+      <div class="title">Backend service</div>
+      <p>shipping <code>refdataconsumer</code>, organizations <code>refdataclient</code>.</p>
+      <p><code>p.Call(ctx, msg, "refdata", retryLoop)</code></p>
+      <span class="tag">CLIENT span</span> <span class="tag ok">trusted caller</span>
+    </div>
+
+    <div class="box nats">
+      <div class="role">NATS</div>
+      <div class="title">PLATFORM account</div>
+      <p>Core request / reply. <code>traceparent</code> in the header.</p>
+      <p><code>rpc.&lt;context&gt;.&lt;service&gt;.&lt;entity&gt;.&lt;action&gt;.v1</code></p>
+    </div>
+
+    <div class="box">
+      <div class="role">Service · adapter</div>
+      <div class="title">refdata natsrpc, mfe-registry servicerpc</div>
+      <p>Only services with a backend caller get <code>rpc.*</code>.</p>
+      <div class="diff">
+        <span class="old">today: <code>if p != nil { … }</code></span>
+        <span class="new">now: <code>p.Middleware(EdgeRPC, …)</code></span>
+      </div>
+    </div>
+
+    <div class="box otel">
+      <div class="role">shared/otelnats</div>
+      <div class="title"><code>Middleware(EdgeRPC, …)</code></div>
+      <p><span class="tag">SERVER span</span> a child of the caller's CLIENT span. The trace continues.</p>
+      <p><code>p == nil</code> → returns <code>h</code> unchanged (BR-079).</p>
+    </div>
+
+    <div class="box">
+      <div class="role">Service · handler</div>
+      <div class="title">Endpoint handler</div>
+      <p><code>ctx := otelnats.ContextFrom(req)</code></p>
+      <p>Span ends inside <code>Respond</code> / <code>Error</code>.</p>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note decision">
+      <h2>Why both families stay</h2>
+      <ul>
+        <li>Permission wall: a browser token never gets <code>rpc.&gt;</code>; backend code never calls <code>api.&gt;</code>.</li>
+        <li>Trust edge: <code>EdgeAPI</code> starts a new root; <code>EdgeRPC</code> continues the trace.</li>
+        <li>Merging them would make backend-only endpoints browser-reachable.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h2>What task 57.11 changed</h2>
+      <ul>
+        <li><code>Middleware</code>, <code>HTTPMiddleware</code>, <code>HTTPMiddlewareFor</code> are nil-safe.</li>
+        <li>10 caller guards removed: 8 adapters, accounts <code>TraceHTTP</code>, shipping <code>httpTraceMiddleware</code>.</li>
+        <li>No behavior change. Specs: <code>shared/otelnats/server_nil_test.go</code>.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h2>Not done (step 2)</h2>
+      <ul>
+        <li>A shared mount helper (<code>AddEndpoints</code>) was reviewed and skipped.</li>
+        <li>Each loop is now 6 plain lines, and the helper has no clean home.</li>
+        <li>Revisit at a 9th traced adapter, or when a mount rule grows.</li>
+      </ul>
+    </div>
+  </div>
+</main>
+</body>
+</html>
