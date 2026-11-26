@@ -116,4 +116,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [A WAN cut freezes JetStream management only](demo02_wan_cut_freezes_jetstream_management_only.md) — **[demo 02]** lost meta majority = no stream create/delete; core NATS and existing streams keep running. Never fake a cut with `docker network disconnect`
 - [Demo frontends are live playgrounds](demo_frontend_is_a_live_playground.md) — a demo page lets the user act on the running feature; never a summary/replay of report data
 - [Plan phases: first free number, numeric order](plan_phases_sequential.md) — new phase = first gap after the latest; every `### Phase N` sits in numeric order, never appended
-- [Chronicle is production, not a POC](chronicle_is_production_not_poc.md) — `linebooker/chronicle` branches are `feature/`/`chore/` off `develop`; never `poc/`
+- [Chronicle is production, not a POC](chronicle_is_production_not_poc.md) — `linebooker/chronicle` branches are `feature/`/`chore/`/`docs/` off `develop`; never `poc/`
+- [Chronicle render-html.py location](chronicle_render_html_location.md) — in `documentation/architecture/L4_model/`; run there with explicit `.md` paths
+- [Chronicle architecture docs layout](chronicle_architecture_docs_layout.md) — L1–L4 docs + ADRs live under `documentation/architecture/L4_model/`
+- [Chronicle reference-data docs](chronicle_refdata_architecture_docs.md) — ADR-REF-DATA + L3 + L4 for refdata, from lab demo 01; keep R/D/check IDs in sync
